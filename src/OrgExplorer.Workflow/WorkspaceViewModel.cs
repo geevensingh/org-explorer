@@ -31,6 +31,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
+    public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
     public string Status => workflow.Status;
     public bool OpenWorkspace(string path) => Observe(() => workflow.OpenWorkspace(path));
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));

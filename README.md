@@ -68,6 +68,21 @@ applies**, edit the autosaved Markdown (which confirms current applicability), o
 archived note does not silently confirm it. Failed review saves retain the warning
 and saved writing; unsaved drafts block navigation/close and offer retry/discard.
 
+**Historical team context** is a separate read-only section on the Person's
+profile. Direct transfers and ancestor reorganizations capture the coherent
+former Reporting chain and attributed, locally known active Team-note text and
+versions. Current inheritance follows only the final new chain. Later edits,
+review actions, note archival, or Manager renaming do not rewrite those captures.
+Creation is a baseline, not a discovered earlier transfer; accepted replay adds
+no duplicate captures. Historical writing reopens with the Workspace.
+
+History labels each causal Manager change with its source Observation and local
+processing provenance. Ordered prior/new evidence can show an observed interval;
+missing or older evidence shows detection information and an unknown effective
+date. The frozen writing was **locally known at processing time**, not guaranteed
+writing from the unknown actual transfer instant. Direct Person notes stay intact
+and never enter inherited or Historical team context.
+
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or
 explicit null to clear; omitted photos stay unchanged. Images are decoded and
@@ -177,6 +192,12 @@ reporting moves, and replay preserve private notes and their refresh revisions.
 Team-note smoke exercises explicit opt-in, every ancestor and owner attribution,
 private rendered reading, visible review warnings, confirm/edit/archive, failed
 confirmation and draft-navigation safety, replacement/move scope, and reopen.
+Historical-context smoke drives actual ancestor and direct transfers, separate
+current/frozen Markdown reading, honest evidence dates, later former-owner Team
+edits and renaming, repeated transfers/replay, and close/reopen. Core and real
+filesystem tests also cover immutable versions, same-batch late Manager creation,
+atomic save failures, legacy unknown evidence, invalid/missing historical
+deliveries, and validated watcher refresh without duplicate captures.
 Coupled refresh checks cover externally delivered owned/inherited Team writing
 and review metadata, with whole-Workspace stale retention and recovery.
 Real folder-event tests and the actual UI also observe profile/Markdown changes,

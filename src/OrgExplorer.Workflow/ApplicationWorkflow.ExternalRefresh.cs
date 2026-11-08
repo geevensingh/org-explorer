@@ -134,6 +134,7 @@ public sealed partial class ApplicationWorkflow
         var loadedPhotos = new Dictionary<string, byte[]>();
         var loadedTeamContexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
+        var historicalContexts = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
         if (!memory)
         {
             var metadataPath = Path.Combine(workspace!, "workspace.json");
@@ -197,6 +198,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 loadedPhotos = LoadPhotos(generation, loaded);
                 history = ReadProfileHistory(generation, loaded);
+                historicalContexts = ReadHistoricalTeamContexts(generation, loaded);
             }
             else if (Directory.EnumerateFileSystemEntries(workspace!).Any())
                 throw new IOException("Missing Workspace pointer or unrecognized folder; current data is unavailable.");
@@ -215,6 +217,7 @@ public sealed partial class ApplicationWorkflow
         teamContextRevisions = loadedTeamContexts;
         photos = loadedPhotos;
         profileHistory = history;
+        historicalTeamContexts = historicalContexts;
         revision = current;
         workspaceCurrent = true;
         personNotesRevision = notesRevision;
