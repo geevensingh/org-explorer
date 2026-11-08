@@ -9,6 +9,14 @@ namespace OrgExplorer.Workflow;
 
 public sealed record PersonProfile(string Email, string? DirectoryName, string? PreferredName, string? ManagerEmail)
 {
+    public string? Alias { get; init; }
+    public string? JobTitle { get; init; }
+    public string? Department { get; init; }
+    public string? OfficeBuilding { get; init; }
+    public string? OfficeNumber { get; init; }
+    public string? OfficeState { get; init; }
+    public string? OfficeCountry { get; init; }
+    public string? LinkedInProfileUrl { get; init; }
     public string Heading => PreferredName ?? DirectoryName ?? Email;
     public string? PhotoPath { get; init; }
 }
@@ -26,6 +34,8 @@ public interface IApplicationWorkflow
     bool EditPreferredName(string email, string? preferredName);
     PersonPhoto? GetPhoto(string email);
     bool EditPhoto(string email, string? localPath);
+    bool EditPersonText(string email, PersonTextField field, string? value);
+    bool OpenLinkedInProfile(string email);
 }
 
 public sealed partial class ApplicationWorkflow : IApplicationWorkflow
@@ -50,9 +60,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
 
-    private ApplicationWorkflow(bool memory) => this.memory = memory;
-    public static IApplicationWorkflow CreateInMemory() => new ApplicationWorkflow(true);
-    public static IApplicationWorkflow CreateFileBacked() => new ApplicationWorkflow(false);
+    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener)
+    { this.memory = memory; this.profileLinkOpener = profileLinkOpener; }
+    public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(true, profileLinkOpener);
+    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(false, profileLinkOpener);
     public IReadOnlyList<PersonProfile> People => people.Values.OrderBy(p => p.Heading).ToArray();
     public string Status { get; private set; } = "Choose a Workspace.";
 
@@ -82,8 +93,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                         var person = JsonSerializer.Deserialize<PersonProfile>(File.ReadAllText(file), JsonOptions)
                             ?? throw new FormatException("Invalid Person data.");
                         Email(JsonSerializer.SerializeToElement(person.Email), "email");
-                        if (person.DirectoryName is not null) Text(JsonSerializer.SerializeToElement(person.DirectoryName), "directoryName");
-                        if (person.PreferredName is not null) Text(JsonSerializer.SerializeToElement(person.PreferredName), "preferredName");
+                        foreach (var (field, property, _) in TextFields)
+                            ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
                         if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
                     }
                     ValidateGraph(loaded);
@@ -150,7 +161,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             foreach (var record in records.EnumerateArray())
             {
                 var email = Email(record.GetProperty("email"), "email");
-                CheckProperties(record, ["email", "displayName", "preferredName", "managerEmail", "photoPath"], email);
+                CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
+                    "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl", "managerEmail", "photoPath"], email);
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
@@ -179,15 +191,22 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     if (photoPath != existing?.PhotoPath)
                         changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
                 }
-                var next = new PersonProfile(existing?.Email ?? email, directoryName, preferredName, manager) { PhotoPath = photoPath };
+                var next = (existing ?? new PersonProfile(email, directoryName, preferredName, manager)) with
+                { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, PhotoPath = photoPath };
+                foreach (var (field, property, _) in TextFields)
+                    if (record.TryGetProperty(property, out var value))
+                        next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
                 proposed[email] = next;
-                if (existing is null) changes.Add($"Add {email}: Directory name = {directoryName}; Preferred name = {preferredName ?? "(none)"}; Manager = {manager ?? "(none)"}");
-                else
+                if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
+                foreach (var (field, _, label) in TextFields)
                 {
-                    if (existing.DirectoryName != directoryName) changes.Add($"{email}: Directory name {existing.DirectoryName ?? "(none)"} → {directoryName ?? "(clear)"}");
-                    if (existing.PreferredName != preferredName) changes.Add($"{email}: Preferred name {existing.PreferredName ?? "(none)"} → {preferredName ?? "(clear)"}");
-                    if (!string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase)) changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
+                    var previous = existing is null ? null : ReadText(existing, field);
+                    var current = ReadText(next, field);
+                    if (previous != current)
+                        changes.Add($"{email}: {label} {previous ?? "(none)"} → {current ?? "(clear)"}");
                 }
+                if (existing is not null && !string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase))
+                    changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
                 canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name)
                     .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
                         ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
@@ -250,18 +269,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         return true;
     }
 
-    public bool EditPreferredName(string email, string? preferredName)
-    {
-        if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
-        if (preferredName is not null && string.IsNullOrWhiteSpace(preferredName)) return Fail("Preferred name must be nonblank or cleared.");
-        var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
-        { [email] = person with { PreferredName = preferredName } };
-        if (!Save(proposed, batches)) return false;
-        people = proposed;
-        pending = null;
-        Status = "Saved locally.";
-        return true;
-    }
+    public bool EditPreferredName(string email, string? preferredName) =>
+        EditPersonText(email, PersonTextField.PreferredName, preferredName);
 
     private bool Fail(string message) { Status = message; return false; }
     public ImportPreview PreviewImportFile(string path)

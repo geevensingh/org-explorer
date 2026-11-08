@@ -14,6 +14,8 @@ public sealed class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplica
     public bool EditPreferredName(string email, string? preferredName) => Observe(() => workflow.EditPreferredName(email, preferredName));
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
     public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
+    public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
+    public bool OpenLinkedInProfile(string email) => Observe(() => workflow.OpenLinkedInProfile(email));
 
     private T Observe<T>(Func<T> operation)
     {
