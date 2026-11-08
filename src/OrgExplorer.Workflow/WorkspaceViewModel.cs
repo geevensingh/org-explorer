@@ -8,6 +8,7 @@ public sealed partial class WorkspaceViewModel(IApplicationWorkflow workflow) : 
     public IReadOnlyList<PersonProfile> People => workflow.People;
     public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
+    public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public string Status => workflow.Status;
     public bool OpenWorkspace(string path) => Observe(() => workflow.OpenWorkspace(path));
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));

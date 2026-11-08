@@ -88,6 +88,11 @@ internal static partial class Program
             throw new InvalidOperationException("Actual JPEG did not display on the profile.");
         Click(window, "ClearPhoto");
         Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
+        Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("Photo:") &&
+                    Find(window, "ProfileTimeline").Current.Name.Contains(".jpg → (clear)") &&
+                    Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
+        if (!Find(window, "ProfileTimeline").Current.Name.Contains("Imported"))
+            throw new InvalidOperationException("Photo timeline lost imported versus local-edit provenance.");
         Console.WriteLine("PASS: actual PNG/JPEG pixels → export removal/reopen → omitted photo → corrupt/remote rejection → imported/local clear/placeholder.");
     }
 

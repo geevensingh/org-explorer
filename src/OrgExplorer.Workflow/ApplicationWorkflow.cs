@@ -22,7 +22,10 @@ public sealed record PersonProfile(string Email, string? DirectoryName, string? 
     public string? PhotoPath { get; init; }
 }
 
-public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors);
+public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors)
+{
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+}
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
@@ -32,6 +35,7 @@ public partial interface IApplicationWorkflow
     IReadOnlyList<PersonProfile> People { get; }
     IReadOnlyList<ReportingNode> ReportingRoots { get; }
     PersonRelationships? GetRelationships(string email);
+    ProfileTimeline? GetProfileTimeline(string email);
     string Status { get; }
     bool OpenWorkspace(string path);
     ImportPreview PreviewImport(string json);
@@ -66,10 +70,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
 
-    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener)
-    { this.memory = memory; this.profileLinkOpener = profileLinkOpener; }
-    public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(true, profileLinkOpener);
-    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(false, profileLinkOpener);
+    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener, TimeProvider? timeProvider)
+    { this.memory = memory; this.profileLinkOpener = profileLinkOpener; this.timeProvider = timeProvider ?? TimeProvider.System; }
+    public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
+        new ApplicationWorkflow(true, profileLinkOpener, timeProvider);
+    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
+        new ApplicationWorkflow(false, profileLinkOpener, timeProvider);
     public IReadOnlyList<PersonProfile> People => people.Values.OrderBy(p => p.Heading).ToArray();
     public IReadOnlyList<ReportingNode> ReportingRoots
     {
@@ -104,6 +110,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var fullPath = Path.GetFullPath(path);
             var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
             var accepted = new Dictionary<string, AcceptedBatch>();
+            var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
             if (!memory)
             {
                 if (fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
@@ -129,6 +136,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     ValidateGraph(loaded);
                     accepted = JsonSerializer.Deserialize<Dictionary<string, AcceptedBatch>>(File.ReadAllText(Path.Combine(generation, "batches.json")), JsonOptions)
                         ?? throw new FormatException("Invalid accepted batch data.");
+                    history = ReadProfileHistory(generation, loaded);
                 }
                 else if (Directory.EnumerateFileSystemEntries(fullPath).Any())
                     throw new IOException("Folder is not an empty or recognized Workspace. Existing files will not be overwritten.");
@@ -138,6 +146,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             LoadPhotos(fullPath, loaded);
             people = loaded;
             batches = accepted;
+            profileHistory = history;
             personNotes = loadedNotes;
             revision = memory ? null : WorkspaceFingerprint();
             CapturePersonNoteRevision();
@@ -149,6 +158,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             workspace = null;
             people.Clear();
             batches.Clear();
+            profileHistory.Clear();
             personNotes.Clear();
             photos.Clear();
             return Fail("Workspace could not be opened: " + ex.Message);
@@ -165,6 +175,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         pending = null;
         var errors = new List<string>();
         var changes = new List<string>();
+        var warnings = new List<string>();
         var id = Guid.NewGuid();
         if (workspace is null) errors.Add("Open a Workspace first.");
         try
@@ -181,7 +192,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var observed = Text(Required(root, "observedAt", "batch"), "observedAt", false)!;
             if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
                 !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
-                    CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
+                    CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var observedAt))
                 throw new FormatException("observedAt: expected a real UTC calendar timestamp.");
             if (root.TryGetProperty("producer", out var producer)) Text(producer, "producer", false);
             var records = Required(root, "people", "batch");
@@ -236,6 +247,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     if (record.TryGetProperty(property, out var value))
                         next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
                 proposed[email] = next;
+                AddOlderEvidenceWarnings(email, record, observedAt, warnings);
                 if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
                 foreach (var (field, _, label) in TextFields)
                 {
@@ -248,7 +260,13 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
                 if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
                 if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
-                if (changes.Count == priorChanges) changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged.");
+                if (changes.Count == priorChanges)
+                {
+                    var supplied = record.EnumerateObject().Where(p => p.Name != "email")
+                        .Select(p => ProfileFieldLabel(p.Name)).ToArray();
+                    changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged." +
+                        (supplied.Length == 0 ? "" : $" Record explicit evidence for {string.Join(", ", supplied)} without a Profile change."));
+                }
                 canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
                     .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
                         ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
@@ -261,10 +279,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             {
                 if (accepted.Fingerprint != fingerprint) throw new FormatException("batchId: already accepted with different logical data.");
                 changes.Clear();
+                warnings.Clear();
                 changes.Add("Already applied: exact replay is a no-op.");
             }
             else ValidateGraph(proposed);
-            var preview = new ImportPreview(id, errors.Count == 0, changes, errors);
+            var preview = new ImportPreview(id, errors.Count == 0, changes, errors) { Warnings = warnings };
             if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
             Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
             return preview;
@@ -300,12 +319,15 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             Status = "Already applied: no changes.";
             return true;
         }
+        var appliedAt = timeProvider.GetUtcNow();
+        var history = CaptureImportHistory(pending.Source, pending.People, appliedAt);
         var accepted = new Dictionary<string, AcceptedBatch>(batches)
-        { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, DateTimeOffset.UtcNow) };
-        if (!Save(pending.People, accepted, pending.Photos)) { pending = null; return false; }
+        { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, appliedAt) };
+        if (!Save(pending.People, accepted, pending.Photos, history)) { pending = null; return false; }
         photos = pending.Photos;
         people = pending.People;
         batches = accepted;
+        profileHistory = history;
         pending = null;
         Status = "Import applied and saved locally.";
         return true;
@@ -376,7 +398,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         return Convert.ToHexString(hash.GetHashAndReset());
     }
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
-        Dictionary<string, byte[]>? proposedPhotos = null)
+        Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null)
     {
         if (memory) return true;
         try
@@ -394,6 +416,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             }
             SavePhotos(directory, proposed, proposedPhotos ?? photos);
             WriteDurably(Path.Combine(directory, "batches.json"), accepted);
+            WriteProfileHistory(directory, history ?? profileHistory);
             var staged = Path.Combine(workspace!, "workspace.next");
             WriteDurably(staged, new WorkspaceMetadata(1, generation));
             var destination = Path.Combine(workspace!, "workspace.json");

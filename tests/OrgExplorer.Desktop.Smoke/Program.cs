@@ -131,8 +131,9 @@ internal static partial class Program
             Close(process);
             process = null;
             PersonAttributeFlow.Run(args[0], root);
+            ProfileHistoryFlow.Run(args[0], root);
             RunPersonNoteFlow(args[0]);
-            Console.WriteLine("PASS: actual WPF whole-batch preview/apply, reporting navigation, invalid graph rejection, replay, textual profiles, PNG/JPEG photo pixels, and private Person-note edit/read/autosave/archive/reopen flows.");
+            Console.WriteLine("PASS: actual WPF imports, reporting navigation, textual profiles, PNG/JPEG photo pixels, Profile timeline, and private Person-note edit/read/autosave/archive/reopen flows.");
             return 0;
         }
         catch (Exception ex)

@@ -100,6 +100,19 @@ later local/reporting changes; JSON whitespace, property ordering, Person-array
 ordering, and case-equivalent email references do not change its logical identity.
 Different data under the same batch ID is rejected.
 
+The selected Person's **Structured Profile timeline** shows accepted old/new
+values, imported versus local-edit provenance, source Observation time, and
+local recording/application time. Expand the field confirmations and evidence
+sections to review explicitly supplied values, including identical
+reconfirmations. Omitted fields retain their values and dates: an office update
+on November 3 does not reconfirm a Manager last observed on November 1. A
+Manager change observed on November 6 can show that November 1–6 evidence
+interval, not an invented exact effective date. Older evidence is highlighted
+in the preview; accepting it retains the warning in history and uses
+detection-only dates when an ordered interval cannot be supported. Creation is
+a baseline and does not invent pre-import changes. History reopens with the
+Workspace; notes are not given complete edit-version histories.
+
 The shared `IApplicationWorkflow` owns lifecycle, preview/apply, validated edits,
 projections, status, and persistence; WPF uses its observable `WorkspaceViewModel`
 adapter. File parsing/storage stay behind that seam. See
@@ -127,6 +140,9 @@ action state, reopens, reviews/applies an office-only import with an explicit cl
 again to prove unrelated attributes survived. A controlled loopback endpoint
 checks that rendering a stored HTTPS link makes no network request; core tests
 control the browser-opening boundary without opening production pages.
+The desktop history flow also verifies a real persisted timeline, field-specific
+dates, observed reporting intervals, identical reconfirmation without a false
+change, local clears, stale evidence before Apply, and close/reopen.
 It creates/edits/reads multiple Person notes, observes an
 external document edit, checks failed-save retry/safe close/conflict recovery and
 blocked tree, Manager/report, and Workspace navigation with an unsaved note,
@@ -154,5 +170,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, complete imports, history/Team-note features,
+Installer, automatic updates, complete imports, Team-note features/frozen historical team context,
 and release signing are subsequent slices, not shipped capabilities of this tracer.
