@@ -97,6 +97,7 @@ public sealed partial class ApplicationWorkflow
         bool changed;
         lock (workspaceGate)
         {
+            if (disposed) return Fail("The Workspace workflow is closed.");
             var previousRevision = revision;
             var previousStatus = Status;
             valid = RefreshWorkspaceCore();
@@ -112,6 +113,7 @@ public sealed partial class ApplicationWorkflow
         if (memory) return true;
         try
         {
+            using var access = CoordinateWorkspaceIo(workspace);
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
             ReadAndAcceptWorkspace();
             pending = null;
@@ -129,6 +131,7 @@ public sealed partial class ApplicationWorkflow
 
     private void ReadAndAcceptWorkspace()
     {
+        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         conversionMessage = null;
         if (!memory && InspectWorkspaceVersions() == 1) ConvertVersionOneWorkspace();
         ReadAndAcceptWorkspaceData();
@@ -139,6 +142,7 @@ public sealed partial class ApplicationWorkflow
 
     private void ReadAndAcceptWorkspaceData(WorkspaceMetadata? conversionCandidate = null)
     {
+        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         var current = memory ? null : WorkspaceFingerprint();
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
         var accepted = new Dictionary<string, AcceptedBatch>();
@@ -243,6 +247,7 @@ public sealed partial class ApplicationWorkflow
             RejectWorkspaceLink(directory);
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
+                if (IsWorkspacePublicationFile(root, entry)) continue;
                 if (directory == root && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase)) continue;
                 RejectWorkspaceLink(entry);
                 if (Directory.Exists(entry)) directories.Push(entry);
@@ -299,7 +304,7 @@ public sealed partial class ApplicationWorkflow
 
     private static byte[] ReadWorkspaceBytes(string path)
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var file = OpenWorkspaceRead(path);
         using var bytes = new MemoryStream();
         file.CopyTo(bytes);
         return bytes.ToArray();
@@ -310,7 +315,7 @@ public sealed partial class ApplicationWorkflow
         // Provider delivery must not be blocked by a reader, including clients
         // waiting on an incompatible/incomplete Workspace. Byte fingerprints
         // and whole-state validation, not read leases, establish a stable view.
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var file = OpenWorkspaceRead(path);
         using var text = new StreamReader(file, new UTF8Encoding(false, true));
         return text.ReadToEnd();
     }

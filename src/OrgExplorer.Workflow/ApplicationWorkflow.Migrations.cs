@@ -53,6 +53,7 @@ public sealed partial class ApplicationWorkflow
 
     private int InspectWorkspaceVersions()
     {
+        using var access = CoordinateWorkspaceIo(workspace!);
         var pointer = Path.Combine(workspace!, "workspace.json");
         if (!File.Exists(pointer)) return 2;
         RejectWorkspaceLink(pointer);

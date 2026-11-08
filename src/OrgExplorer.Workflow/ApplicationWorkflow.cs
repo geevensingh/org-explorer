@@ -409,6 +409,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     }
     private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null)
     {
+        using var access = CoordinateWorkspaceIo(workspace!);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var path in EnumerateWorkspaceFiles(workspace!)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
@@ -438,6 +439,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         }
         try
         {
+            using var access = CoordinateWorkspaceIo(workspace!);
             EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (WorkspaceFingerprint() != revision)

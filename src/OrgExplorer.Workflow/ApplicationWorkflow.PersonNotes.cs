@@ -184,6 +184,7 @@ public sealed partial class ApplicationWorkflow
         string? staged = null;
         try
         {
+            using var access = CoordinateWorkspaceIo(workspace!);
             EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
