@@ -14,7 +14,16 @@ public partial class MainWindow : Window
     private bool loading;
     private readonly HashSet<string> expandedPeople = new(StringComparer.OrdinalIgnoreCase);
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        PersonNotes.Attach(workflow, () =>
+        {
+            ApplyButton.IsEnabled = false;
+            preview = null;
+            ShowStatus();
+        });
+    }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
@@ -27,7 +36,9 @@ public partial class MainWindow : Window
     }
     private void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        if (!PersonNotes.TryLeave()) return;
         workflow.OpenWorkspace(WorkspacePath.Text);
+        PersonNotes.OpenPerson(null);
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
@@ -70,13 +81,17 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
-        OpenPerson(node.Person);
+        if (!OpenPerson(node.Person)) RefreshPeople();
     }
-    private void OpenPerson(PersonProfile person)
+    private bool OpenPerson(PersonProfile person)
     {
+        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !PersonNotes.TryLeave())
+            return false;
         selectedEmail = person.Email;
         LoadPersonEditors(person);
         ShowPerson(person);
+        PersonNotes.OpenPerson(person.Email);
+        return true;
     }
     private void RefreshPeople()
     {
@@ -104,13 +119,17 @@ public partial class MainWindow : Window
     }
     private void NavigateReport(object sender, SelectionChangedEventArgs e)
     {
-        if (ReportsList.SelectedItem is PersonProfile report) NavigateTo(report.Email);
+        if (!loading && ReportsList.SelectedItem is PersonProfile report) NavigateTo(report.Email);
     }
     private void NavigateTo(string email)
     {
         var context = workflow.GetRelationships(email);
         if (context is null) return;
-        OpenPerson(context.Person);
+        if (!OpenPerson(context.Person))
+        {
+            RefreshPeople();
+            return;
+        }
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (context.Manager is { } manager && visited.Add(manager.Email))
         {
