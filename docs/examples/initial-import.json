@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "batchId": "10000000-0000-4000-8000-000000000001",
+  "observedAt": "2026-11-01T17:00:00Z",
+  "producer": "example-exporter",
+  "people": [
+    {
+      "email": "casey@example.com",
+      "displayName": "Casey Example",
+      "alias": "casey",
+      "jobTitle": "Organization leader",
+      "managerEmail": null
+    },
+    {
+      "email": "priya@example.com",
+      "displayName": "Priyanka Rao",
+      "alias": "priya",
+      "jobTitle": "Software engineer",
+      "department": "Platform",
+      "managerEmail": "morgan@example.com"
+    },
+    {
+      "email": "alex@example.com",
+      "displayName": "Alex Example",
+      "alias": "alex",
+      "jobTitle": "Engineering manager",
+      "department": "Billing",
+      "managerEmail": "casey@example.com"
+    },
+    {
+      "email": "jordan@example.com",
+      "displayName": "Jordan Example",
+      "alias": "jordan",
+      "jobTitle": "Software engineer",
+      "department": "Billing",
+      "managerEmail": "alex@example.com"
+    },
+    {
+      "email": "morgan@example.com",
+      "displayName": "Morgan Example",
+      "alias": "morgan",
+      "jobTitle": "Engineering manager",
+      "department": "Platform",
+      "managerEmail": "casey@example.com"
+    }
+  ]
+}
