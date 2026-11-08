@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -14,14 +13,10 @@ public partial class PersonNotesControl : UserControl
     private Guid? selected;
     private bool loading;
     private bool unsaved;
-    private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     public PersonNotesControl()
     {
         InitializeComponent();
-        refreshTimer.Tick += (_, _) => RefreshExternalNotes();
-        Loaded += (_, _) => refreshTimer.Start();
-        Unloaded += (_, _) => refreshTimer.Stop();
     }
     public void Attach(IApplicationWorkflow application, Action onChanged)
     {
@@ -139,6 +134,7 @@ public partial class PersonNotesControl : UserControl
     {
         if (!unsaved || workflow is null) return;
         var refreshed = workflow.RefreshPersonNotes();
+        workflow.DiscardUnsavedChanges(selected);
         RefreshNotes();
         NoteStatus.Text = refreshed
             ? "Unsaved draft discarded; last saved local document shown."
@@ -146,16 +142,27 @@ public partial class PersonNotesControl : UserControl
         changed?.Invoke();
     }
 
-    private void RefreshExternalNotes()
+    public void RefreshExternalWorkspace()
     {
-        if (workflow is null || owner is null || unsaved) return;
-        var before = workflow.Status;
-        if (workflow.RefreshPersonNotes())
+        if (workflow is null || owner is null) return;
+        if (!unsaved)
         {
             var notes = workflow.GetPersonNotes(owner, IncludeArchived.IsChecked == true);
             if (!notes.SequenceEqual(NotesList.Items.Cast<PersonNote>())) RefreshNotes();
         }
-        if (workflow.Status != before) ShowStatus();
+        NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        if (!unsaved)
+        {
+            var editable = workflow.IsWorkspaceCurrent && NotesList.SelectedItem is PersonNote { Archived: false };
+            NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = editable;
+            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
+        }
+        NoteStatus.Text = workflow.Status;
+    }
+
+    public void DiscardLocalDraft()
+    {
+        if (unsaved) RefreshNotes();
     }
 
     private void ShowStatus()

@@ -17,6 +17,9 @@ public sealed partial class ApplicationWorkflow
         byte[] Bytes, string Extension);
 
     public PersonPhoto? GetPhoto(string email)
+    { lock (workspaceGate) return GetPhotoCore(email); }
+
+    private PersonPhoto? GetPhotoCore(string email)
     {
         if (!people.TryGetValue(email, out var person) || person.PhotoPath is null) return null;
         var bytes = photos[person.PhotoPath];
@@ -24,6 +27,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPhoto(string email, string? localPath)
+    { lock (workspaceGate) return EditPhotoCore(email, localPath); }
+
+    private bool EditPhotoCore(string email, string? localPath)
     {
         if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
         try
@@ -41,7 +47,7 @@ public sealed partial class ApplicationWorkflow
             }
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [email] = person with { PhotoPath = name } };
-            if (!Save(proposed, batches, proposedPhotos)) return false;
+            if (!Save(proposed, batches, proposedPhotos, $"photo:{email.ToLowerInvariant()}")) return false;
             people = proposed;
             photos = proposedPhotos;
             pending = null;
@@ -54,7 +60,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void LoadPhotos(string fullPath, Dictionary<string, PersonProfile> loaded)
+    private static Dictionary<string, byte[]> LoadPhotos(string directory, Dictionary<string, PersonProfile> loaded)
     {
         var loadedPhotos = new Dictionary<string, byte[]>();
         foreach (var person in loaded.Values.Where(p => p.PhotoPath is not null))
@@ -62,15 +68,10 @@ public sealed partial class ApplicationWorkflow
             var name = person.PhotoPath!;
             if (!Regex.IsMatch(name, @"^[a-f0-9]{64}\.(png|jpg)$"))
                 throw new FormatException($"{person.Email}.photoPath: invalid Workspace image reference.");
-            var metadata = System.Text.Json.JsonSerializer.Deserialize<WorkspaceMetadata>(
-                File.ReadAllText(Path.Combine(fullPath, "workspace.json")), JsonOptions)!;
-            var directory = Path.Combine(fullPath, "generations", metadata.Generation);
             var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath");
-            if (resource.Hash.ToLowerInvariant() + resource.Extension != name)
-                throw new FormatException($"{person.Email}.photoPath: Workspace image bytes do not match their reference.");
             loadedPhotos[name] = resource.Bytes;
         }
-        photos = loadedPhotos;
+        return loadedPhotos;
     }
 
     private static void SavePhotos(string generation, Dictionary<string, PersonProfile> proposed,

@@ -24,6 +24,16 @@ public partial class MainWindow : Window
             ShowStatus();
         });
         Photo.PhotoEdited += EditPersonPhoto;
+        workflow.WorkspaceChanged += (_, _) => Dispatcher.BeginInvoke(RefreshExternalWorkspace);
+        Closing += (_, e) =>
+        {
+            if (!workflow.CanSafelyClose)
+            {
+                e.Cancel = true;
+                StatusText.Text = workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
+            }
+        };
+        Closed += (_, _) => workflow.Dispose();
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -37,7 +47,7 @@ public partial class MainWindow : Window
     }
     private void OpenWorkspace(object sender, RoutedEventArgs e)
     {
-        if (!PersonNotes.TryLeave()) return;
+        if (!TryLeaveLocalEdits()) return;
         workflow.OpenWorkspace(WorkspacePath.Text);
         PersonNotes.OpenPerson(null);
         preview = null;
@@ -111,10 +121,10 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person)
     {
-        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !PersonNotes.TryLeave())
+        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !TryLeaveLocalEdits())
             return false;
         selectedEmail = person.Email;
-        LoadPersonEditors(person);
+        if (unsavedAttributes.Count == 0) LoadPersonEditors(person);
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         return true;
@@ -126,6 +136,19 @@ public partial class MainWindow : Window
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person);
+        else if (selectedEmail is not null && workflow.CanSafelyClose)
+        {
+            selectedEmail = null;
+            ClearPersonEditors();
+            ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
+            DirectoryName.Text = Email.Text = "";
+            Manager.IsEnabled = false;
+            Manager.Content = "Person unavailable";
+            ReportsList.ItemsSource = null;
+            Photo.Show(null);
+            Photo.CanEdit = false;
+            PersonNotes.OpenPerson(null);
+        }
     }
     private void ShowPerson(PersonProfile person)
     {
@@ -189,5 +212,32 @@ public partial class MainWindow : Window
         preview = null;
         ShowStatus();
     }
-    private void ShowStatus() => StatusText.Text = workflow.Status;
+    private void RefreshExternalWorkspace()
+    {
+        if (workflow.IsWorkspaceCurrent) RefreshPeople();
+        ApplyButton.IsEnabled = false;
+        preview = null;
+        AttributeEditors.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+        Photo.CanEdit = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+        PersonNotes.RefreshExternalWorkspace();
+        ShowStatus();
+    }
+
+    private void ShowStatus()
+    {
+        StatusText.Text = workflow.Status;
+        WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
+            ? "Current validated local Workspace."
+            : "STALE / unavailable — displayed information is the last valid local state, not current data.";
+        RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0;
+        DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
+    }
+
+    private bool TryLeaveLocalEdits()
+    {
+        if (!PersonNotes.TryLeave()) return false;
+        if (unsavedAttributes.Count == 0) return true;
+        StatusText.Text = workflow.Status + "\nRetry or discard unsaved profile edits before leaving.";
+        return false;
+    }
 }

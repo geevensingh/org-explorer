@@ -47,7 +47,7 @@
         <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People"
                   ItemContainerStyle="{StaticResource ReportingItem}" SelectedItemChanged="SelectPerson"/>
       </DockPanel>
-      <ScrollViewer Grid.Column="1" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
+      <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
         <local:PersonPhotoControl x:Name="Photo"/>
@@ -98,6 +98,15 @@
       </StackPanel>
       </ScrollViewer>
     </Grid>
-    <TextBlock x:Name="StatusText" Grid.Row="5" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Margin="0,16,0,0" Text="Choose a Workspace."/>
+    <StackPanel Grid.Row="5" Margin="0,16,0,0">
+      <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
+      <WrapPanel>
+        <Button x:Name="RetryProfileButton" Content="Retry unsaved profile edits" Click="RetryProfileSave"
+                AutomationProperties.AutomationId="RetryProfileSave" IsEnabled="False"/>
+        <Button x:Name="DiscardProfileButton" Content="Discard unsaved local edits" Click="DiscardProfileDraft"
+                AutomationProperties.AutomationId="DiscardProfileDraft" IsEnabled="False" Margin="8,0"/>
+      </WrapPanel>
+      <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Text="Choose a Workspace."/>
+    </StackPanel>
   </Grid>
 </Window>

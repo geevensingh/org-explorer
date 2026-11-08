@@ -15,11 +15,11 @@ public sealed class PersistenceTests : IDisposable
     [Fact]
     public void Applied_Person_and_local_preferred_name_survive_reopening()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         Assert.True(app.EditPreferredName("AVERY@example.com", "Ave"), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = Assert.Single(reopened.People);
         Assert.Equal("Ave", person.Heading);
@@ -32,7 +32,7 @@ public sealed class PersistenceTests : IDisposable
         Directory.CreateDirectory(folder);
         var import = Path.Combine(folder, "import.json");
         File.WriteAllText(import, Batch);
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Path.Combine(folder, "workspace")));
         var preview = app.PreviewImportFile(import);
         File.WriteAllText(import, Batch.Replace("Avery Example", "Changed Example"));
@@ -47,7 +47,7 @@ public sealed class PersistenceTests : IDisposable
         Directory.CreateDirectory(folder);
         var import = Path.Combine(folder, "import.json");
         File.WriteAllText(import, Batch, new System.Text.UTF8Encoding(true));
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Path.Combine(folder, "workspace")));
         var preview = app.PreviewImportFile(import);
         Assert.True(preview.CanApply, app.Status);
@@ -57,7 +57,7 @@ public sealed class PersistenceTests : IDisposable
     [Fact]
     public void Save_failure_is_visible_and_reopening_retains_last_successfully_saved_name()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id));
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"));
@@ -75,7 +75,7 @@ public sealed class PersistenceTests : IDisposable
             File.Delete(folder);
             Directory.Move(recovery, folder);
         }
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Ave", Assert.Single(reopened.People).PreferredName);
     }
@@ -83,16 +83,16 @@ public sealed class PersistenceTests : IDisposable
     [Fact]
     public void Another_client_save_invalidates_old_preview_and_is_not_overwritten()
     {
-        var first = ApplicationWorkflow.CreateFileBacked();
+        using var first = ApplicationWorkflow.CreateFileBacked();
         Assert.True(first.OpenWorkspace(folder));
         Assert.True(first.ApplyImport(first.PreviewImport(Batch).Id));
-        var second = ApplicationWorkflow.CreateFileBacked();
+        using var second = ApplicationWorkflow.CreateFileBacked();
         Assert.True(second.OpenWorkspace(folder));
         var preview = second.PreviewImport(Batch.Replace("000000000001", "000000000002").Replace("Avery Example", "Changed Directory"));
         Assert.True(first.EditPreferredName("avery@example.com", "Ave"));
         Assert.False(second.ApplyImport(preview.Id));
         Assert.Contains("changed", second.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder));
         Assert.Equal("Ave", Assert.Single(reopened.People).PreferredName);
         Assert.Equal("Avery Example", Assert.Single(reopened.People).DirectoryName);
@@ -101,13 +101,13 @@ public sealed class PersistenceTests : IDisposable
     [Fact]
     public void Invalid_import_does_not_change_durable_state()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id));
         var invalid = app.PreviewImport(Batch.Replace("000000000001", "000000000002").Replace("\"managerEmail\":null", "\"notes\":\"not allowed\",\"managerEmail\":null"));
         Assert.False(invalid.CanApply);
         Assert.False(app.ApplyImport(invalid.Id));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder));
         Assert.Equal("Avery Example", Assert.Single(reopened.People).DirectoryName);
     }

@@ -27,8 +27,14 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
 
-public partial interface IApplicationWorkflow
+public partial interface IApplicationWorkflow : IDisposable
 {
+    event EventHandler? WorkspaceChanged;
+    bool IsWorkspaceCurrent { get; }
+    bool CanSafelyClose { get; }
+    string? LocalSaveError { get; }
+    void DiscardUnsavedChanges(Guid? noteId = null);
+    bool RefreshWorkspace();
     IReadOnlyList<PersonProfile> People { get; }
     IReadOnlyList<ReportingNode> ReportingRoots { get; }
     PersonRelationships? GetRelationships(string email);
@@ -58,7 +64,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         string BatchId, string Fingerprint, JsonElement Source, Dictionary<string, byte[]> Photos,
         IReadOnlyList<PhotoResource> Resources);
     private sealed record AcceptedBatch(string Fingerprint, JsonElement Source, DateTimeOffset AppliedAt);
-    private sealed record WorkspaceMetadata(int SchemaVersion, string Generation);
+    private sealed record WorkspaceMetadata(
+        [property: System.Text.Json.Serialization.JsonRequired] int SchemaVersion,
+        [property: System.Text.Json.Serialization.JsonRequired] string Generation);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -70,11 +78,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     { this.memory = memory; this.profileLinkOpener = profileLinkOpener; }
     public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(true, profileLinkOpener);
     public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(false, profileLinkOpener);
-    public IReadOnlyList<PersonProfile> People => people.Values.OrderBy(p => p.Heading).ToArray();
+    public IReadOnlyList<PersonProfile> People
+    { get { lock (workspaceGate) return people.Values.OrderBy(p => p.Heading).ToArray(); } }
     public IReadOnlyList<ReportingNode> ReportingRoots
     {
         get
         {
+            lock (workspaceGate)
+            {
             var children = new Dictionary<string, List<ReportingNode>>(StringComparer.OrdinalIgnoreCase);
             var nodes = new Dictionary<string, ReportingNode>(StringComparer.OrdinalIgnoreCase);
             foreach (var person in People.Where(p => !p.Archived))
@@ -88,59 +99,45 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 if (node.Person.ManagerEmail is { } manager) children[manager].Add(node);
                 else roots.Add(node);
             return roots.AsReadOnly();
+            }
         }
     }
-    public PersonRelationships? GetRelationships(string email) => people.TryGetValue(email, out var person)
+    public PersonRelationships? GetRelationships(string email)
+    { lock (workspaceGate) return people.TryGetValue(email, out var person)
         ? new PersonRelationships(person, person.ManagerEmail is { } manager ? people.GetValueOrDefault(manager) : null,
             People.Where(p => !p.Archived && string.Equals(p.ManagerEmail, person.Email, StringComparison.OrdinalIgnoreCase)).ToArray())
-        : null;
-    public string Status { get; private set; } = "Choose a Workspace.";
+        : null; }
+    private string status = "Choose a Workspace.";
+    public string Status
+    {
+        get
+        {
+            lock (workspaceGate)
+                return LocalSaveError is { } error && !status.Contains(error, StringComparison.Ordinal) ? status + "\n" + error : status;
+        }
+        private set { status = value; }
+    }
 
     public bool OpenWorkspace(string path)
+    { lock (workspaceGate) return OpenWorkspaceCore(path); }
+
+    private bool OpenWorkspaceCore(string path)
     {
+        if (disposed) return Fail("The Workspace workflow is closed.");
+        StopWatching();
+        workspaceCurrent = false;
         pending = null;
         try
         {
             var fullPath = Path.GetFullPath(path);
-            var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
-            var accepted = new Dictionary<string, AcceptedBatch>();
-            if (!memory)
-            {
-                if (fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("Choose a Workspace outside the application installation.");
-                Directory.CreateDirectory(fullPath);
-                var metadataPath = Path.Combine(fullPath, "workspace.json");
-                if (File.Exists(metadataPath))
-                {
-                    var metadata = JsonSerializer.Deserialize<WorkspaceMetadata>(File.ReadAllText(metadataPath), JsonOptions)
-                        ?? throw new FormatException("Invalid Workspace metadata.");
-                    if (metadata.SchemaVersion != 1) throw new FormatException("Unsupported Workspace version. Upgrade the app; writes are blocked.");
-                    if (!Regex.IsMatch(metadata.Generation, @"^[a-f0-9]{32}$")) throw new FormatException("Invalid Workspace generation.");
-                    var generation = Path.Combine(fullPath, "generations", metadata.Generation);
-                    foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
-                    {
-                        var person = JsonSerializer.Deserialize<PersonProfile>(File.ReadAllText(file), JsonOptions)
-                            ?? throw new FormatException("Invalid Person data.");
-                        Email(JsonSerializer.SerializeToElement(person.Email), "email");
-                        foreach (var (field, property, _) in TextFields)
-                            ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
-                        if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
-                    }
-                    ValidateGraph(loaded);
-                    accepted = JsonSerializer.Deserialize<Dictionary<string, AcceptedBatch>>(File.ReadAllText(Path.Combine(generation, "batches.json")), JsonOptions)
-                        ?? throw new FormatException("Invalid accepted batch data.");
-                }
-                else if (Directory.EnumerateFileSystemEntries(fullPath).Any())
-                    throw new IOException("Folder is not an empty or recognized Workspace. Existing files will not be overwritten.");
-            }
-            var loadedNotes = memory ? [] : LoadPersonNotes(fullPath, loaded);
+            if (fullPath.StartsWith(@"\\", StringComparison.Ordinal))
+                throw new IOException("Choose an ordinary local Workspace, not a network share.");
+            if (!memory && fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Choose a Workspace outside the application installation.");
+            if (!memory) Directory.CreateDirectory(fullPath);
             workspace = fullPath;
-            LoadPhotos(fullPath, loaded);
-            people = loaded;
-            batches = accepted;
-            personNotes = loadedNotes;
-            revision = memory ? null : WorkspaceFingerprint();
-            CapturePersonNoteRevision();
+            ReadAndAcceptWorkspace();
+            if (!memory) StartWatching();
             Status = "Workspace opened.";
             return true;
         }
@@ -156,7 +153,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     }
 
     public ImportPreview PreviewImport(string json)
-        => PreviewImport(json, null);
+    { lock (workspaceGate) return PreviewImport(json, null); }
 
     private ImportPreview PreviewImport(string json, string? importDirectory)
     {
@@ -167,6 +164,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         var changes = new List<string>();
         var id = Guid.NewGuid();
         if (workspace is null) errors.Add("Open a Workspace first.");
+        else if (!workspaceCurrent) errors.Add("Workspace unavailable; retained information is STALE. Wait for valid local delivery before importing.");
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -278,7 +276,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     }
 
     public bool ApplyImport(Guid previewId)
+    { lock (workspaceGate) return ApplyImportCore(previewId); }
+
+    private bool ApplyImportCore(Guid previewId)
     {
+        if (!workspaceCurrent) return Fail("Workspace unavailable; retained information is STALE. No import can apply.");
         if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
         try
         {
@@ -316,6 +318,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 
     private bool Fail(string message) { Status = message; return false; }
     public ImportPreview PreviewImportFile(string path)
+    { lock (workspaceGate) return PreviewImportFileCore(path); }
+
+    private ImportPreview PreviewImportFileCore(string path)
     {
         try
         {
@@ -365,7 +370,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private string WorkspaceFingerprint(bool includePersonNotes = true)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in Directory.EnumerateFiles(workspace!, "*", SearchOption.AllDirectories)
+        foreach (var path in EnumerateWorkspaceFiles(workspace!)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
                 (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))).Order())
@@ -376,11 +381,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         return Convert.ToHexString(hash.GetHashAndReset());
     }
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
-        Dictionary<string, byte[]>? proposedPhotos = null)
+        Dictionary<string, byte[]>? proposedPhotos = null, string operation = "import")
     {
         if (memory) return true;
         try
         {
+            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained information is STALE. No changes saved.");
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (WorkspaceFingerprint() != revision)
                 throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
@@ -401,11 +407,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             else File.Move(staged, destination);
             revision = WorkspaceFingerprint();
             CapturePersonNoteRevision();
+            failedSaves.Remove(operation);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
-            return Fail("Save failed; changes are NOT saved locally: " + ex.Message);
+            return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
         }
     }
     private static void WriteDurably<T>(string path, T value)

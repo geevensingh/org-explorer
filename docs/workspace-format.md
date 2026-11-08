@@ -22,15 +22,22 @@ rather than discarded when the initial tracer does not yet display history.
 No history is manufactured by the initial tracer. Person notes are
 separate documents described below, not imported Person fields.
 
-Person `photoPath` is null or a content-addressed filename (SHA-256 of the exact
+Person `photoPath` is null or an app-created hash-named filename (SHA-256 of the initially copied
 image bytes plus `.png` or `.jpg`), resolved in the same generation's `photos\`
 directory. These are ordinary copied JPEG/PNG files, not producer paths, remote
 URLs, or embedded base64 in Person JSON. Opening validates containment, image
-content, and the referenced hash; damaged supplied or Workspace images are
+content; damaged supplied or Workspace images are
 errors, never successful placeholder substitutions. A generation carries the
 currently referenced images forward, so later edits and export-folder removal
 do not break profiles. Older generations keep recoverable originals when a
 current photo is cleared or replaced.
+
+The filename is a local location, not an immutable integrity claim: external
+tools/providers may replace valid image bytes at that same location. The open
+client validates and decodes the replacement, fingerprints the actual bytes,
+and replaces its displayed image even when the path and timestamps did not
+change. Import-batch identity still includes the producer image's exact SHA-256;
+changing producer bytes under a previously accepted batch ID is still rejected.
 
 All supported fields live in the canonical readable files. Derived profile
 headings are not another identity or override layer. Import version, Workspace
@@ -51,7 +58,11 @@ mutations also invalidate prior previews. A graph batch publishes one coherent
 new generation, never intermediate Manager/report updates.
 
 A save error remains visible and does not publish unsaved attributes as the saved
-profile. Reopen the Workspace after resolving access or external-change errors.
+profile. Retry after resolving local access failures, or deliberately discard
+unsaved local edits. `CanSafelyClose` and `LocalSaveError` on the shared workflow
+retain failed-save state across refreshes and unrelated successful operations;
+successful retry of that operation clears its error. Refreshing or reopening
+does not silently acknowledge a failed save.
 Invalid files, unsupported versions, and unexpected canonical properties block
 opening/writes rather than being repaired or downgraded. Back up the entire
 folder before manually resolving external provider conflicts. If a local write
@@ -106,14 +117,30 @@ retains all writing; **Show archived notes** makes it readable and restorable.
 There is no sharing endpoint, upload, or app-hosted backend. Device and external
 sync-account permissions govern access.
 
-The open profile checks note files for external changes, validates a complete
-note read before refreshing, and retains the last valid text on invalid/incomplete
-delivery. A simultaneous change to other Workspace files requires reopening the
-Workspace rather than acknowledging stale Person state. Local edits invalidate
+The open workflow watches real local folder events for Person, note, photo, and
+Workspace-pointer changes, coalesces event bursts, and retries incomplete delivery.
+It validates a complete before/after-fingerprinted Workspace, including scalar
+formats, stable identities, the full reporting graph, note ownership, and decoded
+photos, before publishing one coherent current state to the UI. No restart or
+manual reload is required. Invalid/unsupported/missing data retain last valid
+information with an explicit **STALE / unavailable** warning and blocked writes.
+Only a subsequent complete valid delivery removes that warning. Removing a note
+document is a valid external removal; removing a referenced Manager is not a
+new reporting root. Provider conflict copies in canonical Person/note locations
+are reported, not merged, renamed, or repaired.
+
+Refresh is read-only: it does not replay accepted imports, invent Observations,
+or write generations/history. Own-save event bursts match the accepted byte
+revision and cause no refresh notification or recursive save. The watcher is
+disposed when the client closes or switches Workspaces. Local edits invalidate
 old import previews. Save errors keep the draft visible and explicitly **NOT
 saved**; leaving/closing is blocked until retry succeeds or the owner deliberately
 chooses **Discard unsaved draft**. Resolving competing versions remains the
 external provider/owner's responsibility; the app does not merge them.
+If an external note version arrives while a failed draft is retained, retry
+cannot overwrite it implicitly; the owner must discard that draft before editing
+the delivered version. Valid external profile/photo changes can still be shown
+without erasing the visible unsaved note draft.
 
 The reading view renders CommonMark headings, emphasis, lists, quotations, code,
 and links as native WPF text. Markdown images are labeled **Image not loaded**,

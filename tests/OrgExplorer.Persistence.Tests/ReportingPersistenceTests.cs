@@ -17,7 +17,7 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Complete_profile_reporting_move_and_replay_survive_reopening_without_field_loss()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         var initial = Batch("""
             {"email":"report@example.com","displayName":"Report","preferredName":"Reference",
@@ -37,7 +37,7 @@ public sealed class ReportingPersistenceTests : IDisposable
         Assert.True(update.CanApply, app.Status);
         Assert.True(app.ApplyImport(update.Id), app.Status);
         var expected = before with { ManagerEmail = null, OfficeNumber = "0009C", Department = null };
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(expected, Assert.Single(reopened.ReportingRoots).Person);
         Assert.True(reopened.GetRelationships("manager@example.com")!.Person.Archived);
@@ -61,7 +61,7 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Whole_graph_apply_is_durable_and_invalid_batch_never_changes_reopened_state()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(Report + "," + Manager)).Id), app.Status);
         var invalid = app.PreviewImport(Batch("""
@@ -70,7 +70,7 @@ public sealed class ReportingPersistenceTests : IDisposable
             """, 2));
         Assert.False(invalid.CanApply);
         Assert.False(app.ApplyImport(invalid.Id));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(2, reopened.People.Count);
         Assert.Equal("manager@example.com", reopened.GetRelationships("report@example.com")!.Manager!.Email);
@@ -90,11 +90,11 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Accepted_batch_identity_survives_reopen_and_logical_retry_does_not_undo_later_edit()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(Report + "," + Manager)).Id));
         Assert.True(app.EditPreferredName("report@example.com", "Reference name"));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder));
         var retry = reopened.PreviewImport(Batch(Manager + ",\n   " + Report));
         Assert.True(retry.CanApply, reopened.Status);
@@ -112,14 +112,14 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Successful_local_mutation_requires_a_fresh_import_review()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(Manager)).Id));
         var preview = app.PreviewImport(Batch("""{"email":"manager@example.com","displayName":"Changed"}""", 2));
         Assert.True(app.EditPreferredName("manager@example.com", "My reference"));
         Assert.False(app.ApplyImport(preview.Id));
         Assert.Contains("stale", app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder));
         Assert.Equal("Manager", Assert.Single(reopened.People).DirectoryName);
         Assert.Equal("My reference", Assert.Single(reopened.People).PreferredName);

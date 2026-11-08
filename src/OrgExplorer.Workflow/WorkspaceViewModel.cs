@@ -2,8 +2,30 @@ using System.ComponentModel;
 
 namespace OrgExplorer.Workflow;
 
-public sealed partial class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplicationWorkflow, INotifyPropertyChanged
+public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
+    private readonly IApplicationWorkflow workflow;
+    public WorkspaceViewModel(IApplicationWorkflow workflow)
+    {
+        this.workflow = workflow;
+        workflow.WorkspaceChanged += ForwardWorkspaceChange;
+    }
+    public event EventHandler? WorkspaceChanged;
+    public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
+    public bool CanSafelyClose => workflow.CanSafelyClose;
+    public string? LocalSaveError => workflow.LocalSaveError;
+    public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
+    private void ForwardWorkspaceChange(object? sender, EventArgs e)
+    {
+        Notify();
+        WorkspaceChanged?.Invoke(this, e);
+    }
+    public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
+    public void Dispose()
+    {
+        workflow.WorkspaceChanged -= ForwardWorkspaceChange;
+        workflow.Dispose();
+    }
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;
     public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
@@ -22,9 +44,17 @@ public sealed partial class WorkspaceViewModel(IApplicationWorkflow workflow) : 
     private T Observe<T>(Func<T> operation)
     {
         var result = operation();
+        Notify();
+        return result;
+    }
+
+    private void Notify()
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(People)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReportingRoots)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
-        return result;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsWorkspaceCurrent)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
     }
 }
