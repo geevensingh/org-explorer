@@ -241,13 +241,18 @@ public partial class MainWindow : Window
     private void ShowStatus()
     {
         StatusText.Text = workflow.Status;
+        SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
             : "STALE / unavailable — displayed information is the last valid local state, not current data.";
         RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0 || HasUnsavedRelationship;
         DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
         if (!workflow.IsWorkspaceCurrent)
+        {
             ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+            AttributeEditors.IsEnabled = false;
+            Photo.CanEdit = false;
+        }
     }
 
     private bool TryLeaveLocalEdits()

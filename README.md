@@ -12,6 +12,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Agreed v1 design](docs/design.md)
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
+- [Workspace versions and recovery](docs/workspace-format.md)
 - [Machine-readable import schema](schemas/import-v1.schema.json)
 - [Example import files](docs/examples/)
 - [Architectural decisions](docs/adr/README.md)
@@ -36,6 +37,25 @@ whitespace-only text is rejected with a field-specific error. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
+
+Known version-1 Workspaces open through automatic validated **1 → 2 conversion**,
+including the breaking Person/history record-version headers. Conversion
+preserves the complete profile, note/photo, Observation and frozen-history
+family, with durably copied and validated originals under `recovery\<attempt>\original\`.
+No migration approval is required. Unsupported versions immediately suggest an
+app upgrade and block all Workspace writes; incomplete external delivery is
+unavailable data, never an app-owned repair. Conversion failure keeps the
+original pointer authoritative and reports recoverable originals, when available.
+Resolve the local failure and retry; do not treat staged output as committed.
+
+**Settings and upgrade guidance** is always accessible, including before choosing
+a Workspace or after incompatible data/conversion failure. **Retry Workspace
+validation / conversion** retries local loading without enabling invalid edits.
+Automatic updates are **not implemented yet**: installer verification still
+blocks the later updater, and Settings does not pretend to have checked update
+availability. Installer rollback does not restore Workspace data; follow the
+[Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
+before restoring files externally.
 
 Profiles also offer multiple private **Person notes**, an autosaved Markdown
 editor, and a native rendered **Read** view. Notes show their Person owner and

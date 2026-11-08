@@ -147,6 +147,7 @@ public sealed partial class ApplicationWorkflow
             if (!frontMatter.Success)
                 throw new FormatException($"Person note {Path.GetFileName(file)}: expected JSON front matter.");
             using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
+            RequireVersion(document.RootElement, "Person note", [1]);
             CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
                 "archived", "createdAt", "updatedAt"], $"Person note {Path.GetFileName(file)}");
             var metadata = document.RootElement.Deserialize<PersonNoteMetadata>(JsonOptions)
@@ -183,7 +184,7 @@ public sealed partial class ApplicationWorkflow
         string? staged = null;
         try
         {
-            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained writing is STALE. No note changes saved.");
+            EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (failedNoteBases.TryGetValue(note.Id, out var previous) && personNotes.GetValueOrDefault(note.Id) != previous)

@@ -14,7 +14,13 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
+            if (args.Length is < 1 or > 2) throw new ArgumentException("Supply the actual built WPF executable path.");
+            RunWorkspaceCompatibilityFlow(args[0], root);
+            if (args.Length == 2 && args[1] == "migration")
+            {
+                Console.WriteLine("PASS: actual WPF compatible/incompatible Workspace, migration recovery and global Settings.");
+                return 0;
+            }
             RunPersonArchivalFlow(args[0], root);
             RunHistoricalTeamContextFlow(args[0], root);
             RunExternalRefreshFlow(args[0], root);

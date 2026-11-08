@@ -4,4 +4,8 @@
     <OutputType>Exe</OutputType>
     <UseWPF>true</UseWPF>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
+    <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -171,8 +171,7 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         var generation = Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>());
         Directory.Delete(Path.Combine(generation, "profile-history"), true);
         Directory.Delete(Path.Combine(generation, "historical-team-context"), true);
-        metadata.AsObject().Remove("files");
-        File.WriteAllText(Path.Combine(folder, "workspace.json"), metadata.ToJsonString());
+        OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
         var legacy = Open();
         Assert.Empty(legacy.GetHistoricalTeamContexts("avery@example.com"));
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 2));

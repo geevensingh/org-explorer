@@ -115,18 +115,29 @@ public sealed partial class ApplicationWorkflow
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
             ReadAndAcceptWorkspace();
             pending = null;
-            Status = "Workspace refreshed from validated local files.";
+            Status = conversionMessage ?? "Workspace refreshed from validated local files.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
             pending = null;
             workspaceCurrent = false;
+            MarkCompatibilityFailure(ex);
             return Fail("Workspace unavailable; last valid information is STALE: " + ex.Message);
         }
     }
 
     private void ReadAndAcceptWorkspace()
+    {
+        conversionMessage = null;
+        if (!memory && InspectWorkspaceVersions() == 1) ConvertVersionOneWorkspace();
+        ReadAndAcceptWorkspaceData();
+        compatibility = new(WorkspaceCompatibilityState.Compatible,
+            conversionMessage ?? "Current validated Workspace. Settings remain available.",
+            workspace, 2, compatibility.RecoveryPath);
+    }
+
+    private void ReadAndAcceptWorkspaceData()
     {
         var current = memory ? null : WorkspaceFingerprint();
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
@@ -140,10 +151,8 @@ public sealed partial class ApplicationWorkflow
             var metadataPath = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(metadataPath))
             {
-                var metadata = JsonSerializer.Deserialize<WorkspaceMetadata>(File.ReadAllText(metadataPath), JsonOptions)
-                    ?? throw new FormatException("Invalid Workspace metadata.");
-                if (metadata.SchemaVersion != 1) throw new FormatException("Unsupported Workspace version. Upgrade the app; writes are blocked.");
-                if (!Regex.IsMatch(metadata.Generation, @"^[a-f0-9]{32}$")) throw new FormatException("Invalid Workspace generation.");
+                using var pointer = JsonDocument.Parse(File.ReadAllText(metadataPath, new UTF8Encoding(false, true)));
+                var metadata = ReadWorkspaceMetadata(pointer.RootElement);
                 var generation = Path.Combine(workspace!, "generations", metadata.Generation);
                 if (metadata.Files is { } files)
                 {
@@ -161,7 +170,8 @@ public sealed partial class ApplicationWorkflow
                 {
                     using var document = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
                     var root = document.RootElement;
-                    CheckProperties(root, ["email", "directoryName", "preferredName", "alias", "jobTitle", "department",
+                    CheckRecordVersion(root, "Person", metadata.SchemaVersion);
+                    CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
                         "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
                         "managerEmail", "archived", "photoPath", "heading"], Path.GetFileName(file));
                     var email = Email(Required(root, "email", "Person"), "Person.email");
@@ -171,7 +181,7 @@ public sealed partial class ApplicationWorkflow
                     var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
                     if (!Path.GetFileName(file).Equals(key + ".json", StringComparison.OrdinalIgnoreCase))
                         throw new FormatException($"{email}: conflicting Person filename; resolve provider copies outside the app.");
-                    var person = root.Deserialize<PersonProfile>(JsonOptions)
+                    var person = DeserializeVersionedRecord<PersonProfile>(root)
                         ?? throw new FormatException("Invalid Person data.");
                     Email(JsonSerializer.SerializeToElement(person.Email), "email");
                     foreach (var (field, property, _) in TextFields)
@@ -197,7 +207,7 @@ public sealed partial class ApplicationWorkflow
                     ValidateAcceptedSource(batch.Source);
                 }
                 loadedPhotos = LoadPhotos(generation, loaded);
-                history = ReadProfileHistory(generation, loaded);
+                history = ReadProfileHistory(generation, loaded, metadata.SchemaVersion);
                 historicalContexts = ReadHistoricalTeamContexts(generation, loaded);
             }
             else if (Directory.EnumerateFileSystemEntries(workspace!).Any())
@@ -233,6 +243,7 @@ public sealed partial class ApplicationWorkflow
             RejectWorkspaceLink(directory);
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
+                if (directory == root && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase)) continue;
                 RejectWorkspaceLink(entry);
                 if (Directory.Exists(entry)) directories.Push(entry);
                 else yield return entry;
@@ -242,6 +253,7 @@ public sealed partial class ApplicationWorkflow
 
     private static void ValidateAcceptedSource(JsonElement source)
     {
+        RequireVersion(source, "accepted batch source", [1]);
         CheckProperties(source, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "Accepted batch");
         var version = Required(source, "schemaVersion", "Accepted batch");
         if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)

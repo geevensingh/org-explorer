@@ -1,0 +1,151 @@
+using System.IO;
+using System.Text.Json.Nodes;
+using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
+
+namespace OrgExplorer.Desktop.Smoke;
+
+internal static partial class Program
+{
+    private static void RunWorkspaceCompatibilityFlow(string executable, string root)
+    {
+        var workspace = Path.Combine(root, "legacy");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        using var process = Launch(executable);
+        try
+        {
+            var window = Window(process);
+            Click(window, "OpenSettings");
+            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
+            AssertNoFakeUpdater(window);
+            Click(window, "OpenSettings");
+            Set(window, "WorkspacePath", workspace);
+            Click(window, "OpenWorkspace");
+            Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
+            OpenPerson(window, "casey@example.com", "alex@example.com");
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertValue(window, "OfficeNumber", "0009C");
+            AssertPhotoVisible(window);
+            if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
+                throw new InvalidOperationException("Converted profile lost its Directory name.");
+            Set(window, "PreferredName", "Migration UI edit");
+            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            var pointer = Path.Combine(workspace, "workspace.json");
+            var compatible = File.ReadAllBytes(pointer);
+            var data = JsonNode.Parse(compatible)!;
+            data["schemaVersion"] = 99;
+            data["futureRequiredField"] = "Must not discard";
+            File.WriteAllText(pointer, data.ToJsonString());
+            var before = WorkspaceFixtures.Bytes(workspace);
+            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+                throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
+            Click(window, "OpenSettings");
+            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
+            AssertNoFakeUpdater(window);
+            Click(window, "RetryWorkspace");
+            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            AssertWorkspaceBytes(workspace, before);
+            File.WriteAllBytes(pointer, compatible);
+            Await(() => Find(window, "PreferredName").Current.IsEnabled);
+            Click(window, "OpenSettings");
+            Close(process);
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+        }
+
+        var incompatibleWorkspace = Path.Combine(root, "future");
+        WorkspaceFixtures.CopyVersion(99, incompatibleWorkspace);
+        var incompatibleBytes = WorkspaceFixtures.Bytes(incompatibleWorkspace);
+        using var incompatible = Launch(executable);
+        try
+        {
+            var window = Window(incompatible);
+            Set(window, "WorkspacePath", incompatibleWorkspace);
+            Click(window, "OpenWorkspace");
+            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            Click(window, "OpenSettings");
+            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
+            AssertNoFakeUpdater(window);
+            Click(window, "RetryWorkspace");
+            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+                throw new InvalidOperationException("Unsupported initial Workspace enabled writes.");
+            AssertWorkspaceBytes(incompatibleWorkspace, incompatibleBytes);
+            if (File.Exists(Path.Combine(incompatibleWorkspace, ".workspace.lock")))
+                throw new InvalidOperationException("Unsupported initial Workspace created a writer lease.");
+            Close(incompatible);
+        }
+        finally
+        {
+            if (!incompatible.HasExited) { incompatible.Kill(true); incompatible.WaitForExit(5000); }
+        }
+
+        var recoveryWorkspace = Path.Combine(root, "migration-recovery");
+        WorkspaceFixtures.CopyVersionOne(recoveryWorkspace);
+        var originals = WorkspaceFixtures.Bytes(recoveryWorkspace);
+        using var recovery = Launch(executable);
+        try
+        {
+            var window = Window(recovery);
+            Set(window, "WorkspacePath", recoveryWorkspace);
+            using (File.Open(Path.Combine(recoveryWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Click(window, "OpenWorkspace");
+                Await(() => Find(window, "Status").Current.Name.Contains("conversion failed"));
+                Click(window, "OpenSettings");
+                Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
+                if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+                    throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
+                foreach (var (path, bytes) in originals)
+                    if (!bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(recoveryWorkspace, path))))
+                        throw new InvalidOperationException("Failed migration replaced original " + path);
+            }
+            Click(window, "RetryWorkspace");
+            Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
+            Click(window, "OpenSettings");
+            OpenPerson(window, "casey@example.com", "alex@example.com");
+            AssertValue(window, "OfficeNumber", "0009C");
+            Close(recovery);
+        }
+        finally
+        {
+            if (!recovery.HasExited) { recovery.Kill(true); recovery.WaitForExit(5000); }
+        }
+
+        using var reopened = Launch(executable);
+        try
+        {
+            var window = Window(reopened);
+            Set(window, "WorkspacePath", workspace);
+            Click(window, "OpenWorkspace");
+            OpenPerson(window, "casey@example.com", "alex@example.com");
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Migration UI edit");
+            Close(reopened);
+        }
+        finally
+        {
+            if (!reopened.HasExited) { reopened.Kill(true); reopened.WaitForExit(5000); }
+        }
+    }
+
+    private static void AssertNoFakeUpdater(AutomationElement window)
+    {
+        if (!Find(window, "UpdateGuidance").Current.Name.Contains("not implemented") ||
+            window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "CheckForUpdates")) is not null)
+            throw new InvalidOperationException("Settings fabricated updater availability.");
+    }
+
+    private static void AssertWorkspaceBytes(string root, Dictionary<string, byte[]> expected)
+    {
+        var actual = WorkspaceFixtures.Bytes(root);
+        if (!expected.Keys.Order().SequenceEqual(actual.Keys.Order()))
+            throw new InvalidOperationException("Incompatible Workspace created or removed files.");
+        foreach (var (path, bytes) in expected)
+            if (!bytes.AsSpan().SequenceEqual(actual[path]))
+                throw new InvalidOperationException("Incompatible Workspace wrote " + path);
+    }
+}
