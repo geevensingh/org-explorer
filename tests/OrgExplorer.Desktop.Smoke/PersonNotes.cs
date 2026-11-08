@@ -199,7 +199,16 @@ internal static partial class Program
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
-        ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        var selection = (SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern);
+        try { selection.Select(); }
+        catch (ElementNotAvailableException)
+        {
+            // Restoring the unsaved-note owner rebuilds the tree and retires the selected provider.
+            // Accept that response only after observing the actual blocked-navigation state.
+            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing") &&
+                ((SelectionItemPattern)Find(window, "avery@example.com")
+                    .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
+        }
     }
 
     private static void AssertBlockedNoteNavigation(AutomationElement window, string draft)
