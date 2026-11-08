@@ -119,6 +119,7 @@ internal static class Program
             Close(process);
             process = null;
             PersonAttributeFlow.Run(args[0], root);
+            ProfileHistoryFlow.Run(args[0], root);
             Console.WriteLine("PASS: WPF whole-batch preview/apply → reporting navigation → invalid graph rejection → textual profile editing → close/reopen.");
             return 0;
         }
