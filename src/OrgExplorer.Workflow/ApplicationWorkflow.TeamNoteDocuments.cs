@@ -32,11 +32,12 @@ public sealed partial class ApplicationWorkflow
         foreach (var file in Directory.GetFiles(directory, "*.md"))
         {
             RejectNoteLink(file);
-            var text = File.ReadAllText(file, new UTF8Encoding(false, true));
+            var text = ReadWorkspaceText(file);
             var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
             if (!frontMatter.Success)
                 throw new FormatException($"Team note {Path.GetFileName(file)}: expected JSON front matter.");
             using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
+            RequireVersion(document.RootElement, "Team note", [1]);
             CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
                 "archived", "createdAt", "updatedAt", "confirmedContextRevision"], $"Team note {Path.GetFileName(file)}");
             var metadata = document.RootElement.Deserialize<TeamNoteMetadata>(JsonOptions)
@@ -72,7 +73,7 @@ public sealed partial class ApplicationWorkflow
             if (Directory.Exists(path)) throw new IOException("Team context revisions must be a file.");
             return result;
         }
-        using var document = JsonDocument.Parse(File.ReadAllText(path, new UTF8Encoding(false, true)));
+        using var document = JsonDocument.Parse(ReadWorkspaceText(path));
         CheckProperties(document.RootElement, document.RootElement.ValueKind == JsonValueKind.Object
             ? document.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Team context revisions");
         var loaded = document.RootElement.Deserialize<Dictionary<string, Guid>>(JsonOptions)
@@ -94,7 +95,7 @@ public sealed partial class ApplicationWorkflow
         string? staged = null;
         try
         {
-            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained writing is STALE. No note changes saved.");
+            EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (failedTeamNoteBases.TryGetValue(note.Id, out var previous) &&

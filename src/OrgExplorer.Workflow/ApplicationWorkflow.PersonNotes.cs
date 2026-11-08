@@ -121,7 +121,7 @@ public sealed partial class ApplicationWorkflow
                 {
                     RejectNoteLink(file);
                     hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
-                    hash.AppendData(File.ReadAllBytes(file));
+                    hash.AppendData(ReadWorkspaceBytes(file));
                 }
             }
             else if (File.Exists(directory)) throw new IOException("Notes folder is not a directory.");
@@ -142,11 +142,12 @@ public sealed partial class ApplicationWorkflow
         foreach (var file in Directory.GetFiles(directory, "*.md"))
         {
             RejectNoteLink(file);
-            var text = File.ReadAllText(file, new UTF8Encoding(false, true));
+            var text = ReadWorkspaceText(file);
             var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
             if (!frontMatter.Success)
                 throw new FormatException($"Person note {Path.GetFileName(file)}: expected JSON front matter.");
             using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
+            RequireVersion(document.RootElement, "Person note", [1]);
             CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
                 "archived", "createdAt", "updatedAt"], $"Person note {Path.GetFileName(file)}");
             var metadata = document.RootElement.Deserialize<PersonNoteMetadata>(JsonOptions)
@@ -183,7 +184,7 @@ public sealed partial class ApplicationWorkflow
         string? staged = null;
         try
         {
-            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained writing is STALE. No note changes saved.");
+            EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (failedNoteBases.TryGetValue(note.Id, out var previous) && personNotes.GetValueOrDefault(note.Id) != previous)

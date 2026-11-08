@@ -22,7 +22,25 @@
       <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
       <RowDefinition Height="140"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
-    <TextBlock Text="Private offline Workspace" FontSize="24" Margin="0,0,0,12"/>
+    <StackPanel>
+      <DockPanel Margin="0,0,0,12">
+        <Button DockPanel.Dock="Right" Content="_Settings and upgrade guidance" AutomationProperties.AutomationId="OpenSettings"
+                Click="ToggleSettings" HorizontalAlignment="Right"/>
+        <TextBlock Text="Private offline Workspace" FontSize="24"/>
+      </DockPanel>
+      <Border x:Name="SettingsPanel" Visibility="Collapsed" BorderBrush="Gray" BorderThickness="1" Padding="12" Margin="0,0,0,12">
+        <StackPanel>
+          <TextBlock Text="Settings — Workspace compatibility and recovery" FontWeight="SemiBold"/>
+          <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,8"/>
+          <TextBlock AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"
+                     Text="Automatic updates are not implemented yet. Installer verification is a prerequisite for the later updater. Obtain a compatible app release through the project's trusted release channel; no update availability has been checked."/>
+          <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
+                     TextWrapping="Wrap" Margin="0,8"/>
+          <Button Content="Retry Workspace validation / conversion" AutomationProperties.AutomationId="RetryWorkspace"
+                  Click="RetryWorkspace" HorizontalAlignment="Left"/>
+        </StackPanel>
+      </Border>
+    </StackPanel>
     <DockPanel Grid.Row="1" Margin="0,0,0,8">
       <Button DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
       <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>

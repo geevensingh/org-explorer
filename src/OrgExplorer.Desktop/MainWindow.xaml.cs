@@ -253,6 +253,7 @@ public partial class MainWindow : Window
     {
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
+        SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
             : "STALE / unavailable — displayed information is the last valid local state, not current data.";
@@ -261,6 +262,8 @@ public partial class MainWindow : Window
         if (!workflow.IsWorkspaceCurrent)
         {
             ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+            AttributeEditors.IsEnabled = false;
+            Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }
     }
