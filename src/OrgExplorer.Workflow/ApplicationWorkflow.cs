@@ -7,25 +7,41 @@ using System.Text.RegularExpressions;
 
 namespace OrgExplorer.Workflow;
 
-public sealed record PersonProfile(string Email, string? DirectoryName, string? PreferredName, string? ManagerEmail)
+public sealed record PersonProfile(string Email, string? DirectoryName, string? PreferredName, string? ManagerEmail,
+    bool Archived = false)
 {
+    public string? Alias { get; init; }
+    public string? JobTitle { get; init; }
+    public string? Department { get; init; }
+    public string? OfficeBuilding { get; init; }
+    public string? OfficeNumber { get; init; }
+    public string? OfficeState { get; init; }
+    public string? OfficeCountry { get; init; }
+    public string? LinkedInProfileUrl { get; init; }
     public string Heading => PreferredName ?? DirectoryName ?? Email;
 }
 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors);
 
+public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
+public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
+
 public interface IApplicationWorkflow
 {
     IReadOnlyList<PersonProfile> People { get; }
+    IReadOnlyList<ReportingNode> ReportingRoots { get; }
+    PersonRelationships? GetRelationships(string email);
     string Status { get; }
     bool OpenWorkspace(string path);
     ImportPreview PreviewImport(string json);
     ImportPreview PreviewImportFile(string path);
     bool ApplyImport(Guid previewId);
     bool EditPreferredName(string email, string? preferredName);
+    bool EditPersonText(string email, PersonTextField field, string? value);
+    bool OpenLinkedInProfile(string email);
 }
 
-public sealed class ApplicationWorkflow : IApplicationWorkflow
+public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 {
     private readonly bool memory;
     private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
@@ -46,10 +62,34 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
 
-    private ApplicationWorkflow(bool memory) => this.memory = memory;
-    public static IApplicationWorkflow CreateInMemory() => new ApplicationWorkflow(true);
-    public static IApplicationWorkflow CreateFileBacked() => new ApplicationWorkflow(false);
+    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener)
+    { this.memory = memory; this.profileLinkOpener = profileLinkOpener; }
+    public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(true, profileLinkOpener);
+    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null) => new ApplicationWorkflow(false, profileLinkOpener);
     public IReadOnlyList<PersonProfile> People => people.Values.OrderBy(p => p.Heading).ToArray();
+    public IReadOnlyList<ReportingNode> ReportingRoots
+    {
+        get
+        {
+            var children = new Dictionary<string, List<ReportingNode>>(StringComparer.OrdinalIgnoreCase);
+            var nodes = new Dictionary<string, ReportingNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (var person in People.Where(p => !p.Archived))
+            {
+                var reports = new List<ReportingNode>();
+                children.Add(person.Email, reports);
+                nodes.Add(person.Email, new ReportingNode(person, reports.AsReadOnly()));
+            }
+            var roots = new List<ReportingNode>();
+            foreach (var node in nodes.Values)
+                if (node.Person.ManagerEmail is { } manager) children[manager].Add(node);
+                else roots.Add(node);
+            return roots.AsReadOnly();
+        }
+    }
+    public PersonRelationships? GetRelationships(string email) => people.TryGetValue(email, out var person)
+        ? new PersonRelationships(person, person.ManagerEmail is { } manager ? people.GetValueOrDefault(manager) : null,
+            People.Where(p => !p.Archived && string.Equals(p.ManagerEmail, person.Email, StringComparison.OrdinalIgnoreCase)).ToArray())
+        : null;
     public string Status { get; private set; } = "Choose a Workspace.";
 
     public bool OpenWorkspace(string path)
@@ -78,8 +118,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                         var person = JsonSerializer.Deserialize<PersonProfile>(File.ReadAllText(file), JsonOptions)
                             ?? throw new FormatException("Invalid Person data.");
                         Email(JsonSerializer.SerializeToElement(person.Email), "email");
-                        if (person.DirectoryName is not null) Text(JsonSerializer.SerializeToElement(person.DirectoryName), "directoryName");
-                        if (person.PreferredName is not null) Text(JsonSerializer.SerializeToElement(person.PreferredName), "preferredName");
+                        foreach (var (field, property, _) in TextFields)
+                            ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
                         if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
                     }
                     ValidateGraph(loaded);
@@ -119,27 +159,32 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             CheckProperties(root, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "batch");
-            if (root.GetProperty("schemaVersion").GetRawText() != "1")
+            var version = Required(root, "schemaVersion", "batch");
+            if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
                 throw new FormatException("schemaVersion: unsupported import version; upgrade the app.");
-            var batchId = root.GetProperty("batchId").GetString()!;
+            var batchId = Text(Required(root, "batchId", "batch"), "batchId", false)!;
             if (!Guid.TryParseExact(batchId, "D", out var parsedId)) throw new FormatException("batchId: expected UUID.");
             batchId = parsedId.ToString();
-            var observed = root.GetProperty("observedAt").GetString()!;
+            var observed = Text(Required(root, "observedAt", "batch"), "observedAt", false)!;
             if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
                 !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
                     CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
                 throw new FormatException("observedAt: expected a real UTC calendar timestamp.");
             if (root.TryGetProperty("producer", out var producer)) Text(producer, "producer", false);
-            var records = root.GetProperty("people");
+            var records = Required(root, "people", "batch");
             if (records.ValueKind != JsonValueKind.Array || records.GetArrayLength() == 0)
                 throw new FormatException("people: expected a nonempty array.");
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var canonical = new List<string>();
+            var recordIndex = 0;
             foreach (var record in records.EnumerateArray())
             {
-                var email = Email(record.GetProperty("email"), "email");
-                CheckProperties(record, ["email", "displayName", "preferredName", "managerEmail"], email);
+                var scope = $"people[{recordIndex++}]";
+                var email = Email(Required(record, "email", scope), $"{scope}.email");
+                var priorChanges = changes.Count;
+                CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
+                    "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl", "managerEmail", "archived"], email);
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
@@ -149,29 +194,41 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                     : existing?.ManagerEmail;
                 if (existing is null && (directoryName is null || !record.TryGetProperty("managerEmail", out _)))
                     throw new FormatException($"{email}: creation requires displayName and explicit managerEmail (null means no Manager).");
-                var next = new PersonProfile(existing?.Email ?? email, directoryName, preferredName, manager);
+                var archived = record.TryGetProperty("archived", out var archival)
+                    ? Boolean(archival, $"{email}.archived") : existing?.Archived ?? false;
+                var next = (existing ?? new PersonProfile(email, directoryName, preferredName, manager)) with
+                { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, Archived = archived };
+                foreach (var (field, property, _) in TextFields)
+                    if (record.TryGetProperty(property, out var value))
+                        next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
                 proposed[email] = next;
-                if (existing is null) changes.Add($"Add {email}: Directory name = {directoryName}; Preferred name = {preferredName ?? "(none)"}; Manager = {manager ?? "(none)"}");
-                else
+                if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
+                foreach (var (field, _, label) in TextFields)
                 {
-                    if (existing.DirectoryName != directoryName) changes.Add($"{email}: Directory name {existing.DirectoryName ?? "(none)"} → {directoryName ?? "(clear)"}");
-                    if (existing.PreferredName != preferredName) changes.Add($"{email}: Preferred name {existing.PreferredName ?? "(none)"} → {preferredName ?? "(clear)"}");
-                    if (!string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase)) changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
+                    var previous = existing is null ? null : ReadText(existing, field);
+                    var current = ReadText(next, field);
+                    if (previous != current)
+                        changes.Add($"{email}: {label} {previous ?? "(none)"} → {current ?? "(clear)"}");
                 }
-                canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name)
+                if (existing is not null && !string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase))
+                    changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
+                if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
+                if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
+                if (changes.Count == priorChanges) changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged.");
+                canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
                     .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
                         ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
                         : p.Value.ValueKind == JsonValueKind.String ? JsonSerializer.Serialize(p.Value.GetString()) : p.Value.GetRawText()))));
             }
-            ValidateGraph(proposed);
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                observed + "|" + (root.TryGetProperty("producer", out producer) ? producer.GetString() : "") + "|" + string.Join("\n", canonical.Order()))));
+                observed + "|" + (root.TryGetProperty("producer", out producer) ? producer.GetString() : "") + "|" + string.Join("\n", canonical.Order(StringComparer.Ordinal)))));
             if (batches.TryGetValue(batchId, out var accepted))
             {
                 if (accepted.Fingerprint != fingerprint) throw new FormatException("batchId: already accepted with different logical data.");
                 changes.Clear();
                 changes.Add("Already applied: exact replay is a no-op.");
             }
+            else ValidateGraph(proposed);
             var preview = new ImportPreview(id, errors.Count == 0, changes, errors);
             if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone());
             Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
@@ -218,18 +275,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         return true;
     }
 
-    public bool EditPreferredName(string email, string? preferredName)
-    {
-        if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
-        if (preferredName is not null && string.IsNullOrWhiteSpace(preferredName)) return Fail("Preferred name must be nonblank or cleared.");
-        var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
-        { [email] = person with { PreferredName = preferredName } };
-        if (!Save(proposed, batches)) return false;
-        people = proposed;
-        pending = null;
-        Status = "Saved locally.";
-        return true;
-    }
+    public bool EditPreferredName(string email, string? preferredName) =>
+        EditPersonText(email, PersonTextField.PreferredName, preferredName);
 
     private bool Fail(string message) { Status = message; return false; }
     public ImportPreview PreviewImportFile(string path)
@@ -255,14 +302,27 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
     {
         foreach (var person in proposed.Values)
         {
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { person.Email };
-            var manager = person.ManagerEmail;
-            while (manager is not null)
+            if (person.ManagerEmail is { } manager)
             {
-                if (!proposed.TryGetValue(manager, out var ancestor)) throw new FormatException($"{person.Email}.managerEmail: unknown Manager {manager}.");
-                if (!visited.Add(manager)) throw new FormatException($"{person.Email}.managerEmail: reporting cycle.");
-                manager = ancestor.ManagerEmail;
+                if (!proposed.TryGetValue(manager, out var ancestor))
+                    throw new FormatException($"{person.Email}.managerEmail: unknown Manager {manager}.");
+                if (!person.Archived && ancestor.Archived)
+                    throw new FormatException($"{person.Email}.managerEmail: active reports require an active Manager; {manager} is Archived.");
             }
+        }
+        var complete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var person in proposed.Values.Where(p => !p.Archived))
+        {
+            var path = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var current = person;
+            while (!complete.Contains(current.Email))
+            {
+                if (!path.Add(current.Email))
+                    throw new FormatException($"{person.Email}.managerEmail: active reporting cycle or self-reporting.");
+                if (current.ManagerEmail is null) break;
+                current = proposed[current.ManagerEmail];
+            }
+            complete.UnionWith(path);
         }
     }
     private string WorkspaceFingerprint()
@@ -322,12 +382,18 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
     private static string Email(JsonElement value, string field)
     {
         var email = Text(value, field, false)!;
-        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+$") || !MailAddress.TryCreate(email, out var parsed) || parsed.Address != email)
+        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+$") || !MailAddress.TryCreate(email, out var parsed) || parsed.Address != email ||
+            !email[(email.LastIndexOf('@') + 1)..].Split('.').All(label =>
+                Regex.IsMatch(label, @"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")))
             throw new FormatException($"{field}: expected a plain email mailbox.");
         return email;
     }
+    private static bool Boolean(JsonElement value, string field) =>
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean()
+            : throw new FormatException($"{field}: expected Boolean true or false; omission preserves the value.");
     private static void CheckProperties(JsonElement value, string[] allowed, string scope)
     {
+        if (value.ValueKind != JsonValueKind.Object) throw new FormatException($"{scope}: expected an object.");
         var seen = new HashSet<string>();
         foreach (var property in value.EnumerateObject())
         {
@@ -336,4 +402,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                 throw new FormatException($"{scope}.{property.Name}: unsupported field in this app slice; nothing will be discarded or applied.");
         }
     }
+    private static JsonElement Required(JsonElement value, string property, string scope) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var result) ? result
+            : throw new FormatException($"{scope}.{property}: required field is missing or its record is not an object.");
 }
