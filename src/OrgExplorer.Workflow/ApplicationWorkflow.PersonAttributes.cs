@@ -59,7 +59,11 @@ public sealed partial class ApplicationWorkflow
             Status = "Saved locally.";
             return true;
         }
-        catch (FormatException ex) { return Fail("Edit rejected: " + ex.Message); }
+        catch (FormatException ex)
+        {
+            return SaveFailed($"profile:{email.ToLowerInvariant()}:{field}",
+                "Edit rejected; changes are NOT saved locally: " + ex.Message);
+        }
     }
 
     private static readonly (PersonTextField Field, string Property, string Label)[] TextFields =

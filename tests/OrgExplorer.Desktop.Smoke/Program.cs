@@ -164,7 +164,8 @@ internal static partial class Program
             if (process.HasExited) throw new InvalidOperationException($"App exited with {process.ExitCode}.");
             window = AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
-            return window is not null;
+            return window is not null && window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspacePath")) is not null;
         });
         return window!;
     }

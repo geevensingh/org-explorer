@@ -404,7 +404,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
         string operation = "import")
     {
-        if (memory) return true;
+        if (memory)
+        {
+            failedSaves.Remove(operation);
+            return true;
+        }
         try
         {
             if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained information is STALE. No changes saved.");

@@ -70,7 +70,11 @@ public sealed partial class ApplicationWorkflow
     {
         if (workspace is null || !personNotes.TryGetValue(noteId, out var note))
             return Fail("Open an existing Person note before editing.");
-        if (string.IsNullOrWhiteSpace(title)) return Fail("Person note title must be nonblank.");
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            failedNoteBases.TryAdd(note.Id, note);
+            return SaveFailed($"note:{note.Id}", "Person note title must be nonblank; changes are NOT saved locally.");
+        }
         var proposed = note with { Title = title, Markdown = markdown, UpdatedAt = DateTimeOffset.UtcNow };
         if (!SavePersonNote(proposed)) return false;
         personNotes[noteId] = proposed;
@@ -166,7 +170,12 @@ public sealed partial class ApplicationWorkflow
 
     private bool SavePersonNote(PersonNote note)
     {
-        if (memory) return true;
+        if (memory)
+        {
+            failedSaves.Remove($"note:{note.Id}");
+            failedNoteBases.Remove(note.Id);
+            return true;
+        }
         string? staged = null;
         try
         {

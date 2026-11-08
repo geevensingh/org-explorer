@@ -34,4 +34,22 @@ public sealed class ExternalRefreshWorkflowTests
         Assert.Null(app.LocalSaveError);
         Assert.Contains("unknown Manager", app.Status);
     }
+
+    [Fact]
+    public void Rejected_visible_local_drafts_remain_unsafe_until_corrected_or_deliberately_discarded()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        app.OpenWorkspace("fictitious");
+        app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id);
+        var note = app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Unsaved writing"));
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.EditPersonNote(note.Id, "Corrected title", "Retried writing"));
+        Assert.True(app.CanSafelyClose);
+        Assert.False(app.EditPreferredName("avery@example.com", " "));
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges();
+        Assert.True(app.CanSafelyClose);
+        Assert.Equal("Avery Example", Assert.Single(app.People).Heading);
+    }
 }
