@@ -45,6 +45,25 @@ edited note documents and reports save/delivery errors. Failed drafts remain
 visible until retry succeeds or you deliberately discard them. Images and raw
 HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
+**New Team note** explicitly opts into reporting-subtree scope. Writing a
+**Person note** about a Manager never opts into inheritance. The profile separates
+owned Team notes from **Current inherited Team context**, which includes notes
+from every formal management ancestor and identifies each owning Person by name
+and email. Informal leads/project membership are not reporting relationships.
+Team scope is still private to the Workspace owner, not sharing.
+
+Team notes stay with the Person on whom they were written. A reporting move
+replaces the current inherited context with the new chain without relocating
+former Managers' notes or losing direct Person notes. Changes to the owner's job
+title, department, archival state, or complete Reporting chain mark Team notes
+**Needs review**, including ancestor moves with an unchanged direct Manager.
+Warnings remain visible in inherited context and import review, even if a role
+change is later reverted. Review on the owner's profile: **Confirm still
+applies**, edit the autosaved Markdown (which confirms current applicability), or
+**Archive Team note** to retain but stop inheriting the writing. Restoring an
+archived note does not silently confirm it. Failed review saves retain the warning
+and saved writing; unsaved drafts block navigation/close and offer retry/discard.
+
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or
 explicit null to clear; omitted photos stay unchanged. Images are decoded and
@@ -151,6 +170,9 @@ Profile edits and reporting moves/replay retain the selected note and its writin
 Photo smoke checks actual PNG/JPEG pixels, reopening after producer-folder
 removal, omission/clear behavior, and corrupt/remote rejection. Photo edits,
 reporting moves, and replay preserve private notes and their refresh revisions.
+Team-note smoke exercises explicit opt-in, every ancestor and owner attribution,
+private rendered reading, visible review warnings, confirm/edit/archive, failed
+confirmation and draft-navigation safety, replacement/move scope, and reopen.
 Core checks include a 10,001-Person reporting chain without a hard import cap.
 Tests use fictitious people and isolated folders beneath the checkout, cleaned
 after each run.
@@ -170,5 +192,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, complete imports, Team-note features/frozen historical team context,
+Installer, automatic updates, complete imports, frozen historical Team context,
 and release signing are subsequent slices, not shipped capabilities of this tracer.

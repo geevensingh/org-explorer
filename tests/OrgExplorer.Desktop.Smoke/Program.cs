@@ -15,6 +15,7 @@ internal static partial class Program
         try
         {
             if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
+            RunTeamNoteFlow(args[0]);
             var producer = Path.Combine(root, "producer");
             Directory.CreateDirectory(producer);
             CreatePhotoFixture(Path.Combine(producer, "avery.png"));

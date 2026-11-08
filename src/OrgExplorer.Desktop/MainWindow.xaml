@@ -111,6 +111,7 @@
           </ScrollViewer>
         </Expander>
         <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
+        <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
       </StackPanel>
       </ScrollViewer>
     </Grid>

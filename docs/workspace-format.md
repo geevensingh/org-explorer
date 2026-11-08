@@ -158,3 +158,63 @@ and links as native WPF text. Markdown images are labeled **Image not loaded**,
 including local references; raw HTML is inert text. No image, stylesheet, embedded
 object, or remote document is fetched. Only a deliberately clicked HTTP/HTTPS
 link launches the user's external handler; other URI schemes are inert.
+
+## Private manager-owned Team notes
+
+`team-notes\<note-id>.md` contains an explicitly opted-in Team note. It uses the
+same UTF-8 JSON-front-matter/Markdown layout as Person notes, with `kind: "team"`
+and the additional required `confirmedContextRevision` UUID:
+
+```markdown
+---
+{
+  "schemaVersion": 1,
+  "kind": "team",
+  "id": "90000000-0000-4000-8000-000000000003",
+  "ownerEmail": "avery@example.com",
+  "title": "Reporting subtree context",
+  "archived": false,
+  "createdAt": "2026-11-01T17:00:00+00:00",
+  "updatedAt": "2026-11-01T17:00:00+00:00",
+  "confirmedContextRevision": "00000000-0000-0000-0000-000000000000"
+}
+---
+# Context
+Private **writing** for Avery's current formal descendants.
+```
+
+The UUID is a local review marker, not an Observation/effective date, shared team
+identity, or note-version history. Keep it when editing with external tools;
+external text edits do not silently confirm a warning. Use the app's confirm/edit
+actions to deliberately acknowledge current applicability. Ownership always stays
+with `ownerEmail`, even if that Person stops managing reports or is archived.
+The zero revision is the initial baseline. Existing version-1 Workspaces without
+Team notes need no migration and existing Person-note documents are unchanged.
+
+The committed generation's `team-context.json` maps Person emails to opaque
+context revision UUIDs. A new revision is committed atomically with a role
+(job title/department), archival, or complete Reporting-chain change. All affected
+descendants' context revisions change for an ancestor move; ordinary office/name
+changes and exact batch retries do not. Notes whose confirmation differs from
+their owner's current revision remain visible but need review, even after a
+change is reverted. These markers are canonical review state, not reconstructed
+history. Missing markers in earlier version-1 generations mean the initial
+baseline; later generation commits preserve them.
+
+Confirmation or editing saves the note's current owner revision without changing
+ownership. Archival retains writing and confirmation state while excluding the
+note from current inheritance; restoration does not implicitly confirm it.
+Imports may change context revisions but never supply or rewrite note bodies.
+Invalid imports and failed saves never publish review changes.
+
+Both note directories are validated together before accepting an external note
+refresh; either invalid/incomplete delivery retains all last-valid writing.
+Staged/flushed document replacement, conflict refusal, unsaved-draft safety,
+metadata validation, and private Markdown rendering apply to both kinds.
+`IApplicationWorkflow` exposes explicit Team-note create/query/edit/confirm/archive
+and inherited-context queries, with `InheritedTeamNote` carrying the owning Person.
+The existing note-refresh hook refreshes both kinds coherently;
+`RefreshTeamNotes` uses that same workflow. No provider-specific sync adapter,
+per-record public repository, permanent-team model, or sharing endpoint is added.
+Historical freezing of note text belongs to the subsequent Historical team
+context slice; these mutable current documents must not serve as frozen history.
