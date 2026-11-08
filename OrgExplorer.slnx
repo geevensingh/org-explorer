@@ -6,6 +6,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/OrgExplorer.Core.Tests/OrgExplorer.Core.Tests.csproj" />
     <Project Path="tests/OrgExplorer.Desktop.Smoke/OrgExplorer.Desktop.Smoke.csproj" />
+    <Project Path="tests/OrgExplorer.Installer.Smoke/OrgExplorer.Installer.Smoke.csproj" />
     <Project Path="tests/OrgExplorer.Persistence.Tests/OrgExplorer.Persistence.Tests.csproj" />
   </Folder>
 </Solution>

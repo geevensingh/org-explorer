@@ -98,3 +98,28 @@ design introduces no warning bypass, self-signed trust-store installation, or OS
 trust weakening.
 
 - [Windows signing and SmartScreen reputation](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
+
+## Installer implementation pin
+
+Ticket #16 pins both the client and local `vpk` tool to **1.2.161**. Packaging
+uses a self-contained .NET 10 WindowsDesktop publish, `win11-x64` packaging
+runtime, and the `win` channel; no `--framework` bootstrap download is needed.
+The actual generated set is setup, full `.nupkg`, portable ZIP,
+`releases.win.json`, `assets.win.json`, and `RELEASES` (the default-channel legacy
+name, not `RELEASES-win`). An additional unsigned metadata/hash inventory is
+not update authentication.
+
+The custom STA entry point runs `VelopackApp` before constructing WPF and sets
+`SetAutoApplyOnStartup(false)`. A controlled newer local package is tested not
+to activate that implicit apply path. No feed or unattended apply is introduced.
+
+The pinned Windows installer also writes a user uninstall registry entry even
+with an explicit `--installto` directory. Environment overrides do not isolate
+Windows known folders/registry. Full install/replacement/uninstall verification
+therefore uses a disposable, offline Windows Sandbox with only dedicated mapped
+inputs/results, and reports an explicit blocker if Sandbox is unavailable.
+Artifact/bootstrap/portable-desktop checks can run without installing setup on
+the host. See [shipped installation help](../INSTALLATION.md).
+
+- [Pinned bootstrap source](https://github.com/velopack/velopack/blob/1.2.161/src/lib-csharp/VelopackApp.cs)
+- [Pinned Windows install source](https://github.com/velopack/velopack/blob/1.2.161/src/bins/src/commands/install.rs)

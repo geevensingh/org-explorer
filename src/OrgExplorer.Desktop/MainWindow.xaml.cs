@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -13,7 +14,12 @@ public partial class MainWindow : Window
     private string? selectedEmail;
     private bool loading;
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
+        Title = $"Org explorer {version} (Windows x64 / win)";
+    }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
@@ -26,6 +32,12 @@ public partial class MainWindow : Window
     }
     private void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        try { WorkspaceLocation.RequireIndependent(WorkspacePath.Text); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            StatusText.Text = ex.Message;
+            return;
+        }
         workflow.OpenWorkspace(WorkspacePath.Text);
         preview = null;
         ApplyButton.IsEnabled = false;

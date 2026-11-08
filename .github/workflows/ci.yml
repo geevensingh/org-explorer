@@ -54,6 +54,15 @@ jobs:
       - run: dotnet restore tests\OrgExplorer.Desktop.Smoke --locked-mode
       - run: dotnet build src\OrgExplorer.Desktop -c Release --no-restore
       - run: dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-restore -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
+      - name: Verify self-contained installer artifacts and real packaged desktop
+        run: |
+          .\eng\Package-Windows.ps1 -Version 0.1.0
+          .\eng\Package-Windows.ps1 -Version 0.1.1
+          .\eng\Test-WindowsInstaller.ps1 -Version 0.1.0 -PrepareOnly
+          $payload = Get-ChildItem .artifacts\installer-verification -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          .\tests\Installer.PackagedDesktop.Tests.ps1 -ReleaseDirectory .artifacts\installer\0.1.0\releases -NewerReleaseDirectory .artifacts\installer\0.1.1\releases -SmokeRunner (Join-Path $payload.FullName 'smoke-input\OrgExplorer.Desktop.Smoke.exe')
+          .\tests\Installer.Bootstrap.Tests.ps1 -Executable .artifacts\installer\0.1.0\publish\OrgExplorer.Desktop.exe
+          .\tests\Installer.Isolation.Tests.ps1 -Harness (Join-Path $payload.FullName 'test-input\OrgExplorer.Installer.Smoke.exe')
 
   ci:
     name: CI

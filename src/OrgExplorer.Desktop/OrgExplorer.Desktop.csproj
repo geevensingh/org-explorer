@@ -1,4 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF></PropertyGroup>
-  <ItemGroup><ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" /></ItemGroup>
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <StartupObject>OrgExplorer.Desktop.Program</StartupObject>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <Version>0.1.0</Version>
+    <Product>Org explorer</Product>
+    <Description>Private offline-first Windows org explorer</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <Content Include="..\..\docs\INSTALLATION.md" Link="INSTALLATION.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
