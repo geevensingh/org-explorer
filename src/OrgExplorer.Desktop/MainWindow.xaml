@@ -1,0 +1,44 @@
+<Window x:Class="OrgExplorer.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Org explorer" Width="960" Height="700" MinWidth="700" MinHeight="500">
+  <Grid Margin="20">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="140"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <TextBlock Text="Private offline Workspace" FontSize="24" Margin="0,0,0,12"/>
+    <DockPanel Grid.Row="1" Margin="0,0,0,8">
+      <Button DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
+      <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>
+      <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath" ToolTip="Workspace folder, separate from installation"/>
+    </DockPanel>
+    <DockPanel Grid.Row="2" Margin="0,0,0,8">
+      <Button DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
+      <Button DockPanel.Dock="Right" Content="Choose JSON…" Click="ChooseImport" Margin="8,0"/>
+      <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"/>
+    </DockPanel>
+    <DockPanel Grid.Row="3" Margin="0,0,0,12">
+      <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
+              IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <TextBlock x:Name="PreviewText" AutomationProperties.AutomationId="Preview" TextWrapping="Wrap" Text="Import changes will appear here. No data changes until Apply."/>
+      </ScrollViewer>
+    </DockPanel>
+    <Grid Grid.Row="4">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <ListBox x:Name="PeopleList" AutomationProperties.AutomationId="People" DisplayMemberPath="Heading" SelectionChanged="SelectPerson" />
+      <StackPanel Grid.Column="1" Margin="20,0,0,0">
+        <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
+        <TextBlock Text="Directory name" Margin="0,12,0,4"/>
+        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
+        <TextBlock x:Name="Email" Margin="0,8"/>
+        <TextBlock Text="Preferred name (saved locally as you type; empty clears)" Margin="0,12,0,4"/>
+        <TextBox x:Name="PreferredName" AutomationProperties.AutomationId="PreferredName" IsEnabled="False" TextChanged="EditPreferredName"/>
+        <TextBlock x:Name="Manager" Margin="0,12"/>
+        <TextBlock Text="Photo unavailable" Foreground="DimGray"/>
+      </StackPanel>
+    </Grid>
+    <TextBlock x:Name="StatusText" Grid.Row="5" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Margin="0,16,0,0" Text="Choose a Workspace."/>
+  </Grid>
+</Window>
