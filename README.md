@@ -108,7 +108,26 @@ Omitted people/Boolean fields stay unchanged; ordinary edits/imports of archived
 profiles never reactivate them. Only explicit `archived: false` does so, after
 whole-graph validation. Failed status/Manager saves retain the committed profile,
 photo, notes, and history; retry or discard the unsaved local action before leaving
-or closing. No Search/favorites behavior is added by this archival view.
+or closing.
+
+**Local search** finds stored profile attributes and Person/Team note titles and
+Markdown text without a network connection. Search is case-insensitive and uses
+the entered text as a substring. Results identify current information, archived
+profiles/notes, and historical matches separately, including note owners and
+Team-review warnings. Select a result to open its profile and appropriate note
+or read-only **Selected search context**. Historical matches show the exact frozen
+writing/former chain or old Profile value with its existing provenance, never
+later live writing mislabeled as history. Close that context to return to normal
+profile reading. Archived writing stays findable without joining the current org.
+
+**Mark favorite** / **Unmark favorite** saves the selected Person's star locally.
+The **Favorites** list returns to active or clearly labeled archived profiles,
+including after reopening. Reviewed imports may explicitly supply `isFavorite`;
+omission preserves the star and false removes it. Favorite-only edits do not
+create reporting history. Queries and favorite views rebuild from validated
+Workspace state after local/external changes, not a canonical index or hosted
+backend. Stale delivery is labeled; failed favorite saves retain the saved state
+and require retry/discard before navigation or close.
 
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or
@@ -120,7 +139,7 @@ photos. Invalid supplied images reject the batch and retain the existing photo.
 Textual profiles accept `displayName`, `preferredName`, `alias`, `jobTitle`,
 `department`, `officeBuilding`, `officeNumber`, `officeState`, `officeCountry`,
 and `linkedInProfileUrl`, alongside `email`, `managerEmail`, and explicit
-`archived` in the existing version-1 import envelope. Alias is a short company
+`archived` and `isFavorite` in the existing version-1 import envelope. Alias is a short company
 handle, not a preferred name
 or email. Building/room identifiers and geographic fields remain separate,
 unaltered text, including letters and leading zeros.
@@ -136,8 +155,7 @@ never fetches the URL or other remote content. **Open saved LinkedIn URL in
 browser** deliberately hands the saved link to the default browser; browser
 opening failures are visible without changing the profile.
 
-Contract fields owned by subsequent slices are still explicitly rejected rather
-than discarded. The full import contract remains unchanged.
+The full version-1 import contract remains unchanged.
 For example:
 
 ```json
@@ -234,6 +252,15 @@ without duplicate captures. Core and filesystem checks cover null/false/omission
 all explicit report-resolution choices, archived cycles, root/combined archival,
 immutable capture validation, atomic failed status saves and coherent folder-event
 delivery/reopening.
+Search/favorite smoke queries every textual profile attribute through the actual
+WPF search box, opens Person/owned/inherited Team writing with attribution,
+reads frozen and archived destinations, changes stars, validates import
+omission/false, exercises failed-save navigation/close safety, observes external
+profile/note/star delivery, and reopens persisted results. For only that real
+desktop flow, append `--search-favorites` to the smoke-runner command above
+(never to the app). Core and filesystem tests cover all-ancestor review flags,
+independent frozen note versions, old Profile values, legacy favorite omission,
+nonmutating queries and invalid-delivery stale retention.
 Coupled refresh checks cover externally delivered owned/inherited Team writing
 and review metadata, with whole-Workspace stale retention and recovery.
 Real folder-event tests and the actual UI also observe profile/Markdown changes,
@@ -259,5 +286,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, Search/favorites, complete imports, and release
-signing are subsequent slices, not shipped capabilities of this tracer.
+Installer, automatic updates, migrations, scale validation and release signing
+are subsequent slices, not shipped capabilities of this tracer.

@@ -14,7 +14,10 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
+            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] != "--search-favorites")
+                throw new ArgumentException("Supply the actual built WPF executable path; optionally --search-favorites for the focused real UI flow.");
+            RunSearchFavoriteFlow(args[0], root);
+            if (args.Length == 2) return 0;
             RunPersonArchivalFlow(args[0], root);
             RunHistoricalTeamContextFlow(args[0], root);
             RunExternalRefreshFlow(args[0], root);
