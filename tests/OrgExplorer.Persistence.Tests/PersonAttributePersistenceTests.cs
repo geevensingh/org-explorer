@@ -1,0 +1,151 @@
+using System.Text.Json.Nodes;
+using OrgExplorer.Workflow;
+using Xunit;
+
+namespace OrgExplorer.Persistence.Tests;
+
+public sealed class PersonAttributePersistenceTests : IDisposable
+{
+    private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+        ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private const string Batch = """
+        {"schemaVersion":1,"batchId":"40000000-0000-4000-8000-000000000001",
+         "observedAt":"2026-11-01T17:00:00Z","people":[
+         {"email":"avery@example.com","displayName":"Avery Example","preferredName":"Ave",
+          "alias":"avery","jobTitle":"Engineer","department":"Research",
+          "officeBuilding":"Building A","officeNumber":"007B","officeState":"Washington",
+          "officeCountry":"United States","linkedInProfileUrl":"https://www.linkedin.com/in/avery-example",
+          "managerEmail":null}]}
+        """;
+
+    [Fact]
+    public void All_textual_edits_and_an_office_only_import_survive_reopening_without_losing_omissions()
+    {
+        var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        var initial = Batch.Replace("\"managerEmail\":null}", """
+            "managerEmail":null},{"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}
+            """);
+        Assert.True(app.ApplyImport(app.PreviewImport(initial).Id), app.Status);
+        (PersonTextField Field, string Value)[] edits =
+        [
+            (PersonTextField.DirectoryName, "Avery Directory"), (PersonTextField.PreferredName, "My Avery"),
+            (PersonTextField.Alias, "aexample"), (PersonTextField.JobTitle, "Principal Engineer"),
+            (PersonTextField.Department, "Platform"), (PersonTextField.OfficeBuilding, "North A"),
+            (PersonTextField.OfficeNumber, "0009C"), (PersonTextField.OfficeState, "British Columbia"),
+            (PersonTextField.OfficeCountry, "Canada"),
+            (PersonTextField.LinkedInProfileUrl, "https://www.linkedin.com/in/avery-local")
+        ];
+        foreach (var (field, value) in edits)
+            Assert.True(app.EditPersonText("AVERY@example.com", field, value), app.Status);
+        var expected = new PersonProfile("avery@example.com", "Avery Directory", "My Avery", null)
+        {
+            Alias = "aexample", JobTitle = "Principal Engineer", Department = "Platform",
+            OfficeBuilding = "North A", OfficeNumber = "0009C", OfficeState = "British Columbia",
+            OfficeCountry = "Canada", LinkedInProfileUrl = "https://www.linkedin.com/in/avery-local"
+        };
+        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(expected, reopened.People.Single(p => p.Email == "avery@example.com"));
+        const string update = """
+            {"schemaVersion":1,"batchId":"40000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"AVERY@example.com","officeNumber":"0002B","department":null}]}
+            """;
+        Assert.True(reopened.ApplyImport(reopened.PreviewImport(update).Id), reopened.Status);
+        var durable = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(durable.OpenWorkspace(folder), durable.Status);
+        Assert.Equal(expected with { OfficeNumber = "0002B", Department = null },
+            durable.People.Single(p => p.Email == "avery@example.com"));
+        Assert.Equal(new PersonProfile("morgan@example.com", "Morgan Example", null, null),
+            durable.People.Single(p => p.Email == "morgan@example.com"));
+        var explicitValues = update.Replace("000000000002", "000000000003").Replace("""
+            "officeNumber":"0002B","department":null
+            """, """
+            "preferredName":"Imported Avery","linkedInProfileUrl":"https://www.linkedin.com/in/avery-imported"
+            """);
+        Assert.True(durable.ApplyImport(durable.PreviewImport(explicitValues).Id), durable.Status);
+        var final = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(final.OpenWorkspace(folder), final.Status);
+        Assert.Equal("Imported Avery", final.People.Single(p => p.Email == "avery@example.com").Heading);
+        Assert.Equal("https://www.linkedin.com/in/avery-imported",
+            final.People.Single(p => p.Email == "avery@example.com").LinkedInProfileUrl);
+    }
+
+    [Fact]
+    public void Explicit_null_clears_all_nullable_text_attributes_durably_without_changing_identity()
+    {
+        var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        var clear = """
+            {"schemaVersion":1,"batchId":"40000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"AVERY@example.com","displayName":null,"preferredName":null,"alias":null,
+              "jobTitle":null,"department":null,"officeBuilding":null,"officeNumber":null,
+              "officeState":null,"officeCountry":null,"linkedInProfileUrl":null}]}
+            """;
+        var preview = app.PreviewImport(clear);
+        Assert.True(preview.CanApply, app.Status);
+        Assert.Contains("LinkedIn URL", string.Join("\n", preview.Changes));
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(new PersonProfile("avery@example.com", null, null, null), Assert.Single(reopened.People));
+        Assert.Equal("avery@example.com", Assert.Single(reopened.People).Heading);
+    }
+
+    [Fact]
+    public void Rejected_batch_and_local_save_failure_retain_the_last_durable_complete_profile()
+    {
+        var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        var saved = Assert.Single(app.People);
+        var invalid = Batch.Replace("000000000001", "000000000002")
+            .Replace("\"officeNumber\":\"007B\"", "\"officeNumber\":\"009A\",\"notes\":\"must not import\"");
+        var preview = app.PreviewImport(invalid);
+        Assert.False(preview.CanApply);
+        Assert.False(app.ApplyImport(preview.Id));
+        using (var lease = new FileStream(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(app.EditPersonText(saved.Email, PersonTextField.OfficeNumber, "Unsaved 009A"));
+            Assert.Contains("NOT saved", app.Status);
+            Assert.Equal(saved, Assert.Single(app.People));
+        }
+        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(saved, Assert.Single(reopened.People));
+        Assert.Equal("007B", Assert.Single(reopened.People).OfficeNumber);
+    }
+
+    [Theory]
+    [InlineData("alias", " ")]
+    [InlineData("jobTitle", "")]
+    [InlineData("department", "\t")]
+    [InlineData("officeBuilding", " ")]
+    [InlineData("officeNumber", "")]
+    [InlineData("officeState", "\t")]
+    [InlineData("officeCountry", "")]
+    [InlineData("linkedInProfileUrl", "http://www.linkedin.com/in/avery")]
+    public void Invalid_external_textual_data_blocks_opening_and_writes(string property, string invalidValue)
+    {
+        var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        foreach (var path in Directory.EnumerateFiles(folder, "*.json", SearchOption.AllDirectories))
+        {
+            var json = JsonNode.Parse(File.ReadAllText(path))!;
+            if (json["email"]?.GetValue<string>() != "avery@example.com") continue;
+            json[property] = invalidValue;
+            File.WriteAllText(path, json.ToJsonString());
+        }
+        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.False(reopened.OpenWorkspace(folder));
+        Assert.Contains(property, reopened.Status);
+        Assert.Empty(reopened.People);
+        Assert.False(reopened.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "008"));
+    }
+
+    public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+}

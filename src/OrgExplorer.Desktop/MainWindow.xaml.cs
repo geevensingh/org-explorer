@@ -8,7 +8,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow : Window
 {
-    private readonly IApplicationWorkflow workflow = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+    private readonly IApplicationWorkflow workflow = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -30,10 +30,7 @@ public partial class MainWindow : Window
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
-        loading = true;
-        PreferredName.Clear();
-        loading = false;
-        PreferredName.IsEnabled = false;
+        ClearPersonEditors();
         ProfileHeading.Text = DirectoryName.Text = Email.Text = Manager.Text = "";
         RefreshPeople();
         ShowStatus();
@@ -67,23 +64,8 @@ public partial class MainWindow : Window
     {
         if (PeopleList.SelectedItem is not PersonProfile person) return;
         selectedEmail = person.Email;
-        loading = true;
-        PreferredName.Text = person.PreferredName ?? "";
-        loading = false;
-        PreferredName.IsEnabled = true;
+        LoadPersonEditors(person);
         ShowPerson(person);
-    }
-    private void EditPreferredName(object sender, TextChangedEventArgs e)
-    {
-        if (loading || selectedEmail is null) return;
-        if (workflow.EditPreferredName(selectedEmail, PreferredName.Text.Length == 0 ? null : PreferredName.Text))
-        {
-            ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
-            RefreshPeople();
-        }
-        ApplyButton.IsEnabled = false;
-        preview = null;
-        ShowStatus();
     }
     private void RefreshPeople()
     {
