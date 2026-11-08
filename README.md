@@ -45,6 +45,13 @@ edited note documents and reports save/delivery errors. Failed drafts remain
 visible until retry succeeds or you deliberately discard them. Images and raw
 HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
+Profiles display copied local JPEG/PNG photos, with **Choose photo** and
+**Clear photo** actions. Imports accept safe relative `photoPath` references or
+explicit null to clear; omitted photos stay unchanged. Images are decoded and
+validated before a whole batch can apply. The Workspace keeps its own
+content-addressed copies, so removing the producer folder does not break saved
+photos. Invalid supplied images reject the batch and retain the existing photo.
+
 Textual profiles accept `displayName`, `preferredName`, `alias`, `jobTitle`,
 `department`, `officeBuilding`, `officeNumber`, `officeState`, `officeCountry`,
 and `linkedInProfileUrl`, alongside `email`, `managerEmail`, and explicit
@@ -141,6 +148,9 @@ external document edit, checks failed-save retry/safe close/conflict recovery an
 blocked tree, Manager/report, and Workspace navigation with an unsaved note,
 archives writing, and verifies no rendering requests reach a local HTTP listener.
 Profile edits and reporting moves/replay retain the selected note and its writing.
+Photo smoke checks actual PNG/JPEG pixels, reopening after producer-folder
+removal, omission/clear behavior, and corrupt/remote rejection. Photo edits,
+reporting moves, and replay preserve private notes and their refresh revisions.
 Core checks include a 10,001-Person reporting chain without a hard import cap.
 Tests use fictitious people and isolated folders beneath the checkout, cleaned
 after each run.

@@ -206,6 +206,12 @@ public sealed partial class ApplicationWorkflow
             if (value.ValueKind != JsonValueKind.Null) Email(value, "Profile history.managerEmail");
         }
         else if (field == "archived") Boolean(value, "Profile history.archived");
+        else if (field == "photoPath")
+        {
+            if (value.ValueKind != JsonValueKind.Null && (value.ValueKind != JsonValueKind.String ||
+                !System.Text.RegularExpressions.Regex.IsMatch(value.GetString()!, @"^[a-f0-9]{64}\.(png|jpg)$")))
+                throw new FormatException("Profile history.photoPath: expected a Workspace photo content reference or null.");
+        }
         else if (TextFields.Any(f => f.Property == field))
             ValidateText(value, TextFields.Single(f => f.Property == field).Field, $"Profile history.{field}");
         else throw new FormatException($"Profile history.{field}: unsupported structured field.");
@@ -220,6 +226,7 @@ public sealed partial class ApplicationWorkflow
     {
         if (property == "managerEmail") return JsonSerializer.SerializeToElement(person.ManagerEmail);
         if (property == "archived") return JsonSerializer.SerializeToElement(person.Archived);
+        if (property == "photoPath") return JsonSerializer.SerializeToElement(person.PhotoPath);
         return JsonSerializer.SerializeToElement(ReadText(person, TextFields.Single(f => f.Property == property).Field));
     }
 
@@ -227,6 +234,7 @@ public sealed partial class ApplicationWorkflow
     {
         "managerEmail" => "Manager",
         "archived" => "Archived",
+        "photoPath" => "Photo",
         _ => TextFields.FirstOrDefault(f => f.Property == field).Label ?? field
     };
 }

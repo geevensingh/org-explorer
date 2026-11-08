@@ -46,7 +46,7 @@ public sealed partial class ApplicationWorkflow
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [person.Email] = WithText(person, field, validated) };
             var history = CaptureLocalHistory(person, proposed[person.Email], property);
-            if (!Save(proposed, batches, history)) return false;
+            if (!Save(proposed, batches, history: history)) return false;
             people = proposed;
             profileHistory = history;
             pending = null;
