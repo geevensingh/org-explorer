@@ -19,7 +19,11 @@ internal static class Program
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
                 "observedAt":"2026-11-01T17:00:00Z","people":[
-                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null}]}
+                {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
+                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"morgan@example.com"},
+                {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
+                {"email":"jordan@example.com","displayName":"Jordan Example","managerEmail":"alex@example.com"},
+                {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
                 """);
             var workspace = Path.Combine(root, "workspace");
             process = Launch(args[0]);
@@ -34,6 +38,24 @@ internal static class Program
                 throw new InvalidOperationException("Actual UI did not show the import preview.");
             Click(window, "ApplyImport");
             OpenPerson(window);
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
+            Click(window, "NavigateManager");
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Morgan Example");
+            var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
+            if (report is null) throw new InvalidOperationException("Imported report navigation missing.");
+            ((SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
+            File.WriteAllText(import, """
+                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
+                "observedAt":"2026-11-02T17:00:00Z","people":[
+                {"email":"morgan@example.com","archived":true}]}
+                """);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
+            if (Find(window, "ApplyImport").Current.IsEnabled ||
+                !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
+                throw new InvalidOperationException("Invalid graph was not visibly rejected by actual UI.");
             Set(window, "PreferredName", "Ave");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
@@ -48,10 +70,18 @@ internal static class Program
                 throw new InvalidOperationException("Directory name was not retained after reopening.");
             if (((ValuePattern)Find(window, "PreferredName").GetCurrentPattern(ValuePattern.Pattern)).Current.Value != "Ave")
                 throw new InvalidOperationException("Preferred name did not survive reopening.");
-            Console.WriteLine("PASS: actual WPF launch → Workspace → preview/apply → Person → edit/save → close/reopen.");
+            Console.WriteLine("PASS: WPF launch → whole-batch preview/apply → expand/collapse tree → Manager/report navigation → invalid graph rejection → edit/save → reopen.");
             return 0;
         }
-        catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            if (process is not null && !process.HasExited)
+                foreach (AutomationElement control in Window(process).FindAll(TreeScope.Descendants, Condition.TrueCondition))
+                    if (control.Current.AutomationId.Length > 0)
+                        Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
+            return 1;
+        }
         finally
         {
             if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
@@ -83,13 +113,22 @@ internal static class Program
         ((InvokePattern)Find(window, id).GetCurrentPattern(InvokePattern.Pattern)).Invoke();
     private static void OpenPerson(AutomationElement window)
     {
+        AutomationElement? root = null;
+        Await(() => (root = Find(window, "People").FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "casey@example.com"))) is not null);
+        var expand = (ExpandCollapsePattern)root!.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        expand.Expand();
+        Await(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        expand.Collapse();
+        Await(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        expand.Expand();
+        AutomationElement? manager = null;
+        Await(() => (manager = Find(window, "People").FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "morgan@example.com"))) is not null);
+        ((ExpandCollapsePattern)manager!.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
         AutomationElement? item = null;
-        Await(() =>
-        {
-            item = Find(window, "People").FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
-            return item is not null;
-        });
+        Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
         Await(() => Find(window, "PreferredName").Current.IsEnabled);
     }

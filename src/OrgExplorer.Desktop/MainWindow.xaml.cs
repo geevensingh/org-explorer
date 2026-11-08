@@ -12,6 +12,7 @@ public partial class MainWindow : Window
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
+    private readonly HashSet<string> expandedPeople = new(StringComparer.OrdinalIgnoreCase);
 
     public MainWindow() => InitializeComponent();
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
@@ -30,11 +31,15 @@ public partial class MainWindow : Window
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
+        expandedPeople.Clear();
         loading = true;
         PreferredName.Clear();
         loading = false;
         PreferredName.IsEnabled = false;
-        ProfileHeading.Text = DirectoryName.Text = Email.Text = Manager.Text = "";
+        ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
+        Manager.Content = "No Person selected";
+        Manager.IsEnabled = false;
+        ReportsList.ItemsSource = null;
         RefreshPeople();
         ShowStatus();
     }
@@ -63,9 +68,13 @@ public partial class MainWindow : Window
         RefreshPeople();
         ShowStatus();
     }
-    private void SelectPerson(object sender, SelectionChangedEventArgs e)
+    private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (PeopleList.SelectedItem is not PersonProfile person) return;
+        if (loading || e.NewValue is not ReportingNode node) return;
+        OpenPerson(node.Person);
+    }
+    private void OpenPerson(PersonProfile person)
+    {
         selectedEmail = person.Email;
         loading = true;
         PreferredName.Text = person.PreferredName ?? "";
@@ -88,8 +97,7 @@ public partial class MainWindow : Window
     private void RefreshPeople()
     {
         loading = true;
-        PeopleList.ItemsSource = workflow.People;
-        PeopleList.SelectedItem = workflow.People.FirstOrDefault(p => p.Email == selectedEmail);
+        PeopleList.ItemsSource = workflow.ReportingRoots;
         loading = false;
     }
     private void ShowPerson(PersonProfile person)
@@ -97,7 +105,47 @@ public partial class MainWindow : Window
         ProfileHeading.Text = person.Heading;
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
-        Manager.Text = "Manager: " + (person.ManagerEmail ?? "(explicit no-Manager)");
+        var context = workflow.GetRelationships(person.Email)!;
+        Manager.Content = "Manager: " + (context.Manager?.Heading ?? "(explicit no-Manager)");
+        Manager.Tag = context.Manager?.Email;
+        Manager.IsEnabled = context.Manager is not null;
+        ReportsList.ItemsSource = context.ImportedReports;
+        ReportCount.Text = $"Imported reports: {context.ImportedReports.Count} (selected population, not a full-company count)";
+    }
+    private void NavigateManager(object sender, RoutedEventArgs e)
+    {
+        if (Manager.Tag is string email) NavigateTo(email);
+    }
+    private void NavigateReport(object sender, SelectionChangedEventArgs e)
+    {
+        if (ReportsList.SelectedItem is PersonProfile report) NavigateTo(report.Email);
+    }
+    private void NavigateTo(string email)
+    {
+        var context = workflow.GetRelationships(email);
+        if (context is null) return;
+        OpenPerson(context.Person);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (context.Manager is { } manager && visited.Add(manager.Email))
+        {
+            expandedPeople.Add(manager.Email);
+            context = workflow.GetRelationships(manager.Email)!;
+        }
+        RefreshPeople();
+    }
+    private void RestoreTreeItem(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TreeViewItem item || item.DataContext is not ReportingNode node) return;
+        item.IsExpanded = expandedPeople.Contains(node.Person.Email);
+        item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
+    }
+    private void ExpandPerson(object sender, RoutedEventArgs e)
+    {
+        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Add(node.Person.Email);
+    }
+    private void CollapsePerson(object sender, RoutedEventArgs e)
+    {
+        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
     }
     private void ShowStatus() => StatusText.Text = workflow.Status;
 }
