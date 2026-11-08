@@ -14,7 +14,7 @@ public sealed record PersonProfile(string Email, string? DirectoryName, string? 
 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors);
 
-public interface IApplicationWorkflow
+public partial interface IApplicationWorkflow
 {
     IReadOnlyList<PersonProfile> People { get; }
     string Status { get; }
@@ -25,7 +25,7 @@ public interface IApplicationWorkflow
     bool EditPreferredName(string email, string? preferredName);
 }
 
-public sealed class ApplicationWorkflow : IApplicationWorkflow
+public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 {
     private readonly bool memory;
     private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
@@ -89,10 +89,13 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                 else if (Directory.EnumerateFileSystemEntries(fullPath).Any())
                     throw new IOException("Folder is not an empty or recognized Workspace. Existing files will not be overwritten.");
             }
+            var loadedNotes = memory ? [] : LoadPersonNotes(fullPath, loaded);
             workspace = fullPath;
             people = loaded;
             batches = accepted;
+            personNotes = loadedNotes;
             revision = memory ? null : WorkspaceFingerprint();
+            CapturePersonNoteRevision();
             Status = "Workspace opened.";
             return true;
         }
@@ -101,6 +104,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             workspace = null;
             people.Clear();
             batches.Clear();
+            personNotes.Clear();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }
@@ -265,11 +269,13 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             }
         }
     }
-    private string WorkspaceFingerprint()
+    private string WorkspaceFingerprint(bool includePersonNotes = true)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var path in Directory.EnumerateFiles(workspace!, "*", SearchOption.AllDirectories)
-            .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).Order())
+            .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
+                (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))).Order())
         {
             hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
             hash.AppendData(File.ReadAllBytes(path));
@@ -299,6 +305,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             if (File.Exists(destination)) File.Replace(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
             else File.Move(staged, destination);
             revision = WorkspaceFingerprint();
+            CapturePersonNoteRevision();
             return true;
         }
         catch (Exception ex) when (StorageError(ex))

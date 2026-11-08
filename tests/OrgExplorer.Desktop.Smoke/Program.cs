@@ -4,7 +4,7 @@ using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main(string[] args)
@@ -48,7 +48,9 @@ internal static class Program
                 throw new InvalidOperationException("Directory name was not retained after reopening.");
             if (((ValuePattern)Find(window, "PreferredName").GetCurrentPattern(ValuePattern.Pattern)).Current.Value != "Ave")
                 throw new InvalidOperationException("Preferred name did not survive reopening.");
-            Console.WriteLine("PASS: actual WPF launch → Workspace → preview/apply → Person → edit/save → close/reopen.");
+            Close(process);
+            RunPersonNoteFlow(args[0]);
+            Console.WriteLine("PASS: actual WPF Workspace/profile and private Person-note edit/read/autosave/archive/reopen flows.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

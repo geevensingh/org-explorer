@@ -13,7 +13,16 @@ public partial class MainWindow : Window
     private string? selectedEmail;
     private bool loading;
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        PersonNotes.Attach(workflow, () =>
+        {
+            ApplyButton.IsEnabled = false;
+            preview = null;
+            ShowStatus();
+        });
+    }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
@@ -26,7 +35,9 @@ public partial class MainWindow : Window
     }
     private void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        if (!PersonNotes.TryLeave()) return;
         workflow.OpenWorkspace(WorkspacePath.Text);
+        PersonNotes.OpenPerson(null);
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
@@ -66,6 +77,11 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, SelectionChangedEventArgs e)
     {
         if (PeopleList.SelectedItem is not PersonProfile person) return;
+        if (!PersonNotes.TryLeave())
+        {
+            PeopleList.SelectedItem = workflow.People.FirstOrDefault(p => p.Email == selectedEmail);
+            return;
+        }
         selectedEmail = person.Email;
         loading = true;
         PreferredName.Text = person.PreferredName ?? "";
@@ -98,6 +114,7 @@ public partial class MainWindow : Window
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
         Manager.Text = "Manager: " + (person.ManagerEmail ?? "(explicit no-Manager)");
+        PersonNotes.OpenPerson(person.Email);
     }
     private void ShowStatus() => StatusText.Text = workflow.Status;
 }
