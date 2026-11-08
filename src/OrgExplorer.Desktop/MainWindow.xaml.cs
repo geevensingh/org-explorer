@@ -26,6 +26,7 @@ public partial class MainWindow : Window
             preview = null;
             ShowStatus();
         });
+        Photo.PhotoEdited += EditPersonPhoto;
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -59,6 +60,8 @@ public partial class MainWindow : Window
         Manager.IsEnabled = false;
         ReportsList.ItemsSource = null;
         ReportCount.Text = "Imported reports (not a full-company count)";
+        Photo.Show(null);
+        Photo.CanEdit = false;
         RefreshPeople();
         ShowStatus();
     }
@@ -90,7 +93,30 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
-        if (!OpenPerson(node.Person)) RefreshPeople();
+        if (!OpenPerson(node.Person)) RestorePersonSelection();
+    }
+    private void RestorePersonSelection()
+    {
+        loading = true;
+        try
+        {
+            var parents = new Stack<ItemsControl>();
+            parents.Push(PeopleList);
+            while (parents.TryPop(out var parent))
+                foreach (var item in parent.Items)
+                    if (parent.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
+                    {
+                        if (container.DataContext is ReportingNode node &&
+                            string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Keep the invoking automation peer alive while rejecting navigation.
+                            container.IsSelected = true;
+                            return;
+                        }
+                        parents.Push(container);
+                    }
+        }
+        finally { loading = false; }
     }
     private bool OpenPerson(PersonProfile person)
     {
@@ -115,6 +141,8 @@ public partial class MainWindow : Window
         ProfileHeading.Text = person.Heading;
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
+        Photo.Show(workflow.GetPhoto(person.Email));
+        Photo.CanEdit = true;
         var context = workflow.GetRelationships(person.Email)!;
         Manager.Content = "Manager: " + (context.Manager?.Heading ?? "(explicit no-Manager)");
         Manager.Tag = context.Manager?.Email;
@@ -160,6 +188,15 @@ public partial class MainWindow : Window
     private void CollapsePerson(object sender, RoutedEventArgs e)
     {
         if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
+    }
+    private void EditPersonPhoto(string? localPath)
+    {
+        if (selectedEmail is null) return;
+        if (workflow.EditPhoto(selectedEmail, localPath))
+            ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
+        ApplyButton.IsEnabled = false;
+        preview = null;
+        ShowStatus();
     }
     private void ShowStatus() => StatusText.Text = workflow.Status;
 }

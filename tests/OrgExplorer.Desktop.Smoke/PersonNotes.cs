@@ -23,11 +23,12 @@ internal static partial class Program
         try
         {
             var import = Path.Combine(root, "import.json");
+            CreatePhotoFixture(Path.Combine(root, "avery.png"));
             const string initialImport = """
                 {"schemaVersion":1,"batchId":"20000000-0000-4000-8000-000000000001",
                 "observedAt":"2026-11-01T17:00:00Z","people":[
                 {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
-                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"casey@example.com"},
+                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"casey@example.com","photoPath":"avery.png"},
                 {"email":"jordan@example.com","displayName":"Jordan Example","managerEmail":"avery@example.com"}]}
                 """;
             File.WriteAllText(import, initialImport);
@@ -41,6 +42,7 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             OpenPerson(window, "casey@example.com");
+            AssertPhotoVisible(window);
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
             Set(window, "PersonNoteTitle", "Private meeting");
@@ -106,6 +108,10 @@ internal static partial class Program
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
             Click(window, "DiscardPersonNoteDraft");
             Await(() => Value(window, "PersonNoteMarkdown") == markdown);
+            Click(window, "ClearPhoto");
+            Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
+            AssertValue(window, "PersonNoteTitle", "Private meeting");
+            AssertValue(window, "PersonNoteMarkdown", markdown);
             Click(window, "NavigateManager");
             Await(() => Find(window, "Email").Current.Name == "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com") ||
@@ -154,6 +160,7 @@ internal static partial class Program
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenPerson(window);
+            Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
             AssertValue(window, "PreferredName", "Ave");
             AssertValue(window, "OfficeNumber", "0009C");
             SelectNote(window, "Private meeting");

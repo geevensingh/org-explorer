@@ -190,6 +190,12 @@ inside that directory. Drive-rooted paths, UNC paths, URLs, parent traversal,
 and escaping symlinks/junctions are invalid. Schema path checks do not replace
 filesystem containment checks.
 
+The Windows receiver checks the opened file's resolved handle for containment,
+validates complete PNG chunks/checksums or JPEG segments/end marker, and decodes
+all image pixels with Windows Imaging Component. A renamed extension does not
+turn supported content into an error or unsupported content into an image.
+Image hashes are part of preview revalidation and accepted-batch identity.
+
 Copy valid supplied images into the workspace; do not retain a dependency on the
 export folder or any remote image URL.
 
