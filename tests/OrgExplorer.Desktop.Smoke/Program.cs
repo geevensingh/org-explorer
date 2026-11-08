@@ -15,6 +15,7 @@ internal static partial class Program
         try
         {
             if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
+            RunHistoricalTeamContextFlow(args[0], root);
             RunExternalRefreshFlow(args[0], root);
             RunTeamNoteFlow(args[0]);
             var producer = Path.Combine(root, "producer");

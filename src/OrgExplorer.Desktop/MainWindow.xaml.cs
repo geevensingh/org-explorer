@@ -153,6 +153,7 @@ public partial class MainWindow : Window
             Photo.CanEdit = false;
             PersonNotes.OpenPerson(null);
             TeamNotes.OpenPerson(null);
+            ShowProfileTimeline(null);
         }
     }
     private void ShowPerson(PersonProfile person)

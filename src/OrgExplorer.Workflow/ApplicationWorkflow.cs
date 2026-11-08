@@ -154,6 +154,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             people.Clear();
             batches.Clear();
             profileHistory.Clear();
+            historicalTeamContexts.Clear();
             personNotes.Clear();
             teamNotes.Clear();
             teamNoteConfirmations.Clear();
@@ -413,9 +414,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         string operation = "import")
     {
         var nextTeamContexts = NextTeamContextRevisions(proposed);
+        var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
         if (memory)
         {
             teamContextRevisions = nextTeamContexts;
+            historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
             return true;
         }
@@ -437,6 +440,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts);
             WriteDurably(Path.Combine(directory, "batches.json"), accepted);
             WriteProfileHistory(directory, history ?? profileHistory);
+            WriteHistoricalTeamContexts(directory, nextHistoricalContexts);
             var staged = Path.Combine(workspace!, "workspace.next");
             var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
@@ -447,6 +451,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             revision = WorkspaceFingerprint();
             CapturePersonNoteRevision();
             teamContextRevisions = nextTeamContexts;
+            historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
             return true;
         }

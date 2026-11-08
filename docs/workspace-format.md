@@ -257,5 +257,71 @@ and inherited-context queries, with `InheritedTeamNote` carrying the owning Pers
 The existing note-refresh hook refreshes the complete Workspace coherently;
 `RefreshTeamNotes` uses that same workflow. No provider-specific sync adapter,
 per-record public repository, permanent-team model, or sharing endpoint is added.
-Historical freezing of note text belongs to the subsequent Historical team
-context slice; these mutable current documents must not serve as frozen history.
+These mutable current documents never serve as frozen history.
+
+## Immutable Historical team context
+
+The committed generation's `historical-team-context\<email-hash>.json` contains
+`schemaVersion: 1`, `email`, and a `contexts` array for a Person with captured
+former contexts. A capture contains a UUID `id`, stable `personEmail`, local UTC
+`capturedAt`, the former `reportingChain`, frozen `teamNotes`, and causal
+`transitions`. Chain members retain their old Person values for identity,
+attribution, and coherent old Manager links; they are not live current profiles
+or references to current photos.
+
+A direct or ancestor-chain transition captures once per affected existing active
+Person, comparing the complete accepted old population with the complete final
+proposed population. Newly created people establish a baseline, even when their
+Manager appears later in the same batch. Exact accepted replay, case-only
+references, same-value confirmations, office/name edits, and role-only changes
+do not manufacture transfers. Role/context review markers still follow
+`team-context.json` independently. Reversion and subsequent moves preserve
+separate captures rather than overwriting or reopening an earlier one.
+Standalone Person archival closure is the separate archival slice; this format
+does not infer a transfer from archival or reactivate a Person implicitly.
+
+Each frozen note retains `id`, `ownerEmail`, `title`, `markdown`, UTC
+`createdAt`/`updatedAt`, its `confirmedContextRevision`, `needsReview` at capture,
+and `version`. The version is SHA-256 of the canonically serialized identity,
+title/body, note dates, and confirmation revision, not a full edit-version
+history or an actual-transfer timestamp. Review status is retained separately,
+not used to change that document-content version. Only active Team notes known
+on the former chain are captured, including visible notes needing review;
+archived notes no longer contribute inherited context. Person notes never
+inherit or enter the capture. Empty writing/absent Team notes do not erase the
+former Reporting chain.
+
+Transitions attribute each changed Manager edge to its Person and retain the
+existing structured `ProfileChange` and `FieldEvidence`, including previous
+evidence, import/local source, source Observation, local recording time,
+batch identity, and producer. For ancestor moves, the causal ancestor's Manager
+evidence supplies dates; an unaffected descendant's Manager is not reconfirmed.
+Ordered source dates can bound that edge's observed interval; missing/equal/older
+evidence uses detection information with unknown effective date. Multiple changed
+edges have separate evidence bounds, not a guessed common effective instant.
+Captured note text is **locally known at processing time**, not guaranteed to
+have been the writing at the unknown actual transfer instant. File timestamps
+are never used to fill unknown evidence.
+
+The workflow exposes read-only frozen values through `GetHistoricalTeamContexts`.
+WPF presents **Historical team context** and its read-only rendered writing
+separately from current inherited Team context. Later note edits, confirmations,
+archival, owner renaming, or new imports cannot rewrite earlier captures.
+Historical Markdown uses the same private renderer: images and raw HTML do not
+load content, and links launch only on deliberate selection.
+
+Captures publish in the same atomic generation as profiles, Profile history,
+accepted batches, and Team-context revisions. A failed commit publishes none of
+them. The generation manifest declares historical documents, so withheld files
+are incomplete delivery, not silently missing history. Opening/automatic refresh
+validates frozen identities, chain coherence, note attribution/content versions,
+and causal evidence before accepting the complete byte revision. Invalid
+delivery retains the last valid current/history views with the common STALE
+warning and blocked writes. Refresh is read-only: it loads delivered captures
+without another transition, note confirmation, or replay.
+
+Older version-1 generations without this directory remain readable with no
+fabricated pre-import history. Their next reporting transition captures the
+actually known old chain and notes; missing prior Manager evidence remains
+unknown. Existing `team-context.json` baselines/review markers and the original
+partial import contract are unchanged; imported note operations remain rejected.

@@ -112,6 +112,18 @@
         </Expander>
         <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
         <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
+        <GroupBox Header="Historical team context — frozen former context, not current inheritance" Margin="0,16,0,0">
+          <StackPanel Margin="8">
+            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+              <TextBlock x:Name="HistoricalTeamSummary" AutomationProperties.AutomationId="HistoricalTeamSummary"
+                         Text="Select a Person to review Historical team context." TextWrapping="Wrap"/>
+            </ScrollViewer>
+            <TextBlock Text="Frozen Team-note reading — read-only, attributable local captures" Margin="0,8,0,4" TextWrapping="Wrap"/>
+            <FlowDocumentScrollViewer x:Name="HistoricalTeamReading" AutomationProperties.AutomationId="HistoricalTeamReading"
+                                      IsToolBarVisible="False" VerticalScrollBarVisibility="Auto" Height="280"
+                                      AutomationProperties.Name="Historical frozen Team notes; never current inheritance"/>
+          </StackPanel>
+        </GroupBox>
       </StackPanel>
       </ScrollViewer>
     </Grid>
