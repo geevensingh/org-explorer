@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Org explorer person update batch, version 1",
+  "description": "Partial person updates. Notes are not importable. Semantic graph, creation, replay, and filesystem validation are additionally required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "batchId",
+    "observedAt",
+    "people"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "batchId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?!0000)\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,7})?Z$"
+    },
+    "producer": {
+      "$ref": "#/$defs/nonblankText"
+    },
+    "people": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/personUpdate"
+      }
+    }
+  },
+  "$defs": {
+    "nonblankText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "nullableText": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "minLength": 1,
+      "pattern": "^[^\\s@]+@[^\\s@]+$"
+    },
+    "nullableEmail": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/email"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableHttpsUri": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri",
+      "pattern": "^https://[^\\s]+$"
+    },
+    "nullablePhotoPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^\\u0000-\\u001F:]+$",
+      "description": "A relative path to a JPEG or PNG beneath the import directory. Runtime validation must resolve links, check containment/existence, and decode the image."
+    },
+    "personUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "email"
+      ],
+      "properties": {
+        "email": {
+          "$ref": "#/$defs/email"
+        },
+        "displayName": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "preferredName": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "alias": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "jobTitle": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "department": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "officeBuilding": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "officeNumber": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "officeState": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "officeCountry": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "linkedInProfileUrl": {
+          "$ref": "#/$defs/nullableHttpsUri"
+        },
+        "managerEmail": {
+          "$ref": "#/$defs/nullableEmail"
+        },
+        "photoPath": {
+          "$ref": "#/$defs/nullablePhotoPath"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "isFavorite": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

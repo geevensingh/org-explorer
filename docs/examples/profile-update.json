@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "batchId": "10000000-0000-4000-8000-000000000002",
+  "observedAt": "2026-11-03T17:00:00Z",
+  "producer": "example-exporter",
+  "people": [
+    {
+      "email": "priya@example.com",
+      "preferredName": "Priya",
+      "officeBuilding": "Building 34",
+      "officeNumber": "04-012",
+      "officeState": "WA",
+      "officeCountry": "United States",
+      "linkedInProfileUrl": "https://www.linkedin.com/in/example-person",
+      "isFavorite": true
+    },
+    {
+      "email": "jordan@example.com",
+      "department": null
+    }
+  ]
+}
