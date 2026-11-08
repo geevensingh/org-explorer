@@ -33,6 +33,10 @@ inputs. Reopen the same chosen folder after reinstalling or replacing the app.
 The installer does not select/move that folder and uninstall does not delete it.
 The optional portable bundle follows the same independent-Workspace rule.
 
+Close the app normally and resolve any failed saves before manual repair,
+replacement, or uninstall. Installer hooks do not flush another running app's
+drafts, and forcibly terminating it is not a safe automatic-update policy.
+
 An installation replacement changes app binaries, **not** Workspace format or
 Workspace migration history. Installer rollback is not Workspace rollback.
 External folder providers still own synchronization and conflicts.
