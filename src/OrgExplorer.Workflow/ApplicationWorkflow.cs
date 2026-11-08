@@ -20,6 +20,7 @@ public sealed record PersonProfile(string Email, string? DirectoryName, string? 
     public string? LinkedInProfileUrl { get; init; }
     public string Heading => PreferredName ?? DirectoryName ?? Email;
     public string? PhotoPath { get; init; }
+    public bool IsFavorite { get; init; }
 }
 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors)
@@ -210,7 +211,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 var email = Email(Required(record, "email", scope), $"{scope}.email");
                 var priorChanges = changes.Count;
                 CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
-                    "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl", "managerEmail", "archived", "photoPath"], email);
+                    "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl", "managerEmail", "archived", "isFavorite", "photoPath"], email);
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
@@ -222,6 +223,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     throw new FormatException($"{email}: creation requires displayName and explicit managerEmail (null means no Manager).");
                 var archived = record.TryGetProperty("archived", out var archival)
                     ? Boolean(archival, $"{email}.archived") : existing?.Archived ?? false;
+                var favorite = record.TryGetProperty("isFavorite", out var favoriteValue)
+                    ? Boolean(favoriteValue, $"{email}.isFavorite") : existing?.IsFavorite ?? false;
                 var photoPath = existing?.PhotoPath;
                 string? photoHash = null;
                 if (record.TryGetProperty("photoPath", out var photo))
@@ -242,7 +245,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                         changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
                 }
                 var next = (existing ?? new PersonProfile(email, directoryName, preferredName, manager)) with
-                { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, Archived = archived, PhotoPath = photoPath };
+                { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, Archived = archived,
+                    IsFavorite = favorite, PhotoPath = photoPath };
                 foreach (var (field, property, _) in TextFields)
                     if (record.TryGetProperty(property, out var value))
                         next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
@@ -260,6 +264,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
                 if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
                 if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
+                if ((existing?.IsFavorite ?? false) != favorite)
+                    changes.Add($"{email}: Favorite {(favorite ? "→ marked" : "→ unmarked")}");
                 if (changes.Count == priorChanges)
                 {
                     var supplied = record.EnumerateObject().Where(p => p.Name != "email")

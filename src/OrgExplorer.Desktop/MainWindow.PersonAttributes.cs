@@ -76,6 +76,7 @@ public partial class MainWindow
         unsavedAttributes.Clear();
         unsavedArchived = null;
         unsavedManager = null;
+        unsavedFavorite = null;
         workflow.DiscardUnsavedChanges();
         PersonNotes.DiscardLocalDraft();
         TeamNotes.DiscardLocalDraft();

@@ -11,11 +11,13 @@ the list remain readable with their documented legacy unknown-evidence semantics
 `generations\<generation>\people\` contains separate indented UTF-8 JSON Person
 records with stable email, Directory name, Preferred name, Alias, job title,
 department, office building/number/state/country, LinkedIn URL, and explicit
-Manager or null, plus archival state. Archived records retain their data but are
+Manager or null, plus archival and favorite state. Archived records retain their data but are
 excluded from the ordinary reporting tree. Canonical camel-case properties are `directoryName`,
 `preferredName`, `alias`, `jobTitle`, `department`, `officeBuilding`,
 `officeNumber`, `officeState`, `officeCountry`, and `linkedInProfileUrl`.
 The import contract's `displayName` maps to canonical `directoryName`.
+Canonical `isFavorite` is a Boolean; omission in older version-1 Person records
+means false. It is saved alongside the profile, not in a second favorite store.
 Office identifiers stay text and missing optional attributes in existing
 version-1 records load as unknown; no migration or identity replacement is needed
 to add them. All textual fields are validated when loading as well as when edited
@@ -366,4 +368,44 @@ current inherited Team context. Their owned writing remains available. Boolean
 omission in an Import record preserves the existing status and its field
 confirmation; absence of a Person is also nonmutation. Explicit false is
 validated before rejoining the current org. The desktop archived filter is
-navigation over retained profiles, not the later Search/favorites slice.
+navigation over retained profiles; Search and favorites also open these profiles.
+
+## Local Search and favorites
+
+`IApplicationWorkflow.Search` performs trimmed, case-insensitive substring
+queries over the accepted local Workspace. Empty queries return no matches.
+Stored Directory/Preferred names, email, Alias, job title, department,
+office/geographic fields, LinkedIn URL, Manager email, photo reference and
+Boolean profile values are searchable. Person and owned Team notes include
+title and Markdown text, including retained archived writing. Current inherited
+Team matches use the same all-ancestor query as profiles; Person notes never
+inherit and archived notes never contribute current inheritance.
+
+Each result identifies its Person, source and current/archived/historical
+applicability. Notes carry their owning Person and stable document ID; archived
+notes are explicitly labeled as not current writing. Historical results identify
+the exact immutable capture snapshot and frozen note, retaining former-owner
+attribution and review status. Activation rechecks the query against validated
+state; it does not dereference a possibly changed live capture or note version.
+Former-chain attributes and structured Profile changes' old values are
+searchable too. The desktop opens the appropriate profile/note, a specific
+read-only frozen capture, or the matching Profile change with its existing
+Observation/detection provenance. No live note lookup substitutes for frozen
+writing. A historical match on an archived Person carries both distinctions.
+
+`FavoritePeople` is derived from canonical `isFavorite`, includes explicitly
+labeled archived profiles, and is sorted by profile heading. `EditFavorite`
+marks/unmarks locally through the same atomic profile/history save boundary.
+Import omission preserves favorite state and its field evidence; explicit false
+removes it after preview/apply. New people default to false. Replay remains a
+no-op, including after later local favorite edits. Favorite-only changes do not
+manufacture reporting captures or Team-review revisions.
+
+Search and favorite projections are rebuilt from accepted state on query, not
+stored as authoritative indexes. WPF requeries after validated mutations and
+external Workspace notifications. Invalid delivery keeps the last valid
+results/favorites explicitly **STALE retained**, blocks writes, and never
+publishes unvalidated text. Failed favorite saves retain the saved star/list and
+offer retry/discard before safe navigation/close. Querying does not write files,
+replay imports, manufacture history, fetch remote content, or upload private
+information. Search-match Markdown uses the same private native renderer.

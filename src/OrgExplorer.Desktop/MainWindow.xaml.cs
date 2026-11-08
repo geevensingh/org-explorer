@@ -55,6 +55,9 @@ public partial class MainWindow : Window
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
+        ClearSearchContext();
+        FavoriteButton.IsEnabled = false;
+        FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
         ClearPersonEditors();
         ClearPersonArchival();
@@ -130,10 +133,13 @@ public partial class MainWindow : Window
         if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !TryLeaveLocalEdits())
             return false;
         selectedEmail = person.Email;
+        if (selectedMatch is not null && !string.Equals(selectedMatch.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
+            ClearSearchContext();
         if (unsavedAttributes.Count == 0) LoadPersonEditors(person);
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
+        RefreshSearchAndFavorites();
         return true;
     }
     private void RefreshPeople()
@@ -147,6 +153,9 @@ public partial class MainWindow : Window
         else if (selectedEmail is not null && workflow.CanSafelyClose)
         {
             selectedEmail = null;
+            ClearSearchContext();
+            FavoriteButton.IsEnabled = false;
+            FavoriteStatus.Text = "Person unavailable.";
             ClearPersonEditors();
             ClearPersonArchival();
             ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
@@ -166,6 +175,7 @@ public partial class MainWindow : Window
         ProfileHeading.Text = person.Heading;
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
+        ShowFavorite(person);
         ShowPersonArchival(person);
         Photo.Show(workflow.GetPhoto(person.Email));
         Photo.CanEdit = true;
@@ -186,14 +196,14 @@ public partial class MainWindow : Window
     {
         if (!loading && ReportsList.SelectedItem is PersonProfile report) NavigateTo(report.Email);
     }
-    private void NavigateTo(string email)
+    private bool NavigateTo(string email)
     {
         var context = workflow.GetRelationships(email);
-        if (context is null) return;
+        if (context is null) return false;
         if (!OpenPerson(context.Person))
         {
             RefreshPeople();
-            return;
+            return false;
         }
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (context.Manager is { } manager && visited.Add(manager.Email))
@@ -202,6 +212,7 @@ public partial class MainWindow : Window
             context = workflow.GetRelationships(manager.Email)!;
         }
         RefreshPeople();
+        return true;
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
     {
@@ -240,6 +251,7 @@ public partial class MainWindow : Window
 
     private void ShowStatus()
     {
+        RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
@@ -247,7 +259,10 @@ public partial class MainWindow : Window
         RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0 || HasUnsavedRelationship;
         DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
         if (!workflow.IsWorkspaceCurrent)
+        {
             ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+            FavoriteButton.IsEnabled = false;
+        }
     }
 
     private bool TryLeaveLocalEdits()
