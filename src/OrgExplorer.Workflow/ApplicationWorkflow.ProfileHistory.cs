@@ -9,7 +9,7 @@ namespace OrgExplorer.Workflow;
 public enum ProfileChangeSource { Import, LocalEdit }
 
 public sealed record FieldEvidence(string Field, JsonElement Value, ProfileChangeSource Source,
-    DateTimeOffset? ObservedAt, DateTimeOffset RecordedAt, Guid? BatchId, string? Producer);
+    DateTimeOffset? ObservedAt, [property: JsonRequired] DateTimeOffset RecordedAt, Guid? BatchId, string? Producer);
 
 public sealed record ProfileChange(string Field, JsonElement OldValue, JsonElement NewValue,
     FieldEvidence? PreviousEvidence, FieldEvidence Evidence)
@@ -148,19 +148,22 @@ public sealed partial class ApplicationWorkflow
         foreach (var person in history.Values)
         {
             var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-            WriteDurably(Path.Combine(directory, key + ".json"), person);
+            WriteVersionedRecord(Path.Combine(directory, key + ".json"), person);
         }
     }
 
     private static Dictionary<string, PersonHistory> ReadProfileHistory(string generation,
-        Dictionary<string, PersonProfile> people)
+        Dictionary<string, PersonProfile> people, int workspaceVersion)
     {
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
         var directory = Path.Combine(generation, "profile-history");
         if (!Directory.Exists(directory)) return history;
         foreach (var file in Directory.GetFiles(directory, "*.json"))
         {
-            var person = JsonSerializer.Deserialize<PersonHistory>(ReadWorkspaceText(file), JsonOptions)
+            using var document = JsonDocument.Parse(ReadWorkspaceText(file));
+            CheckRecordVersion(document.RootElement, "Profile history", workspaceVersion);
+            CheckProperties(document.RootElement, ["schemaVersion", "email", "changes", "observations"], "Profile history");
+            var person = DeserializeVersionedRecord<PersonHistory>(document.RootElement)
                 ?? throw new FormatException("Invalid Profile history.");
             if (person.Email is null || !people.ContainsKey(person.Email) || !history.TryAdd(person.Email, person))
                 throw new FormatException("Profile history has an unknown or duplicate Person.");

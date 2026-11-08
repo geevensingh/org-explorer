@@ -124,8 +124,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
             """, 1, "2026-11-01T17:00:00Z"));
         var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
         Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
-        metadata.AsObject().Remove("files");
-        File.WriteAllText(Path.Combine(folder, "workspace.json"), metadata.ToJsonString());
+        OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
         var legacy = Open();
         Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));

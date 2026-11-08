@@ -72,7 +72,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private sealed record WorkspaceMetadata(
         [property: System.Text.Json.Serialization.JsonRequired] int SchemaVersion,
         [property: System.Text.Json.Serialization.JsonRequired] string Generation,
-        IReadOnlyList<string>? Files = null);
+        IReadOnlyList<string>? Files = null,
+        IReadOnlyDictionary<string, int>? RecordVersions = null);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -135,6 +136,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         StopWatching();
         workspaceCurrent = false;
         pending = null;
+        workspace = null;
+        compatibility = new(WorkspaceCompatibilityState.NotOpened,
+            "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
         try
         {
             var fullPath = Path.GetFullPath(path);
@@ -146,12 +150,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             workspace = fullPath;
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
-            Status = "Workspace opened.";
+            Status = conversionMessage ?? "Workspace opened.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
-            workspace = null;
+            MarkCompatibilityFailure(ex);
             people.Clear();
             batches.Clear();
             profileHistory.Clear();
@@ -161,6 +165,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             teamNoteConfirmations.Clear();
             teamContextRevisions.Clear();
             photos.Clear();
+            if (!memory && workspace is not null && Directory.Exists(workspace)) StartWatching();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }
@@ -311,10 +316,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 
     private bool ApplyImportCore(Guid previewId)
     {
-        if (!workspaceCurrent) return Fail("Workspace unavailable; retained information is STALE. No import can apply.");
-        if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
         try
         {
+            EnsureWorkspaceWritable();
+            if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
             if ((importPath is not null && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(importPath))) != importHash) ||
                 (!memory && WorkspaceFingerprint() != revision) || !PhotoResourcesUnchanged(pending.Resources))
             {
@@ -402,11 +407,13 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             complete.UnionWith(path);
         }
     }
-    private string WorkspaceFingerprint(bool includePersonNotes = true)
+    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var path in EnumerateWorkspaceFiles(workspace!)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
+                (ignoredGeneration is null || !p.StartsWith(Path.Combine(workspace!, "generations", ignoredGeneration) +
+                    Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) &&
                 (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))).Order())
@@ -431,7 +438,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         }
         try
         {
-            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained information is STALE. No changes saved.");
+            EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             if (WorkspaceFingerprint() != revision)
                 throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
@@ -441,7 +448,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             foreach (var person in proposed.Values)
             {
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-                WriteDurably(Path.Combine(directory, "people", key + ".json"), person);
+                WriteVersionedRecord(Path.Combine(directory, "people", key + ".json"), person);
             }
             SavePhotos(directory, proposed, proposedPhotos ?? photos);
             WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts);
@@ -451,7 +458,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var staged = Path.Combine(workspace!, "workspace.next");
             var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
-            WriteDurably(staged, new WorkspaceMetadata(1, generation, files));
+            WriteDurably(staged, new WorkspaceMetadata(2, generation, files, CurrentRecordVersions));
             var destination = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(destination)) File.Replace(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
             else File.Move(staged, destination);

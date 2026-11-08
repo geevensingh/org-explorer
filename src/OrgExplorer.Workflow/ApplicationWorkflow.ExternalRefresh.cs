@@ -116,18 +116,29 @@ public sealed partial class ApplicationWorkflow
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
             ReadAndAcceptWorkspace();
             pending = null;
-            Status = "Workspace refreshed from validated local files.";
+            Status = conversionMessage ?? "Workspace refreshed from validated local files.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
             pending = null;
             workspaceCurrent = false;
+            MarkCompatibilityFailure(ex);
             return Fail("Workspace unavailable; last valid information is STALE: " + ex.Message);
         }
     }
 
     private void ReadAndAcceptWorkspace()
+    {
+        conversionMessage = null;
+        if (!memory && InspectWorkspaceVersions() == 1) ConvertVersionOneWorkspace();
+        ReadAndAcceptWorkspaceData();
+        compatibility = new(WorkspaceCompatibilityState.Compatible,
+            conversionMessage ?? "Current validated Workspace. Settings remain available.",
+            workspace, 2, compatibility.RecoveryPath);
+    }
+
+    private void ReadAndAcceptWorkspaceData(WorkspaceMetadata? conversionCandidate = null)
     {
         var current = memory ? null : WorkspaceFingerprint();
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
@@ -141,10 +152,8 @@ public sealed partial class ApplicationWorkflow
             var metadataPath = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(metadataPath))
             {
-                var metadata = JsonSerializer.Deserialize<WorkspaceMetadata>(ReadWorkspaceText(metadataPath), JsonOptions)
-                    ?? throw new FormatException("Invalid Workspace metadata.");
-                if (metadata.SchemaVersion != 1) throw new FormatException("Unsupported Workspace version. Upgrade the app; writes are blocked.");
-                if (!Regex.IsMatch(metadata.Generation, @"^[a-f0-9]{32}$")) throw new FormatException("Invalid Workspace generation.");
+                using var pointer = JsonDocument.Parse(ReadWorkspaceText(metadataPath));
+                var metadata = conversionCandidate ?? ReadWorkspaceMetadata(pointer.RootElement);
                 var generation = Path.Combine(workspace!, "generations", metadata.Generation);
                 if (metadata.Files is { } files)
                 {
@@ -162,7 +171,8 @@ public sealed partial class ApplicationWorkflow
                 {
                     using var document = JsonDocument.Parse(ReadWorkspaceText(file));
                     var root = document.RootElement;
-                    CheckProperties(root, ["email", "directoryName", "preferredName", "alias", "jobTitle", "department",
+                    CheckRecordVersion(root, "Person", metadata.SchemaVersion);
+                    CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
                         "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
                         "managerEmail", "archived", "isFavorite", "photoPath", "heading"], Path.GetFileName(file));
                     var email = Email(Required(root, "email", "Person"), "Person.email");
@@ -172,7 +182,7 @@ public sealed partial class ApplicationWorkflow
                     var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
                     if (!Path.GetFileName(file).Equals(key + ".json", StringComparison.OrdinalIgnoreCase))
                         throw new FormatException($"{email}: conflicting Person filename; resolve provider copies outside the app.");
-                    var person = root.Deserialize<PersonProfile>(JsonOptions)
+                    var person = DeserializeVersionedRecord<PersonProfile>(root)
                         ?? throw new FormatException("Invalid Person data.");
                     Email(JsonSerializer.SerializeToElement(person.Email), "email");
                     foreach (var (field, property, _) in TextFields)
@@ -198,7 +208,7 @@ public sealed partial class ApplicationWorkflow
                     ValidateAcceptedSource(batch.Source);
                 }
                 loadedPhotos = LoadPhotos(generation, loaded);
-                history = ReadProfileHistory(generation, loaded);
+                history = ReadProfileHistory(generation, loaded, metadata.SchemaVersion);
                 historicalContexts = ReadHistoricalTeamContexts(generation, loaded);
             }
             else if (Directory.EnumerateFileSystemEntries(workspace!).Any())
@@ -235,6 +245,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
                 if (IsWorkspacePublicationFile(root, entry)) continue;
+                if (directory == root && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase)) continue;
                 RejectWorkspaceLink(entry);
                 if (Directory.Exists(entry)) directories.Push(entry);
                 else yield return entry;
@@ -244,6 +255,7 @@ public sealed partial class ApplicationWorkflow
 
     private static void ValidateAcceptedSource(JsonElement source)
     {
+        RequireVersion(source, "accepted batch source", [1]);
         CheckProperties(source, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "Accepted batch");
         var version = Required(source, "schemaVersion", "Accepted batch");
         if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
@@ -285,6 +297,24 @@ public sealed partial class ApplicationWorkflow
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
+    }
+
+    private static byte[] ReadWorkspaceBytes(string path)
+    {
+        using var file = OpenWorkspaceRead(path);
+        using var bytes = new MemoryStream();
+        file.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
+    private static string ReadWorkspaceText(string path)
+    {
+        // Provider delivery must not be blocked by a reader, including clients
+        // waiting on an incompatible/incomplete Workspace. Byte fingerprints
+        // and whole-state validation, not read leases, establish a stable view.
+        using var file = OpenWorkspaceRead(path);
+        using var text = new StreamReader(file, new UTF8Encoding(false, true));
+        return text.ReadToEnd();
     }
 
     public void Dispose()

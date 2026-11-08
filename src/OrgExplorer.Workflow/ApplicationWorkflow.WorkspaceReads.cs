@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
@@ -19,17 +17,4 @@ public sealed partial class ApplicationWorkflow
     private static FileStream OpenWorkspaceRead(string path) =>
         new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
-    private static byte[] ReadWorkspaceBytes(string path)
-    {
-        using var file = OpenWorkspaceRead(path);
-        using var content = new MemoryStream();
-        file.CopyTo(content);
-        return content.ToArray();
-    }
-
-    private static string ReadWorkspaceText(string path)
-    {
-        using var reader = new StreamReader(OpenWorkspaceRead(path), new UTF8Encoding(false, true));
-        return reader.ReadToEnd();
-    }
 }
