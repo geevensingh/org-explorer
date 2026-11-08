@@ -1,6 +1,6 @@
 # Org explorer
 
-A private, offline-first Windows org explorer with rich person profiles, personal
+A private, offline-first Windows org explorer with rich person profiles, person
 notes, manager-owned team context, and observed reporting history.
 
 The agreed first release targets Windows 11 x64 using .NET 10, WPF, and Velopack.
