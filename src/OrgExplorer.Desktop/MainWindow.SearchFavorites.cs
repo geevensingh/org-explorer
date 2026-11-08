@@ -11,16 +11,34 @@ public partial class MainWindow
     private bool refreshingQueries;
     private bool? unsavedFavorite;
     private SearchResult? selectedMatch;
+    private bool queryDirty = true;
+    private string? lastQuery;
+    private int queryRequest;
 
     private void ChangeSearchQuery(object sender, TextChangedEventArgs e) => RefreshSearchAndFavorites();
 
-    private void RefreshSearchAndFavorites()
+    private async void RefreshSearchAndFavorites()
     {
-        if (SearchResults is null || refreshingQueries) return;
+        if (SearchResults is null || refreshingQueries || workPending) return;
+        var query = SearchQuery.Text;
+        if (!queryDirty && lastQuery == query)
+        {
+            refreshingQueries = true;
+            FavoritesList.SelectedItem = FavoritesList.Items.Cast<FavoriteRow>().FirstOrDefault(r =>
+                string.Equals(r.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase));
+            refreshingQueries = false;
+            return;
+        }
+        queryDirty = false;
+        lastQuery = query;
+        var request = ++queryRequest;
+        var snapshot = await Task.Run(() => (Results: workflow.Search(query),
+            Favorites: workflow.FavoritePeople, Current: workflow.IsWorkspaceCurrent));
+        if (request != queryRequest || workPending || query != SearchQuery.Text) return;
         refreshingQueries = true;
         try
         {
-            var results = workflow.Search(SearchQuery.Text);
+            var results = snapshot.Results;
             if (!results.SequenceEqual(SearchResults.Items.Cast<SearchResult>())) SearchResults.ItemsSource = results;
             SearchResults.Visibility = results.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             SearchCount.Text = string.IsNullOrWhiteSpace(SearchQuery.Text) ? "Enter text to search local information." :
@@ -31,8 +49,8 @@ public partial class MainWindow
                 if (selectedMatch is null) ClearSearchContext();
                 else ShowSearchContext(selectedMatch);
             }
-            var favorites = workflow.FavoritePeople.Select(p => new FavoriteRow(p,
-                (workflow.IsWorkspaceCurrent ? "" : "STALE retained — ") +
+            var favorites = snapshot.Favorites.Select(p => new FavoriteRow(p,
+                (snapshot.Current ? "" : "STALE retained — ") +
                 $"{p.Heading} ({p.Email})" + (p.Archived ? " — Archived, retained profile" : ""))).ToArray();
             if (!favorites.SequenceEqual(FavoritesList.Items.Cast<FavoriteRow>())) FavoritesList.ItemsSource = favorites;
             FavoritesList.SelectedItem = favorites.FirstOrDefault(p =>
@@ -53,10 +71,12 @@ public partial class MainWindow
          System.Text.Json.JsonElement.DeepEquals(leftChange.OldValue, rightChange.OldValue) &&
          System.Text.Json.JsonElement.DeepEquals(leftChange.NewValue, rightChange.NewValue));
 
-    private void SelectSearchResult(object sender, SelectionChangedEventArgs e)
+    private async void SelectSearchResult(object sender, SelectionChangedEventArgs e)
     {
         if (refreshingQueries || SearchResults.SelectedItem is not SearchResult result) return;
-        var current = workflow.Search(SearchQuery.Text).FirstOrDefault(r => SameSearchDestination(r, result));
+        var query = SearchQuery.Text;
+        var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
+        if (query != SearchQuery.Text || workPending) return;
         if (current is null)
         {
             RefreshSearchAndFavorites();
@@ -128,12 +148,12 @@ public partial class MainWindow
             (unsavedFavorite.HasValue ? " — pending action NOT saved" : "");
     }
 
-    private void ChangeFavorite(object sender, RoutedEventArgs e)
+    private async void ChangeFavorite(object sender, RoutedEventArgs e)
     {
         if (selectedEmail is null || !TryLeaveLocalEdits()) return;
         var person = workflow.GetRelationships(selectedEmail)!.Person;
         var favorite = !person.IsFavorite;
-        if (workflow.EditFavorite(person.Email, favorite))
+        if (await RunWorkflowAsync(() => workflow.EditFavorite(person.Email, favorite), "Saving local favorite…"))
         {
             unsavedFavorite = null;
             RefreshPeople();

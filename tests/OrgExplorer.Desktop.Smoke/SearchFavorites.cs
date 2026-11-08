@@ -176,6 +176,7 @@ internal static partial class Program
     private static void QueryAndSelect(AutomationElement window, string query, string email, string context,
         string source, string? owner = null, bool expectNavigation = true)
     {
+        if (expectNavigation) AwaitLocalWorkIdle(window);
         Set(window, "SearchQuery", query);
         AutomationElement? result = null;
         Await(() =>

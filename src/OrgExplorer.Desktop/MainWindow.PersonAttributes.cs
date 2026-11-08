@@ -8,6 +8,8 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private readonly Dictionary<PersonTextField, string?> unsavedAttributes = [];
+    private readonly System.Windows.Threading.DispatcherTimer profileSaveTimer =
+        new() { Interval = TimeSpan.FromMilliseconds(300) };
     private TextBox[] PersonEditors =>
         [DirectoryNameEditor, PreferredName, Alias, JobTitle, Department, OfficeBuilding,
          OfficeNumber, OfficeState, OfficeCountry, LinkedInProfileUrl];
@@ -45,28 +47,49 @@ public partial class MainWindow
         if (loading || selectedEmail is null || sender is not TextBox editor) return;
         var field = Enum.Parse<PersonTextField>((string)editor.Tag);
         var value = editor.Text.Length == 0 ? null : editor.Text;
-        if (workflow.EditPersonText(selectedEmail, field, value))
-        {
-            unsavedAttributes.Remove(field);
-            ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
-            RefreshPeople();
-        }
-        else
-        {
-            if (workflow.LocalSaveError is not null) unsavedAttributes[field] = value;
-            if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
-        }
+        unsavedAttributes[field] = value;
+        if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
+        profileSaveTimer.Stop();
+        profileSaveTimer.Start();
+        MarkDraftPending();
         ApplyButton.IsEnabled = false;
         preview = null;
-        ShowStatus();
+        StatusText.Text = "Pending local profile edits — not yet saved.";
     }
 
-    private void RetryProfileSave(object sender, RoutedEventArgs e)
+    private async void SaveProfileDraft(object? sender, EventArgs e) => await FlushProfileDraft();
+
+    private async Task FlushProfileDraft()
+    {
+        profileSaveTimer.Stop();
+        if (selectedEmail is null || unsavedAttributes.Count == 0) return;
+        if (workPending) { profileSaveTimer.Start(); return; }
+        var email = selectedEmail;
+        var failed = false;
+        foreach (var (field, value) in unsavedAttributes.ToArray())
+        {
+            if (await RunWorkflowAsync(() => workflow.EditPersonText(email, field, value), "Saving local profile…", keepProfileDraft: true))
+            {
+                if (unsavedAttributes.TryGetValue(field, out var current) && current == value) unsavedAttributes.Remove(field);
+            }
+            else { failed = true; break; }
+        }
+        if (unsavedAttributes.Count == 0) RefreshPeople();
+        ShowStatus();
+        if (!failed && unsavedAttributes.Count > 0)
+        {
+            profileSaveTimer.Start();
+            MarkDraftPending();
+            StatusText.Text = "Pending newer local profile edits — not yet saved.";
+        }
+    }
+
+    private async void RetryProfileSave(object sender, RoutedEventArgs e)
     {
         if (selectedEmail is null) return;
-        foreach (var (field, value) in unsavedAttributes.ToArray())
-            if (workflow.EditPersonText(selectedEmail, field, value)) unsavedAttributes.Remove(field);
-        RetryRelationshipSave();
+        await FlushProfileDraft();
+        if (workPending) return;
+        await RetryRelationshipSave();
         if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship) RefreshPeople();
         ShowStatus();
     }
@@ -74,6 +97,7 @@ public partial class MainWindow
     private void DiscardProfileDraft(object sender, RoutedEventArgs e)
     {
         unsavedAttributes.Clear();
+        profileSaveTimer.Stop();
         unsavedArchived = null;
         unsavedManager = null;
         unsavedFavorite = null;

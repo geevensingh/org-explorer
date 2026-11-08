@@ -203,6 +203,7 @@ internal static partial class Program
 
     private static void SelectTreePerson(AutomationElement window, string email)
     {
+        AwaitLocalWorkIdle(window);
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

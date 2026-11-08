@@ -57,6 +57,18 @@ public sealed partial class ApplicationWorkflow
         var pointer = Path.Combine(workspace!, "workspace.json");
         if (!File.Exists(pointer)) return 2;
         RejectWorkspaceLink(pointer);
+        using (var header = JsonDocument.Parse(ReadWorkspaceBytesUncached(pointer)))
+            ReadWorkspaceMetadata(header.RootElement);
+        if (workspaceReadSnapshot.Value is not null) return InspectWorkspaceVersionsCore();
+        using var read = new WorkspaceReadScope(CaptureWorkspaceBytes());
+        return InspectWorkspaceVersionsCore();
+    }
+
+    private int InspectWorkspaceVersionsCore()
+    {
+        var pointer = Path.Combine(workspace!, "workspace.json");
+        if (!File.Exists(pointer)) return 2;
+        RejectWorkspaceLink(pointer);
         using var json = JsonDocument.Parse(ReadWorkspaceText(pointer));
         var metadata = ReadWorkspaceMetadata(json.RootElement);
         var version = metadata.SchemaVersion;
@@ -162,14 +174,14 @@ public sealed partial class ApplicationWorkflow
     {
         var originalRoot = workspace!;
         using var source = new ApplicationWorkflow(false, profileLinkOpener, timeProvider) { workspace = originalRoot };
-        source.ReadAndAcceptWorkspaceData();
+        source.ReadAndAcceptWorkspaceData(allGenerations: true);
         var originalRevision = source.revision;
         compatibility = new(WorkspaceCompatibilityState.RecoveryRequired,
             "Automatic conversion has not been published. Original local files remain authoritative.",
             originalRoot, 1);
         using var lease = new FileStream(Path.Combine(originalRoot, ".workspace.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        if (InspectWorkspaceVersions() != 1 || WorkspaceFingerprint() != originalRevision)
+        if (InspectWorkspaceVersions() != 1 || WorkspaceFingerprint(allGenerations: true) != originalRevision)
             throw new IOException("Workspace changed before conversion; wait for complete delivery and retry.");
 
         var attempt = Path.Combine(originalRoot, "recovery", Guid.NewGuid().ToString("N"));
@@ -179,8 +191,8 @@ public sealed partial class ApplicationWorkflow
         {
             CopyWorkspace(originalRoot, originals);
             using var backup = new ApplicationWorkflow(false, profileLinkOpener, timeProvider) { workspace = originals };
-            backup.ReadAndAcceptWorkspaceData();
-            if (backup.revision != originalRevision || WorkspaceFingerprint() != originalRevision)
+            backup.ReadAndAcceptWorkspaceData(allGenerations: true);
+            if (backup.revision != originalRevision || WorkspaceFingerprint(allGenerations: true) != originalRevision)
                 throw new IOException("Workspace changed while preserving originals; no conversion was published.");
             compatibility = new(WorkspaceCompatibilityState.RecoveryRequired,
                 "Conversion has not been published. Validated originals are recoverable; resolve the local error and retry.",
@@ -214,16 +226,16 @@ public sealed partial class ApplicationWorkflow
             WriteDurably(Path.Combine(candidateRoot, "workspace.json"), pointer);
             using var converted = new ApplicationWorkflow(false, profileLinkOpener, timeProvider) { workspace = candidateRoot };
             converted.InspectWorkspaceVersions();
-            converted.ReadAndAcceptWorkspaceData();
+            converted.ReadAndAcceptWorkspaceData(allGenerations: true);
 
-            if (InspectWorkspaceVersions() != 1 || WorkspaceFingerprint() != originalRevision)
+            if (InspectWorkspaceVersions() != 1 || WorkspaceFingerprint(allGenerations: true) != originalRevision)
                 throw new IOException("Workspace changed before conversion publication; originals remain authoritative.");
             CopyWorkspace(next, Path.Combine(originalRoot, "generations", generation), includeRecovery: true);
             using var copied = new ApplicationWorkflow(false, profileLinkOpener, timeProvider) { workspace = originalRoot };
-            copied.ReadAndAcceptWorkspaceData(pointer);
+            copied.ReadAndAcceptWorkspaceData(pointer, allGenerations: true);
             if (InspectWorkspaceVersions() != 1 ||
-                WorkspaceFingerprint(ignoredGeneration: generation) != originalRevision ||
-                copied.WorkspaceFingerprint() != copied.revision)
+                WorkspaceFingerprint(ignoredGeneration: generation, allGenerations: true) != originalRevision ||
+                copied.WorkspaceFingerprint(allGenerations: true) != copied.revision)
                 throw new IOException("Workspace changed during conversion publication; original pointer was not replaced.");
             var stagedPointer = Path.Combine(attempt, "workspace.converted.next");
             WriteDurably(stagedPointer, pointer);

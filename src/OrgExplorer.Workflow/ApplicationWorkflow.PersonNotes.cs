@@ -35,9 +35,9 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] DateTimeOffset UpdatedAt);
 
     public IReadOnlyList<PersonNote> GetPersonNotes(string email, bool includeArchived = false)
-    { lock (workspaceGate) return
-        personNotes.Values.Where(n => string.Equals(n.OwnerEmail, email, StringComparison.OrdinalIgnoreCase)
-            && (includeArchived || !n.Archived)).OrderBy(n => n.CreatedAt).ThenBy(n => n.Id).ToArray(); }
+    { if (queryView is { } view) return view.GetPersonNotes(email, includeArchived);
+      lock (workspaceGate) return
+        Array.AsReadOnly(PersonNotesOf(email).Where(n => includeArchived || !n.Archived).ToArray()); }
 
     public PersonNote? CreatePersonNote(string email, string title, string markdown)
     { lock (workspaceGate) return CreatePersonNoteCore(email, title, markdown); }
@@ -58,6 +58,7 @@ public sealed partial class ApplicationWorkflow
         var note = new PersonNote(Guid.NewGuid(), person.Email, title, markdown, false, now, now);
         if (!SavePersonNote(note)) return null;
         personNotes.Add(note.Id, note);
+        InvalidateProjections();
         pending = null;
         Status = "Person note saved locally.";
         return note;
@@ -78,6 +79,7 @@ public sealed partial class ApplicationWorkflow
         var proposed = note with { Title = title, Markdown = markdown, UpdatedAt = DateTimeOffset.UtcNow };
         if (!SavePersonNote(proposed)) return false;
         personNotes[noteId] = proposed;
+        InvalidateProjections();
         pending = null;
         Status = "Person note saved locally.";
         return true;
@@ -93,6 +95,7 @@ public sealed partial class ApplicationWorkflow
         var proposed = note with { Archived = archived, UpdatedAt = DateTimeOffset.UtcNow };
         if (!SavePersonNote(proposed)) return false;
         personNotes[noteId] = proposed;
+        InvalidateProjections();
         pending = null;
         Status = archived ? "Person note archived locally; writing retained." : "Person note restored locally.";
         return true;
@@ -210,8 +213,7 @@ public sealed partial class ApplicationWorkflow
             if (File.Exists(destination)) File.Replace(staged, destination, null);
             else File.Move(staged, destination);
             staged = null;
-            revision = WorkspaceFingerprint();
-            CapturePersonNoteRevision();
+            AcceptWorkspaceRevision();
             failedSaves.Remove($"note:{note.Id}");
             failedNoteBases.Remove(note.Id);
             return true;

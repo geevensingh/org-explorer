@@ -208,6 +208,28 @@ image SHA-256 values, so unchanged path strings do not authorize changed images.
 mutations also invalidate prior previews. A graph batch publishes one coherent
 new generation, never intermediate Manager/report updates.
 
+Live validation fingerprints the pointer, **the complete pointed-to generation**
+(including its declared history/photos), and current note documents, not every
+recoverable or uncommitted generation accumulated by earlier saves. Earlier
+generations remain untouched and recoverable; changing recovery-only files does
+not invalidate review of unchanged current data. Migration-original preservation
+explicitly fingerprints and copies **all** generations, as before.
+
+A validated read captures file bytes once for parsing/version/history/note
+validation and computes a fresh full byte fingerprint afterwards. The cache
+exists only inside that read; it is not a timestamp shortcut or an authoritative
+index. Every unique supplied/loaded photo path is still contained, decoded and
+hashed; repeated references do not repeatedly decode the same image during a
+single validation. Apply revalidates those resources. Generation-file staging
+uses bounded parallel I/O, but every write is flushed and all workers finish
+before pointer publication. An I/O failure still publishes none of the mutation.
+Unchanged Person/history documents retain their validated original bytes in
+independent, flushed files in the new generation, avoiding repeated parsing and
+format expansion. No hard links or shared mutable originals are used. The live
+Workspace fingerprint and supplied import-photo resources are checked again
+after staging, immediately before publication; intervening delivery invalidates
+the operation instead of overwriting it.
+
 Validated Workspace reads use short-lived handles that permit external writes
 and deletion/replacement. Opening a reader must not lock a provider's same-path
 delivery or another client's atomic publication. Complete before/after byte
@@ -544,8 +566,12 @@ removes it after preview/apply. New people default to false. Replay remains a
 no-op, including after later local favorite edits. Favorite-only changes do not
 manufacture reporting captures or Team-review revisions.
 
-Search and favorite projections are rebuilt from accepted state on query, not
-stored as authoritative indexes. WPF requeries after validated mutations and
+Read-only query snapshots are published only from complete accepted state.
+Their sorted population, Reporting tree, report/owner lookups and substring
+search entries are rebuilt lazily after validated changes, not on every profile
+selection or keystroke. Current-status labels are still refreshed independently.
+These private in-memory projections are never stored as authoritative indexes,
+and queries do not wait on generation staging or file decoding. WPF requeries after validated mutations and
 external Workspace notifications. Invalid delivery keeps the last valid
 results/favorites explicitly **STALE retained**, blocks writes, and never
 publishes unvalidated text. Failed favorite saves retain the saved star/list and

@@ -28,13 +28,13 @@ public sealed partial class ApplicationWorkflow
     public bool RefreshTeamNotes() => RefreshPersonNotes();
 
     public IReadOnlyList<TeamNote> GetTeamNotes(string email, bool includeArchived = false)
-    { lock (workspaceGate) return
-        teamNotes.Values.Where(n => string.Equals(n.OwnerEmail, email, StringComparison.OrdinalIgnoreCase)
-            && (includeArchived || !n.Archived)).OrderBy(n => n.CreatedAt).ThenBy(n => n.Id)
-            .Select(n => n with { NeedsReview = teamNoteConfirmations[n.Id] != teamContextRevisions.GetValueOrDefault(n.OwnerEmail) }).ToArray(); }
+    { if (queryView is { } view) return view.GetTeamNotes(email, includeArchived);
+      lock (workspaceGate) return
+        Array.AsReadOnly(TeamNotesOf(email).Where(n => includeArchived || !n.Archived).ToArray()); }
 
     public IReadOnlyList<InheritedTeamNote> GetInheritedTeamNotes(string email)
-    { lock (workspaceGate) return GetInheritedTeamNotesCore(email); }
+    { if (queryView is { } view) return view.GetInheritedTeamNotes(email);
+      lock (workspaceGate) return GetInheritedTeamNotesCore(email); }
 
     private IReadOnlyList<InheritedTeamNote> GetInheritedTeamNotesCore(string email)
     {
@@ -69,6 +69,7 @@ public sealed partial class ApplicationWorkflow
         if (!SaveTeamNote(note, confirmation)) return null;
         teamNotes.Add(note.Id, note);
         teamNoteConfirmations.Add(note.Id, confirmation);
+        InvalidateProjections();
         pending = null;
         Status = "Team note saved locally.";
         return note;
@@ -91,6 +92,7 @@ public sealed partial class ApplicationWorkflow
         if (!SaveTeamNote(proposed, confirmation)) return false;
         teamNotes[noteId] = proposed;
         teamNoteConfirmations[noteId] = confirmation;
+        InvalidateProjections();
         pending = null;
         Status = "Team note saved locally and confirmed for current context.";
         return true;
@@ -116,6 +118,7 @@ public sealed partial class ApplicationWorkflow
         var proposed = note with { Archived = archived, UpdatedAt = DateTimeOffset.UtcNow };
         if (!SaveTeamNote(proposed, teamNoteConfirmations[noteId])) return false;
         teamNotes[noteId] = proposed;
+        InvalidateProjections();
         pending = null;
         Status = archived ? "Team note archived locally; writing retained." : "Team note restored locally.";
         return true;

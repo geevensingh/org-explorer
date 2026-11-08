@@ -13,6 +13,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
 - [Workspace versions and recovery](docs/workspace-format.md)
+- [10,000-Person validation and reference timings](docs/performance-validation.md)
 - [Machine-readable import schema](schemas/import-v1.schema.json)
 - [Example import files](docs/examples/)
 - [Architectural decisions](docs/adr/README.md)
@@ -37,6 +38,15 @@ whitespace-only text is rejected with a field-specific error. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
+
+Loading, validation and local writes run off the desktop dispatcher. Rapid
+profile/Markdown typing is coalesced after a short quiet interval; the visible
+draft stays editable while a previous write completes. Pending/newer drafts are
+explicitly **not yet saved**, and navigation/closing cannot discard them. A
+failed write still requires retry or deliberate discard. Tree expansion and
+Settings remain usable while local work is outstanding. Search runs locally in
+the background and ignores superseded query responses. None of this changes
+the import review checkpoint, atomic generation publication, or data formats.
 
 Known version-1 Workspaces open through automatic validated **1 → 2 conversion**,
 including the breaking Person/history record-version headers. Conversion
@@ -288,6 +298,14 @@ same-path photo pixels, invalid graph/stale state, and recovery using bounded
 eventual assertions. Own saves cause no recursive refresh/save or batch replay;
 failed saves remain visible to safe-close coordination until retry/discard.
 Core checks include a 10,001-Person reporting chain without a hard import cap.
+Filesystem and default desktop lanes also construct an actual 10,000-Person
+Workspace with 2,500 local photo references, 1,000 Person notes, 111 Team notes,
+200 frozen contexts, typed Profile history, 100 Archived people, and a 42-edge
+Reporting chain. They exercise load/reopen, current and historical search,
+navigation, mutations, validated external delivery, and stale/error retention.
+The actual desktop also checks rendered photo pixels and Settings access during
+loading. Append `--scale` to the smoke-runner command for just that complete
+real scale flow, never to the app. See the [reference measurements](docs/performance-validation.md).
 Tests use fictitious people and isolated folders beneath the checkout, cleaned
 after each run.
 Filesystem regressions also stress a refreshing second client against repeated
@@ -301,16 +319,23 @@ Every PR and main commit (without path filters) runs three independent parallel
 jobs: core/view models, real filesystem persistence, and actual Windows desktop
 smoke. `CI` runs even after lane failures and accepts only three `success`
 results. Cancellation/timeout cannot yield a successful required check.
-Dependency lock files support the initial SDK/package cache. Each lane includes
-restore/build/test within an eight-minute timeout; the aggregate has two minutes.
-Thus the execution critical-path bound is ten minutes and the summed job budget
-is 26 minutes, both below 30 (runner queues excluded). Five minutes is the target,
-not a claim about unmeasured hosted-runner performance.
+Dependency lock files support the SDK/package cache. `eng\Run-CiLane.ps1` uses
+separate build artifacts for each lane, so the same meaningful lanes can also
+run in independent local PowerShell processes without shared build-output races.
+Each lane includes restore/build/test/fixture work within one shared timeout:
+five minutes for core, eleven each for filesystem/desktop, and two for the aggregate.
+Thus the execution critical-path bound is thirteen minutes and the summed job budget
+is 29 minutes, both below 30 (runner queues excluded). Five minutes is the target,
+not a claim about unmeasured hosted-runner performance. Hosted lane timing starts
+before checkout/SDK setup, and remaining command deadlines share that budget.
+CI preserves timing JSON, logs and TRX evidence rather than using empty smoke
+commands. Desktop validation publishes a local product-check folder and rejects
+test assemblies/fixtures in it; this is not an installer or CD publication.
 
 Main is protected by an active GitHub **ruleset**, with no bypass actors,
 requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squash
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, migrations, scale validation and release signing
-are subsequent slices, not shipped capabilities of this tracer.
+Installer verification, automatic updates and CD/release signing remain
+blocked subsequent slices; scale validation does not implement them.

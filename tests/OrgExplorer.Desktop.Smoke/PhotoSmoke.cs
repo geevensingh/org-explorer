@@ -28,6 +28,9 @@ internal static partial class Program
 
     private static void AssertPhotoVisible(AutomationElement window)
     {
+        window.SetFocus();
+        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+        if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
         Await(() =>
         {
             var image = Find(window, "PersonPhoto");
@@ -37,6 +40,8 @@ internal static partial class Program
             try
             {
                 var color = GetPixel(dc, (int)(bounds.Left + bounds.Width / 2), (int)(bounds.Top + bounds.Height / 2));
+                if (color == uint.MaxValue)
+                    throw new InvalidOperationException("Actual UI pixels are unavailable. Desktop smoke requires an interactive, unlocked Windows desktop; image assertions cannot be skipped.");
                 return (color & 0xff) >= 240 && ((color >> 8) & 0xff) <= 20 && ((color >> 16) & 0xff) >= 240;
             }
             finally { ReleaseDC(IntPtr.Zero, dc); }

@@ -1,0 +1,124 @@
+using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
+using Xunit;
+using Xunit.Abstractions;
+
+namespace OrgExplorer.Persistence.Tests;
+
+public sealed class ScaleWorkflowTests(ITestOutputHelper output)
+{
+    [Fact]
+    public void Ten_thousand_People_keep_complete_durable_current_and_frozen_context_through_mutations_and_delivery()
+    {
+        using var fixture = new ScaleFixture { Log = Log };
+        // Timings are evidence, not an agreed application-latency SLA.
+        {
+            fixture.Build();
+            var app = Measure("load", () => fixture.Open());
+            AssertPopulation(app);
+            Measure("navigation-100", () =>
+            {
+                for (var i = 0; i < 100; i++) Assert.NotNull(app.GetRelationships(ScaleFixture.Email(1000 + i))!.Manager);
+            });
+            Measure("profile-100", () =>
+            {
+                for (var i = 0; i < 100; i++)
+                {
+                    Assert.Single(app.GetPersonNotes(ScaleFixture.Email(1000 + i)));
+                    Assert.NotEmpty(app.GetInheritedTeamNotes(ScaleFixture.Email(1000 + i)));
+                    Assert.Single(app.GetHistoricalTeamContexts(ScaleFixture.Email(1000 + i)));
+                }
+            });
+            var frozen = app.GetHistoricalTeamContexts(ScaleFixture.Target)[0];
+            Assert.Equal(new[] { ScaleFixture.Email(100), ScaleFixture.Email(10), ScaleFixture.Email(0) },
+                frozen.ReportingChain.Select(p => p.Email));
+            Assert.Contains(frozen.TeamNotes, n => n.Markdown.Contains("Cedar former context 100."));
+            Assert.Equal(42, ChainLength(app, ScaleFixture.DeepTarget));
+            var current = Measure("search-current", () => app.Search("Pine current context 100."));
+            Assert.Contains(current, r => r.Context == SearchContext.Current && r.Source == SearchSource.InheritedTeamNote);
+            var history = Measure("search-history", () => app.Search("Cedar former context 100."));
+            Assert.Contains(history, r => r.Person.Email == ScaleFixture.Target && r.Source == SearchSource.HistoricalTeamNote);
+            Assert.Contains(app.Search("person09999@example.com"), r => r.Person.Archived);
+
+            Measure("favorite-save", () => Assert.True(app.EditFavorite(ScaleFixture.Target, false), app.Status));
+            var note = app.GetPersonNotes(ScaleFixture.Target)[0];
+            Measure("note-save", () => Assert.True(app.EditPersonNote(note.Id, note.Title, "# Revised orchid private writing."), app.Status));
+            Assert.Contains(app.Search("Revised orchid"), r => r.NoteId == note.Id);
+            Assert.DoesNotContain(app.Search("Orchid private writing 1000."), r => r.NoteId == note.Id);
+            Measure("profile-save", () =>
+                Assert.True(app.EditPersonText(ScaleFixture.Target, PersonTextField.OfficeNumber, "0009S"), app.Status));
+            var import = ScaleFixture.Batch(new[] { new { email = ScaleFixture.Target, managerEmail = ScaleFixture.Email(12) } }, 4);
+            var preview = Measure("validated-preview", () => app.PreviewImport(import));
+            Assert.True(preview.CanApply, app.Status);
+            Measure("validated-apply", () => Assert.True(app.ApplyImport(preview.Id), app.Status));
+            var captures = app.GetHistoricalTeamContexts(ScaleFixture.Target);
+            Assert.Equal(2, captures.Count);
+            Assert.Equal(frozen.Id, captures[0].Id);
+            Assert.Equal("Cedar former context 100.", captures[0].TeamNotes.Single(n => n.OwnerEmail == ScaleFixture.Email(100)).Markdown.Split('\n')[1]);
+            app.Dispose();
+            var reopened = Measure("reopen", () => fixture.Open());
+            Measure("reopened-projections", () => AssertPopulation(reopened, 201));
+            Assert.Equal("0009S", reopened.GetRelationships(ScaleFixture.Target)!.Person.OfficeNumber);
+            Assert.Equal(ScaleFixture.Email(12), reopened.GetRelationships(ScaleFixture.Target)!.Manager!.Email);
+            Assert.Single(reopened.GetPersonNotes(ScaleFixture.Target));
+            Assert.Equal(2, reopened.GetHistoricalTeamContexts(ScaleFixture.Target).Count);
+            Measure("latest-replay", () => Assert.True(reopened.ApplyImport(reopened.PreviewImport(import).Id), reopened.Status));
+            Assert.Equal(2, reopened.GetHistoricalTeamContexts(ScaleFixture.Target).Count);
+            var initialReplay = Measure("initial-replay-preview", () =>
+                reopened.PreviewImportFile(Path.Combine(fixture.Producer, "initial.json")));
+            Assert.True(initialReplay.CanApply, reopened.Status);
+            Assert.Contains("no-op", Assert.Single(initialReplay.Changes));
+            Measure("initial-replay-apply", () => Assert.True(reopened.ApplyImport(initialReplay.Id), reopened.Status));
+            Assert.Equal("0009S", reopened.GetRelationships(ScaleFixture.Target)!.Person.OfficeNumber);
+            Assert.False(reopened.GetRelationships(ScaleFixture.Target)!.Person.IsFavorite);
+            Measure("unchanged-refresh", () => Assert.True(reopened.RefreshWorkspace(), reopened.Status));
+            var deliveryNote = reopened.GetPersonNotes(ScaleFixture.Target)[0];
+            var path = Path.Combine(fixture.Workspace, "notes", deliveryNote.Id + ".md");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("Revised orchid", "Delivered tulip"));
+            Measure("validated-delivery", () => Assert.True(reopened.RefreshWorkspace(), reopened.Status));
+            Assert.Contains(reopened.Search("Delivered tulip"), r => r.NoteId == deliveryNote.Id);
+            Assert.Empty(reopened.Search("Revised orchid"));
+            File.WriteAllText(path, "incomplete");
+            Assert.False(reopened.RefreshWorkspace());
+            Assert.False(reopened.IsWorkspaceCurrent);
+            Assert.Contains(reopened.Search("Delivered tulip"), r => !r.IsWorkspaceCurrent);
+            Assert.False(reopened.EditFavorite(ScaleFixture.Target, true));
+            Assert.Equal(10000, reopened.People.Count);
+        }
+    }
+
+    private void Log(string message)
+    {
+        output.WriteLine(message);
+        if (Environment.GetEnvironmentVariable("SCALE_TIMING_FILE") is { Length: > 0 } path)
+            File.AppendAllText(path, message + Environment.NewLine);
+    }
+    private T Measure<T>(string operation, Func<T> action) => ScaleFixture.Measure(operation, action, Log);
+    private void Measure(string operation, Action action) => ScaleFixture.Measure(operation, action, Log);
+
+    private static void AssertPopulation(IApplicationWorkflow app, int historicalCount = 200)
+    {
+        Assert.Equal(10000, app.People.Count);
+        Assert.Equal(100, app.ArchivedPeople.Count);
+        Assert.Equal(9900, Count(app.ReportingRoots));
+        Assert.Equal(128, app.GetPhoto(ScaleFixture.Target)!.Width);
+        Assert.Equal(2500, app.People.Count(p => p.PhotoPath is not null));
+        Assert.Equal(1000, app.People.Sum(p => app.GetPersonNotes(p.Email, true).Count));
+        Assert.Equal(111, app.People.Sum(p => app.GetTeamNotes(p.Email, true).Count));
+        Assert.Equal(historicalCount, app.People.Sum(p => app.GetHistoricalTeamContexts(p.Email).Count));
+    }
+
+    private static int Count(IReadOnlyList<ReportingNode> roots)
+    {
+        var stack = new Stack<ReportingNode>(roots);
+        var count = 0;
+        while (stack.TryPop(out var node)) { count++; foreach (var report in node.Reports) stack.Push(report); }
+        return count;
+    }
+    private static int ChainLength(IApplicationWorkflow app, string email)
+    {
+        var count = 0;
+        while (app.GetRelationships(email)!.Manager is { } manager) { count++; email = manager.Email; }
+        return count;
+    }
+}

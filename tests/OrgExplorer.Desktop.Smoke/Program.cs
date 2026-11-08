@@ -14,8 +14,9 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites"))
+            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale"))
                 throw new ArgumentException("Supply the actual built WPF executable path; optionally migration or --search-favorites for a focused real UI flow.");
+            if (args.Length == 2 && args[1] == "--scale") { RunScaleFlow(args[0]); return 0; }
             if (args.Length == 1 || args[1] == "migration") RunWorkspaceCompatibilityFlow(args[0], root);
             if (args.Length == 2 && args[1] == "migration")
             {
@@ -24,6 +25,7 @@ internal static partial class Program
             }
             RunSearchFavoriteFlow(args[0], root);
             if (args.Length == 2) return 0;
+            RunScaleFlow(args[0]);
             RunPersonArchivalFlow(args[0], root);
             RunHistoricalTeamContextFlow(args[0], root);
             RunExternalRefreshFlow(args[0], root);
@@ -179,15 +181,27 @@ internal static partial class Program
             return window is not null && window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspacePath")) is not null;
         });
+        ((WindowPattern)window!.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
         return window!;
     }
     internal static AutomationElement Find(AutomationElement window, string id) =>
         window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id))
         ?? throw new InvalidOperationException("Missing actual UI control: " + id);
-    internal static void Set(AutomationElement window, string id, string value) =>
+    internal static void Set(AutomationElement window, string id, string value)
+    {
+        Await(() => Find(window, id).Current.IsEnabled);
         ((ValuePattern)Find(window, id).GetCurrentPattern(ValuePattern.Pattern)).SetValue(value);
-    internal static void Click(AutomationElement window, string id) =>
+    }
+    internal static void Click(AutomationElement window, string id)
+    {
+        Await(() => Find(window, id).Current.IsEnabled);
         ((InvokePattern)Find(window, id).GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+    }
+    private static void AwaitLocalWorkIdle(AutomationElement window) => Await(() =>
+        Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+        !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+        !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+        !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
     private static void AssertValue(AutomationElement window, string id, string expected)
     {
         var actual = ((ValuePattern)Find(window, id).GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
@@ -215,6 +229,7 @@ internal static partial class Program
     }
     internal static void Close(Process process)
     {
+        AwaitLocalWorkIdle(Window(process));
         process.CloseMainWindow();
         if (!process.WaitForExit(10000)) throw new TimeoutException("App did not close normally.");
     }
@@ -223,7 +238,9 @@ internal static partial class Program
         var timer = Stopwatch.StartNew();
         while (timer.Elapsed < TimeSpan.FromSeconds(20))
         {
-            if (condition()) return;
+            try { if (condition()) return; }
+            catch (ElementNotAvailableException) { }
+            catch (InvalidOperationException error) when (error.Message.StartsWith("Missing actual UI control:", StringComparison.Ordinal)) { }
             Thread.Sleep(100);
         }
         throw new TimeoutException("Actual UI condition did not become true within 20 seconds.");

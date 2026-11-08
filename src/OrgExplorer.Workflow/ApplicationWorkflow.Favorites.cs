@@ -9,7 +9,8 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     public IReadOnlyList<PersonProfile> FavoritePeople
-    { get { lock (workspaceGate) return People.Where(p => p.IsFavorite).ToArray(); } }
+    { get { if (queryView is { } view) return view.FavoritePeople;
+        lock (workspaceGate) return People.Where(p => p.IsFavorite).ToArray(); } }
 
     public bool EditFavorite(string email, bool isFavorite)
     {

@@ -88,13 +88,15 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
         new ApplicationWorkflow(false, profileLinkOpener, timeProvider);
     public IReadOnlyList<PersonProfile> People
-    { get { lock (workspaceGate) return people.Values.OrderBy(p => p.Heading).ToArray(); } }
+    { get { if (queryView is { } view) return view.People; lock (workspaceGate) return OrderedPeople(); } }
     public IReadOnlyList<ReportingNode> ReportingRoots
     {
         get
         {
+            if (queryView is { } view) return view.ReportingRoots;
             lock (workspaceGate)
             {
+            if (reportingRoots is not null) return reportingRoots;
             var children = new Dictionary<string, List<ReportingNode>>(StringComparer.OrdinalIgnoreCase);
             var nodes = new Dictionary<string, ReportingNode>(StringComparer.OrdinalIgnoreCase);
             foreach (var person in People.Where(p => !p.Archived))
@@ -107,24 +109,27 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             foreach (var node in nodes.Values)
                 if (node.Person.ManagerEmail is { } manager) children[manager].Add(node);
                 else roots.Add(node);
-            return roots.AsReadOnly();
+            return reportingRoots = roots.AsReadOnly();
             }
         }
     }
     public PersonRelationships? GetRelationships(string email)
-    { lock (workspaceGate) return people.TryGetValue(email, out var person)
+    { if (queryView is { } view) return view.GetRelationships(email);
+      lock (workspaceGate) return people.TryGetValue(email, out var person)
         ? new PersonRelationships(person, person.ManagerEmail is { } manager ? people.GetValueOrDefault(manager) : null,
-            People.Where(p => !p.Archived && string.Equals(p.ManagerEmail, person.Email, StringComparison.OrdinalIgnoreCase)).ToArray())
+            ReportsOf(person.Email))
         : null; }
-    private string status = "Choose a Workspace.";
+    private string statusSnapshot = "Choose a Workspace.";
     public string Status
     {
-        get
+        get => Volatile.Read(ref statusSnapshot);
+        private set
         {
-            lock (workspaceGate)
-                return LocalSaveError is { } error && !status.Contains(error, StringComparison.Ordinal) ? status + "\n" + error : status;
+            var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
+            Volatile.Write(ref saveErrorSnapshot, error);
+            Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
+                ? value + "\n" + error : value);
         }
-        private set { status = value; }
     }
 
     public bool OpenWorkspace(string path)
@@ -165,6 +170,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             teamNoteConfirmations.Clear();
             teamContextRevisions.Clear();
             photos.Clear();
+            InvalidateProjections();
             if (!memory && workspace is not null && Directory.Exists(workspace)) StartWatching();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
@@ -195,6 +201,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var batchId = Text(Required(root, "batchId", "batch"), "batchId", false)!;
             if (!Guid.TryParseExact(batchId, "D", out var parsedId)) throw new FormatException("batchId: expected UUID.");
             batchId = parsedId.ToString();
+            var previouslyAccepted = batches.ContainsKey(batchId);
             var observed = Text(Required(root, "observedAt", "batch"), "observedAt", false)!;
             if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
                 !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
@@ -210,6 +217,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var recordIndex = 0;
             var proposedPhotos = new Dictionary<string, byte[]>(photos);
             var resources = new List<PhotoResource>();
+            var resourcesByPath = new Dictionary<string, PhotoResource>(StringComparer.OrdinalIgnoreCase);
             foreach (var record in records.EnumerateArray())
             {
                 var scope = $"people[{recordIndex++}]";
@@ -240,11 +248,15 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                         var relativePath = Text(photo, $"{email}.photoPath", false)!;
                         if (importDirectory is null)
                             throw new FormatException($"{email}.photoPath: select an import JSON file so local photos have a containing directory.");
-                        var resource = ReadPhotoResource(importDirectory, relativePath, $"{email}.photoPath");
+                        if (!resourcesByPath.TryGetValue(relativePath, out var resource))
+                        {
+                            resource = ReadPhotoResource(importDirectory, relativePath, $"{email}.photoPath");
+                            resourcesByPath.Add(relativePath, resource);
+                            resources.Add(resource);
+                        }
                         photoHash = resource.Hash;
                         photoPath = photoHash.ToLowerInvariant() + resource.Extension;
                         proposedPhotos[photoPath] = resource.Bytes;
-                        resources.Add(resource);
                     }
                     if (photoPath != existing?.PhotoPath)
                         changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
@@ -256,7 +268,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     if (record.TryGetProperty(property, out var value))
                         next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
                 proposed[email] = next;
-                AddOlderEvidenceWarnings(email, record, observedAt, warnings);
+                if (!previouslyAccepted) AddOlderEvidenceWarnings(email, record, observedAt, warnings);
                 if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
                 foreach (var (field, _, label) in TextFields)
                 {
@@ -342,11 +354,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         var history = CaptureImportHistory(pending.Source, pending.People, appliedAt);
         var accepted = new Dictionary<string, AcceptedBatch>(batches)
         { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, appliedAt) };
-        if (!Save(pending.People, accepted, pending.Photos, history)) { pending = null; return false; }
+        if (!Save(pending.People, accepted, pending.Photos, history, resources: pending.Resources)) { pending = null; return false; }
         photos = pending.Photos;
         people = pending.People;
         batches = accepted;
         profileHistory = history;
+        InvalidateProjections();
         pending = null;
         Status = "Import applied and saved locally.";
         return true;
@@ -407,11 +420,13 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             complete.UnionWith(path);
         }
     }
-    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null)
+    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null,
+        IReadOnlyDictionary<string, byte[]>? snapshot = null, bool allGenerations = false)
     {
         using var access = CoordinateWorkspaceIo(workspace!);
+        snapshot ??= CaptureWorkspaceBytes(allGenerations);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in EnumerateWorkspaceFiles(workspace!)
+        foreach (var path in (snapshot is null ? EnumerateWorkspaceFiles(workspace!, allGenerations) : snapshot.Keys)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
                 (ignoredGeneration is null || !p.StartsWith(Path.Combine(workspace!, "generations", ignoredGeneration) +
                     Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) &&
@@ -420,13 +435,13 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     StringComparison.OrdinalIgnoreCase))).Order())
         {
             hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
-            hash.AppendData(ReadWorkspaceBytes(path));
+            hash.AppendData(snapshot is null ? ReadWorkspaceBytesUncached(path) : snapshot[path]);
         }
         return Convert.ToHexString(hash.GetHashAndReset());
     }
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
-        string operation = "import")
+        string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
     {
         var nextTeamContexts = NextTeamContextRevisions(proposed);
         var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
@@ -442,30 +457,44 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             using var access = CoordinateWorkspaceIo(workspace!);
             EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            if (WorkspaceFingerprint() != revision)
+            var sourceBytes = CaptureWorkspaceBytes();
+            if (WorkspaceFingerprint(snapshot: sourceBytes) != revision)
                 throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
+            string? sourceGeneration = null;
+            if (sourceBytes.TryGetValue(Path.Combine(workspace!, "workspace.json"), out var pointerBytes))
+            {
+                using var sourcePointer = JsonDocument.Parse(pointerBytes);
+                sourceGeneration = Path.Combine(workspace!, "generations", ReadWorkspaceMetadata(sourcePointer.RootElement).Generation);
+            }
             var generation = Guid.NewGuid().ToString("N");
             var directory = Path.Combine(workspace!, "generations", generation);
             Directory.CreateDirectory(Path.Combine(directory, "people"));
-            foreach (var person in proposed.Values)
+            RunBoundedFileIo(proposed.Values, person =>
             {
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-                WriteVersionedRecord(Path.Combine(directory, "people", key + ".json"), person);
-            }
+                var target = Path.Combine(directory, "people", key + ".json");
+                var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "people", key + ".json");
+                if (people.TryGetValue(person.Email, out var prior) && prior == person &&
+                    source is not null && sourceBytes.TryGetValue(source, out var bytes))
+                    WriteDurablyBytes(target, bytes);
+                else WriteVersionedRecord(target, person);
+            });
             SavePhotos(directory, proposed, proposedPhotos ?? photos);
             WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts);
             WriteDurably(Path.Combine(directory, "batches.json"), accepted);
-            WriteProfileHistory(directory, history ?? profileHistory);
-            WriteHistoricalTeamContexts(directory, nextHistoricalContexts);
+            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes);
+            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes);
             var staged = Path.Combine(workspace!, "workspace.next");
             var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
             WriteDurably(staged, new WorkspaceMetadata(2, generation, files, CurrentRecordVersions));
+            if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
+                throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
             var destination = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(destination)) File.Replace(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
             else File.Move(staged, destination);
-            revision = WorkspaceFingerprint();
-            CapturePersonNoteRevision();
+            liveGeneration = generation;
+            AcceptWorkspaceRevision();
             teamContextRevisions = nextTeamContexts;
             historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
@@ -481,6 +510,24 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
         JsonSerializer.Serialize(file, value, JsonOptions);
         file.Flush(true);
+    }
+    private static void WriteDurablyBytes(string path, byte[] bytes)
+    {
+        using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        file.Write(bytes);
+        file.Flush(true);
+    }
+    private static void RunBoundedFileIo<T>(IEnumerable<T> values, Action<T> write)
+    {
+        try
+        {
+            Parallel.ForEach(values, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) }, write);
+        }
+        catch (AggregateException error) when (error.Flatten().InnerExceptions.All(StorageError))
+        {
+            throw new IOException("Workspace file I/O failed: " +
+                error.Flatten().InnerExceptions[0].Message, error);
+        }
     }
     private static string? Text(JsonElement value, string field, bool nullable = true)
     {
