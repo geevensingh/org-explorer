@@ -277,8 +277,12 @@ references, same-value confirmations, office/name edits, and role-only changes
 do not manufacture transfers. Role/context review markers still follow
 `team-context.json` independently. Reversion and subsequent moves preserve
 separate captures rather than overwriting or reopening an earlier one.
-Standalone Person archival closure is the separate archival slice; this format
-does not infer a transfer from archival or reactivate a Person implicitly.
+Explicit active-to-archived status changes also close the Person's old context,
+even without a Manager change. A combined Manager/status change produces one
+capture with both causal changes, never intermediate captures. A root archival
+can have an empty Reporting chain and no inherited notes. Archived creation is a
+baseline, not a discovered prior context. Reactivation resumes the current valid
+chain without reopening earlier captures or inventing a transfer while archived.
 
 Each frozen note retains `id`, `ownerEmail`, `title`, `markdown`, UTC
 `createdAt`/`updatedAt`, its `confirmedContextRevision`, `needsReview` at capture,
@@ -303,6 +307,17 @@ Captured note text is **locally known at processing time**, not guaranteed to
 have been the writing at the unknown actual transfer instant. File timestamps
 are never used to fill unknown evidence.
 
+An archival closure adds a transition for the captured Person with `field:
+"archived"`, Boolean `oldValue: false`/`newValue: true`, and matching accepted
+evidence. It is not a changed Manager edge or proof of departure. Imported
+closures retain the source Observation and local recording time; in-app closures
+retain local-edit provenance with no source Observation. The UI labels these
+**Archival closure**, showing detection information rather than a guessed exact
+real-world effective date. Validation requires the closure to belong to the
+captured Person, not an ancestor, and permits at most one transition per
+Person/field. Existing Manager-only version-1 captures remain readable; this uses
+the same history document shape, not a new import/Workspace version.
+
 The workflow exposes read-only frozen values through `GetHistoricalTeamContexts`.
 WPF presents **Historical team context** and its read-only rendered writing
 separately from current inherited Team context. Later note edits, confirmations,
@@ -325,3 +340,30 @@ fabricated pre-import history. Their next reporting transition captures the
 actually known old chain and notes; missing prior Manager evidence remains
 unknown. Existing `team-context.json` baselines/review markers and the original
 partial import contract are unchanged; imported note operations remain rejected.
+
+## Person archival and reactivation
+
+Person `archived` is retained independently of note archival. A status change
+never deletes the Person, removes a note document, or drops their referenced
+photo. Current-generation photos, structured history, historical captures,
+accepted batches and Team review revisions are committed together through the
+same save boundary as imports and explicit Manager changes. Failure publishes
+none of the proposed status/context changes; local retry/discard and safe-close
+state still apply. External refresh loads validated delivered status/history
+without recording another closure or implicitly reactivating anyone.
+
+`IApplicationWorkflow.ArchivedPeople` exposes the retained-profile projection,
+while `ReportingRoots` always excludes archived people. `EditPersonArchived`
+and `EditPersonManager` validate the complete proposed graph and record local
+history through the same generation workflow used by Import apply. Active
+reports require active Managers; unknown references and active cycles are
+errors. Reports must be explicitly reassigned, cleared or archived by the owner
+or a reviewed Import batch before Manager archival is accepted. No inferred
+cascade, replacement Manager or permanent-delete operation exists.
+
+Archived profiles expose their last stored Manager for inspection but no
+current inherited Team context. Their owned writing remains available. Boolean
+omission in an Import record preserves the existing status and its field
+confirmation; absence of a Person is also nonmutation. Explicit false is
+validated before rejoining the current org. The desktop archived filter is
+navigation over retained profiles, not the later Search/favorites slice.

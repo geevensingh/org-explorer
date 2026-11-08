@@ -377,7 +377,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 if (!proposed.TryGetValue(manager, out var ancestor))
                     throw new FormatException($"{person.Email}.managerEmail: unknown Manager {manager}.");
                 if (!person.Archived && ancestor.Archived)
-                    throw new FormatException($"{person.Email}.managerEmail: active reports require an active Manager; {manager} is Archived.");
+                    throw new FormatException($"{person.Email}.managerEmail: active reports require an active Manager; {manager} is Archived. " +
+                        "Explicitly reassign, clear the Manager relationship, or archive each affected active report. No cascade or reassignment is inferred.");
             }
         }
         var complete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

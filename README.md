@@ -83,6 +83,33 @@ date. The frozen writing was **locally known at processing time**, not guarantee
 writing from the unknown actual transfer instant. Direct Person notes stay intact
 and never enter inherited or Historical team context.
 
+**Archive Person** explicitly removes the selected Person from the ordinary
+current reporting tree while keeping their profile, copied photo, Person notes,
+owned Team notes, and timelines. **Show archived people** opens a separate
+retained-profile list; select a Person there to inspect/edit their information
+and frozen context, including after closing/reopening. Archival is not deletion
+or an assertion of departure. The profile labels its last stored Manager
+separately from current inheritance, which is empty while archived.
+
+Archival closes the old Reporting chain and freezes locally known Team writing
+even when the Manager did not change, including an empty chain for a root.
+Later Manager-note edits cannot rewrite the capture. Team notes stay with their
+owner and are marked for review by status changes, rather than moved or erased.
+**Reactivate Person** explicitly restores a valid current profile; it uses
+current Manager writing without reopening or rewriting old captures.
+
+An active Person must have an active Manager. Archiving a Manager with active
+reports rejects the whole change and identifies the affected report: no cascade
+or reassignment occurs. On each affected profile, choose a Manager (or explicit
+no-Manager) and **Apply Manager change**, or explicitly archive that report.
+Alternatively preview/apply all explicit report and status changes in one Import
+batch. A report may appear before a Manager being reactivated in that batch.
+Omitted people/Boolean fields stay unchanged; ordinary edits/imports of archived
+profiles never reactivate them. Only explicit `archived: false` does so, after
+whole-graph validation. Failed status/Manager saves retain the committed profile,
+photo, notes, and history; retry or discard the unsaved local action before leaving
+or closing. No Search/favorites behavior is added by this archival view.
+
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or
 explicit null to clear; omitted photos stay unchanged. Images are decoded and
@@ -198,6 +225,15 @@ edits and renaming, repeated transfers/replay, and close/reopen. Core and real
 filesystem tests also cover immutable versions, same-batch late Manager creation,
 atomic save failures, legacy unknown evidence, invalid/missing historical
 deliveries, and validated watcher refresh without duplicate captures.
+Archival smoke drives actual in-app archive/filter/reopen/reactivate with retained
+photo pixels, Person/owned Team notes, frozen all-ancestor writing and timelines.
+It rejects inconsistent Manager archival/reactivation, explicitly changes a
+Manager relationship, checks failed-save retry/safe close, preserves status on
+ordinary imports, accepts complete report/Manager status batches, and replays
+without duplicate captures. Core and filesystem checks cover null/false/omission,
+all explicit report-resolution choices, archived cycles, root/combined archival,
+immutable capture validation, atomic failed status saves and coherent folder-event
+delivery/reopening.
 Coupled refresh checks cover externally delivered owned/inherited Team writing
 and review metadata, with whole-Workspace stale retention and recovery.
 Real folder-event tests and the actual UI also observe profile/Markdown changes,
@@ -223,5 +259,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, complete imports, frozen historical Team context,
-and release signing are subsequent slices, not shipped capabilities of this tracer.
+Installer, automatic updates, Search/favorites, complete imports, and release
+signing are subsequent slices, not shipped capabilities of this tracer.

@@ -66,13 +66,16 @@ public partial class MainWindow
         if (selectedEmail is null) return;
         foreach (var (field, value) in unsavedAttributes.ToArray())
             if (workflow.EditPersonText(selectedEmail, field, value)) unsavedAttributes.Remove(field);
-        if (unsavedAttributes.Count == 0) RefreshPeople();
+        RetryRelationshipSave();
+        if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship) RefreshPeople();
         ShowStatus();
     }
 
     private void DiscardProfileDraft(object sender, RoutedEventArgs e)
     {
         unsavedAttributes.Clear();
+        unsavedArchived = null;
+        unsavedManager = null;
         workflow.DiscardUnsavedChanges();
         PersonNotes.DiscardLocalDraft();
         TeamNotes.DiscardLocalDraft();

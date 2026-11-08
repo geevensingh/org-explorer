@@ -167,6 +167,31 @@ Use dependency-aware staging and, where needed, manager-before-report applicatio
 order. Compare the old graph to the complete proposed graph for historical
 captures, not intermediate writes.
 
+An accepted active-to-archived change closes the Person's old context even if
+`managerEmail` is omitted. It freezes the old chain and locally known active Team
+writing without deleting profile fields, copied photos, Person/owned Team notes
+or earlier history. A combined reporting move/archive captures once from the
+coherent old state, not from intermediate record order. New archived identities
+are baselines; explicit reactivation resumes current context without rewriting
+the frozen captures.
+
+For example, a Manager/report archive can supply both explicit status changes:
+
+```json
+[
+  { "email": "morgan@example.com", "archived": true },
+  { "email": "priya@example.com", "archived": true }
+]
+```
+
+This is the `people` array within a complete version-1 envelope, not a standalone
+Import file. Omitted active reports still block Manager archival. Replacing the
+report's status change with `"managerEmail": null` or an explicitly valid active
+Manager is another deliberate resolution, not something the app infers.
+Reactivation can explicitly supply false for both report and Manager in one
+new batch, independent of array order; false for only a report whose Manager is
+still archived is rejected.
+
 An invalid record blocks the whole batch. Display concrete record/email/field
 errors; do not silently skip records. Show a change preview and require explicit
 apply. If the workspace or referenced resources change after preview, revalidate

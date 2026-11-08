@@ -18,7 +18,8 @@ public sealed record HistoricalTeamContext(Guid Id, string PersonEmail, DateTime
     public string DisplayProvenance =>
         $"Historical — captured locally {CapturedAt.UtcDateTime:yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'}.\n" +
         "Team-note text/versions were locally known at processing time, not guaranteed at the unknown actual transfer instant.\n" +
-        string.Join("\n\n", Transitions.Select(t => $"Reporting transition for {t.PersonEmail}:\n" +
+        string.Join("\n\n", Transitions.Select(t =>
+            $"{(t.Change.Field == "archived" ? "Archival closure" : "Reporting transition")} for {t.PersonEmail}:\n" +
             new ProfileTimeline([t.Change], [], []).DisplayChanges));
 }
 
@@ -49,21 +50,24 @@ public sealed partial class ApplicationWorkflow
     {
         var next = new Dictionary<string, List<HistoricalTeamContext>>(historicalTeamContexts, StringComparer.OrdinalIgnoreCase);
         if (!people.Values.Any(p => proposed.TryGetValue(p.Email, out var after) &&
-            !string.Equals(p.ManagerEmail, after.ManagerEmail, StringComparison.OrdinalIgnoreCase)))
+            (!p.Archived && after.Archived ||
+             !string.Equals(p.ManagerEmail, after.ManagerEmail, StringComparison.OrdinalIgnoreCase))))
             return next;
 
         foreach (var before in people.Values.Where(p => !p.Archived))
         {
             if (!proposed.TryGetValue(before.Email, out var after)) continue;
             var oldChain = ReportingChain(before, people);
-            if (oldChain.SequenceEqual(ReportingChain(after, proposed), StringComparer.OrdinalIgnoreCase)) continue;
+            if (!after.Archived && oldChain.SequenceEqual(ReportingChain(after, proposed), StringComparer.OrdinalIgnoreCase)) continue;
 
             // Only changed edges of the old chain establish why this context closed.
             // New Manager creation/write order cannot manufacture intermediate contexts.
             var transitions = oldChain.Prepend(before.Email)
                 .SelectMany(email => history.TryGetValue(email, out var evidence)
                     ? evidence.Changes.Skip(profileHistory.GetValueOrDefault(email)?.Changes.Count ?? 0)
-                        .Where(c => c.Field == "managerEmail").Select(c => new ReportingTransition(people[email].Email, c))
+                        .Where(c => c.Field == "managerEmail" ||
+                            c.Field == "archived" && string.Equals(email, before.Email, StringComparison.OrdinalIgnoreCase) && after.Archived)
+                        .Select(c => new ReportingTransition(people[email].Email, c))
                     : []).ToArray();
             var notes = oldChain.SelectMany(email => GetTeamNotes(email).Select(note =>
             {
@@ -190,24 +194,29 @@ public sealed partial class ApplicationWorkflow
         var changedEdges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var transition in capture.Transitions)
         {
-            if (transition is null || transition.PersonEmail is null || !changedEdges.Add(transition.PersonEmail) ||
-                transition.Change is not { Field: "managerEmail" } change ||
+            if (transition is null || transition.PersonEmail is null ||
+                transition.Change is not { Field: "managerEmail" or "archived" } change ||
+                !changedEdges.Add(transition.PersonEmail + ":" + change.Field) ||
+                change.Field == "archived" && !string.Equals(transition.PersonEmail, email, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(transition.PersonEmail, email, StringComparison.OrdinalIgnoreCase) &&
                 !chain.ContainsKey(transition.PersonEmail))
-                throw new FormatException("Historical team context contains invalid causal reporting evidence.");
+                throw new FormatException("Historical team context contains invalid causal reporting or archival evidence.");
             ValidateEvidence(change.Evidence);
             if (change.PreviousEvidence is { } prior) ValidateEvidence(prior);
             ValidateHistoryValue(change.Field, change.OldValue);
             ValidateHistoryValue(change.Field, change.NewValue);
             var oldManager = string.Equals(transition.PersonEmail, email, StringComparison.OrdinalIgnoreCase)
                 ? capture.ReportingChain.FirstOrDefault()?.Email : chain[transition.PersonEmail].ManagerEmail;
-            if (change.Evidence.Field != "managerEmail" || change.Evidence.RecordedAt != capture.CapturedAt ||
-                !SameProfileValue("managerEmail", change.OldValue, JsonSerializer.SerializeToElement(oldManager)) ||
-                !SameProfileValue("managerEmail", change.NewValue, change.Evidence.Value) ||
-                SameProfileValue("managerEmail", change.OldValue, change.NewValue) ||
-                change.PreviousEvidence is { } previous && (previous.Field != "managerEmail" ||
-                    !SameProfileValue("managerEmail", previous.Value, change.OldValue)))
-                throw new FormatException("Historical team context reporting evidence does not match the former chain.");
+            var expectedOld = change.Field == "archived" ? JsonSerializer.SerializeToElement(false) :
+                JsonSerializer.SerializeToElement(oldManager);
+            if (change.Evidence.Field != change.Field || change.Evidence.RecordedAt != capture.CapturedAt ||
+                !SameProfileValue(change.Field, change.OldValue, expectedOld) ||
+                change.Field == "archived" && !change.NewValue.GetBoolean() ||
+                !SameProfileValue(change.Field, change.NewValue, change.Evidence.Value) ||
+                SameProfileValue(change.Field, change.OldValue, change.NewValue) ||
+                change.PreviousEvidence is { } previous && (previous.Field != change.Field ||
+                    !SameProfileValue(change.Field, previous.Value, change.OldValue)))
+                throw new FormatException("Historical team context evidence does not match the former chain or archival closure.");
         }
     }
 }
