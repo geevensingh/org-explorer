@@ -5,7 +5,8 @@ The Workspace is a chosen local folder, not installation data or an import file.
 `generations\<generation>\people\` contains separate indented UTF-8 JSON Person
 records with stable email, Directory name, Preferred name, Alias, job title,
 department, office building/number/state/country, LinkedIn URL, and explicit
-Manager or null. Canonical camel-case properties are `directoryName`,
+Manager or null, plus archival state. Archived records retain their data but are
+excluded from the ordinary reporting tree. Canonical camel-case properties are `directoryName`,
 `preferredName`, `alias`, `jobTitle`, `department`, `officeBuilding`,
 `officeNumber`, `officeState`, `officeCountry`, and `linkedInProfileUrl`.
 The import contract's `displayName` maps to canonical `directoryName`.
@@ -32,7 +33,9 @@ preserved as `workspace.previous.json`; earlier generations remain recoverable.
 No retention cleanup runs yet. A short exclusive `.workspace.lock` coordinates
 local app writers, not external folder providers. Fingerprints detect Workspace
 changes since opening; stale previews and saves are refused instead of merging
-competing state. The UI revalidates the selected import bytes on apply.
+competing state. The UI revalidates the selected import bytes on apply. Local
+mutations also invalidate prior previews. A graph batch publishes one coherent
+new generation, never intermediate Manager/report updates.
 
 A save error remains visible and does not publish unsaved attributes as the saved
 profile. Reopen the Workspace after resolving access or external-change errors.

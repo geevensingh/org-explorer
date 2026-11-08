@@ -6,6 +6,8 @@ public sealed class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplica
 {
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;
+    public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
+    public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public string Status => workflow.Status;
     public bool OpenWorkspace(string path) => Observe(() => workflow.OpenWorkspace(path));
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
@@ -19,6 +21,7 @@ public sealed class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplica
     {
         var result = operation();
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(People)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReportingRoots)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
         return result;
     }

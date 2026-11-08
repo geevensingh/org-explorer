@@ -34,6 +34,13 @@ internal static class PersonAttributeFlow
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             OpenPerson(window);
+            Set(window, "LinkedInProfileUrl", url);
+            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            AssertValue(window, "LinkedInProfileUrl", url);
+            Await(() => Find(window, "OpenLinkedIn").Current.IsEnabled);
+            Set(window, "LinkedInProfileUrl", "");
+            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            Await(() => !Find(window, "OpenLinkedIn").Current.IsEnabled);
             (string Id, string Value)[] edits =
             [
                 ("DirectoryNameEditor", "Avery Directory"), ("PreferredName", "Ave"),
@@ -79,6 +86,10 @@ internal static class PersonAttributeFlow
             AssertValue(window, "OfficeNumber", "007B");
             Click(window, "ApplyImport");
             Await(() => Find(window, "Status").Current.Name.Contains("applied"));
+            AssertValue(window, "OfficeNumber", "0009C");
+            AssertValue(window, "Department", "");
+            foreach (var (id, value) in edits.Where(e => e.Id is not "OfficeNumber" and not "Department"))
+                AssertValue(window, id, value);
             Close(process);
             process = Launch(executable);
             window = Window(process);

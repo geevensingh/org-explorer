@@ -17,7 +17,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Architectural decisions](docs/adr/README.md)
 - [Installer, updater, and signing research](docs/research/installer-updater.md)
 
-## Run the first tracer
+## Run locally
 
 On Windows 11 x64 with the .NET 10 SDK:
 
@@ -27,8 +27,11 @@ dotnet run --project src\OrgExplorer.Desktop
 
 Choose an empty local folder outside the installation, then **Open Workspace**.
 Choose a version-1 JSON file, review **Preview import**, and deliberately **Apply
-reviewed import**. Select the Person and edit the profile fields; changes are saved
-locally as you type. Empty editor text explicitly clears a nullable value;
+reviewed import**. Expand/collapse the **Imported reporting population**, select
+a Person, or navigate to their Manager and imported reports beside the profile.
+Report counts describe this selected population, not full-company coverage.
+Edit the profile fields; changes are saved locally as you type. Empty editor text
+explicitly clears a nullable value;
 whitespace-only text is rejected with a field-specific error. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
@@ -36,8 +39,9 @@ saved data. The app does not upload Workspace data.
 
 Textual profiles accept `displayName`, `preferredName`, `alias`, `jobTitle`,
 `department`, `officeBuilding`, `officeNumber`, `officeState`, `officeCountry`,
-and `linkedInProfileUrl`, alongside `email` and `managerEmail` in the existing
-version-1 import envelope. Alias is a short company handle, not a preferred name
+and `linkedInProfileUrl`, alongside `email`, `managerEmail`, and explicit
+`archived` in the existing version-1 import envelope. Alias is a short company
+handle, not a preferred name
 or email. Building/room identifiers and geographic fields remain separate,
 unaltered text, including letters and leading zeros.
 
@@ -67,6 +71,20 @@ For example:
 }
 ```
 
+Manager references resolve against the complete proposed batch and existing
+people, even when a report precedes its Manager. Duplicate keys, unknown
+Managers, active reporting cycles, and active reports to Archived managers block
+the entire import. Archiving a Manager requires explicit report changes; omitted
+people are never reassigned, archived, or removed. Archived profiles remain in
+the Workspace but leave the ordinary reporting tree.
+
+Preview lists additions, field changes/clears, reporting moves, archives,
+reactivations, and explicit no-change records. Changed Workspace or import bytes
+invalidate that review. An accepted batch replay is a visible no-op even after
+later local/reporting changes; JSON whitespace, property ordering, Person-array
+ordering, and case-equivalent email references do not change its logical identity.
+Different data under the same batch ID is rejected.
+
 The shared `IApplicationWorkflow` owns lifecycle, preview/apply, validated edits,
 projections, status, and persistence; WPF uses its observable `WorkspaceViewModel`
 adapter. File parsing/storage stay behind that seam. See
@@ -84,12 +102,17 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- sr
 
 The smoke runner requires an interactive Windows desktop and drives the actual
 WPF controls using Windows UI Automation. It launches the normal app without
-test-only flags, applies an import, opens a profile, edits, closes, and reopens to
-verify durability. It also edits every textual profile field, checks validation,
-reopens, reviews/applies an office-only import with an explicit clear, and reopens
+test-only flags, previews/applies a five-Person batch with a second-record report
+to its fifth-record Manager, expands/collapses the tree, navigates between
+Manager/report profiles, rejects an invalid archival batch, edits, closes, and
+reopens to verify durability. A combined reporting move, archive, and profile
+update followed by replay proves that later edits and unrelated fields survive.
+It also edits every textual profile field, checks validation and saved-link
+action state, reopens, reviews/applies an office-only import with an explicit clear, and reopens
 again to prove unrelated attributes survived. A controlled loopback endpoint
 checks that rendering a stored HTTPS link makes no network request; core tests
 control the browser-opening boundary without opening production pages.
+Core checks include a 10,001-Person reporting chain without a hard import cap.
 Tests use fictitious people and isolated folders beneath the
 checkout, cleaned after each run.
 
@@ -108,5 +131,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, complete imports, reporting/history/notes features,
+Installer, automatic updates, complete imports, history/notes features,
 and release signing are subsequent slices, not shipped capabilities of this tracer.
