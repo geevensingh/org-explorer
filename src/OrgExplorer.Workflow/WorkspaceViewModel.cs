@@ -12,6 +12,8 @@ public sealed partial class WorkspaceViewModel(IApplicationWorkflow workflow) : 
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
     public bool EditPreferredName(string email, string? preferredName) => Observe(() => workflow.EditPreferredName(email, preferredName));
+    public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
+    public bool OpenLinkedInProfile(string email) => Observe(() => workflow.OpenLinkedInProfile(email));
 
     private T Observe<T>(Func<T> operation)
     {

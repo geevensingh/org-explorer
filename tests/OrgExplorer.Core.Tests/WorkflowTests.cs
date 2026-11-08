@@ -49,7 +49,7 @@ public class WorkflowTests
     [InlineData("\"managerEmail\":null", "\"managerEmail\":\"missing@example.com\"", "unknown Manager")]
     [InlineData("\"managerEmail\":null", "\"managerEmail\":\"AVERY@example.com\"", "cycle")]
     [InlineData("\"managerEmail\":null", "\"notes\":\"private\", \"managerEmail\":null", "notes")]
-    [InlineData("\"managerEmail\":null", "\"department\":\"Engineering\", \"managerEmail\":null", "department")]
+    [InlineData("\"managerEmail\":null", "\"attributes\":{\"department\":\"Engineering\"}, \"managerEmail\":null", "attributes")]
     [InlineData(",\"managerEmail\":null", "", "creation requires")]
     [InlineData("\"displayName\":\"Avery Example\"", "\"displayName\":null", "creation requires")]
     [InlineData("\"email\":\"avery@example.com\"", "\"email\":\"Avery <avery@example.com>\"", "mailbox")]

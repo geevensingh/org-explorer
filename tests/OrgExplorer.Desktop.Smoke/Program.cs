@@ -49,6 +49,8 @@ internal static partial class Program
             if (((ValuePattern)Find(window, "PreferredName").GetCurrentPattern(ValuePattern.Pattern)).Current.Value != "Ave")
                 throw new InvalidOperationException("Preferred name did not survive reopening.");
             Close(process);
+            process = null;
+            PersonAttributeFlow.Run(args[0], root);
             RunPersonNoteFlow(args[0]);
             Console.WriteLine("PASS: actual WPF Workspace/profile and private Person-note edit/read/autosave/archive/reopen flows.");
             return 0;
@@ -61,9 +63,9 @@ internal static partial class Program
         }
     }
 
-    private static Process Launch(string path) => Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
+    internal static Process Launch(string path) => Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
         ?? throw new InvalidOperationException("WPF application did not launch.");
-    private static AutomationElement Window(Process process)
+    internal static AutomationElement Window(Process process)
     {
         AutomationElement? window = null;
         Await(() =>
@@ -76,14 +78,14 @@ internal static partial class Program
         });
         return window!;
     }
-    private static AutomationElement Find(AutomationElement window, string id) =>
+    internal static AutomationElement Find(AutomationElement window, string id) =>
         window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id))
         ?? throw new InvalidOperationException("Missing actual UI control: " + id);
-    private static void Set(AutomationElement window, string id, string value) =>
+    internal static void Set(AutomationElement window, string id, string value) =>
         ((ValuePattern)Find(window, id).GetCurrentPattern(ValuePattern.Pattern)).SetValue(value);
-    private static void Click(AutomationElement window, string id) =>
+    internal static void Click(AutomationElement window, string id) =>
         ((InvokePattern)Find(window, id).GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-    private static void OpenPerson(AutomationElement window)
+    internal static void OpenPerson(AutomationElement window)
     {
         AutomationElement? item = null;
         Await(() =>
@@ -95,12 +97,12 @@ internal static partial class Program
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
         Await(() => Find(window, "PreferredName").Current.IsEnabled);
     }
-    private static void Close(Process process)
+    internal static void Close(Process process)
     {
         process.CloseMainWindow();
         if (!process.WaitForExit(10000)) throw new TimeoutException("App did not close normally.");
     }
-    private static void Await(Func<bool> condition)
+    internal static void Await(Func<bool> condition)
     {
         var timer = Stopwatch.StartNew();
         while (timer.Elapsed < TimeSpan.FromSeconds(20))
