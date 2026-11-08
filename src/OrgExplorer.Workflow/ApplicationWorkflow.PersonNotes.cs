@@ -224,7 +224,8 @@ public sealed partial class ApplicationWorkflow
 
     private static void RejectNoteLink(string path)
     {
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+        if (entry.LinkTarget is not null)
             throw new IOException("Person note documents must be ordinary local files, not links: " + Path.GetFileName(path));
     }
 }

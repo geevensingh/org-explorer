@@ -37,7 +37,7 @@ internal static partial class Program
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            OpenPerson(window);
+            OpenNoteOwner(window);
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
             Set(window, "PersonNoteTitle", "Private meeting");
@@ -85,7 +85,7 @@ internal static partial class Program
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
-            OpenPerson(window);
+            OpenNoteOwner(window);
             SelectNote(window, "Private meeting");
             if (Value(window, "PersonNoteMarkdown") != markdown)
                 throw new InvalidOperationException("Markdown did not survive the actual app restart.");
@@ -122,6 +122,20 @@ internal static partial class Program
         });
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
         Await(() => Value(window, "PersonNoteTitle") == title);
+    }
+
+    private static void OpenNoteOwner(AutomationElement window)
+    {
+        AutomationElement? item = null;
+        Await(() =>
+        {
+            item = Find(window, "People").FindFirst(TreeScope.Descendants,
+                new OrCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)));
+            return item is not null;
+        });
+        ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        Await(() => Find(window, "PreferredName").Current.IsEnabled);
     }
 
     private static string Value(AutomationElement window, string id) =>
