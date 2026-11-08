@@ -11,6 +11,8 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $config = (Resolve-Path $NuGetConfig).Path
 $output = Join-Path $repo ".artifacts\installer\$Version"
 if (Test-Path $output) { throw "Output already exists: $output. Choose a new version or explicitly remove this local build before rebuilding." }
+$scratch = Join-Path $output 'build-staging'
+$previousEnvironment = @{}
 Push-Location $repo
 try {
     $app = Join-Path $repo 'src\OrgExplorer.Desktop\OrgExplorer.Desktop.csproj'
@@ -19,6 +21,11 @@ try {
     $client = @($project.Project.ItemGroup.PackageReference | Where-Object Include -EQ 'Velopack')[0]
     if ($client.Version -ne $tool.tools.vpk.version -or $tool.tools.vpk.version -ne '1.2.161') {
         throw 'Pin the Velopack client and local vpk packaging tool to the same reviewed version.'
+    }
+    New-Item -ItemType Directory $scratch -Force | Out-Null
+    foreach ($name in 'TEMP', 'TMP', 'VELOPACK_TEMP') {
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+        [Environment]::SetEnvironmentVariable($name, $scratch)
     }
     dotnet tool restore --configfile $config
     if ($LASTEXITCODE -ne 0) { throw 'Restore the pinned local vpk tool; no global installation is required.' }
@@ -52,4 +59,10 @@ try {
     & (Join-Path $repo 'tests\Installer.Artifacts.Tests.ps1') -ReleaseDirectory $releases -Version $Version
     Write-Host "Local unsigned installation artifacts: $releases"
     Write-Host 'Not published. Feed hashes/package-metadata are NOT signed update authorization; no unattended apply is enabled.'
-} finally { Pop-Location }
+} finally {
+    foreach ($name in $previousEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name])
+    }
+    if (Test-Path $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+    Pop-Location
+}

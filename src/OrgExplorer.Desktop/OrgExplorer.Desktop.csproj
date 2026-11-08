@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
     <PackageReference Include="Velopack" Version="1.2.161" />
+    <PackageReference Include="Markdig" Version="0.37.0" />
     <Content Include="..\..\docs\INSTALLATION.md" Link="INSTALLATION.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
