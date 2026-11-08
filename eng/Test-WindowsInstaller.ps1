@@ -65,8 +65,7 @@ try {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $resultPath = Join-Path $resultFolder 'result.json'
     while (!(Test-Path $resultPath)) {
-        if ($process.HasExited) { throw 'Windows Sandbox exited before producing install verification evidence.' }
-        if ($watch.Elapsed.TotalSeconds -gt 300) { throw 'Isolated install/start verification exceeded five minutes; no successful result was reported.' }
+        if ($watch.Elapsed.TotalSeconds -gt 480) { throw 'Isolated install/start verification exceeded eight minutes including Sandbox boot; no successful result was reported.' }
         Start-Sleep -Milliseconds 500
     }
     $result = Get-Content $resultPath -Raw | ConvertFrom-Json

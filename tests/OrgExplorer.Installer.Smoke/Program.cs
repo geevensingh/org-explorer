@@ -11,6 +11,7 @@ internal static class Program
     private const string SmokeRunner = @"C:\SmokeInput\OrgExplorer.Desktop.Smoke.exe";
     private const string Root = @"C:\OrgExplorerInstallerTest";
     private const string Results = @"C:\TestResults";
+    private static readonly Stopwatch Execution = Stopwatch.StartNew();
 
     private static int Main()
     {
@@ -93,6 +94,13 @@ internal static class Program
             var result = Path.Combine(Results, "result.json");
             File.WriteAllText(result + ".next", JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(result + ".next", result, true);
+            // This branch is reachable only in the disposable Sandbox account with mapped inputs.
+            // Dispose the test machine rather than leaving a background client after verification.
+            using var shutdown = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"))
+            {
+                UseShellExecute = false,
+                ArgumentList = { "/s", "/t", "0" }
+            });
         }
         return (string)evidence["result"] == "passed" ? 0 : 1;
     }
@@ -102,21 +110,23 @@ internal static class Program
 
     private static void Run(string file, string label, params string[] args)
     {
+        var captureConsole = file == SmokeRunner;
         var start = new ProcessStartInfo(file)
         {
             UseShellExecute = false,
             WorkingDirectory = Root,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardOutput = captureConsole,
+            RedirectStandardError = captureConsole
         };
         foreach (var argument in args) start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new InvalidOperationException(label + " did not start.");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var errors = process.StandardError.ReadToEndAsync();
+        var output = captureConsole ? process.StandardOutput.ReadToEndAsync() : Task.FromResult("");
+        var errors = captureConsole ? process.StandardError.ReadToEndAsync() : Task.FromResult("");
         try
         {
-            if (!process.WaitForExit(120000))
-                throw new TimeoutException(label + " exceeded two minutes.");
+            var remaining = Math.Min(120000, 240000 - (int)Execution.ElapsedMilliseconds);
+            if (remaining <= 0 || !process.WaitForExit(remaining))
+                throw new TimeoutException(label + " exceeded the two-minute process/four-minute total execution budget.");
             File.WriteAllText(Path.Combine(Results, label + ".stdout.txt"), output.GetAwaiter().GetResult());
             File.WriteAllText(Path.Combine(Results, label + ".stderr.txt"), errors.GetAwaiter().GetResult());
             if (process.ExitCode != 0)
@@ -140,7 +150,8 @@ internal static class Program
                 {
                     try
                     {
-                        if (process.MainModule?.FileName != exe || process.MainWindowHandle == IntPtr.Zero) continue;
+                        if (!string.Equals(process.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase) ||
+                            process.MainWindowHandle == IntPtr.Zero) continue;
                         if (!process.MainWindowTitle.Contains($"Org explorer {version} (Windows x64 / win)"))
                             throw new InvalidOperationException("Automatically launched desktop metadata did not match the installed package.");
                         found = true;
