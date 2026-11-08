@@ -160,7 +160,7 @@ public sealed partial class ApplicationWorkflow
         if (!Directory.Exists(directory)) return history;
         foreach (var file in Directory.GetFiles(directory, "*.json"))
         {
-            var person = JsonSerializer.Deserialize<PersonHistory>(File.ReadAllText(file), JsonOptions)
+            var person = JsonSerializer.Deserialize<PersonHistory>(ReadWorkspaceText(file), JsonOptions)
                 ?? throw new FormatException("Invalid Profile history.");
             if (person.Email is null || !people.ContainsKey(person.Email) || !history.TryAdd(person.Email, person))
                 throw new FormatException("Profile history has an unknown or duplicate Person.");

@@ -106,6 +106,23 @@ image SHA-256 values, so unchanged path strings do not authorize changed images.
 mutations also invalidate prior previews. A graph batch publishes one coherent
 new generation, never intermediate Manager/report updates.
 
+Validated Workspace reads use short-lived handles that permit external writes
+and deletion/replacement. Opening a reader must not lock a provider's same-path
+delivery or another client's atomic publication. Complete before/after byte
+fingerprints and data validation still reject changing, incomplete, or invalid
+deliveries; permissive handle sharing does not authorize unvalidated content.
+Producer-photo containment and preview/resource revalidation remain unchanged.
+
+The app's `workspace.next` and UUID-named `.next` files directly beneath `notes\`
+and `team-notes\` are uncommitted staging, not canonical data. Refresh traversal
+does not inspect or fingerprint them: Windows replacement source files must stay
+unopened during publication, even with delete-sharing handles. The recovery-only
+`workspace.previous.json` is also excluded from live reads because Windows must
+remove/overwrite that backup during the next publication. A partial/locked stage
+or backup leaves the committed pointer and notes authoritative. Other files,
+canonical links/conflict copies, and required generation manifests keep their
+existing validation; this is not conflict repair or a general ignored-file rule.
+
 A save error remains visible and does not publish unsaved attributes as the saved
 profile. Retry after resolving local access failures, or deliberately discard
 unsaved local edits. `CanSafelyClose` and `LocalSaveError` on the shared workflow
@@ -123,6 +140,12 @@ inspect the readable previous pointer and referenced generation, and restore a
 known-good pointer externally before reopening. The app does not silently pick
 a conflicting generation or implement sync-provider conflict resolution.
 Installation/upgrades must not remove this chosen folder.
+
+Disposal stops the watcher under the same workflow gate used for reads, so an
+active filesystem read finishes before closing returns and queued watcher reads
+cannot reenter. Explicit refresh requests after disposal are refused without
+filesystem access or new notifications. Callers must dispose every file-backed
+workflow before removing its Workspace or releasing fixture ownership.
 
 ## Private Person notes
 

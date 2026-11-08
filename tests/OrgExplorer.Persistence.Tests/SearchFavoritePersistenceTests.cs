@@ -88,11 +88,11 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         var teamNote = writer.CreateTeamNote("morgan@example.com", "Team", "Original cedar")!;
         var reader = Open();
         Assert.Contains(reader.Search("cedar"), r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
-        Assert.True(writer.EditFavorite("avery@example.com", true));
+        Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
         Apply(writer, """{"email":"alex@example.com","isFavorite":false}""", 2);
-        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"));
-        Assert.True(writer.EditPersonNote(personNote.Id, "Revised", "Revised orchid"));
-        Assert.True(writer.EditTeamNote(teamNote.Id, "Revised Team", "Revised cedar"));
+        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"), writer.Status);
+        Assert.True(writer.EditPersonNote(personNote.Id, "Revised", "Revised orchid"), writer.Status);
+        Assert.True(writer.EditTeamNote(teamNote.Id, "Revised Team", "Revised cedar"), writer.Status);
         Assert.True(SpinWait.SpinUntil(() => reader.FavoritePeople.Count == 1 && reader.FavoritePeople[0].Email == "avery@example.com" &&
             reader.Search("0009C").Count > 0 && reader.Search("revised orchid").Count == 1 &&
             reader.Search("revised cedar").Count == 2, TimeSpan.FromSeconds(10)), reader.Status);
@@ -125,9 +125,9 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
             Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
         }
         Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
-        Assert.True(app.CanSafelyClose);
+        Assert.True(app.CanSafelyClose, app.Status);
         Assert.Equal(2, Open().FavoritePeople.Count);
-        Assert.True(app.EditFavorite("avery@example.com", false));
+        Assert.True(app.EditFavorite("avery@example.com", false), app.Status);
         app.Dispose();
         var personFile = CurrentPersonFile("morgan@example.com");
         var legacy = JsonNode.Parse(File.ReadAllText(personFile))!;

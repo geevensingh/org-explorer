@@ -103,7 +103,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Photo_changes_join_the_structured_timeline_with_content_references_and_local_import_provenance()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var originalReference = Assert.Single(app.People).PhotoPath;
         Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
         var local = Path.Combine(Producer, "local.jpg");
@@ -114,7 +114,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
         var import = Import("\"avery.png\"", 2);
         Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var changes = reopened.GetProfileTimeline("avery@example.com")!.Changes;
         Assert.Equal(3, changes.Count);

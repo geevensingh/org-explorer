@@ -70,7 +70,7 @@ public sealed partial class ApplicationWorkflow
             var name = person.PhotoPath!;
             if (!Regex.IsMatch(name, @"^[a-f0-9]{64}\.(png|jpg)$"))
                 throw new FormatException($"{person.Email}.photoPath: invalid Workspace image reference.");
-            var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath");
+            var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath", workspaceRead: true);
             loadedPhotos[name] = resource.Bytes;
         }
         return loadedPhotos;
@@ -94,7 +94,7 @@ public sealed partial class ApplicationWorkflow
     private static bool PhotoResourcesUnchanged(IReadOnlyList<PhotoResource> resources) =>
         resources.All(resource => ReadPhotoResource(resource.Directory, resource.RelativePath, resource.Field).Hash == resource.Hash);
 
-    private static PhotoResource ReadPhotoResource(string directory, string relativePath, string field)
+    private static PhotoResource ReadPhotoResource(string directory, string relativePath, string field, bool workspaceRead = false)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) ||
             relativePath.StartsWith('\\') || relativePath.StartsWith('/') || relativePath.Contains(':') ||
@@ -106,7 +106,8 @@ public sealed partial class ApplicationWorkflow
             using var root = CreateFile(Path.GetFullPath(directory), 0, 3, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
             if (root.IsInvalid) throw new IOException(new Win32Exception(Marshal.GetLastWin32Error()).Message);
             var resolvedRoot = FinalPath(root).TrimEnd('\\') + "\\";
-            using var file = new FileStream(Path.Combine(directory, relativePath), FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var file = workspaceRead ? OpenWorkspaceRead(Path.Combine(directory, relativePath)) :
+                new FileStream(Path.Combine(directory, relativePath), FileMode.Open, FileAccess.Read, FileShare.Read);
             // Validate the opened handle, not a lexical path checked before a link can change.
             if (!FinalPath(file.SafeFileHandle).StartsWith(resolvedRoot, StringComparison.OrdinalIgnoreCase))
                 throw new FormatException($"{field}: filesystem link escapes the containing import directory.");

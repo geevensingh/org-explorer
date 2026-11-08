@@ -97,6 +97,7 @@ public sealed partial class ApplicationWorkflow
         bool changed;
         lock (workspaceGate)
         {
+            if (disposed) return Fail("The Workspace workflow is closed.");
             var previousRevision = revision;
             var previousStatus = Status;
             valid = RefreshWorkspaceCore();
@@ -140,7 +141,7 @@ public sealed partial class ApplicationWorkflow
             var metadataPath = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(metadataPath))
             {
-                var metadata = JsonSerializer.Deserialize<WorkspaceMetadata>(File.ReadAllText(metadataPath), JsonOptions)
+                var metadata = JsonSerializer.Deserialize<WorkspaceMetadata>(ReadWorkspaceText(metadataPath), JsonOptions)
                     ?? throw new FormatException("Invalid Workspace metadata.");
                 if (metadata.SchemaVersion != 1) throw new FormatException("Unsupported Workspace version. Upgrade the app; writes are blocked.");
                 if (!Regex.IsMatch(metadata.Generation, @"^[a-f0-9]{32}$")) throw new FormatException("Invalid Workspace generation.");
@@ -159,7 +160,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
                 {
-                    using var document = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
+                    using var document = JsonDocument.Parse(ReadWorkspaceText(file));
                     var root = document.RootElement;
                     CheckProperties(root, ["email", "directoryName", "preferredName", "alias", "jobTitle", "department",
                         "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
@@ -180,7 +181,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 ValidateGraph(loaded);
                 loadedTeamContexts = LoadTeamContextRevisions(generation, loaded);
-                using var batchDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(generation, "batches.json")));
+                using var batchDocument = JsonDocument.Parse(ReadWorkspaceText(Path.Combine(generation, "batches.json")));
                 CheckProperties(batchDocument.RootElement, batchDocument.RootElement.ValueKind == JsonValueKind.Object
                     ? batchDocument.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Accepted batches");
                 accepted = batchDocument.RootElement.Deserialize<Dictionary<string, AcceptedBatch>>(JsonOptions)
@@ -233,6 +234,7 @@ public sealed partial class ApplicationWorkflow
             RejectWorkspaceLink(directory);
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
+                if (IsWorkspacePublicationFile(root, entry)) continue;
                 RejectWorkspaceLink(entry);
                 if (Directory.Exists(entry)) directories.Push(entry);
                 else yield return entry;

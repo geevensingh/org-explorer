@@ -412,7 +412,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     StringComparison.OrdinalIgnoreCase))).Order())
         {
             hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
-            hash.AppendData(File.ReadAllBytes(path));
+            hash.AppendData(ReadWorkspaceBytes(path));
         }
         return Convert.ToHexString(hash.GetHashAndReset());
     }
