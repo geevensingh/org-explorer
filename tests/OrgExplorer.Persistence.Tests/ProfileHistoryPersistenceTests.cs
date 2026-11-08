@@ -93,5 +93,44 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         Assert.False(reopened.EditPreferredName("avery@example.com", "Unsaved"));
     }
 
+    [Fact]
+    public void Person_notes_stay_separate_and_Profile_timeline_survives_note_edits_import_replay_and_reopen()
+    {
+        var app = Open();
+        var initial = Batch("""{"email":"avery@example.com","displayName":"Avery","managerEmail":null}""",
+            1, "2026-11-01T17:00:00Z");
+        Apply(app, initial);
+        var note = app.CreatePersonNote("avery@example.com", "Private context", "Before")!;
+        Assert.True(app.EditPreferredName("avery@example.com", "Ave"));
+        var timeline = app.GetProfileTimeline("avery@example.com")!.DisplayChanges;
+        Assert.True(app.EditPersonNote(note.Id, "Private context", "After"));
+        Apply(app, initial);
+        var reopened = Open();
+        Assert.Equal(timeline, reopened.GetProfileTimeline("avery@example.com")!.DisplayChanges);
+        Assert.Equal("After", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
+        Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
+        Assert.DoesNotContain(reopened.GetProfileTimeline("avery@example.com")!.Observations, o => o.Field.Contains("note"));
+    }
+
+    [Fact]
+    public void Legacy_generation_without_field_history_keeps_prior_evidence_unknown_instead_of_reconstructing_from_envelopes()
+    {
+        var app = Open();
+        Apply(app, Batch("""
+            {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+            {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null}
+            """, 1, "2026-11-01T17:00:00Z"));
+        var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
+        Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
+        var legacy = Open();
+        Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
+        Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));
+        var change = Assert.Single(Open().GetProfileTimeline("avery@example.com")!.Changes);
+        Assert.Equal("morgan@example.com", change.OldValue.GetString());
+        Assert.Null(change.PreviousEvidence);
+        Assert.Null(change.ReportingInterval);
+        Assert.Contains("effective date unknown", Open().GetProfileTimeline("avery@example.com")!.DisplayChanges);
+    }
+
     public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
 }

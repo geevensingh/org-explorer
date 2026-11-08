@@ -125,4 +125,17 @@ public sealed class ProfileHistoryTests
         Assert.True(app.ApplyImport(replay.Id));
         Assert.Single(app.GetProfileTimeline(Avery)!.Changes);
     }
+
+    [Fact]
+    public void Preview_distinguishes_same_value_evidence_from_an_email_only_no_op()
+    {
+        var app = Open(new Clock());
+        var same = app.PreviewImport(Batch(
+            """{"email":"avery@example.com","managerEmail":"morgan@example.com"}""", 2, "2026-11-03T17:00:00Z"));
+        Assert.Contains(same.Changes, c => c.Contains("Record explicit evidence") && c.Contains("Manager"));
+        Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"),
+            app.GetProfileTimeline(Avery)!.Confirmations.Single(o => o.Field == "managerEmail").ObservedAt);
+        var omission = app.PreviewImport(Batch("""{"email":"avery@example.com"}""", 3));
+        Assert.DoesNotContain(omission.Changes, c => c.Contains("Record explicit evidence"));
+    }
 }

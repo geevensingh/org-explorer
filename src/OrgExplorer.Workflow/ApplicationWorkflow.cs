@@ -230,7 +230,13 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
                 if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
                 if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
-                if (changes.Count == priorChanges) changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged.");
+                if (changes.Count == priorChanges)
+                {
+                    var supplied = record.EnumerateObject().Where(p => p.Name != "email")
+                        .Select(p => ProfileFieldLabel(p.Name)).ToArray();
+                    changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged." +
+                        (supplied.Length == 0 ? "" : $" Record explicit evidence for {string.Join(", ", supplied)} without a Profile change."));
+                }
                 canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
                     .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
                         ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
