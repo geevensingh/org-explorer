@@ -2,7 +2,7 @@ using System.ComponentModel;
 
 namespace OrgExplorer.Workflow;
 
-public sealed class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplicationWorkflow, INotifyPropertyChanged
+public sealed partial class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplicationWorkflow, INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;

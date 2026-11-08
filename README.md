@@ -37,6 +37,14 @@ the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
 
+Profiles also offer multiple private **Person notes**, an autosaved Markdown
+editor, and a native rendered **Read** view. Notes show their Person owner and
+never inherit to reports. **Archive note** preserves writing; **Show archived
+notes** allows reading and restoring it. The app refreshes valid externally
+edited note documents and reports save/delivery errors. Failed drafts remain
+visible until retry succeeds or you deliberately discard them. Images and raw
+HTML never load content; HTTP/HTTPS links open only on deliberate selection.
+
 Textual profiles accept `displayName`, `preferredName`, `alias`, `jobTitle`,
 `department`, `officeBuilding`, `officeNumber`, `officeState`, `officeCountry`,
 and `linkedInProfileUrl`, alongside `email`, `managerEmail`, and explicit
@@ -128,9 +136,14 @@ control the browser-opening boundary without opening production pages.
 The desktop history flow also verifies a real persisted timeline, field-specific
 dates, observed reporting intervals, identical reconfirmation without a false
 change, local clears, stale evidence before Apply, and close/reopen.
+It creates/edits/reads multiple Person notes, observes an
+external document edit, checks failed-save retry/safe close/conflict recovery and
+blocked tree, Manager/report, and Workspace navigation with an unsaved note,
+archives writing, and verifies no rendering requests reach a local HTTP listener.
+Profile edits and reporting moves/replay retain the selected note and its writing.
 Core checks include a 10,001-Person reporting chain without a hard import cap.
-Tests use fictitious people and isolated folders beneath the
-checkout, cleaned after each run.
+Tests use fictitious people and isolated folders beneath the checkout, cleaned
+after each run.
 
 Every PR and main commit (without path filters) runs three independent parallel
 jobs: core/view models, real filesystem persistence, and actual Windows desktop
@@ -147,5 +160,5 @@ requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squas
 merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
-Installer, automatic updates, complete imports, frozen historical team context,
+Installer, automatic updates, complete imports, Team-note features/frozen historical team context,
 and release signing are subsequent slices, not shipped capabilities of this tracer.

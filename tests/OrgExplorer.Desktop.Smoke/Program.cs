@@ -4,7 +4,7 @@ using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main(string[] args)
@@ -120,7 +120,8 @@ internal static class Program
             process = null;
             PersonAttributeFlow.Run(args[0], root);
             ProfileHistoryFlow.Run(args[0], root);
-            Console.WriteLine("PASS: WPF whole-batch preview/apply → reporting navigation → invalid graph rejection → textual profile editing → close/reopen.");
+            RunPersonNoteFlow(args[0]);
+            Console.WriteLine("PASS: actual WPF imports, reporting navigation, textual profiles, Profile timeline, and private Person-note edit/read/autosave/archive/reopen flows.");
             return 0;
         }
         catch (Exception ex)

@@ -36,6 +36,8 @@ accepted envelopes, or guessed local edits. Subsequent changes retain null
 prior evidence and show detection information rather than invented intervals.
 History is committed in the same generation as profiles, accepted batches, and
 other Workspace resources, so a failed save publishes none of the change.
+Person notes are
+separate documents described below, not imported Person fields.
 
 All supported fields live in the canonical readable files. Derived profile
 headings are not another identity or override layer. Import version, Workspace
@@ -84,3 +86,60 @@ inspect the readable previous pointer and referenced generation, and restore a
 known-good pointer externally before reopening. The app does not silently pick
 a conflicting generation or implement sync-provider conflict resolution.
 Installation/upgrades must not remove this chosen folder.
+
+## Private Person notes
+
+`notes\<note-id>.md` holds one UTF-8 Markdown Person note. Notes are outside
+Person generations so editing or archiving a note replaces only that document;
+the app does not create a full note edit-version history. Multiple documents may
+belong to the same Person, including an Archived person. Reporting relationships
+never inherit Person notes.
+
+Each document starts with JSON front matter between `---` lines:
+
+```markdown
+---
+{
+  "schemaVersion": 1,
+  "kind": "person",
+  "id": "30000000-0000-4000-8000-000000000001",
+  "ownerEmail": "avery@example.com",
+  "title": "Meeting context",
+  "archived": false,
+  "createdAt": "2026-11-01T17:00:00+00:00",
+  "updatedAt": "2026-11-01T17:00:00+00:00"
+}
+---
+# Meeting
+Private **writing** about Avery.
+```
+
+The nonempty UUID and email identify the note and its Person independently of
+names or Manager changes. Keep the filename equal to the UUID plus `.md`; do not
+rename it, change its ID, or omit metadata. Dates are UTC. Title, writing, and
+archival state may be edited with local tools while retaining valid metadata.
+Unknown owners, properties, unsupported versions, missing metadata, conflicting
+copies, and linked/junction note paths are errors, not silently repaired files.
+These Workspace documents are not Import batches. Imports still reject all
+Person/Team note payloads and note operations.
+
+Autosave flushes a staged `.next` file and atomically publishes the Markdown
+document under the same short Workspace lease. An archive changes metadata but
+retains all writing; **Show archived notes** makes it readable and restorable.
+There is no sharing endpoint, upload, or app-hosted backend. Device and external
+sync-account permissions govern access.
+
+The open profile checks note files for external changes, validates a complete
+note read before refreshing, and retains the last valid text on invalid/incomplete
+delivery. A simultaneous change to other Workspace files requires reopening the
+Workspace rather than acknowledging stale Person state. Local edits invalidate
+old import previews. Save errors keep the draft visible and explicitly **NOT
+saved**; leaving/closing is blocked until retry succeeds or the owner deliberately
+chooses **Discard unsaved draft**. Resolving competing versions remains the
+external provider/owner's responsibility; the app does not merge them.
+
+The reading view renders CommonMark headings, emphasis, lists, quotations, code,
+and links as native WPF text. Markdown images are labeled **Image not loaded**,
+including local references; raw HTML is inert text. No image, stylesheet, embedded
+object, or remote document is fetched. Only a deliberately clicked HTTP/HTTPS
+link launches the user's external handler; other URI schemes are inert.
