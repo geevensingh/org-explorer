@@ -96,9 +96,12 @@ public sealed partial class ApplicationWorkflow
             if (WorkspaceFingerprint(includePersonNotes: false) != personNotesWorkspaceRevision)
                 throw new IOException("Other Workspace files changed. Reopen the Workspace before editing.");
             var loaded = LoadPersonNotes(workspace, people);
+            var loadedTeamNotes = LoadTeamNotes(workspace, people);
             if (WorkspaceFingerprint() != current)
                 throw new IOException("Person note delivery changed while reading. Retry after delivery finishes.");
             personNotes = loaded;
+            teamNotes = loadedTeamNotes.Notes;
+            teamNoteConfirmations = loadedTeamNotes.Confirmations;
             revision = current;
             CapturePersonNoteRevision();
             pending = null;
@@ -121,18 +124,22 @@ public sealed partial class ApplicationWorkflow
     private string PersonNotesFingerprint()
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var directory = Path.Combine(workspace!, "notes");
-        if (Directory.Exists(directory))
+        foreach (var folder in new[] { "notes", "team-notes" })
         {
-            RejectNoteLink(directory);
-            foreach (var file in Directory.GetFiles(directory, "*.md").Order(StringComparer.Ordinal))
+            var directory = Path.Combine(workspace!, folder);
+            hash.AppendData(Encoding.UTF8.GetBytes(folder));
+            if (Directory.Exists(directory))
             {
-                RejectNoteLink(file);
-                hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
-                hash.AppendData(File.ReadAllBytes(file));
+                RejectNoteLink(directory);
+                foreach (var file in Directory.GetFiles(directory, "*.md").Order(StringComparer.Ordinal))
+                {
+                    RejectNoteLink(file);
+                    hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
+                    hash.AppendData(File.ReadAllBytes(file));
+                }
             }
+            else if (File.Exists(directory)) throw new IOException("Notes folder is not a directory.");
         }
-        else if (File.Exists(directory)) throw new IOException("Person notes folder is not a directory.");
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 

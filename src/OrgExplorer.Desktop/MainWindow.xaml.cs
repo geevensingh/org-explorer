@@ -23,6 +23,7 @@ public partial class MainWindow : Window
             preview = null;
             ShowStatus();
         });
+        AttachTeamNotes();
         Photo.PhotoEdited += EditPersonPhoto;
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
@@ -37,9 +38,10 @@ public partial class MainWindow : Window
     }
     private void OpenWorkspace(object sender, RoutedEventArgs e)
     {
-        if (!PersonNotes.TryLeave()) return;
+        if (!TryLeaveNotes()) return;
         workflow.OpenWorkspace(WorkspacePath.Text);
         PersonNotes.OpenPerson(null);
+        TeamNotes.OpenPerson(null);
         preview = null;
         ApplyButton.IsEnabled = false;
         selectedEmail = null;
@@ -111,12 +113,13 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person)
     {
-        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !PersonNotes.TryLeave())
+        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !TryLeaveNotes())
             return false;
         selectedEmail = person.Email;
         LoadPersonEditors(person);
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
+        TeamNotes.OpenPerson(person.Email);
         return true;
     }
     private void RefreshPeople()

@@ -104,6 +104,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var fullPath = Path.GetFullPath(path);
             var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
             var accepted = new Dictionary<string, AcceptedBatch>();
+            var loadedTeamContexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
             if (!memory)
             {
                 if (fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
@@ -127,6 +128,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                         if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
                     }
                     ValidateGraph(loaded);
+                    loadedTeamContexts = LoadTeamContextRevisions(generation, loaded);
                     accepted = JsonSerializer.Deserialize<Dictionary<string, AcceptedBatch>>(File.ReadAllText(Path.Combine(generation, "batches.json")), JsonOptions)
                         ?? throw new FormatException("Invalid accepted batch data.");
                 }
@@ -134,11 +136,15 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                     throw new IOException("Folder is not an empty or recognized Workspace. Existing files will not be overwritten.");
             }
             var loadedNotes = memory ? [] : LoadPersonNotes(fullPath, loaded);
+            var loadedTeamNotes = memory ? new TeamNoteDocuments([], []) : LoadTeamNotes(fullPath, loaded);
             workspace = fullPath;
             LoadPhotos(fullPath, loaded);
             people = loaded;
             batches = accepted;
             personNotes = loadedNotes;
+            teamNotes = loadedTeamNotes.Notes;
+            teamNoteConfirmations = loadedTeamNotes.Confirmations;
+            teamContextRevisions = loadedTeamContexts;
             revision = memory ? null : WorkspaceFingerprint();
             CapturePersonNoteRevision();
             Status = "Workspace opened.";
@@ -150,6 +156,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             people.Clear();
             batches.Clear();
             personNotes.Clear();
+            teamNotes.Clear();
+            teamNoteConfirmations.Clear();
+            teamContextRevisions.Clear();
             photos.Clear();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
@@ -263,7 +272,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 changes.Clear();
                 changes.Add("Already applied: exact replay is a no-op.");
             }
-            else ValidateGraph(proposed);
+            else
+            {
+                ValidateGraph(proposed);
+                PreviewTeamNoteReview(proposed, changes);
+            }
             var preview = new ImportPreview(id, errors.Count == 0, changes, errors);
             if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
             Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
@@ -368,6 +381,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         foreach (var path in Directory.EnumerateFiles(workspace!, "*", SearchOption.AllDirectories)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
                 (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))).Order())
         {
             hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
@@ -378,7 +392,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
         Dictionary<string, byte[]>? proposedPhotos = null)
     {
-        if (memory) return true;
+        var nextTeamContexts = NextTeamContextRevisions(proposed);
+        if (memory)
+        {
+            teamContextRevisions = nextTeamContexts;
+            return true;
+        }
         try
         {
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -393,6 +412,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 WriteDurably(Path.Combine(directory, "people", key + ".json"), person);
             }
             SavePhotos(directory, proposed, proposedPhotos ?? photos);
+            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts);
             WriteDurably(Path.Combine(directory, "batches.json"), accepted);
             var staged = Path.Combine(workspace!, "workspace.next");
             WriteDurably(staged, new WorkspaceMetadata(1, generation));
@@ -401,6 +421,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             else File.Move(staged, destination);
             revision = WorkspaceFingerprint();
             CapturePersonNoteRevision();
+            teamContextRevisions = nextTeamContexts;
             return true;
         }
         catch (Exception ex) when (StorageError(ex))

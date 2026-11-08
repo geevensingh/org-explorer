@@ -95,6 +95,7 @@
                   AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
         </StackPanel>
         <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
+        <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
       </StackPanel>
       </ScrollViewer>
     </Grid>
