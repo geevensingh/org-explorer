@@ -23,15 +23,20 @@ public sealed partial class ApplicationWorkflow
 {
     private Dictionary<Guid, TeamNote> teamNotes = [];
     private Dictionary<Guid, Guid> teamNoteConfirmations = [];
+    private readonly Dictionary<Guid, (TeamNote Note, Guid Confirmation)> failedTeamNoteBases = [];
     private Dictionary<string, Guid> teamContextRevisions = new(StringComparer.OrdinalIgnoreCase);
     public bool RefreshTeamNotes() => RefreshPersonNotes();
 
-    public IReadOnlyList<TeamNote> GetTeamNotes(string email, bool includeArchived = false) =>
+    public IReadOnlyList<TeamNote> GetTeamNotes(string email, bool includeArchived = false)
+    { lock (workspaceGate) return
         teamNotes.Values.Where(n => string.Equals(n.OwnerEmail, email, StringComparison.OrdinalIgnoreCase)
             && (includeArchived || !n.Archived)).OrderBy(n => n.CreatedAt).ThenBy(n => n.Id)
-            .Select(n => n with { NeedsReview = teamNoteConfirmations[n.Id] != teamContextRevisions.GetValueOrDefault(n.OwnerEmail) }).ToArray();
+            .Select(n => n with { NeedsReview = teamNoteConfirmations[n.Id] != teamContextRevisions.GetValueOrDefault(n.OwnerEmail) }).ToArray(); }
 
     public IReadOnlyList<InheritedTeamNote> GetInheritedTeamNotes(string email)
+    { lock (workspaceGate) return GetInheritedTeamNotesCore(email); }
+
+    private IReadOnlyList<InheritedTeamNote> GetInheritedTeamNotesCore(string email)
     {
         var result = new List<InheritedTeamNote>();
         if (!people.TryGetValue(email, out var person) || person.Archived) return result;
@@ -44,6 +49,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public TeamNote? CreateTeamNote(string email, string title, string markdown)
+    { lock (workspaceGate) return CreateTeamNoteCore(email, title, markdown); }
+
+    private TeamNote? CreateTeamNoteCore(string email, string title, string markdown)
     {
         if (workspace is null || !people.TryGetValue(email, out var person))
         {
@@ -67,10 +75,17 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditTeamNote(Guid noteId, string title, string markdown)
+    { lock (workspaceGate) return EditTeamNoteCore(noteId, title, markdown); }
+
+    private bool EditTeamNoteCore(Guid noteId, string title, string markdown)
     {
         if (workspace is null || !teamNotes.TryGetValue(noteId, out var note))
             return Fail("Open an existing Team note before editing.");
-        if (string.IsNullOrWhiteSpace(title)) return Fail("Team note title must be nonblank.");
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            failedTeamNoteBases.TryAdd(note.Id, (note, teamNoteConfirmations[note.Id]));
+            return SaveFailed($"team-note:{note.Id}", "Team note title must be nonblank; changes are NOT saved locally.");
+        }
         var proposed = note with { Title = title, Markdown = markdown, UpdatedAt = DateTimeOffset.UtcNow };
         var confirmation = teamContextRevisions.GetValueOrDefault(note.OwnerEmail);
         if (!SaveTeamNote(proposed, confirmation)) return false;
@@ -82,6 +97,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool ConfirmTeamNote(Guid noteId)
+    { lock (workspaceGate) return ConfirmTeamNoteCore(noteId); }
+
+    private bool ConfirmTeamNoteCore(Guid noteId)
     {
         if (workspace is null || !teamNotes.TryGetValue(noteId, out var note))
             return Fail("Open an existing Team note before confirmation.");
@@ -89,6 +107,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool ArchiveTeamNote(Guid noteId, bool archived = true)
+    { lock (workspaceGate) return ArchiveTeamNoteCore(noteId, archived); }
+
+    private bool ArchiveTeamNoteCore(Guid noteId, bool archived)
     {
         if (workspace is null || !teamNotes.TryGetValue(noteId, out var note))
             return Fail("Open an existing Team note before archival.");

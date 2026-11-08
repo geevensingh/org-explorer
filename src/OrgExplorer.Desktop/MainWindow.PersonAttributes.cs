@@ -7,6 +7,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
+    private readonly Dictionary<PersonTextField, string?> unsavedAttributes = [];
     private TextBox[] PersonEditors =>
         [DirectoryNameEditor, PreferredName, Alias, JobTitle, Department, OfficeBuilding,
          OfficeNumber, OfficeState, OfficeCountry, LinkedInProfileUrl];
@@ -43,14 +44,39 @@ public partial class MainWindow
     {
         if (loading || selectedEmail is null || sender is not TextBox editor) return;
         var field = Enum.Parse<PersonTextField>((string)editor.Tag);
-        if (workflow.EditPersonText(selectedEmail, field, editor.Text.Length == 0 ? null : editor.Text))
+        var value = editor.Text.Length == 0 ? null : editor.Text;
+        if (workflow.EditPersonText(selectedEmail, field, value))
         {
+            unsavedAttributes.Remove(field);
             ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
             RefreshPeople();
         }
-        else if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
+        else
+        {
+            if (workflow.LocalSaveError is not null) unsavedAttributes[field] = value;
+            if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
+        }
         ApplyButton.IsEnabled = false;
         preview = null;
+        ShowStatus();
+    }
+
+    private void RetryProfileSave(object sender, RoutedEventArgs e)
+    {
+        if (selectedEmail is null) return;
+        foreach (var (field, value) in unsavedAttributes.ToArray())
+            if (workflow.EditPersonText(selectedEmail, field, value)) unsavedAttributes.Remove(field);
+        if (unsavedAttributes.Count == 0) RefreshPeople();
+        ShowStatus();
+    }
+
+    private void DiscardProfileDraft(object sender, RoutedEventArgs e)
+    {
+        unsavedAttributes.Clear();
+        workflow.DiscardUnsavedChanges();
+        PersonNotes.DiscardLocalDraft();
+        TeamNotes.DiscardLocalDraft();
+        RefreshPeople();
         ShowStatus();
     }
 

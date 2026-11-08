@@ -40,8 +40,12 @@ saved data. The app does not upload Workspace data.
 Profiles also offer multiple private **Person notes**, an autosaved Markdown
 editor, and a native rendered **Read** view. Notes show their Person owner and
 never inherit to reports. **Archive note** preserves writing; **Show archived
-notes** allows reading and restoring it. The app refreshes valid externally
-edited note documents and reports save/delivery errors. Failed drafts remain
+notes** allows reading and restoring it. The app watches local folder events and automatically reflects valid external
+Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
+location. Whole-Workspace/graph validation precedes acceptance. Incomplete,
+unsupported, or invalid deliveries visibly mark all retained information
+**STALE / unavailable**, block writes, and never create false roots or repair
+files. Complete valid delivery recovers automatically. Failed drafts remain
 visible until retry succeeds or you deliberately discard them. Images and raw
 HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
@@ -173,6 +177,12 @@ reporting moves, and replay preserve private notes and their refresh revisions.
 Team-note smoke exercises explicit opt-in, every ancestor and owner attribution,
 private rendered reading, visible review warnings, confirm/edit/archive, failed
 confirmation and draft-navigation safety, replacement/move scope, and reopen.
+Coupled refresh checks cover externally delivered owned/inherited Team writing
+and review metadata, with whole-Workspace stale retention and recovery.
+Real folder-event tests and the actual UI also observe profile/Markdown changes,
+same-path photo pixels, invalid graph/stale state, and recovery using bounded
+eventual assertions. Own saves cause no recursive refresh/save or batch replay;
+failed saves remain visible to safe-close coordination until retry/discard.
 Core checks include a 10,001-Person reporting chain without a hard import cap.
 Tests use fictitious people and isolated folders beneath the checkout, cleaned
 after each run.

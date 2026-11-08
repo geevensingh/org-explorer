@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using System.Windows.Threading;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -16,15 +15,11 @@ public partial class TeamNotesControl : UserControl
     private Guid? selected;
     private bool loading;
     private bool unsaved;
-    private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     public event Action<string, Guid>? OwnerRequested;
 
     public TeamNotesControl()
     {
         InitializeComponent();
-        refreshTimer.Tick += (_, _) => RefreshExternalNotes();
-        Loaded += (_, _) => refreshTimer.Start();
-        Unloaded += (_, _) => refreshTimer.Stop();
     }
 
     public void Attach(IApplicationWorkflow application, Action onChanged)
@@ -158,6 +153,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (!unsaved || workflow is null) return;
         var refreshed = workflow.RefreshTeamNotes();
+        workflow.DiscardUnsavedChanges(selected);
         RefreshNotes();
         RefreshContext();
         NoteStatus.Text = refreshed ? "Unsaved draft discarded; last saved local document shown." :
@@ -165,17 +161,26 @@ public partial class TeamNotesControl : UserControl
         changed?.Invoke();
     }
 
-    private void RefreshExternalNotes()
+    public void RefreshExternalWorkspace()
     {
-        if (workflow is null || owner is null || unsaved) return;
-        var before = workflow.Status;
-        if (workflow.RefreshTeamNotes())
+        if (workflow is null || owner is null) return;
+        if (!unsaved && !workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true).SequenceEqual(NotesList.Items.Cast<TeamNote>()))
+            RefreshNotes();
+        RefreshContext();
+        NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        if (!unsaved)
         {
-            if (!workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true).SequenceEqual(NotesList.Items.Cast<TeamNote>()))
-                RefreshNotes();
-            RefreshContext();
+            NoteTitle.IsEnabled = MarkdownEditor.IsEnabled =
+                workflow.IsWorkspaceCurrent && NotesList.SelectedItem is TeamNote { Archived: false };
+            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
+            ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && NotesList.SelectedItem is TeamNote { NeedsReview: true, Archived: false };
         }
-        if (workflow.Status != before) ShowStatus();
+        NoteStatus.Text = workflow.Status;
+    }
+
+    public void DiscardLocalDraft()
+    {
+        if (unsaved) RefreshNotes();
     }
 
     private void RefreshContext()

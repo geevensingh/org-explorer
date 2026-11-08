@@ -30,7 +30,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Decoded_PNG_is_available_on_the_profile_after_producer_removal_and_Workspace_reopen()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var import = Import("\"avery.data\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.data"), Png);
@@ -39,7 +39,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.ApplyImport(preview.Id), app.Status);
         Directory.Delete(Producer, true);
 
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var photo = reopened.GetPhoto("AVERY@example.com");
         Assert.NotNull(photo);
@@ -52,7 +52,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Truncated_PNG_is_a_whole_batch_error_not_a_successful_placeholder()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var import = Import("\"truncated.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "truncated.png"), Png[..^12]);
@@ -68,7 +68,7 @@ public sealed class PhotoTests : IDisposable
     [InlineData(true)]
     public void JPEG_content_is_decoded_but_a_truncated_JPEG_is_rejected(bool truncated)
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var import = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), truncated ? Jpeg[..^2] : Jpeg);
@@ -132,13 +132,13 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Omitted_photo_preserves_image_and_null_clears_it_durably_without_clearing_other_fields()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         Assert.True(app.ApplyImport(app.PreviewImportFile(Import(null, 2, "Avery Updated")).Id), app.Status);
         Assert.Equal(Png, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
         var clear = app.PreviewImportFile(Import("null", 3, "Avery Updated"));
         Assert.Contains(clear.Changes, change => change.Contains("Photo") && change.Contains("clear"));
         Assert.True(app.ApplyImport(clear.Id), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         Assert.Null(reopened.GetPhoto("avery@example.com"));
         Assert.Equal("Avery Updated", Assert.Single(reopened.People).DirectoryName);
@@ -159,7 +159,7 @@ public sealed class PhotoTests : IDisposable
     [InlineData("\"avery.png:stream\"", "path")]
     public void Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(string value, string kind)
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         if (kind == "text") File.WriteAllText(Path.Combine(Producer, "invalid.jpg"), "not an image");
         if (kind == "gif") File.WriteAllBytes(Path.Combine(Producer, "unsupported.png"),
             Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"));
@@ -175,7 +175,7 @@ public sealed class PhotoTests : IDisposable
         Assert.False(preview.CanApply);
         Assert.Contains("avery@example.com.photoPath", string.Join("\n", preview.Errors));
         Assert.False(app.ApplyImport(preview.Id));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         Assert.Equal("Avery Example", Assert.Single(reopened.People).DirectoryName);
         Assert.Equal(Png, reopened.GetPhoto("avery@example.com")!.Bytes.ToArray());
@@ -184,7 +184,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Changed_image_bytes_invalidate_preview_even_when_JSON_path_and_timestamps_are_unchanged()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var path = Import("\"avery.png\"", 2, "Must not apply");
         var preview = app.PreviewImportFile(path);
         var image = Path.Combine(Producer, "avery.png");
@@ -199,9 +199,9 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Accepted_batch_replay_is_a_no_op_but_same_path_with_different_image_bytes_conflicts_after_reopen()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         Assert.True(app.EditPreferredName("avery@example.com", "Local name"));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var path = Import("\"avery.png\"");
         var replay = reopened.PreviewImportFile(path);
@@ -219,7 +219,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Photos_reporting_changes_and_replay_preserve_private_notes_and_note_refresh_revisions()
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -274,7 +274,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPhoto("avery@example.com", Path.Combine(Producer, "avery.png")), app.Status);
         Assert.True(app.EditPersonNote(note.Id, note.Title, "Writing after external refresh"), app.Status);
         Directory.Delete(Producer, true);
-        var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var person = Assert.Single(reopened.ReportingRoots).Person;
         Assert.Equal("avery@example.com", person.Email);
@@ -294,7 +294,7 @@ public sealed class PhotoTests : IDisposable
     [InlineData(true)]
     public void Directory_links_are_resolved_and_only_contained_targets_are_accepted(bool escaping)
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var target = escaping ? Path.Combine(root, "outside") : Path.Combine(Producer, "inside");
         Directory.CreateDirectory(target);
         File.WriteAllBytes(Path.Combine(target, "linked.png"), Png);
@@ -335,7 +335,7 @@ public sealed class PhotoTests : IDisposable
     [InlineData(true)]
     public void File_symlinks_are_resolved_and_only_contained_targets_are_accepted(bool escaping)
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var target = Path.Combine(escaping ? root : Producer, "target.png");
         File.WriteAllBytes(target, Png);
         File.CreateSymbolicLink(Path.Combine(Producer, "link.png"), target);
@@ -348,14 +348,14 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void A_local_photo_edit_is_copied_and_saved_but_invalid_replacement_does_not_erase_it()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var selected = Path.Combine(Producer, "selected.jpg");
         File.WriteAllBytes(selected, Jpeg);
         Assert.True(app.EditPhoto("avery@example.com", selected), app.Status);
         File.WriteAllText(selected, "Corrupt replacement");
         Assert.False(app.EditPhoto("avery@example.com", selected));
         Directory.Delete(Producer, true);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         Assert.Equal("image/jpeg", reopened.GetPhoto("avery@example.com")!.ContentType);
         Assert.True(reopened.EditPhoto("avery@example.com", null), reopened.Status);
@@ -365,7 +365,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Distinct_images_stay_with_the_intended_Person_and_reordered_replay_remains_a_no_op()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -389,7 +389,7 @@ public sealed class PhotoTests : IDisposable
     [Fact]
     public void Removing_a_supplied_photo_after_preview_invalidates_apply_without_erasing_existing_data()
     {
-        var app = ImportOriginalPhoto();
+        using var app = ImportOriginalPhoto();
         var preview = app.PreviewImportFile(Import("\"avery.png\"", 2, "Must not apply"));
         File.Delete(Path.Combine(Producer, "avery.png"));
         Assert.False(app.ApplyImport(preview.Id));

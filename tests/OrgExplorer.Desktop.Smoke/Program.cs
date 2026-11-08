@@ -15,6 +15,7 @@ internal static partial class Program
         try
         {
             if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
+            RunExternalRefreshFlow(args[0], root);
             RunTeamNoteFlow(args[0]);
             var producer = Path.Combine(root, "producer");
             Directory.CreateDirectory(producer);
@@ -134,7 +135,7 @@ internal static partial class Program
             PersonAttributeFlow.Run(args[0], root);
             ProfileHistoryFlow.Run(args[0], root);
             RunPersonNoteFlow(args[0]);
-            Console.WriteLine("PASS: actual WPF imports, reporting navigation, textual profiles, PNG/JPEG photo pixels, Profile timeline, and private Person-note edit/read/autosave/archive/reopen flows.");
+            Console.WriteLine("PASS: actual WPF imports, reporting navigation, textual profiles, PNG/JPEG photo pixels, Profile timeline, private Person notes, and automatic external refresh/stale recovery.");
             return 0;
         }
         catch (Exception ex)
@@ -164,7 +165,8 @@ internal static partial class Program
             if (process.HasExited) throw new InvalidOperationException($"App exited with {process.ExitCode}.");
             window = AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
-            return window is not null;
+            return window is not null && window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspacePath")) is not null;
         });
         return window!;
     }

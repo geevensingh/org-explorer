@@ -36,7 +36,10 @@ public sealed partial class ApplicationWorkflow
             var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
             if (!frontMatter.Success)
                 throw new FormatException($"Team note {Path.GetFileName(file)}: expected JSON front matter.");
-            var metadata = JsonSerializer.Deserialize<TeamNoteMetadata>(frontMatter.Groups["metadata"].Value, JsonOptions)
+            using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
+            CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
+                "archived", "createdAt", "updatedAt", "confirmedContextRevision"], $"Team note {Path.GetFileName(file)}");
+            var metadata = document.RootElement.Deserialize<TeamNoteMetadata>(JsonOptions)
                 ?? throw new FormatException($"Team note {Path.GetFileName(file)}: invalid metadata.");
             if (metadata.SchemaVersion != 1)
                 throw new FormatException("Unsupported Team note version. Upgrade the app; writes are blocked.");
@@ -64,8 +67,15 @@ public sealed partial class ApplicationWorkflow
     {
         var path = Path.Combine(generation, "team-context.json");
         var result = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return result;
-        var loaded = JsonSerializer.Deserialize<Dictionary<string, Guid>>(File.ReadAllText(path), JsonOptions)
+        if (!File.Exists(path))
+        {
+            if (Directory.Exists(path)) throw new IOException("Team context revisions must be a file.");
+            return result;
+        }
+        using var document = JsonDocument.Parse(File.ReadAllText(path, new UTF8Encoding(false, true)));
+        CheckProperties(document.RootElement, document.RootElement.ValueKind == JsonValueKind.Object
+            ? document.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Team context revisions");
+        var loaded = document.RootElement.Deserialize<Dictionary<string, Guid>>(JsonOptions)
             ?? throw new FormatException("Invalid Team context revisions.");
         foreach (var (email, value) in loaded)
             if (!owners.ContainsKey(email) || !result.TryAdd(email, value))
@@ -75,12 +85,22 @@ public sealed partial class ApplicationWorkflow
 
     private bool SaveTeamNote(TeamNote note, Guid confirmation)
     {
-        if (memory) return true;
+        if (memory)
+        {
+            failedSaves.Remove($"team-note:{note.Id}");
+            failedTeamNoteBases.Remove(note.Id);
+            return true;
+        }
         string? staged = null;
         try
         {
+            if (!workspaceCurrent) throw new IOException("Workspace unavailable; retained writing is STALE. No note changes saved.");
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            if (failedTeamNoteBases.TryGetValue(note.Id, out var previous) &&
+                (teamNotes.GetValueOrDefault(note.Id) != previous.Note ||
+                 teamNoteConfirmations.GetValueOrDefault(note.Id) != previous.Confirmation))
+                throw new IOException("Team note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
             if (WorkspaceFingerprint() != revision)
                 throw new IOException("Workspace changed. Reopen before editing; no note changes saved.");
             var directory = Path.Combine(workspace!, "team-notes");
@@ -102,11 +122,15 @@ public sealed partial class ApplicationWorkflow
             staged = null;
             revision = WorkspaceFingerprint();
             CapturePersonNoteRevision();
+            failedSaves.Remove($"team-note:{note.Id}");
+            failedTeamNoteBases.Remove(note.Id);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
-            return Fail("Team note save failed; changes are NOT saved locally: " + ex.Message);
+            if (teamNotes.TryGetValue(note.Id, out var previous))
+                failedTeamNoteBases.TryAdd(note.Id, (previous, teamNoteConfirmations[note.Id]));
+            return SaveFailed($"team-note:{note.Id}", "Team note save failed; changes are NOT saved locally: " + ex.Message);
         }
         finally
         {

@@ -23,6 +23,29 @@ public sealed class TeamNoteTests
         return app;
     }
 
+    [Fact]
+    public void Rejected_Team_note_drafts_remain_observable_until_retry_or_note_specific_discard()
+    {
+        using var app = Open();
+        var team = app.CreateTeamNote("manager@example.com", "Team", "Saved writing")!;
+        var direct = app.CreatePersonNote("manager@example.com", "Person", "Direct writing")!;
+        Assert.False(app.EditTeamNote(team.Id, " ", "Unsaved Team draft"));
+        Assert.False(app.EditPersonNote(direct.Id, " ", "Unsaved Person draft"));
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("Team note title", app.LocalSaveError);
+        Assert.True(app.EditPersonText("manager@example.com", PersonTextField.OfficeNumber, "007B"));
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.EditTeamNote(team.Id, team.Title, "Retried Team writing"));
+        Assert.False(app.CanSafelyClose);
+        Assert.DoesNotContain("Team note title", app.LocalSaveError);
+        app.DiscardUnsavedChanges(direct.Id);
+        Assert.True(app.CanSafelyClose);
+        Assert.False(app.EditTeamNote(team.Id, "", "Rejected again"));
+        app.DiscardUnsavedChanges(team.Id);
+        Assert.True(app.CanSafelyClose);
+        Assert.Equal("Retried Team writing", Assert.Single(app.GetTeamNotes("manager@example.com")).Markdown);
+    }
+
     [Theory]
     [InlineData("notes")]
     [InlineData("teamNotes")]

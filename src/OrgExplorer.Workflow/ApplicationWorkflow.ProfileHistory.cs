@@ -64,6 +64,9 @@ public sealed partial class ApplicationWorkflow
     private sealed record PersonHistory(string Email, List<ProfileChange> Changes, List<FieldEvidence> Observations);
 
     public ProfileTimeline? GetProfileTimeline(string email)
+    { lock (workspaceGate) return GetProfileTimelineCore(email); }
+
+    private ProfileTimeline? GetProfileTimelineCore(string email)
     {
         if (!people.ContainsKey(email)) return null;
         if (!profileHistory.TryGetValue(email, out var history)) return new ProfileTimeline([], [], []);

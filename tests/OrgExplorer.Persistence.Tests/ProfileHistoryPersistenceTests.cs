@@ -7,6 +7,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
 {
     private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private readonly List<IApplicationWorkflow> workflows = [];
 
     private static string Batch(string records, int id, string observed) => $$"""
         {"schemaVersion":1,"batchId":"10000000-0010-4000-8000-{{id:000000000000}}",
@@ -16,6 +17,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
     private IApplicationWorkflow Open()
     {
         var app = ApplicationWorkflow.CreateFileBacked();
+        workflows.Add(app);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         return app;
     }
@@ -86,7 +88,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
         history["observations"]![0]![property] = System.Text.Json.Nodes.JsonNode.Parse(jsonValue);
         File.WriteAllText(file, history.ToJsonString());
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
         Assert.Contains("Profile history", reopened.Status);
         Assert.Empty(reopened.People);
@@ -122,6 +124,8 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
             """, 1, "2026-11-01T17:00:00Z"));
         var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
         Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
+        metadata.AsObject().Remove("files");
+        File.WriteAllText(Path.Combine(folder, "workspace.json"), metadata.ToJsonString());
         var legacy = Open();
         Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));
@@ -132,5 +136,9 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         Assert.Contains("effective date unknown", Open().GetProfileTimeline("avery@example.com")!.DisplayChanges);
     }
 
-    public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    public void Dispose()
+    {
+        foreach (var app in workflows) app.Dispose();
+        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+    }
 }

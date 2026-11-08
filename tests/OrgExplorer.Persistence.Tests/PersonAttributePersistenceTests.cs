@@ -21,7 +21,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [Fact]
     public void All_textual_edits_and_an_office_only_import_survive_reopening_without_losing_omissions()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         var initial = Batch.Replace("\"managerEmail\":null}", """
             "managerEmail":null},{"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}
@@ -44,7 +44,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             OfficeBuilding = "North A", OfficeNumber = "0009C", OfficeState = "British Columbia",
             OfficeCountry = "Canada", LinkedInProfileUrl = "https://www.linkedin.com/in/avery-local"
         };
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(expected, reopened.People.Single(p => p.Email == "avery@example.com"));
         const string update = """
@@ -53,7 +53,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
              {"email":"AVERY@example.com","officeNumber":"0002B","department":null}]}
             """;
         Assert.True(reopened.ApplyImport(reopened.PreviewImport(update).Id), reopened.Status);
-        var durable = ApplicationWorkflow.CreateFileBacked();
+        using var durable = ApplicationWorkflow.CreateFileBacked();
         Assert.True(durable.OpenWorkspace(folder), durable.Status);
         Assert.Equal(expected with { OfficeNumber = "0002B", Department = null },
             durable.People.Single(p => p.Email == "avery@example.com"));
@@ -65,7 +65,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             "preferredName":"Imported Avery","linkedInProfileUrl":"https://www.linkedin.com/in/avery-imported"
             """);
         Assert.True(durable.ApplyImport(durable.PreviewImport(explicitValues).Id), durable.Status);
-        var final = ApplicationWorkflow.CreateFileBacked();
+        using var final = ApplicationWorkflow.CreateFileBacked();
         Assert.True(final.OpenWorkspace(folder), final.Status);
         Assert.Equal("Imported Avery", final.People.Single(p => p.Email == "avery@example.com").Heading);
         Assert.Equal("https://www.linkedin.com/in/avery-imported",
@@ -75,7 +75,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [Fact]
     public void Explicit_null_clears_all_nullable_text_attributes_durably_without_changing_identity()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var clear = """
@@ -89,7 +89,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(preview.CanApply, app.Status);
         Assert.Contains("LinkedIn URL", string.Join("\n", preview.Changes));
         Assert.True(app.ApplyImport(preview.Id), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(new PersonProfile("avery@example.com", null, null, null), Assert.Single(reopened.People));
         Assert.Equal("avery@example.com", Assert.Single(reopened.People).Heading);
@@ -98,7 +98,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [Fact]
     public void Rejected_batch_and_local_save_failure_retain_the_last_durable_complete_profile()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var saved = Assert.Single(app.People);
@@ -113,7 +113,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             Assert.Contains("NOT saved", app.Status);
             Assert.Equal(saved, Assert.Single(app.People));
         }
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(saved, Assert.Single(reopened.People));
         Assert.Equal("007B", Assert.Single(reopened.People).OfficeNumber);
@@ -130,7 +130,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [InlineData("linkedInProfileUrl", "http://www.linkedin.com/in/avery")]
     public void Invalid_external_textual_data_blocks_opening_and_writes(string property, string invalidValue)
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         foreach (var path in Directory.EnumerateFiles(folder, "*.json", SearchOption.AllDirectories))
@@ -140,7 +140,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             json[property] = invalidValue;
             File.WriteAllText(path, json.ToJsonString());
         }
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
         Assert.Contains(property, reopened.Status);
         Assert.Empty(reopened.People);

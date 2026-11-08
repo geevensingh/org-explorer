@@ -24,7 +24,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [Fact]
     public void Reporting_move_archive_and_replay_preserve_text_and_private_notes_and_allow_external_refresh()
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         const string initial = """
             {"schemaVersion":1,"batchId":"60000000-0000-4000-8000-000000000001",
@@ -55,7 +55,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
         Assert.True(app.RefreshPersonNotes(), app.Status);
         Assert.Equal(personNote.Markdown + "\nEdited externally after reporting move.",
             Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
-        var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = reopened.GetRelationships("avery@example.com")!;
         Assert.Null(person.Manager);
@@ -72,7 +72,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [Fact]
     public void Failed_note_save_and_archive_never_publish_unsaved_writing_and_can_be_retried()
     {
-        var app = Open();
+        using var app = Open();
         var original = app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!;
         var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -84,7 +84,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
             Assert.Contains("NOT saved", app.Status);
             Assert.False(Assert.Single(app.GetPersonNotes("avery@example.com")).Archived);
         }
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(original, Assert.Single(reopened.GetPersonNotes("avery@example.com")));
         Assert.True(app.EditPersonNote(original.Id, "Recovered title", "Recovered writing"), app.Status);
@@ -94,19 +94,19 @@ public sealed class PersonNotePersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Concurrent_profile_change_is_not_acknowledged_by_a_note_only_refresh_or_overwritten()
+    public void Concurrent_profile_and_note_changes_are_accepted_as_one_validated_Workspace()
     {
-        var first = Open();
+        using var first = Open();
         var note = first.CreatePersonNote("avery@example.com", "Context", "Original writing")!;
-        var second = ApplicationWorkflow.CreateFileBacked();
+        using var second = ApplicationWorkflow.CreateFileBacked();
         Assert.True(second.OpenWorkspace(folder), second.Status);
         Assert.True(second.EditPreferredName("avery@example.com", "Ave"), second.Status);
         var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
         File.WriteAllText(file, File.ReadAllText(file).Replace("Original writing", "Externally edited writing"));
-        Assert.False(first.RefreshPersonNotes());
-        Assert.Contains("Other Workspace files changed", first.Status);
-        Assert.False(first.EditPersonNote(note.Id, "Context", "Must not overwrite"));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(first.RefreshPersonNotes(), first.Status);
+        Assert.Equal("Ave", Assert.Single(first.People).PreferredName);
+        Assert.Equal("Externally edited writing", Assert.Single(first.GetPersonNotes("avery@example.com")).Markdown);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Ave", Assert.Single(reopened.People).PreferredName);
         Assert.Equal("Externally edited writing", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
@@ -119,12 +119,12 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [InlineData("\"archived\": false,", "")]
     public void Invalid_or_unsupported_note_metadata_blocks_open_without_repairing_external_documents(string oldValue, string newValue)
     {
-        var app = Open();
+        using var app = Open();
         app.CreatePersonNote("avery@example.com", "Context", "Preserved writing");
         var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
         var invalid = File.ReadAllText(file).Replace(oldValue, newValue);
         File.WriteAllText(file, invalid);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
         Assert.Contains("could not be opened", reopened.Status);
         Assert.Equal(invalid, File.ReadAllText(file));
@@ -133,7 +133,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [Fact]
     public void Synced_note_document_refreshes_without_import_and_invalid_delivery_keeps_last_good_writing()
     {
-        var app = Open();
+        using var app = Open();
         var note = app.CreatePersonNote("avery@example.com", "Context", "Original writing")!;
         var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
         var original = File.ReadAllText(file);
@@ -142,7 +142,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
         Assert.Equal("Externally edited writing", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
         File.WriteAllText(file, "Incomplete delivery");
         Assert.False(app.RefreshPersonNotes());
-        Assert.Contains("could not be refreshed", app.Status);
+        Assert.Contains("STALE", app.Status);
         Assert.Equal("Externally edited writing", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
         Assert.False(app.EditPersonNote(note.Id, "Context", "Must not overwrite"));
         Assert.Equal("Incomplete delivery", File.ReadAllText(file));
@@ -154,11 +154,11 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [Fact]
     public void Editing_and_archiving_retain_exact_Markdown_and_stable_metadata_after_reopening()
     {
-        var app = Open();
+        using var app = Open();
         var note = app.CreatePersonNote("avery@example.com", "Draft", "Before")!;
         Assert.True(app.EditPersonNote(note.Id, "Context", "# Heading\r\nAfter **editing**.\r\n"), app.Status);
         Assert.True(app.ArchivePersonNote(note.Id), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Empty(reopened.GetPersonNotes("avery@example.com"));
         var archived = Assert.Single(reopened.GetPersonNotes("avery@example.com", true));
@@ -174,13 +174,13 @@ public sealed class PersonNotePersistenceTests : IDisposable
     [Fact]
     public void Separate_readable_Markdown_documents_and_stable_ownership_survive_reopening_and_profile_edits()
     {
-        var app = Open();
+        using var app = Open();
         var first = app.CreatePersonNote("AVERY@example.com", "Meeting context", "# Meeting\nPrivate **writing**.");
         var second = app.CreatePersonNote("avery@example.com", "Follow-up", "Second document.");
         Assert.NotNull(first);
         Assert.NotNull(second);
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(first, reopened.GetPersonNotes("avery@example.com").Single(n => n.Id == first.Id));
         Assert.Equal(second, reopened.GetPersonNotes("avery@example.com").Single(n => n.Id == second.Id));

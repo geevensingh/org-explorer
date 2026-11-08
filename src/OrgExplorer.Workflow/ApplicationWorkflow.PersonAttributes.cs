@@ -18,6 +18,9 @@ public sealed partial class ApplicationWorkflow
     private readonly IProfileLinkOpener? profileLinkOpener;
 
     public bool OpenLinkedInProfile(string email)
+    { lock (workspaceGate) return OpenLinkedInProfileCore(email); }
+
+    private bool OpenLinkedInProfileCore(string email)
     {
         if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
         if (person.LinkedInProfileUrl is null) return Fail("No LinkedIn URL is stored for this Person.");
@@ -36,6 +39,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPersonText(string email, PersonTextField field, string? value)
+    { lock (workspaceGate) return EditPersonTextCore(email, field, value); }
+
+    private bool EditPersonTextCore(string email, PersonTextField field, string? value)
     {
         if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
         try
@@ -46,14 +52,18 @@ public sealed partial class ApplicationWorkflow
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [person.Email] = WithText(person, field, validated) };
             var history = CaptureLocalHistory(person, proposed[person.Email], property);
-            if (!Save(proposed, batches, history: history)) return false;
+            if (!Save(proposed, batches, history: history, operation: $"profile:{email.ToLowerInvariant()}:{field}")) return false;
             people = proposed;
             profileHistory = history;
             pending = null;
             Status = "Saved locally.";
             return true;
         }
-        catch (FormatException ex) { return Fail("Edit rejected: " + ex.Message); }
+        catch (FormatException ex)
+        {
+            return SaveFailed($"profile:{email.ToLowerInvariant()}:{field}",
+                "Edit rejected; changes are NOT saved locally: " + ex.Message);
+        }
     }
 
     private static readonly (PersonTextField Field, string Property, string Label)[] TextFields =

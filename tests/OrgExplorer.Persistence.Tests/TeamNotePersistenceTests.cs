@@ -31,21 +31,21 @@ public sealed class TeamNotePersistenceTests : IDisposable
     [InlineData("manager@example.com", "missing@example.com")]
     public void Invalid_Team_documents_block_open_and_never_repair_or_drop_writing(string original, string replacement)
     {
-        var app = Open();
+        using var app = Open();
         app.CreateTeamNote("manager@example.com", "Team", "Retained writing");
         var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
         var invalid = File.ReadAllText(file).Replace(original, replacement);
         File.WriteAllText(file, invalid);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
         Assert.Contains("could not be opened", reopened.Status);
         Assert.Equal(invalid, File.ReadAllText(file));
     }
 
     [Fact]
-    public void Failed_graph_commit_does_not_publish_review_and_note_refresh_does_not_acknowledge_competing_profile_changes()
+    public void Failed_graph_commit_does_not_publish_review_and_note_refresh_accepts_complete_valid_profile_context()
     {
-        var app = Open();
+        using var app = Open();
         var note = app.CreateTeamNote("manager@example.com", "Team", "Saved writing")!;
         const string role = """
             {"schemaVersion":1,"batchId":"90000000-0000-4000-8000-000000000002",
@@ -61,24 +61,26 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.Null(app.GetRelationships("manager@example.com")!.Person.JobTitle);
         Assert.False(Assert.Single(app.GetTeamNotes("manager@example.com")).NeedsReview);
-        var other = ApplicationWorkflow.CreateFileBacked();
+        using var other = ApplicationWorkflow.CreateFileBacked();
         Assert.True(other.OpenWorkspace(folder));
         Assert.True(other.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
         File.WriteAllText(file, File.ReadAllText(file).Replace("Saved writing", "Synced writing"));
-        Assert.False(app.RefreshTeamNotes());
-        Assert.Contains("Other Workspace files changed", app.Status);
-        Assert.False(app.ConfirmTeamNote(note.Id));
-        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.RefreshTeamNotes(), app.Status);
+        Assert.Equal("Director", app.GetRelationships("manager@example.com")!.Person.JobTitle);
         var loaded = Assert.Single(app.GetTeamNotes("manager@example.com"));
         Assert.True(loaded.NeedsReview);
         Assert.Equal("Synced writing", loaded.Markdown);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges();
+        Assert.True(app.ConfirmTeamNote(note.Id), app.Status);
+        Assert.False(Assert.Single(app.GetTeamNotes("manager@example.com")).NeedsReview);
     }
 
     [Fact]
     public void Failed_review_actions_and_invalid_external_delivery_retain_saved_writing_and_flags_until_retry()
     {
-        var app = Open();
+        using var app = Open();
         var note = app.CreateTeamNote("manager@example.com", "Team", "Saved writing")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
@@ -104,8 +106,11 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.Equal("Incomplete delivery", File.ReadAllText(file));
         File.WriteAllText(file, saved.Replace("Saved writing", "Recovered writing"));
         Assert.True(app.RefreshTeamNotes(), app.Status);
+        Assert.False(app.EditTeamNote(note.Id, "Reviewed", "Confirmed writing"));
+        Assert.Contains("changed externally", app.Status);
+        app.DiscardUnsavedChanges(note.Id);
         Assert.True(app.EditTeamNote(note.Id, "Reviewed", "Confirmed writing"), app.Status);
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.False(Assert.Single(reopened.GetTeamNotes("manager@example.com")).NeedsReview);
         Assert.Equal("Confirmed writing", Assert.Single(reopened.GetTeamNotes("manager@example.com")).Markdown);
@@ -115,7 +120,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
     [Fact]
     public void Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership()
     {
-        var app = Open();
+        using var app = Open();
         var direct = app.CreatePersonNote("avery@example.com", "Direct", "Private Avery")!;
         app.CreatePersonNote("manager@example.com", "About Manager", "Must not inherit");
         var root = app.CreateTeamNote("root@example.com", "Organization", "# Root")!;
@@ -123,7 +128,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         var replacement = app.CreateTeamNote("replacement@example.com", "New context", "Replacement")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, null));
-        var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var inherited = reopened.GetInheritedTeamNotes("avery@example.com");
         Assert.Equal(new[] { manager.Id, root.Id }, inherited.Select(n => n.Note.Id));
