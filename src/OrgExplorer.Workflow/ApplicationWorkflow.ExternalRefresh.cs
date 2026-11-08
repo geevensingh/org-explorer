@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 
 namespace OrgExplorer.Workflow;
 
@@ -128,6 +129,7 @@ public sealed partial class ApplicationWorkflow
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
         var accepted = new Dictionary<string, AcceptedBatch>();
         var loadedPhotos = new Dictionary<string, byte[]>();
+        var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
         if (!memory)
         {
             var metadataPath = Path.Combine(workspace!, "workspace.json");
@@ -138,6 +140,18 @@ public sealed partial class ApplicationWorkflow
                 if (metadata.SchemaVersion != 1) throw new FormatException("Unsupported Workspace version. Upgrade the app; writes are blocked.");
                 if (!Regex.IsMatch(metadata.Generation, @"^[a-f0-9]{32}$")) throw new FormatException("Invalid Workspace generation.");
                 var generation = Path.Combine(workspace!, "generations", metadata.Generation);
+                if (metadata.Files is { } files)
+                {
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var relative in files)
+                    {
+                        if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative.Contains(':') ||
+                            relative.Split(['\\', '/']).Any(segment => segment is ".." or "" or ".") || !seen.Add(relative))
+                            throw new FormatException("Invalid or duplicate Workspace generation file reference.");
+                        if (!File.Exists(Path.Combine(generation, relative)))
+                            throw new IOException($"Workspace generation file {relative} is unavailable; waiting for complete delivery.");
+                    }
+                }
                 foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
                 {
                     using var document = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
@@ -166,6 +180,7 @@ public sealed partial class ApplicationWorkflow
                 accepted = batchDocument.RootElement.Deserialize<Dictionary<string, AcceptedBatch>>(JsonOptions)
                     ?? throw new FormatException("Invalid accepted batch data.");
                 foreach (var (id, batch) in accepted)
+                {
                     if (!Guid.TryParseExact(id, "D", out _) || batch is null ||
                         batch.Fingerprint is null || !Regex.IsMatch(batch.Fingerprint, "^[A-F0-9]{64}$") ||
                         batch.Source.ValueKind != JsonValueKind.Object ||
@@ -173,7 +188,10 @@ public sealed partial class ApplicationWorkflow
                         !Guid.TryParse(batchId.GetString(), out var sourceId) || sourceId.ToString() != id ||
                         batch.AppliedAt == default || batch.AppliedAt.Offset != TimeSpan.Zero)
                         throw new FormatException("Invalid accepted batch identity, source evidence, fingerprint, or application time.");
+                    ValidateAcceptedSource(batch.Source);
+                }
                 loadedPhotos = LoadPhotos(generation, loaded);
+                history = ReadProfileHistory(generation, loaded);
             }
             else if (Directory.EnumerateFileSystemEntries(workspace!).Any())
                 throw new IOException("Missing Workspace pointer or unrecognized folder; current data is unavailable.");
@@ -187,6 +205,7 @@ public sealed partial class ApplicationWorkflow
         batches = accepted;
         personNotes = loadedNotes;
         photos = loadedPhotos;
+        profileHistory = history;
         revision = current;
         workspaceCurrent = true;
         personNotesRevision = notesRevision;
@@ -205,6 +224,44 @@ public sealed partial class ApplicationWorkflow
                 RejectWorkspaceLink(entry);
                 if (Directory.Exists(entry)) directories.Push(entry);
                 else yield return entry;
+            }
+        }
+    }
+
+    private static void ValidateAcceptedSource(JsonElement source)
+    {
+        CheckProperties(source, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "Accepted batch");
+        var version = Required(source, "schemaVersion", "Accepted batch");
+        if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
+            throw new FormatException("Unsupported accepted batch source version; upgrade the app.");
+        var observed = Text(Required(source, "observedAt", "Accepted batch"), "Accepted batch.observedAt", false)!;
+        if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
+            !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
+                CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
+            throw new FormatException("Accepted batch.observedAt: expected a real UTC calendar timestamp.");
+        if (source.TryGetProperty("producer", out var producer)) Text(producer, "Accepted batch.producer", false);
+        var records = Required(source, "people", "Accepted batch");
+        if (records.ValueKind != JsonValueKind.Array || records.GetArrayLength() == 0)
+            throw new FormatException("Accepted batch.people: expected a nonempty array.");
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records.EnumerateArray())
+        {
+            CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
+                "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
+                "managerEmail", "archived", "photoPath"], "Accepted batch Person");
+            var email = Email(Required(record, "email", "Accepted batch Person"), "Accepted batch Person.email");
+            if (!keys.Add(email)) throw new FormatException("Accepted batch: duplicate Person identity.");
+            foreach (var (field, property, _) in TextFields)
+                if (record.TryGetProperty(property, out var text)) ValidateText(text, field, $"{email}.{property}");
+            if (record.TryGetProperty("managerEmail", out var manager) && manager.ValueKind != JsonValueKind.Null)
+                Email(manager, $"{email}.managerEmail");
+            if (record.TryGetProperty("archived", out var archived)) Boolean(archived, $"{email}.archived");
+            if (record.TryGetProperty("photoPath", out var photo) && photo.ValueKind != JsonValueKind.Null)
+            {
+                var relative = Text(photo, $"{email}.photoPath", false)!;
+                if (Path.IsPathRooted(relative) || relative.Contains(':') ||
+                    relative.Split(['\\', '/']).Any(segment => segment == ".."))
+                    throw new FormatException($"{email}.photoPath: expected a safe local relative source path.");
             }
         }
     }

@@ -51,8 +51,10 @@ public sealed partial class ApplicationWorkflow
             var validated = ValidateText(JsonSerializer.SerializeToElement(value), field, $"{person.Email}.{property}");
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [person.Email] = WithText(person, field, validated) };
-            if (!Save(proposed, batches, operation: $"profile:{email.ToLowerInvariant()}:{field}")) return false;
+            var history = CaptureLocalHistory(person, proposed[person.Email], property);
+            if (!Save(proposed, batches, history: history, operation: $"profile:{email.ToLowerInvariant()}:{field}")) return false;
             people = proposed;
+            profileHistory = history;
             pending = null;
             Status = "Saved locally.";
             return true;

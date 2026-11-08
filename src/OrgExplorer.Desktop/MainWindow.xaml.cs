@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         selectedEmail = null;
         expandedPeople.Clear();
         ClearPersonEditors();
+        ShowProfileTimeline(null);
         ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
         Manager.Content = "No Person selected";
         Manager.Tag = null;
@@ -73,7 +74,7 @@ public partial class MainWindow : Window
         try
         {
             var result = workflow.PreviewImportFile(ImportPath.Text);
-            PreviewText.Text = string.Join("\n", result.Errors.Concat(result.Changes));
+            PreviewText.Text = string.Join("\n", result.Errors.Concat(result.Warnings).Concat(result.Changes));
             preview = result.CanApply ? result.Id : null;
             ApplyButton.IsEnabled = result.CanApply;
             ShowStatus();
@@ -163,6 +164,7 @@ public partial class MainWindow : Window
         Manager.IsEnabled = context.Manager is not null;
         ReportsList.ItemsSource = context.ImportedReports;
         ReportCount.Text = $"Imported reports: {context.ImportedReports.Count} (selected population, not a full-company count)";
+        ShowProfileTimeline(person.Email);
     }
     private void NavigateManager(object sender, RoutedEventArgs e)
     {

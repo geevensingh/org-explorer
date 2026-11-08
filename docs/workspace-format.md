@@ -2,6 +2,12 @@
 
 The Workspace is a chosen local folder, not installation data or an import file.
 `workspace.json` holds `schemaVersion: 1` and a `generation` identifier.
+New commits also declare the relative generation `files` list. Every declared
+file must arrive before a generation is accepted, so a delayed Person or history
+document cannot silently look like a complete smaller population or a legacy
+history-free Workspace. The list describes locations, not content hashes;
+valid same-path external edits remain possible. Older version-1 pointers without
+the list remain readable with their documented legacy unknown-evidence semantics.
 `generations\<generation>\people\` contains separate indented UTF-8 JSON Person
 records with stable email, Directory name, Preferred name, Alias, job title,
 department, office building/number/state/country, LinkedIn URL, and explicit
@@ -19,7 +25,30 @@ generation has `batches.json`, recording accepted batch IDs, logical hashes,
 original validated source envelopes (including Observation times and producer),
 and local application times. Source evidence is retained for subsequent slices
 rather than discarded when the initial tracer does not yet display history.
-No history is manufactured by the initial tracer. Person notes are
+The same generation's `profile-history\` contains separate readable per-Person
+history documents, with the same email-hash filenames. Each document contains
+`email`, `changes`, and `observations`. A structured change retains `field`,
+typed JSON `oldValue`/`newValue`, `previousEvidence` (or null when unknown), and
+accepted `evidence`. Evidence retains the explicitly supplied field/value,
+`source` (`0` = import, `1` = local edit), source `observedAt` (null for local
+edits), local `recordedAt`, and optional `batchId`/`producer`. Initial creation
+records supplied evidence but is a baseline, not a discovered change.
+Identical explicit imports record evidence without adding a change; omitted
+fields do not record evidence. Notes do not acquire an edit-version history.
+
+Older version-1 generations without `profile-history\` remain readable. Their
+unknown previous field confirmations are not reconstructed from file dates,
+accepted envelopes, or guessed local edits. Subsequent changes retain null
+prior evidence and show detection information rather than invented intervals.
+External Person changes with recorded confirmations must deliver consistent
+Profile history too; inconsistent partial delivery is stale, never repaired by
+inventing evidence. Automatic refresh loads delivered history without recording
+another local edit or reapplying an accepted batch. History is committed in the same generation as profiles, accepted batches, and
+other Workspace resources, so a failed save publishes none of the change.
+Photo changes use the canonical content-addressed photo reference as their
+old/new value, not a producer path; local photo edits and clears share the same
+history recording and atomic-save boundary.
+Person notes are
 separate documents described below, not imported Person fields.
 
 Person `photoPath` is null or an app-created hash-named filename (SHA-256 of the initially copied
@@ -42,6 +71,24 @@ changing producer bytes under a previously accepted batch ID is still rejected.
 All supported fields live in the canonical readable files. Derived profile
 headings are not another identity or override layer. Import version, Workspace
 version, and SDK/app version are independent concerns.
+
+## Observation dates and the timeline
+
+The shared workflow exposes typed changes, all recorded evidence, and current
+field-specific confirmations. The desktop timeline orders changes by recording
+order, not by source dates, and labels imported Observations separately from
+local edits and application times. Same-value older evidence remains reviewable
+but does not replace a newer confirmation of that value. Explicitly accepting a
+different value from older evidence records the difference and staleness; it does
+not silently reject the user's reviewed choice.
+
+A Manager change may show an observed interval after the prior Manager
+confirmation and by the new Manager Observation only when those source times
+are ordered. Equal/older source dates and missing prior source evidence show
+detection time with an unknown effective date. These are evidence bounds, never
+claims of an exact transfer date. Office-only evidence does not reconfirm the
+Manager. Previews warn about older supplied evidence, including evidence that
+predates a local edit; exact accepted replays remain warning-free no-ops.
 
 ## Commit and recovery
 

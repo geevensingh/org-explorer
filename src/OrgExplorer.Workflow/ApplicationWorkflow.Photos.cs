@@ -47,9 +47,11 @@ public sealed partial class ApplicationWorkflow
             }
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [email] = person with { PhotoPath = name } };
-            if (!Save(proposed, batches, proposedPhotos, $"photo:{email.ToLowerInvariant()}")) return false;
+            var history = CaptureLocalHistory(person, proposed[email], "photoPath");
+            if (!Save(proposed, batches, proposedPhotos, history, $"photo:{email.ToLowerInvariant()}")) return false;
             people = proposed;
             photos = proposedPhotos;
+            profileHistory = history;
             pending = null;
             Status = "Saved locally.";
             return true;

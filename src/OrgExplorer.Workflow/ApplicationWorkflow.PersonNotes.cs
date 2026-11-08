@@ -138,7 +138,10 @@ public sealed partial class ApplicationWorkflow
             var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
             if (!frontMatter.Success)
                 throw new FormatException($"Person note {Path.GetFileName(file)}: expected JSON front matter.");
-            var metadata = JsonSerializer.Deserialize<PersonNoteMetadata>(frontMatter.Groups["metadata"].Value, JsonOptions)
+            using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
+            CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
+                "archived", "createdAt", "updatedAt"], $"Person note {Path.GetFileName(file)}");
+            var metadata = document.RootElement.Deserialize<PersonNoteMetadata>(JsonOptions)
                 ?? throw new FormatException($"Person note {Path.GetFileName(file)}: invalid metadata.");
             if (metadata.SchemaVersion != 1)
                 throw new FormatException("Unsupported Person note version. Upgrade the app; writes are blocked.");

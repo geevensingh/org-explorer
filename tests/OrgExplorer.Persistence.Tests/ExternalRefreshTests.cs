@@ -125,6 +125,55 @@ public sealed class ExternalRefreshTests : IDisposable
         Assert.Equal(files.Keys.Order(), Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order());
     }
 
+    [Fact]
+    public async Task A_new_generation_waits_for_all_declared_Profile_history_files_before_acceptance()
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        using var producer = ApplicationWorkflow.CreateFileBacked();
+        var producerFolder = folder + "-producer";
+        try
+        {
+            Assert.True(app.OpenWorkspace(folder), app.Status);
+            Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+            Assert.True(producer.OpenWorkspace(producerFolder), producer.Status);
+            Assert.True(producer.ApplyImport(producer.PreviewImport(Batch).Id), producer.Status);
+            Assert.True(producer.EditPersonText("avery@example.com", PersonTextField.DirectoryName, "Delivered Avery"), producer.Status);
+            var pointer = File.ReadAllText(Path.Combine(producerFolder, "workspace.json"));
+            var generation = JsonNode.Parse(pointer)!["generation"]!.GetValue<string>();
+            var source = Path.Combine(producerFolder, "generations", generation);
+            var target = Path.Combine(folder, "generations", generation);
+            var deferred = Directory.GetFiles(Path.Combine(source, "profile-history"), "*.json");
+            foreach (var path in Directory.GetFiles(source, "*", SearchOption.AllDirectories).Except(deferred))
+            {
+                var destination = Path.Combine(target, Path.GetRelativePath(source, path));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(path, destination);
+            }
+            File.WriteAllText(Path.Combine(folder, "workspace.json"), pointer);
+            await Eventually(() => !app.IsWorkspaceCurrent);
+            Assert.Equal("Avery Example", app.GetRelationships("avery@example.com")!.Person.DirectoryName);
+            Assert.Contains("unavailable", app.Status);
+            Assert.Equal(pointer, File.ReadAllText(Path.Combine(folder, "workspace.json")));
+            foreach (var path in deferred)
+            {
+                var destination = Path.Combine(target, Path.GetRelativePath(source, path));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(path, destination);
+            }
+            await Eventually(() => app.IsWorkspaceCurrent &&
+                app.GetRelationships("avery@example.com")!.Person.DirectoryName == "Delivered Avery");
+            Assert.Single(app.GetProfileTimeline("avery@example.com")!.Changes);
+            var replay = app.PreviewImport(Batch);
+            Assert.True(app.ApplyImport(replay.Id), app.Status);
+            Assert.Single(app.GetProfileTimeline("avery@example.com")!.Changes);
+        }
+        finally
+        {
+            producer.Dispose();
+            if (Directory.Exists(producerFolder)) Directory.Delete(producerFolder, true);
+        }
+    }
+
     [Theory]
     [InlineData("workspace.json")]
     [InlineData("person")]
@@ -166,6 +215,7 @@ public sealed class ExternalRefreshTests : IDisposable
     [InlineData("unknown-field")]
     [InlineData("duplicate-field")]
     [InlineData("unsupported-version")]
+    [InlineData("batch-source")]
     public async Task Invalid_whole_Workspace_is_stale_without_partial_acceptance_or_repair_and_recovers(string invalidity)
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
@@ -174,7 +224,12 @@ public sealed class ExternalRefreshTests : IDisposable
         var note = app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!;
         var noteFile = Path.Combine(folder, "notes", note.Id + ".md");
         var originalNote = File.ReadAllText(noteFile);
-        var file = invalidity == "unsupported-version" ? Path.Combine(folder, "workspace.json") : PersonFile("casey@example.com");
+        var file = invalidity switch
+        {
+            "unsupported-version" => Path.Combine(folder, "workspace.json"),
+            "batch-source" => Directory.GetFiles(folder, "batches.json", SearchOption.AllDirectories).Single(),
+            _ => PersonFile("casey@example.com")
+        };
         var original = File.ReadAllText(file);
         var data = JsonNode.Parse(original)!;
         switch (invalidity)
@@ -185,6 +240,7 @@ public sealed class ExternalRefreshTests : IDisposable
             case "archived-manager": data["archived"] = true; break;
             case "unknown-field": data["notes"] = "Must not import"; break;
             case "unsupported-version": data["schemaVersion"] = 99; break;
+            case "batch-source": data.AsObject().First().Value!["source"]!["observedAt"] = "2026-02-29T17:00:00Z"; break;
         }
         var invalid = invalidity == "duplicate-field"
             ? original.Replace("\"managerEmail\": null", "\"managerEmail\": null, \"managerEmail\": null")
