@@ -44,17 +44,52 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel>
         <TextBlock DockPanel.Dock="Top" Text="Imported reporting population" FontWeight="SemiBold" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ShowArchivedPeople" DockPanel.Dock="Top" Content="Show archived people"
+                  AutomationProperties.AutomationId="ShowArchivedPeople" Margin="0,0,0,8"
+                  Checked="ChangeArchivedFilter" Unchecked="ChangeArchivedFilter"/>
+        <StackPanel x:Name="ArchivedPeoplePanel" DockPanel.Dock="Bottom" Visibility="Collapsed" Margin="0,12,0,0">
+          <TextBlock x:Name="ArchivedPeopleCount" Text="Archived profiles — retained, not current org" TextWrapping="Wrap"/>
+          <ListBox x:Name="ArchivedPeopleList" AutomationProperties.AutomationId="ArchivedPeople"
+                   DisplayMemberPath="Heading" SelectionChanged="SelectArchivedPerson" MaxHeight="220" Margin="0,8,0,0">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="AutomationProperties.AutomationId" Value="{Binding Email}"/>
+                <Setter Property="AutomationProperties.Name" Value="{Binding Heading}"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+          </ListBox>
+        </StackPanel>
         <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People"
                   ItemContainerStyle="{StaticResource ReportingItem}" SelectedItemChanged="SelectPerson"/>
       </DockPanel>
       <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
+        <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
+                   Text="Select a Person." TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
+        <WrapPanel>
+          <Button x:Name="ArchivePersonButton" Content="Archive Person" AutomationProperties.AutomationId="ArchivePerson"
+                  Click="ArchivePerson" IsEnabled="False"/>
+          <Button x:Name="ReactivatePersonButton" Content="Reactivate Person" AutomationProperties.AutomationId="ReactivatePerson"
+                  Click="ReactivatePerson" IsEnabled="False" Margin="8,0"/>
+        </WrapPanel>
         <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
         <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"/>
         <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
                 HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
+        <StackPanel x:Name="ManagerEditor" IsEnabled="False" Margin="0,0,0,12">
+          <TextBlock Text="Explicit Manager change (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice">
+            <ComboBox.ItemContainerStyle>
+              <Style TargetType="ComboBoxItem">
+                <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+              </Style>
+            </ComboBox.ItemContainerStyle>
+          </ComboBox>
+          <Button Content="Apply Manager change" AutomationProperties.AutomationId="ApplyManagerChange"
+                  Click="ChangePersonManager" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+        </StackPanel>
         <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
         <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
                  SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>

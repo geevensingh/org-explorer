@@ -57,6 +57,7 @@ public partial class MainWindow : Window
         selectedEmail = null;
         expandedPeople.Clear();
         ClearPersonEditors();
+        ClearPersonArchival();
         ShowProfileTimeline(null);
         ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
         Manager.Content = "No Person selected";
@@ -98,6 +99,7 @@ public partial class MainWindow : Window
     {
         if (loading || e.NewValue is not ReportingNode node) return;
         if (!OpenPerson(node.Person)) RestorePersonSelection();
+        else RefreshArchivedPeople();
     }
     private void RestorePersonSelection()
     {
@@ -117,6 +119,7 @@ public partial class MainWindow : Window
                             container.IsSelected = true;
                             return;
                         }
+                        container.IsSelected = false;
                         parents.Push(container);
                     }
         }
@@ -137,6 +140,7 @@ public partial class MainWindow : Window
     {
         loading = true;
         PeopleList.ItemsSource = workflow.ReportingRoots;
+        RefreshArchivedPeople();
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person);
@@ -144,6 +148,7 @@ public partial class MainWindow : Window
         {
             selectedEmail = null;
             ClearPersonEditors();
+            ClearPersonArchival();
             ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
             DirectoryName.Text = Email.Text = "";
             Manager.IsEnabled = false;
@@ -161,10 +166,12 @@ public partial class MainWindow : Window
         ProfileHeading.Text = person.Heading;
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
+        ShowPersonArchival(person);
         Photo.Show(workflow.GetPhoto(person.Email));
         Photo.CanEdit = true;
         var context = workflow.GetRelationships(person.Email)!;
-        Manager.Content = "Manager: " + (context.Manager?.Heading ?? "(explicit no-Manager)");
+        Manager.Content = (person.Archived ? "Last stored Manager: " : "Manager: ") +
+            (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "(explicit no-Manager)");
         Manager.Tag = context.Manager?.Email;
         Manager.IsEnabled = context.Manager is not null;
         ReportsList.ItemsSource = context.ImportedReports;
@@ -237,14 +244,16 @@ public partial class MainWindow : Window
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
             : "STALE / unavailable — displayed information is the last valid local state, not current data.";
-        RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0;
+        RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0 || HasUnsavedRelationship;
         DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
+        if (!workflow.IsWorkspaceCurrent)
+            ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
     }
 
     private bool TryLeaveLocalEdits()
     {
         if (!TryLeaveNotes()) return false;
-        if (unsavedAttributes.Count == 0) return true;
+        if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship) return true;
         StatusText.Text = workflow.Status + "\nRetry or discard unsaved profile edits before leaving.";
         return false;
     }

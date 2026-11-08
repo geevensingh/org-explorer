@@ -39,7 +39,8 @@ public sealed record ProfileTimeline(IReadOnlyList<ProfileChange> Changes,
             (c.IsStaleEvidence ? "\nOlder evidence reapplied; do not infer a backwards interval." : "") +
             (c.Field == "managerEmail" ? c.ReportingInterval is { } interval
                 ? $"\nObserved interval: after {Utc(interval.After)}, by {Utc(interval.By)}; exact effective date unknown."
-                : $"\nDetected {Utc(c.DetectedAt)}; effective date unknown." : "")));
+                : $"\nDetected {Utc(c.DetectedAt)}; effective date unknown."
+                : c.Field == "archived" ? $"\nDetected {Utc(c.DetectedAt)}; effective date unknown." : "")));
     public string DisplayConfirmations => Confirmations.Count == 0 ? "No recorded field confirmations." :
         string.Join("\n", Confirmations.OrderBy(o => o.Field).Select(o =>
             $"{ApplicationWorkflow.ProfileFieldLabel(o.Field)}: {DisplayValue(o.Value, "(clear)")} — {DisplayEvidence(o)}"));
