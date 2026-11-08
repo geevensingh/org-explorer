@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OrgExplorer.Desktop/OrgExplorer.Desktop.csproj" />
+    <Project Path="src/OrgExplorer.Workflow/OrgExplorer.Workflow.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OrgExplorer.Core.Tests/OrgExplorer.Core.Tests.csproj" />
+    <Project Path="tests/OrgExplorer.Desktop.Smoke/OrgExplorer.Desktop.Smoke.csproj" />
+    <Project Path="tests/OrgExplorer.Persistence.Tests/OrgExplorer.Persistence.Tests.csproj" />
+  </Folder>
+</Solution>
