@@ -50,6 +50,7 @@
       <ScrollViewer Grid.Column="1" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
+        <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
         <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"/>
         <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
@@ -93,7 +94,6 @@
           <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False"
                   AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
         </StackPanel>
-        <TextBlock Text="Photo unavailable" Foreground="DimGray"/>
         <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
       </StackPanel>
       </ScrollViewer>

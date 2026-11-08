@@ -15,13 +15,17 @@ internal static partial class Program
         try
         {
             if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
-            var import = Path.Combine(root, "import.json");
+            var producer = Path.Combine(root, "producer");
+            Directory.CreateDirectory(producer);
+            CreatePhotoFixture(Path.Combine(producer, "avery.png"));
+            var initialPhoto = File.ReadAllBytes(Path.Combine(producer, "avery.png"));
+            var import = Path.Combine(producer, "import.json");
             const string initialImport = """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
                 "observedAt":"2026-11-01T17:00:00Z","people":[
                 {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
                 {"email":"avery@example.com","displayName":"Avery Example","alias":"avery",
-                 "jobTitle":"Engineer","department":"Research","officeNumber":"007B","managerEmail":"morgan@example.com"},
+                 "jobTitle":"Engineer","department":"Research","officeNumber":"007B","managerEmail":"morgan@example.com","photoPath":"avery.png"},
                 {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
                 {"email":"jordan@example.com","displayName":"Jordan Example","managerEmail":"alex@example.com"},
                 {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
@@ -41,6 +45,7 @@ internal static partial class Program
             Click(window, "ApplyImport");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
+            AssertPhotoVisible(window);
             Click(window, "NavigateManager");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Morgan Example");
             var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
@@ -67,11 +72,14 @@ internal static partial class Program
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Close(process);
+            Directory.Delete(producer, true);
+            import = Path.Combine(root, "import.json");
             process = Launch(args[0]);
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
+            AssertPhotoVisible(window);
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
                 throw new InvalidOperationException("Directory name was not retained after reopening.");
@@ -98,6 +106,8 @@ internal static partial class Program
             AssertValue(window, "Department", "");
             AssertValue(window, "Alias", "avery");
             AssertValue(window, "JobTitle", "Engineer");
+            AssertPhotoVisible(window);
+            File.WriteAllBytes(Path.Combine(root, "avery.png"), initialPhoto);
             File.WriteAllText(import, initialImport);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -116,11 +126,13 @@ internal static partial class Program
             AssertValue(window, "PreferredName", "Ave");
             AssertValue(window, "Alias", "avery");
             AssertValue(window, "JobTitle", "Engineer");
+            AssertPhotoVisible(window);
+            ExercisePhotoImports(window, root);
             Close(process);
             process = null;
             PersonAttributeFlow.Run(args[0], root);
             RunPersonNoteFlow(args[0]);
-            Console.WriteLine("PASS: actual WPF whole-batch preview/apply, reporting navigation, invalid graph rejection, replay, textual profiles, and private Person-note edit/read/autosave/archive/reopen flows.");
+            Console.WriteLine("PASS: actual WPF whole-batch preview/apply, reporting navigation, invalid graph rejection, replay, textual profiles, PNG/JPEG photo pixels, and private Person-note edit/read/autosave/archive/reopen flows.");
             return 0;
         }
         catch (Exception ex)
