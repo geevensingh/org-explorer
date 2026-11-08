@@ -1,6 +1,7 @@
 <Window x:Class="OrgExplorer.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:OrgExplorer.Desktop"
         Title="Org explorer" Width="960" Height="700" MinWidth="700" MinHeight="500">
   <Grid Margin="20">
     <Grid.RowDefinitions>
@@ -30,13 +31,13 @@
       <ListBox x:Name="PeopleList" AutomationProperties.AutomationId="People" DisplayMemberPath="Heading" SelectionChanged="SelectPerson" />
       <StackPanel Grid.Column="1" Margin="20,0,0,0">
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
+        <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock Text="Directory name" Margin="0,12,0,4"/>
         <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
         <TextBlock x:Name="Email" Margin="0,8"/>
         <TextBlock Text="Preferred name (saved locally as you type; empty clears)" Margin="0,12,0,4"/>
         <TextBox x:Name="PreferredName" AutomationProperties.AutomationId="PreferredName" IsEnabled="False" TextChanged="EditPreferredName"/>
         <TextBlock x:Name="Manager" Margin="0,12"/>
-        <TextBlock Text="Photo unavailable" Foreground="DimGray"/>
       </StackPanel>
     </Grid>
     <TextBlock x:Name="StatusText" Grid.Row="5" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Margin="0,16,0,0" Text="Choose a Workspace."/>

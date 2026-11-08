@@ -10,6 +10,7 @@ namespace OrgExplorer.Workflow;
 public sealed record PersonProfile(string Email, string? DirectoryName, string? PreferredName, string? ManagerEmail)
 {
     public string Heading => PreferredName ?? DirectoryName ?? Email;
+    public string? PhotoPath { get; init; }
 }
 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors);
@@ -23,9 +24,11 @@ public interface IApplicationWorkflow
     ImportPreview PreviewImportFile(string path);
     bool ApplyImport(Guid previewId);
     bool EditPreferredName(string email, string? preferredName);
+    PersonPhoto? GetPhoto(string email);
+    bool EditPhoto(string email, string? localPath);
 }
 
-public sealed class ApplicationWorkflow : IApplicationWorkflow
+public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 {
     private readonly bool memory;
     private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
@@ -36,7 +39,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
     private string? importPath;
     private string? importHash;
     private sealed record Pending(ImportPreview Preview, Dictionary<string, PersonProfile> People,
-        string BatchId, string Fingerprint, JsonElement Source);
+        string BatchId, string Fingerprint, JsonElement Source, Dictionary<string, byte[]> Photos,
+        IReadOnlyList<PhotoResource> Resources);
     private sealed record AcceptedBatch(string Fingerprint, JsonElement Source, DateTimeOffset AppliedAt);
     private sealed record WorkspaceMetadata(int SchemaVersion, string Generation);
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -90,6 +94,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                     throw new IOException("Folder is not an empty or recognized Workspace. Existing files will not be overwritten.");
             }
             workspace = fullPath;
+            LoadPhotos(fullPath, loaded);
             people = loaded;
             batches = accepted;
             revision = memory ? null : WorkspaceFingerprint();
@@ -101,11 +106,15 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             workspace = null;
             people.Clear();
             batches.Clear();
+            photos.Clear();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }
 
     public ImportPreview PreviewImport(string json)
+        => PreviewImport(json, null);
+
+    private ImportPreview PreviewImport(string json, string? importDirectory)
     {
         importPath = null;
         importHash = null;
@@ -136,10 +145,12 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var canonical = new List<string>();
+            var proposedPhotos = new Dictionary<string, byte[]>(photos);
+            var resources = new List<PhotoResource>();
             foreach (var record in records.EnumerateArray())
             {
                 var email = Email(record.GetProperty("email"), "email");
-                CheckProperties(record, ["email", "displayName", "preferredName", "managerEmail"], email);
+                CheckProperties(record, ["email", "displayName", "preferredName", "managerEmail", "photoPath"], email);
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
@@ -149,7 +160,26 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                     : existing?.ManagerEmail;
                 if (existing is null && (directoryName is null || !record.TryGetProperty("managerEmail", out _)))
                     throw new FormatException($"{email}: creation requires displayName and explicit managerEmail (null means no Manager).");
-                var next = new PersonProfile(existing?.Email ?? email, directoryName, preferredName, manager);
+                var photoPath = existing?.PhotoPath;
+                string? photoHash = null;
+                if (record.TryGetProperty("photoPath", out var photo))
+                {
+                    if (photo.ValueKind == JsonValueKind.Null) photoPath = null;
+                    else
+                    {
+                        var relativePath = Text(photo, $"{email}.photoPath", false)!;
+                        if (importDirectory is null)
+                            throw new FormatException($"{email}.photoPath: select an import JSON file so local photos have a containing directory.");
+                        var resource = ReadPhotoResource(importDirectory, relativePath, $"{email}.photoPath");
+                        photoHash = resource.Hash;
+                        photoPath = photoHash.ToLowerInvariant() + resource.Extension;
+                        proposedPhotos[photoPath] = resource.Bytes;
+                        resources.Add(resource);
+                    }
+                    if (photoPath != existing?.PhotoPath)
+                        changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
+                }
+                var next = new PersonProfile(existing?.Email ?? email, directoryName, preferredName, manager) { PhotoPath = photoPath };
                 proposed[email] = next;
                 if (existing is null) changes.Add($"Add {email}: Directory name = {directoryName}; Preferred name = {preferredName ?? "(none)"}; Manager = {manager ?? "(none)"}");
                 else
@@ -161,7 +191,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                 canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name)
                     .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
                         ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
-                        : p.Value.ValueKind == JsonValueKind.String ? JsonSerializer.Serialize(p.Value.GetString()) : p.Value.GetRawText()))));
+                        : p.Value.ValueKind == JsonValueKind.String ? JsonSerializer.Serialize(p.Value.GetString()) : p.Value.GetRawText())))
+                    + (photoHash is null ? "" : "|photoBytes:" + photoHash));
             }
             ValidateGraph(proposed);
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
@@ -173,11 +204,11 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                 changes.Add("Already applied: exact replay is a no-op.");
             }
             var preview = new ImportPreview(id, errors.Count == 0, changes, errors);
-            if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone());
+            if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
             Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
             return preview;
         }
-        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException or KeyNotFoundException or ArgumentException)
+        catch (Exception ex) when (StorageError(ex) || ex is InvalidOperationException or KeyNotFoundException)
         {
             errors.Add(ex.Message);
             Status = "Import rejected: " + string.Join("\n", errors);
@@ -191,7 +222,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         try
         {
             if ((importPath is not null && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(importPath))) != importHash) ||
-                (!memory && WorkspaceFingerprint() != revision))
+                (!memory && WorkspaceFingerprint() != revision) || !PhotoResourcesUnchanged(pending.Resources))
             {
                 pending = null;
                 return Fail("Workspace or import file changed. Reopen and preview again before applying.");
@@ -210,7 +241,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         }
         var accepted = new Dictionary<string, AcceptedBatch>(batches)
         { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, DateTimeOffset.UtcNow) };
-        if (!Save(pending.People, accepted)) { pending = null; return false; }
+        if (!Save(pending.People, accepted, pending.Photos)) { pending = null; return false; }
+        photos = pending.Photos;
         people = pending.People;
         batches = accepted;
         pending = null;
@@ -238,7 +270,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         {
             var bytes = File.ReadAllBytes(path);
             var offset = bytes.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf }) ? 3 : 0;
-            var preview = PreviewImport(new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset));
+            var preview = PreviewImport(new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset),
+                Path.GetDirectoryName(Path.GetFullPath(path)));
             importPath = Path.GetFullPath(path);
             importHash = Convert.ToHexString(SHA256.HashData(bytes));
             return preview;
@@ -276,7 +309,8 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
         }
         return Convert.ToHexString(hash.GetHashAndReset());
     }
-    private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted)
+    private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
+        Dictionary<string, byte[]>? proposedPhotos = null)
     {
         if (memory) return true;
         try
@@ -292,6 +326,7 @@ public sealed class ApplicationWorkflow : IApplicationWorkflow
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
                 WriteDurably(Path.Combine(directory, "people", key + ".json"), person);
             }
+            SavePhotos(directory, proposed, proposedPhotos ?? photos);
             WriteDurably(Path.Combine(directory, "batches.json"), accepted);
             var staged = Path.Combine(workspace!, "workspace.next");
             WriteDurably(staged, new WorkspaceMetadata(1, generation));

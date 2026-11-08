@@ -10,7 +10,17 @@ generation has `batches.json`, recording accepted batch IDs, logical hashes,
 original validated source envelopes (including Observation times and producer),
 and local application times. Source evidence is retained for subsequent slices
 rather than discarded when the initial tracer does not yet display history.
-No notes, photos, or history are manufactured by this first tracer.
+No notes or history are manufactured by the initial Person tracer.
+
+Person `photoPath` is null or a content-addressed filename (SHA-256 of the exact
+image bytes plus `.png` or `.jpg`), resolved in the same generation's `photos\`
+directory. These are ordinary copied JPEG/PNG files, not producer paths, remote
+URLs, or embedded base64 in Person JSON. Opening validates containment, image
+content, and the referenced hash; damaged supplied or Workspace images are
+errors, never successful placeholder substitutions. A generation carries the
+currently referenced images forward, so later edits and export-folder removal
+do not break profiles. Older generations keep recoverable originals when a
+current photo is cleared or replaced.
 
 All supported fields live in the canonical readable files. Derived profile
 headings are not another identity or override layer. Import version, Workspace
@@ -24,7 +34,9 @@ preserved as `workspace.previous.json`; earlier generations remain recoverable.
 No retention cleanup runs yet. A short exclusive `.workspace.lock` coordinates
 local app writers, not external folder providers. Fingerprints detect Workspace
 changes since opening; stale previews and saves are refused instead of merging
-competing state. The UI revalidates the selected import bytes on apply.
+competing state. The UI revalidates the selected import bytes and every
+referenced image's bytes on apply. Accepted-batch logical fingerprints include image SHA-256 values,
+so unchanged path strings do not authorize changed images.
 
 A save error remains visible and does not publish an unsaved name as the saved
 profile. Reopen the Workspace after resolving access or external-change errors.

@@ -4,7 +4,7 @@ using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main(string[] args)
@@ -15,11 +15,14 @@ internal static class Program
         try
         {
             if (args.Length != 1) throw new ArgumentException("Supply the actual built WPF executable path.");
-            var import = Path.Combine(root, "import.json");
+            var producer = Path.Combine(root, "producer");
+            Directory.CreateDirectory(producer);
+            CreatePhotoFixture(Path.Combine(producer, "avery.png"));
+            var import = Path.Combine(producer, "import.json");
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
                 "observedAt":"2026-11-01T17:00:00Z","people":[
-                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null}]}
+                {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null,"photoPath":"avery.png"}]}
                 """);
             var workspace = Path.Combine(root, "workspace");
             process = Launch(args[0]);
@@ -34,20 +37,24 @@ internal static class Program
                 throw new InvalidOperationException("Actual UI did not show the import preview.");
             Click(window, "ApplyImport");
             OpenPerson(window);
+            AssertPhotoVisible(window);
             Set(window, "PreferredName", "Ave");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Close(process);
+            Directory.Delete(producer, true);
             process = Launch(args[0]);
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenPerson(window);
+            AssertPhotoVisible(window);
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
                 throw new InvalidOperationException("Directory name was not retained after reopening.");
             if (((ValuePattern)Find(window, "PreferredName").GetCurrentPattern(ValuePattern.Pattern)).Current.Value != "Ave")
                 throw new InvalidOperationException("Preferred name did not survive reopening.");
+            ExercisePhotoImports(window, root);
             Console.WriteLine("PASS: actual WPF launch → Workspace → preview/apply → Person → edit/save → close/reopen.");
             return 0;
         }

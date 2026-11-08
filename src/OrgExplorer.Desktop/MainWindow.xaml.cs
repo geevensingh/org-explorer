@@ -13,7 +13,11 @@ public partial class MainWindow : Window
     private string? selectedEmail;
     private bool loading;
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        Photo.PhotoEdited += EditPersonPhoto;
+    }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
@@ -35,6 +39,8 @@ public partial class MainWindow : Window
         loading = false;
         PreferredName.IsEnabled = false;
         ProfileHeading.Text = DirectoryName.Text = Email.Text = Manager.Text = "";
+        Photo.Show(null);
+        Photo.CanEdit = false;
         RefreshPeople();
         ShowStatus();
     }
@@ -98,6 +104,17 @@ public partial class MainWindow : Window
         DirectoryName.Text = person.DirectoryName ?? "(unknown)";
         Email.Text = person.Email;
         Manager.Text = "Manager: " + (person.ManagerEmail ?? "(explicit no-Manager)");
+        Photo.Show(workflow.GetPhoto(person.Email));
+        Photo.CanEdit = true;
+    }
+    private void EditPersonPhoto(string? localPath)
+    {
+        if (selectedEmail is null) return;
+        if (workflow.EditPhoto(selectedEmail, localPath))
+            ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
+        ApplyButton.IsEnabled = false;
+        preview = null;
+        ShowStatus();
     }
     private void ShowStatus() => StatusText.Text = workflow.Status;
 }

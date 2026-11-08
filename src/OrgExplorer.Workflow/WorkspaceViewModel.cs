@@ -12,6 +12,8 @@ public sealed class WorkspaceViewModel(IApplicationWorkflow workflow) : IApplica
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
     public bool EditPreferredName(string email, string? preferredName) => Observe(() => workflow.EditPreferredName(email, preferredName));
+    public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
+    public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
 
     private T Observe<T>(Func<T> operation)
     {
