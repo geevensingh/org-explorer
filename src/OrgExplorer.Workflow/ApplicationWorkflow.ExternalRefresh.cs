@@ -113,6 +113,7 @@ public sealed partial class ApplicationWorkflow
         if (memory) return true;
         try
         {
+            using var access = CoordinateWorkspaceIo(workspace);
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
             ReadAndAcceptWorkspace();
             pending = null;
@@ -130,6 +131,7 @@ public sealed partial class ApplicationWorkflow
 
     private void ReadAndAcceptWorkspace()
     {
+        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         conversionMessage = null;
         if (!memory && InspectWorkspaceVersions() == 1) ConvertVersionOneWorkspace();
         ReadAndAcceptWorkspaceData();
@@ -140,6 +142,7 @@ public sealed partial class ApplicationWorkflow
 
     private void ReadAndAcceptWorkspaceData(WorkspaceMetadata? conversionCandidate = null)
     {
+        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         var current = memory ? null : WorkspaceFingerprint();
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
         var accepted = new Dictionary<string, AcceptedBatch>();

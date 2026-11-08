@@ -30,11 +30,11 @@ public sealed class WorkspaceReadLifetimeTests
             Assert.NotNull(note);
             Assert.True(reader.OpenWorkspace(folder), reader.Status);
             using var started = new ManualResetEventSlim();
-            refreshing = Task.Run(() =>
+            refreshing = Task.Factory.StartNew(() =>
             {
                 started.Set();
                 while (!cancellation.IsCancellationRequested) reader.RefreshWorkspace();
-            });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
             for (var i = 0; i < 20; i++)
                 Assert.True(favorite ? writer.EditFavorite("avery@example.com", i % 2 == 0) :

@@ -215,6 +215,16 @@ fingerprints and data validation still reject changing, incomplete, or invalid
 deliveries; permissive handle sharing does not authorize unvalidated content.
 Producer-photo containment and preview/resource revalidation remain unchanged.
 
+File-backed workflows within one process also coordinate complete filesystem
+reads, version inspection/conversion, and local publication by normalized
+Workspace path. One client's open read handles finish before a sibling client's
+atomic replacement starts; readers likewise cannot inspect an in-process
+half-written generation. This gate is process-local I/O lifetime coordination,
+not provider synchronization, a semantic merge, or an on-disk read lease.
+External delivery still requires whole-state fingerprints/validation, and the
+exclusive local writer lease still refuses actual competing writers and access
+failures. Coordination adds no catch-all recovery or write retries.
+
 The app's `workspace.next` and UUID-named `.next` files directly beneath `notes\`
 and `team-notes\` are uncommitted staging, not canonical data. Refresh traversal
 does not inspect or fingerprint them: Windows replacement source files must stay

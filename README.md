@@ -294,7 +294,7 @@ Filesystem regressions also stress a refreshing second client against repeated
 note/favorite autosaves, prove locked uncommitted stages and the recovery pointer do not replace or invalidate
 committed data, and ensure closed workflows cannot reenter refresh. Fixture
 owners dispose all workflows before removing their folders. Reader sharing and
-staging traversal are corrected at the workflow rather than masked by save
+staging traversal and process-local Workspace I/O lifetimes are corrected at the workflow rather than masked by save
 retries, suppressed I/O failures, or disabled tests.
 
 Every PR and main commit (without path filters) runs three independent parallel
