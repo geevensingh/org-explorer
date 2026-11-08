@@ -173,7 +173,8 @@ not rewrite those mutable originals.
 
 The **actual normal Workspace reader** validates staged output, not just its
 version headers. Only then is the fresh generation copied/flushed into the live
-folder. The source fingerprint is checked again, excluding that app-owned staged
+folder, where the normal reader validates the actual copied generation and live
+notes once more before publication. The source fingerprint is checked again, excluding that app-owned staged
 generation, before atomically replacing the pointer. The previous pointer and
 generations remain. A failure before publication never replaces the original
 pointer or advertises the staged state as loaded; app-created orphans are not
@@ -278,6 +279,13 @@ Only a subsequent complete valid delivery removes that warning. Removing a note
 document is a valid external removal; removing a referenced Manager is not a
 new reporting root. Provider conflict copies in canonical Person/note locations
 are reported, not merged, renamed, or repaired.
+
+Workspace readers permit external write/delete sharing, including clients
+waiting on a failed or incompatible open. They do not hold read leases that
+prevent an owner/provider from replacing incomplete bytes with a valid delivery.
+Before/after byte fingerprints and complete validation establish the accepted
+view; a concurrently changed or invalid read is unavailable/stale and retried,
+not rewritten.
 
 Ordinary compatible-version refresh is read-only: it does not replay accepted imports, invent Observations,
 or write generations/history. Own-save event bursts match the accepted byte

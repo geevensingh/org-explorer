@@ -160,7 +160,7 @@ public sealed partial class ApplicationWorkflow
         if (!Directory.Exists(directory)) return history;
         foreach (var file in Directory.GetFiles(directory, "*.json"))
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(file));
+            using var document = JsonDocument.Parse(ReadWorkspaceText(file));
             CheckRecordVersion(document.RootElement, "Profile history", workspaceVersion);
             CheckProperties(document.RootElement, ["schemaVersion", "email", "changes", "observations"], "Profile history");
             var person = DeserializeVersionedRecord<PersonHistory>(document.RootElement)

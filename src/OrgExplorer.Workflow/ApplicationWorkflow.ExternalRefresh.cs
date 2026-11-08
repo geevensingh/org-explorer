@@ -137,7 +137,7 @@ public sealed partial class ApplicationWorkflow
             workspace, 2, compatibility.RecoveryPath);
     }
 
-    private void ReadAndAcceptWorkspaceData()
+    private void ReadAndAcceptWorkspaceData(WorkspaceMetadata? conversionCandidate = null)
     {
         var current = memory ? null : WorkspaceFingerprint();
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
@@ -151,8 +151,8 @@ public sealed partial class ApplicationWorkflow
             var metadataPath = Path.Combine(workspace!, "workspace.json");
             if (File.Exists(metadataPath))
             {
-                using var pointer = JsonDocument.Parse(File.ReadAllText(metadataPath, new UTF8Encoding(false, true)));
-                var metadata = ReadWorkspaceMetadata(pointer.RootElement);
+                using var pointer = JsonDocument.Parse(ReadWorkspaceText(metadataPath));
+                var metadata = conversionCandidate ?? ReadWorkspaceMetadata(pointer.RootElement);
                 var generation = Path.Combine(workspace!, "generations", metadata.Generation);
                 if (metadata.Files is { } files)
                 {
@@ -168,7 +168,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
                 {
-                    using var document = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
+                    using var document = JsonDocument.Parse(ReadWorkspaceText(file));
                     var root = document.RootElement;
                     CheckRecordVersion(root, "Person", metadata.SchemaVersion);
                     CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
@@ -190,7 +190,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 ValidateGraph(loaded);
                 loadedTeamContexts = LoadTeamContextRevisions(generation, loaded);
-                using var batchDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(generation, "batches.json")));
+                using var batchDocument = JsonDocument.Parse(ReadWorkspaceText(Path.Combine(generation, "batches.json")));
                 CheckProperties(batchDocument.RootElement, batchDocument.RootElement.ValueKind == JsonValueKind.Object
                     ? batchDocument.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Accepted batches");
                 accepted = batchDocument.RootElement.Deserialize<Dictionary<string, AcceptedBatch>>(JsonOptions)
@@ -295,6 +295,24 @@ public sealed partial class ApplicationWorkflow
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
+    }
+
+    private static byte[] ReadWorkspaceBytes(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var bytes = new MemoryStream();
+        file.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
+    private static string ReadWorkspaceText(string path)
+    {
+        // Provider delivery must not be blocked by a reader, including clients
+        // waiting on an incompatible/incomplete Workspace. Byte fingerprints
+        // and whole-state validation, not read leases, establish a stable view.
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var text = new StreamReader(file, new UTF8Encoding(false, true));
+        return text.ReadToEnd();
     }
 
     public void Dispose()

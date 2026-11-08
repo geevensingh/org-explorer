@@ -24,6 +24,9 @@ internal static partial class Program
             Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 3");
+            if (!Find(window, "FavoriteStatus").Current.Name.Contains("Marked favorite"))
+                throw new InvalidOperationException("Supported conversion lost favorite state.");
             AssertValue(window, "OfficeNumber", "0009C");
             AssertPhotoVisible(window);
             if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
@@ -38,7 +41,8 @@ internal static partial class Program
             File.WriteAllText(pointer, data.ToJsonString());
             var before = WorkspaceFixtures.Bytes(workspace);
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled ||
+                Find(window, "ToggleFavorite").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
             Click(window, "OpenSettings");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
@@ -71,7 +75,8 @@ internal static partial class Program
             AssertNoFakeUpdater(window);
             Click(window, "RetryWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled ||
+                Find(window, "ToggleFavorite").Current.IsEnabled)
                 throw new InvalidOperationException("Unsupported initial Workspace enabled writes.");
             AssertWorkspaceBytes(incompatibleWorkspace, incompatibleBytes);
             if (File.Exists(Path.Combine(incompatibleWorkspace, ".workspace.lock")))

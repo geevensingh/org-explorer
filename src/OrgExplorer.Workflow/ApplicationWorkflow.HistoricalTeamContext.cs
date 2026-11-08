@@ -112,7 +112,7 @@ public sealed partial class ApplicationWorkflow
         if (!Directory.Exists(directory)) return contexts;
         foreach (var file in Directory.GetFiles(directory, "*.json"))
         {
-            using var json = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
+            using var json = JsonDocument.Parse(ReadWorkspaceText(file));
             RequireVersion(json.RootElement, "Historical team context", [1]);
             RequireHistoricalProperties(json.RootElement, ["schemaVersion", "email", "contexts"]);
             var document = json.RootElement.Deserialize<HistoricalContextDocument>(JsonOptions)

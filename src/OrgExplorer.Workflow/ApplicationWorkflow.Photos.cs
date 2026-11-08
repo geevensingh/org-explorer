@@ -107,10 +107,11 @@ public sealed partial class ApplicationWorkflow
             var nativePath = directoryPath.StartsWith(@"\\?\") ? directoryPath :
                 directoryPath.StartsWith(@"\\") ? @"\\?\UNC\" + directoryPath[2..] : @"\\?\" + directoryPath;
             using var root = CreateFile(nativePath,
-                0, 3, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+                0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
             if (root.IsInvalid) throw new IOException(new Win32Exception(Marshal.GetLastWin32Error()).Message);
             var resolvedRoot = FinalPath(root).TrimEnd('\\') + "\\";
-            using var file = new FileStream(Path.Combine(directory, relativePath), FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var file = new FileStream(Path.Combine(directory, relativePath), FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             // Validate the opened handle, not a lexical path checked before a link can change.
             if (!FinalPath(file.SafeFileHandle).StartsWith(resolvedRoot, StringComparison.OrdinalIgnoreCase))
                 throw new FormatException($"{field}: filesystem link escapes the containing import directory.");

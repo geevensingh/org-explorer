@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -57,7 +56,7 @@ public sealed partial class ApplicationWorkflow
         var pointer = Path.Combine(workspace!, "workspace.json");
         if (!File.Exists(pointer)) return 2;
         RejectWorkspaceLink(pointer);
-        using var json = JsonDocument.Parse(File.ReadAllText(pointer, new UTF8Encoding(false, true)));
+        using var json = JsonDocument.Parse(ReadWorkspaceText(pointer));
         var metadata = ReadWorkspaceMetadata(json.RootElement);
         var version = metadata.SchemaVersion;
         var generation = Path.Combine(workspace!, "generations", metadata.Generation);
@@ -70,7 +69,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var file in Directory.GetFiles(directory, "*.json"))
             {
                 RejectWorkspaceLink(file);
-                using var record = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
+                using var record = JsonDocument.Parse(ReadWorkspaceText(file));
                 if (folder == "historical-team-context") RequireVersion(record.RootElement, folder, [1]);
                 else CheckRecordVersion(record.RootElement, folder, version);
             }
@@ -83,7 +82,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var file in Directory.GetFiles(directory, "*.md"))
             {
                 RejectWorkspaceLink(file);
-                var text = File.ReadAllText(file, new UTF8Encoding(false, true));
+                var text = ReadWorkspaceText(file);
                 var front = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
                 if (!front.Success) throw new FormatException($"{folder}: expected JSON front matter.");
                 using var record = JsonDocument.Parse(front.Groups["metadata"].Value);
@@ -94,7 +93,7 @@ public sealed partial class ApplicationWorkflow
         if (File.Exists(batchesPath))
         {
             RejectWorkspaceLink(batchesPath);
-            using var batches = JsonDocument.Parse(File.ReadAllText(batchesPath, new UTF8Encoding(false, true)));
+            using var batches = JsonDocument.Parse(ReadWorkspaceText(batchesPath));
             if (batches.RootElement.ValueKind != JsonValueKind.Object)
                 throw new FormatException("Accepted batches must be an object.");
             foreach (var batch in batches.RootElement.EnumerateObject())
@@ -193,17 +192,17 @@ public sealed partial class ApplicationWorkflow
 
             CopyWorkspace(originals, candidateRoot);
             var oldPointer = JsonSerializer.Deserialize<WorkspaceMetadata>(
-                File.ReadAllText(Path.Combine(originals, "workspace.json")), JsonOptions)!;
+                ReadWorkspaceText(Path.Combine(originals, "workspace.json")), JsonOptions)!;
             var generation = Guid.NewGuid().ToString("N");
             var next = Path.Combine(candidateRoot, "generations", generation);
-            CopyWorkspace(Path.Combine(originals, "generations", oldPointer.Generation), next);
+            CopyWorkspace(Path.Combine(originals, "generations", oldPointer.Generation), next, includeRecovery: true);
             foreach (var folder in new[] { "people", "profile-history" })
             {
                 var directory = Path.Combine(next, folder);
                 if (!Directory.Exists(directory)) continue;
                 foreach (var file in Directory.GetFiles(directory, "*.json"))
                 {
-                    var record = JsonNode.Parse(File.ReadAllText(file))!.AsObject();
+                    var record = JsonNode.Parse(ReadWorkspaceText(file))!.AsObject();
                     record["schemaVersion"] = 2;
                     WriteDurably(file, record);
                 }
@@ -218,9 +217,12 @@ public sealed partial class ApplicationWorkflow
 
             if (InspectWorkspaceVersions() != 1 || WorkspaceFingerprint() != originalRevision)
                 throw new IOException("Workspace changed before conversion publication; originals remain authoritative.");
-            CopyWorkspace(next, Path.Combine(originalRoot, "generations", generation));
+            CopyWorkspace(next, Path.Combine(originalRoot, "generations", generation), includeRecovery: true);
+            using var copied = new ApplicationWorkflow(false, profileLinkOpener, timeProvider) { workspace = originalRoot };
+            copied.ReadAndAcceptWorkspaceData(pointer);
             if (InspectWorkspaceVersions() != 1 ||
-                WorkspaceFingerprint(ignoredGeneration: generation) != originalRevision)
+                WorkspaceFingerprint(ignoredGeneration: generation) != originalRevision ||
+                copied.WorkspaceFingerprint() != copied.revision)
                 throw new IOException("Workspace changed during conversion publication; original pointer was not replaced.");
             var stagedPointer = Path.Combine(attempt, "workspace.converted.next");
             WriteDurably(stagedPointer, pointer);
@@ -237,7 +239,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private static void CopyWorkspace(string source, string destination)
+    private static void CopyWorkspace(string source, string destination, bool includeRecovery = false)
     {
         Directory.CreateDirectory(destination);
         var directories = new Stack<string>();
@@ -247,7 +249,7 @@ public sealed partial class ApplicationWorkflow
             RejectWorkspaceLink(directory);
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
-                if (directory == source && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase) ||
+                if (!includeRecovery && directory == source && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase) ||
                     Path.GetFileName(entry).Equals(".workspace.lock", StringComparison.OrdinalIgnoreCase)) continue;
                 RejectWorkspaceLink(entry);
                 var target = Path.Combine(destination, Path.GetRelativePath(source, entry));
@@ -259,7 +261,7 @@ public sealed partial class ApplicationWorkflow
                 else
                 {
                     using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                    output.Write(File.ReadAllBytes(entry));
+                    output.Write(ReadWorkspaceBytes(entry));
                     output.Flush(true);
                 }
             }

@@ -32,7 +32,7 @@ public sealed partial class ApplicationWorkflow
         foreach (var file in Directory.GetFiles(directory, "*.md"))
         {
             RejectNoteLink(file);
-            var text = File.ReadAllText(file, new UTF8Encoding(false, true));
+            var text = ReadWorkspaceText(file);
             var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
             if (!frontMatter.Success)
                 throw new FormatException($"Team note {Path.GetFileName(file)}: expected JSON front matter.");
@@ -73,7 +73,7 @@ public sealed partial class ApplicationWorkflow
             if (Directory.Exists(path)) throw new IOException("Team context revisions must be a file.");
             return result;
         }
-        using var document = JsonDocument.Parse(File.ReadAllText(path, new UTF8Encoding(false, true)));
+        using var document = JsonDocument.Parse(ReadWorkspaceText(path));
         CheckProperties(document.RootElement, document.RootElement.ValueKind == JsonValueKind.Object
             ? document.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Team context revisions");
         var loaded = document.RootElement.Deserialize<Dictionary<string, Guid>>(JsonOptions)

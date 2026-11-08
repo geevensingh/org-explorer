@@ -28,9 +28,11 @@ public sealed class WorkspaceMigrationTests : IDisposable
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         VerifyCompleteContext(reopened);
         Assert.True(reopened.EditPreferredName("avery@example.com", "Converted local edit"), reopened.Status);
+        Assert.True(reopened.EditFavorite("former@example.com", false), reopened.Status);
         using var edited = ApplicationWorkflow.CreateFileBacked();
         Assert.True(edited.OpenWorkspace(folder), edited.Status);
         Assert.Equal("Converted local edit", edited.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.False(edited.GetRelationships("former@example.com")!.Person.IsFavorite);
         Assert.Equal("Old team writing.", Assert.Single(edited.GetHistoricalTeamContexts("avery@example.com"))
             .TeamNotes.Single(n => n.OwnerEmail == "morgan@example.com").Markdown.Split('\n')[1]);
     }
@@ -49,13 +51,19 @@ public sealed class WorkspaceMigrationTests : IDisposable
         Assert.Equal("US", person.OfficeCountry);
         Assert.Equal("https://www.linkedin.com/in/fictitious-avery", person.LinkedInProfileUrl);
         Assert.Equal("alex@example.com", person.ManagerEmail);
-        Assert.NotNull(app.GetPhoto(person.Email));
+        Assert.True(person.IsFavorite);
+        Assert.Equal(new[] { "avery@example.com", "former@example.com", "morgan@example.com" },
+            app.FavoritePeople.Select(p => p.Email));
+        Assert.Equal(Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC"),
+            app.GetPhoto(person.Email)!.Bytes.ToArray());
         Assert.True(app.GetRelationships("former@example.com")!.Person.Archived);
         Assert.True(Assert.Single(app.GetPersonNotes("former@example.com", true)).Archived);
         Assert.Equal("# Person writing\n**Preserved** café.", Assert.Single(app.GetPersonNotes(person.Email)).Markdown);
         Assert.Equal("Later writing must not rewrite frozen history.", Assert.Single(app.GetTeamNotes("morgan@example.com")).Markdown);
         var capture = Assert.Single(app.GetHistoricalTeamContexts(person.Email));
         Assert.Equal(new[] { "morgan@example.com", "casey@example.com" }, capture.ReportingChain.Select(p => p.Email));
+        Assert.True(capture.ReportingChain[0].IsFavorite);
         Assert.Equal("# Frozen team\nOld team writing.", capture.TeamNotes.Single(n => n.OwnerEmail == "morgan@example.com").Markdown);
         Assert.Equal("Fictitious transfer", Assert.Single(capture.Transitions).Change.Evidence.Producer);
         Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"), Assert.Single(capture.Transitions).Change.ReportingInterval!.After);
@@ -64,6 +72,9 @@ public sealed class WorkspaceMigrationTests : IDisposable
         Assert.Equal(3, timeline.Changes.Count);
         Assert.Contains(timeline.Changes, c => c.Field == "photoPath" && c.Evidence.Source == ProfileChangeSource.LocalEdit);
         Assert.Equal("0009C", timeline.Confirmations.Single(e => e.Field == "officeNumber").Value.GetString());
+        Assert.True(timeline.Confirmations.Single(e => e.Field == "isFavorite").Value.GetBoolean());
+        Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"),
+            timeline.Confirmations.Single(e => e.Field == "isFavorite").ObservedAt);
         var replay = app.PreviewImport("""
             {"schemaVersion":1,"batchId":"14000000-0000-4000-8000-000000000002",
             "observedAt":"2026-11-03T17:00:00Z","producer":"Fictitious transfer","people":[
@@ -218,6 +229,7 @@ public sealed class WorkspaceMigrationTests : IDisposable
         Assert.False(app.EditPreferredName("avery@example.com", "Never saved"));
         Assert.False(app.EditPhoto("avery@example.com", null));
         Assert.False(app.EditPersonArchived("former@example.com", false));
+        Assert.False(app.EditFavorite("avery@example.com", false));
         Assert.False(app.EditPersonNote(note.Id, note.Title, "Never saved"));
         Assert.False(app.ArchivePersonNote(note.Id));
         Assert.False(app.EditTeamNote(team.Id, team.Title, "Never saved"));
@@ -292,6 +304,39 @@ public sealed class WorkspaceMigrationTests : IDisposable
         Assert.Contains("duplicate", app.Status);
         AssertBytesUnchanged(before);
         Assert.False(File.Exists(Path.Combine(folder, ".workspace.lock")));
+    }
+
+    [Fact]
+    public async Task Incompatible_clients_do_not_hold_read_leases_that_block_external_delivery()
+    {
+        WorkspaceFixtures.CopyVersion(99, folder);
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.False(app.OpenWorkspace(folder));
+        var pointer = Path.Combine(folder, "workspace.json");
+        var original = File.ReadAllBytes(pointer);
+        var before = WorkspaceFixtures.Bytes(folder);
+        using var start = new ManualResetEventSlim();
+        var reads = Task.Run(() =>
+        {
+            start.Wait();
+            for (var i = 0; i < 500; i++) app.RefreshWorkspace();
+        });
+        start.Set();
+        try
+        {
+            for (var i = 0; i < 500; i++) File.WriteAllBytes(pointer, original);
+        }
+        finally { await reads.WaitAsync(TimeSpan.FromSeconds(10)); }
+        Assert.False(app.RefreshWorkspace());
+        Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
+        AssertBytesUnchanged(before);
+        Assert.False(File.Exists(Path.Combine(folder, ".workspace.lock")));
+        var supported = JsonNode.Parse(original)!.AsObject();
+        supported["schemaVersion"] = 1;
+        supported.Remove("futureRequiredField");
+        File.WriteAllText(pointer, supported.ToJsonString());
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        VerifyCompleteContext(app);
     }
 
     public void Dispose()
