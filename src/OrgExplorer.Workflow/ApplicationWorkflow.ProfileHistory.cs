@@ -212,7 +212,7 @@ public sealed partial class ApplicationWorkflow
         {
             if (value.ValueKind != JsonValueKind.Null) Email(value, "Profile history.managerEmail");
         }
-        else if (field == "archived") Boolean(value, "Profile history.archived");
+        else if (field is "archived" or "isFavorite") Boolean(value, $"Profile history.{field}");
         else if (field == "photoPath")
         {
             if (value.ValueKind != JsonValueKind.Null && (value.ValueKind != JsonValueKind.String ||
@@ -233,6 +233,7 @@ public sealed partial class ApplicationWorkflow
     {
         if (property == "managerEmail") return JsonSerializer.SerializeToElement(person.ManagerEmail);
         if (property == "archived") return JsonSerializer.SerializeToElement(person.Archived);
+        if (property == "isFavorite") return JsonSerializer.SerializeToElement(person.IsFavorite);
         if (property == "photoPath") return JsonSerializer.SerializeToElement(person.PhotoPath);
         return JsonSerializer.SerializeToElement(ReadText(person, TextFields.Single(f => f.Property == property).Field));
     }
@@ -241,6 +242,7 @@ public sealed partial class ApplicationWorkflow
     {
         "managerEmail" => "Manager",
         "archived" => "Archived",
+        "isFavorite" => "Favorite",
         "photoPath" => "Photo",
         _ => TextFields.FirstOrDefault(f => f.Property == field).Label ?? field
     };

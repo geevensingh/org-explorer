@@ -131,7 +131,7 @@ public sealed partial class ApplicationWorkflow
                 {
                     CheckProperties(person, ["email", "directoryName", "preferredName", "managerEmail", "archived", "alias",
                         "jobTitle", "department", "officeBuilding", "officeNumber", "officeState", "officeCountry",
-                        "linkedInProfileUrl", "photoPath", "heading"], "Historical chain");
+                        "linkedInProfileUrl", "isFavorite", "photoPath", "heading"], "Historical chain");
                     foreach (var property in new[] { "email", "directoryName", "managerEmail", "archived" })
                         Required(person, property, "Historical chain");
                 }

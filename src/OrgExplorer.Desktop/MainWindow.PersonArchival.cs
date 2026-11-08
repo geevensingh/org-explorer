@@ -9,7 +9,7 @@ public partial class MainWindow
     private sealed record ManagerChoice(string? Email, string Label);
     private bool? unsavedArchived;
     private ManagerChoice? unsavedManager;
-    private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedManager is not null;
+    private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedManager is not null || unsavedFavorite.HasValue;
 
     private void ChangeArchivedFilter(object sender, RoutedEventArgs e) => RefreshArchivedPeople();
 
@@ -100,5 +100,6 @@ public partial class MainWindow
         if (selectedEmail is null) return;
         if (unsavedManager is { } manager && workflow.EditPersonManager(selectedEmail, manager.Email)) unsavedManager = null;
         if (unsavedArchived is { } archived && workflow.EditPersonArchived(selectedEmail, archived)) unsavedArchived = null;
+        if (unsavedFavorite is { } favorite && workflow.EditFavorite(selectedEmail, favorite)) unsavedFavorite = null;
     }
 }

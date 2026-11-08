@@ -59,8 +59,41 @@
       </ScrollViewer>
     </DockPanel>
     <Grid Grid.Row="4">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+          <TextBlock Text="Local search — profiles and private note context" TextWrapping="Wrap" FontWeight="SemiBold"/>
+          <TextBox x:Name="SearchQuery" AutomationProperties.AutomationId="SearchQuery" AutomationProperties.Name="Local search"
+                   TextChanged="ChangeSearchQuery" ToolTip="Case-insensitive text search, including retained archived and historical context" Margin="0,4"/>
+          <TextBlock x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount" Text="Enter text to search local information." TextWrapping="Wrap"/>
+          <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" MaxHeight="150"
+                   SelectionChanged="SelectSearchResult" Visibility="Collapsed" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,4">
+                  <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+                  <TextBlock Text="{Binding MatchText}" TextTrimming="CharacterEllipsis" Foreground="DimGray" MaxHeight="20"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock x:Name="FavoriteCount" AutomationProperties.AutomationId="FavoriteCount" Text="Favorites: 0" FontWeight="SemiBold" Margin="0,8,0,4"/>
+          <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" MaxHeight="90"
+                   DisplayMemberPath="Label" SelectionChanged="SelectFavoritePerson">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
+                <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+          </ListBox>
+        </StackPanel>
         <TextBlock DockPanel.Dock="Top" Text="Imported reporting population" FontWeight="SemiBold" Margin="0,0,0,8"/>
         <CheckBox x:Name="ShowArchivedPeople" DockPanel.Dock="Top" Content="Show archived people"
                   AutomationProperties.AutomationId="ShowArchivedPeople" Margin="0,0,0,8"
@@ -83,6 +116,22 @@
       <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
+        <WrapPanel Margin="0,8">
+          <Button x:Name="FavoriteButton" Content="Mark favorite" AutomationProperties.AutomationId="ToggleFavorite"
+                  Click="ChangeFavorite" IsEnabled="False"/>
+          <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
+                     Text="Select a Person." Margin="8,0" VerticalAlignment="Center"/>
+        </WrapPanel>
+        <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
+          <StackPanel Margin="8">
+            <Button Content="Close search context" Click="CloseSearchContext" HorizontalAlignment="Right"/>
+            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+              <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"/>
+            </ScrollViewer>
+            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"
+                                      Height="160" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto"/>
+          </StackPanel>
+        </GroupBox>
         <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
                    Text="Select a Person." TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
         <WrapPanel>

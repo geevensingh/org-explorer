@@ -56,6 +56,14 @@ public partial class PersonNotesControl : UserControl
         LoadNote(NotesList.SelectedItem as PersonNote);
     }
 
+    public void OpenNote(Guid id)
+    {
+        if (!TryLeave() || workflow is null || owner is null) return;
+        selected = id;
+        IncludeArchived.IsChecked = workflow.GetPersonNotes(owner, true).Any(n => n.Id == id && n.Archived);
+        RefreshNotes();
+    }
+
     private void LoadNote(PersonNote? note)
     {
         loading = true;

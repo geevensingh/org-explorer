@@ -173,7 +173,7 @@ public sealed partial class ApplicationWorkflow
                     CheckRecordVersion(root, "Person", metadata.SchemaVersion);
                     CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
                         "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-                        "managerEmail", "archived", "photoPath", "heading"], Path.GetFileName(file));
+                        "managerEmail", "archived", "isFavorite", "photoPath", "heading"], Path.GetFileName(file));
                     var email = Email(Required(root, "email", "Person"), "Person.email");
                     Required(root, "directoryName", email);
                     var manager = Required(root, "managerEmail", email);
@@ -272,7 +272,7 @@ public sealed partial class ApplicationWorkflow
         {
             CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
                 "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-                "managerEmail", "archived", "photoPath"], "Accepted batch Person");
+                "managerEmail", "archived", "isFavorite", "photoPath"], "Accepted batch Person");
             var email = Email(Required(record, "email", "Accepted batch Person"), "Accepted batch Person.email");
             if (!keys.Add(email)) throw new FormatException("Accepted batch: duplicate Person identity.");
             foreach (var (field, property, _) in TextFields)
@@ -280,6 +280,7 @@ public sealed partial class ApplicationWorkflow
             if (record.TryGetProperty("managerEmail", out var manager) && manager.ValueKind != JsonValueKind.Null)
                 Email(manager, $"{email}.managerEmail");
             if (record.TryGetProperty("archived", out var archived)) Boolean(archived, $"{email}.archived");
+            if (record.TryGetProperty("isFavorite", out var favorite)) Boolean(favorite, $"{email}.isFavorite");
             if (record.TryGetProperty("photoPath", out var photo) && photo.ValueKind != JsonValueKind.Null)
             {
                 var relative = Text(photo, $"{email}.photoPath", false)!;

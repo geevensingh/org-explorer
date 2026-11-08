@@ -58,7 +58,8 @@ public partial class TeamNotesControl : UserControl
     {
         if (!TryLeave()) return;
         selected = id;
-        IncludeArchived.IsChecked = false;
+        IncludeArchived.IsChecked = workflow is not null && owner is not null &&
+            workflow.GetTeamNotes(owner, true).Any(n => n.Id == id && n.Archived);
         RefreshNotes();
     }
 
