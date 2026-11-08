@@ -101,6 +101,35 @@ public sealed class PhotoTests : IDisposable
     }
 
     [Fact]
+    public void Photo_changes_join_the_structured_timeline_with_content_references_and_local_import_provenance()
+    {
+        var app = ImportOriginalPhoto();
+        var originalReference = Assert.Single(app.People).PhotoPath;
+        Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
+        var local = Path.Combine(Producer, "local.jpg");
+        File.WriteAllBytes(local, Jpeg);
+        Assert.True(app.EditPhoto("avery@example.com", local), app.Status);
+        var localReference = Assert.Single(app.People).PhotoPath;
+        Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
+        Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
+        var import = Import("\"avery.png\"", 2);
+        Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
+        var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
+        var changes = reopened.GetProfileTimeline("avery@example.com")!.Changes;
+        Assert.Equal(3, changes.Count);
+        Assert.All(changes, c => Assert.Equal("photoPath", c.Field));
+        Assert.Equal(originalReference, changes[0].OldValue.GetString());
+        Assert.Equal(localReference, changes[0].NewValue.GetString());
+        Assert.Equal(ProfileChangeSource.LocalEdit, changes[0].Evidence.Source);
+        Assert.Null(changes[0].Evidence.ObservedAt);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, changes[1].NewValue.ValueKind);
+        Assert.Equal(originalReference, changes[2].NewValue.GetString());
+        Assert.Equal(ProfileChangeSource.Import, changes[2].Evidence.Source);
+        Assert.Equal(Png, reopened.GetPhoto("avery@example.com")!.Bytes.ToArray());
+    }
+
+    [Fact]
     public void Omitted_photo_preserves_image_and_null_clears_it_durably_without_clearing_other_fields()
     {
         var app = ImportOriginalPhoto();
