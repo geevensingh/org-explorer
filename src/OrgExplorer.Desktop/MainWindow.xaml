@@ -28,16 +28,51 @@
     <Grid Grid.Row="4">
       <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <ListBox x:Name="PeopleList" AutomationProperties.AutomationId="People" DisplayMemberPath="Heading" SelectionChanged="SelectPerson" />
-      <StackPanel Grid.Column="1" Margin="20,0,0,0">
+      <ScrollViewer Grid.Column="1" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
+      <StackPanel>
         <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
-        <TextBlock Text="Directory name" Margin="0,12,0,4"/>
         <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
-        <TextBlock x:Name="Email" Margin="0,8"/>
-        <TextBlock Text="Preferred name (saved locally as you type; empty clears)" Margin="0,12,0,4"/>
-        <TextBox x:Name="PreferredName" AutomationProperties.AutomationId="PreferredName" IsEnabled="False" TextChanged="EditPreferredName"/>
+        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"/>
+        <TextBlock Text="Saved locally as you type. Empty clears; whitespace alone is invalid."
+                   TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
+        <StackPanel x:Name="AttributeEditors" IsEnabled="False">
+          <TextBlock Text="Directory name" Margin="0,8,0,4"/>
+          <TextBox x:Name="DirectoryNameEditor" Tag="DirectoryName" AutomationProperties.AutomationId="DirectoryNameEditor"
+                   AutomationProperties.Name="Directory name" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Preferred name" Margin="0,8,0,4"/>
+          <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
+                   AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Alias (short company handle)" Margin="0,8,0,4"/>
+          <TextBox x:Name="Alias" Tag="Alias" AutomationProperties.AutomationId="Alias"
+                   AutomationProperties.Name="Alias" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Job title" Margin="0,8,0,4"/>
+          <TextBox x:Name="JobTitle" Tag="JobTitle" AutomationProperties.AutomationId="JobTitle"
+                   AutomationProperties.Name="Job title" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Department" Margin="0,8,0,4"/>
+          <TextBox x:Name="Department" Tag="Department" AutomationProperties.AutomationId="Department"
+                   AutomationProperties.Name="Department" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Office building (text)" Margin="0,8,0,4"/>
+          <TextBox x:Name="OfficeBuilding" Tag="OfficeBuilding" AutomationProperties.AutomationId="OfficeBuilding"
+                   AutomationProperties.Name="Office building" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Office number (text)" Margin="0,8,0,4"/>
+          <TextBox x:Name="OfficeNumber" Tag="OfficeNumber" AutomationProperties.AutomationId="OfficeNumber"
+                   AutomationProperties.Name="Office number" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Office state / province" Margin="0,8,0,4"/>
+          <TextBox x:Name="OfficeState" Tag="OfficeState" AutomationProperties.AutomationId="OfficeState"
+                   AutomationProperties.Name="Office state" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="Office country" Margin="0,8,0,4"/>
+          <TextBox x:Name="OfficeCountry" Tag="OfficeCountry" AutomationProperties.AutomationId="OfficeCountry"
+                   AutomationProperties.Name="Office country" TextChanged="EditPersonAttribute"/>
+          <TextBlock Text="LinkedIn profile URL (HTTPS; never fetched automatically)" TextWrapping="Wrap" Margin="0,8,0,4"/>
+          <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
+                   AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
+          <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False"
+                  AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
+        </StackPanel>
         <TextBlock x:Name="Manager" Margin="0,12"/>
         <TextBlock Text="Photo unavailable" Foreground="DimGray"/>
       </StackPanel>
+      </ScrollViewer>
     </Grid>
     <TextBlock x:Name="StatusText" Grid.Row="5" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Margin="0,16,0,0" Text="Choose a Workspace."/>
   </Grid>
