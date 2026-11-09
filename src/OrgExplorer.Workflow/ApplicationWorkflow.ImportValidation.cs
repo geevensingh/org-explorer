@@ -6,13 +6,22 @@ namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
-    private static (string BatchId, DateTimeOffset ObservedAt, JsonElement Records) ValidateImportEnvelope(
-        JsonElement root, string scope)
+    private static void ValidateImportVersion(JsonElement root, string scope, bool workspaceSource = false)
     {
-        CheckProperties(root, ["schemaVersion", "batchId", "observedAt", "producer", "people"], scope);
         var version = Required(root, "schemaVersion", scope);
         if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
+        {
+            if (workspaceSource && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var unsupported))
+                throw new UnsupportedWorkspaceVersion("accepted batch source", unsupported);
             throw new FormatException("schemaVersion: unsupported import version; upgrade the app.");
+        }
+    }
+
+    private static (string BatchId, DateTimeOffset ObservedAt, JsonElement Records) ValidateImportEnvelope(
+        JsonElement root, string scope, bool workspaceSource = false)
+    {
+        ValidateImportVersion(root, scope, workspaceSource);
+        CheckProperties(root, ["schemaVersion", "batchId", "observedAt", "producer", "people"], scope);
         var batchId = Text(Required(root, "batchId", scope), $"{scope}.batchId", false)!;
         if (!Guid.TryParseExact(batchId, "D", out var parsedId))
             throw new FormatException($"{scope}.batchId: expected UUID.");

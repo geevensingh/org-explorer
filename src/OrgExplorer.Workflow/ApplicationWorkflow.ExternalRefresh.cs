@@ -326,8 +326,7 @@ public sealed partial class ApplicationWorkflow
 
     private static void ValidateAcceptedSource(JsonElement source)
     {
-        RequireVersion(source, "accepted batch source", [1]);
-        var (_, _, records) = ValidateImportEnvelope(source, "Accepted batch");
+        var (_, _, records) = ValidateImportEnvelope(source, "Accepted batch", workspaceSource: true);
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in records.EnumerateArray())
         {

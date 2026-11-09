@@ -245,7 +245,11 @@ Import preview and accepted-source reopening share envelope/property allowlists
 and scalar validation, including real UTC calendar timestamps. Reopening source
 evidence does not reapply a partial batch against today's graph or reread old
 producer resources; proposed-state graph and import-resource checks remain
-separate.
+separate. Import version validation is also shared with pre-write version
+inspection: a numeric representation of import version 1 accepted by preview
+(such as `1.0`) must still reopen and replay. Workspace/record version-header
+rules are unchanged, and unsupported source versions still block writes with
+upgrade guidance.
 
 Validated Workspace reads use short-lived handles that permit external writes
 and deletion/replacement. Opening a reader must not lock a provider's same-path

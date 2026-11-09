@@ -110,7 +110,7 @@ public sealed partial class ApplicationWorkflow
             if (batches.RootElement.ValueKind != JsonValueKind.Object)
                 throw new FormatException("Accepted batches must be an object.");
             foreach (var batch in batches.RootElement.EnumerateObject())
-                RequireVersion(Required(batch.Value, "source", "Accepted batch"), "accepted batch source", [1]);
+                ValidateImportVersion(Required(batch.Value, "source", "Accepted batch"), "accepted batch source", workspaceSource: true);
         }
         return version;
     }
