@@ -82,7 +82,7 @@ public sealed partial class ApplicationWorkflow
     }
 
     private static void SavePhotos(string generation, Dictionary<string, PersonProfile> proposed,
-        Dictionary<string, byte[]> proposedPhotos)
+        Dictionary<string, byte[]> proposedPhotos, System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {
         var names = proposed.Values.Select(p => p.PhotoPath).OfType<string>().Distinct().ToArray();
         if (names.Length == 0) return;
@@ -90,9 +90,7 @@ public sealed partial class ApplicationWorkflow
         Directory.CreateDirectory(directory);
         foreach (var name in names)
         {
-            using var file = new FileStream(Path.Combine(directory, name), FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            file.Write(proposedPhotos[name]);
-            file.Flush(true);
+            WriteDurablyBytes(Path.Combine(directory, name), proposedPhotos[name], published);
         }
     }
 

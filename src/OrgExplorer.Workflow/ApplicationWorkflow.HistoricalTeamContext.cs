@@ -93,7 +93,8 @@ public sealed partial class ApplicationWorkflow
     private sealed record HistoricalContextDocument(int SchemaVersion, string Email, List<HistoricalTeamContext> Contexts);
 
     private static void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts,
-        Dictionary<string, List<HistoricalTeamContext>> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes)
+        Dictionary<string, List<HistoricalTeamContext>> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
+        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {
         var directory = Path.Combine(generation, "historical-team-context");
         Directory.CreateDirectory(directory);
@@ -104,8 +105,8 @@ public sealed partial class ApplicationWorkflow
             var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "historical-team-context", name);
             if (ReferenceEquals(previous.GetValueOrDefault(entry.Key), entry.Value) &&
                 source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                WriteDurablyBytes(target, bytes);
-            else WriteDurably(target, new HistoricalContextDocument(1, entry.Key, entry.Value));
+                WriteDurablyBytes(target, bytes, published);
+            else WriteDurably(target, new HistoricalContextDocument(1, entry.Key, entry.Value), published);
         });
     }
 

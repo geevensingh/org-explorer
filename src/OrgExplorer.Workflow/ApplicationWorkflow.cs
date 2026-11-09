@@ -1,4 +1,4 @@
-using System.Globalization;
+using System.Collections.Concurrent;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
@@ -58,6 +58,7 @@ public partial interface IApplicationWorkflow : IDisposable
 public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 {
     private readonly bool memory;
+    private readonly IWorkspaceFilePublisher filePublisher;
     private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, AcceptedBatch> batches = [];
     private string? workspace;
@@ -81,12 +82,19 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
 
-    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener, TimeProvider? timeProvider)
-    { this.memory = memory; this.profileLinkOpener = profileLinkOpener; this.timeProvider = timeProvider ?? TimeProvider.System; }
+    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener, TimeProvider? timeProvider,
+        IWorkspaceFilePublisher? filePublisher = null)
+    {
+        this.memory = memory;
+        this.profileLinkOpener = profileLinkOpener;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.filePublisher = filePublisher ?? new WorkspaceFilePublisher();
+    }
     public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
         new ApplicationWorkflow(true, profileLinkOpener, timeProvider);
-    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
-        new ApplicationWorkflow(false, profileLinkOpener, timeProvider);
+    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null,
+        IWorkspaceFilePublisher? filePublisher = null) =>
+        new ApplicationWorkflow(false, profileLinkOpener, timeProvider, filePublisher);
     public IReadOnlyList<PersonProfile> People
     { get { if (queryView is { } view) return view.People; lock (workspaceGate) return OrderedPeople(); } }
     public IReadOnlyList<ReportingNode> ReportingRoots
@@ -194,23 +202,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            CheckProperties(root, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "batch");
-            var version = Required(root, "schemaVersion", "batch");
-            if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
-                throw new FormatException("schemaVersion: unsupported import version; upgrade the app.");
-            var batchId = Text(Required(root, "batchId", "batch"), "batchId", false)!;
-            if (!Guid.TryParseExact(batchId, "D", out var parsedId)) throw new FormatException("batchId: expected UUID.");
-            batchId = parsedId.ToString();
+            var (batchId, observedAt, records) = ValidateImportEnvelope(root, "batch");
+            var observed = root.GetProperty("observedAt").GetString()!;
+            root.TryGetProperty("producer", out var producer);
             var previouslyAccepted = batches.ContainsKey(batchId);
-            var observed = Text(Required(root, "observedAt", "batch"), "observedAt", false)!;
-            if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
-                !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
-                    CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var observedAt))
-                throw new FormatException("observedAt: expected a real UTC calendar timestamp.");
-            if (root.TryGetProperty("producer", out var producer)) Text(producer, "producer", false);
-            var records = Required(root, "people", "batch");
-            if (records.ValueKind != JsonValueKind.Array || records.GetArrayLength() == 0)
-                throw new FormatException("people: expected a nonempty array.");
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var canonical = new List<string>();
@@ -221,10 +216,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             foreach (var record in records.EnumerateArray())
             {
                 var scope = $"people[{recordIndex++}]";
-                var email = Email(Required(record, "email", scope), $"{scope}.email");
+                var email = ValidateImportRecord(record, scope);
                 var priorChanges = changes.Count;
-                CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
-                    "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl", "managerEmail", "archived", "isFavorite", "photoPath"], email);
                 if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
                 var existing = proposed.GetValueOrDefault(email);
                 var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
@@ -468,6 +461,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             }
             var generation = Guid.NewGuid().ToString("N");
             var directory = Path.Combine(workspace!, "generations", generation);
+            var published = new ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             Directory.CreateDirectory(Path.Combine(directory, "people"));
             RunBoundedFileIo(proposed.Values, person =>
             {
@@ -476,25 +470,29 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "people", key + ".json");
                 if (people.TryGetValue(person.Email, out var prior) && prior == person &&
                     source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                    WriteDurablyBytes(target, bytes);
-                else WriteVersionedRecord(target, person);
+                    WriteDurablyBytes(target, bytes, published);
+                else WriteVersionedRecord(target, person, published);
             });
-            SavePhotos(directory, proposed, proposedPhotos ?? photos);
-            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts);
-            WriteDurably(Path.Combine(directory, "batches.json"), accepted);
-            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes);
-            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes);
+            SavePhotos(directory, proposed, proposedPhotos ?? photos, published);
+            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts, published);
+            WriteDurably(Path.Combine(directory, "batches.json"), accepted, published);
+            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes, published);
+            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes, published);
             var staged = Path.Combine(workspace!, "workspace.next");
-            var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+            var files = published.Keys
                 .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
-            WriteDurably(staged, new WorkspaceMetadata(2, generation, files, CurrentRecordVersions));
+            WriteDurably(staged, new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), published);
             if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
             var destination = Path.Combine(workspace!, "workspace.json");
-            if (File.Exists(destination)) File.Replace(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
-            else File.Move(staged, destination);
+            filePublisher.Publish(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
             liveGeneration = generation;
-            AcceptWorkspaceRevision();
+            var generationPrefix = Path.Combine(workspace!, "generations") + Path.DirectorySeparatorChar;
+            var expected = sourceBytes.Where(entry => !entry.Key.StartsWith(generationPrefix, StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+            foreach (var (path, bytes) in published)
+                expected[path == staged ? destination : path] = bytes;
+            AcceptWorkspaceRevision(expected);
             teamContextRevisions = nextTeamContexts;
             historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
@@ -505,17 +503,20 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
         }
     }
-    private static void WriteDurably<T>(string path, T value)
+    private static void WriteDurably<T>(string path, T value, ConcurrentDictionary<string, byte[]>? published = null)
     {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
         using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        JsonSerializer.Serialize(file, value, JsonOptions);
+        file.Write(bytes);
         file.Flush(true);
+        if (published is not null) published[path] = bytes;
     }
-    private static void WriteDurablyBytes(string path, byte[] bytes)
+    private static void WriteDurablyBytes(string path, byte[] bytes, ConcurrentDictionary<string, byte[]>? published = null)
     {
         using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         file.Write(bytes);
         file.Flush(true);
+        if (published is not null) published[path] = bytes;
     }
     private static void RunBoundedFileIo<T>(IEnumerable<T> values, Action<T> write)
     {

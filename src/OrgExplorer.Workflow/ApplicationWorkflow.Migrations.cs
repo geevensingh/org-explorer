@@ -163,11 +163,12 @@ public sealed partial class ApplicationWorkflow
         return record.Deserialize<T>(JsonOptions);
     }
 
-    private static void WriteVersionedRecord<T>(string path, T value)
+    private static void WriteVersionedRecord<T>(string path, T value,
+        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>? published = null)
     {
         var record = JsonSerializer.SerializeToNode(value, JsonOptions)!.AsObject();
         record["schemaVersion"] = 2;
-        WriteDurably(path, record);
+        WriteDurably(path, record, published);
     }
 
     private void ConvertVersionOneWorkspace()

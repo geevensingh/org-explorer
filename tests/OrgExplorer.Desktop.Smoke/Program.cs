@@ -14,8 +14,10 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale"))
-                throw new ArgumentException("Supply the actual built WPF executable path; optionally migration or --search-favorites for a focused real UI flow.");
+            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale" or "--team-notes" or "--person-notes"))
+                throw new ArgumentException("Supply the actual built WPF executable path; optionally migration, --search-favorites, --scale, --team-notes or --person-notes for a focused real UI flow.");
+            if (args.Length == 2 && args[1] == "--team-notes") { RunTeamNoteFlow(args[0]); return 0; }
+            if (args.Length == 2 && args[1] == "--person-notes") { RunPersonNoteFlow(args[0]); return 0; }
             if (args.Length == 2 && args[1] == "--scale") { RunScaleFlow(args[0]); return 0; }
             if (args.Length == 1 || args[1] == "migration") RunWorkspaceCompatibilityFlow(args[0], root);
             if (args.Length == 2 && args[1] == "migration")

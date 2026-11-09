@@ -14,15 +14,17 @@ public partial class TeamNotesControl : UserControl
     private string? owner;
     private Guid? selected;
     private bool loading;
-    private bool unsaved;
-    private readonly System.Windows.Threading.DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private readonly NoteDraftState draft;
     public event Action<string, Guid>? OwnerRequested;
 
     public TeamNotesControl()
     {
         InitializeComponent();
-        saveTimer.Tick += SaveNoteDraft;
-        Unloaded += (_, _) => saveTimer.Stop();
+        draft = new NoteDraftState("Team note", SaveNoteDraft,
+            () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
+            () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
+            message => NoteStatus.Text = message);
+        Unloaded += (_, _) => draft.Stop();
     }
 
     public void Attach(IApplicationWorkflow application, Action onChanged)
@@ -36,12 +38,7 @@ public partial class TeamNotesControl : UserControl
         };
     }
 
-    public bool TryLeave()
-    {
-        if (!unsaved) return true;
-        NoteStatus.Text = "Unsaved Team note. Resolve the local save error and retry before leaving or closing.";
-        return false;
-    }
+    public bool TryLeave() => draft.TryLeave();
 
     public void OpenPerson(string? email)
     {
@@ -53,7 +50,7 @@ public partial class TeamNotesControl : UserControl
         Ownership.Text = email is null ? "Select a Person." :
             $"Owned by {email}; applies to current formal descendants. Ownership stays with this Person, not a permanent team. No sharing.";
         NewButton.IsEnabled = email is not null;
-        if (!unsaved) RefreshNotes();
+        if (!draft.HasUnsavedChanges) RefreshNotes();
         RefreshContext();
     }
 
@@ -78,7 +75,7 @@ public partial class TeamNotesControl : UserControl
 
     private void LoadNote(TeamNote? note)
     {
-        saveTimer.Stop();
+        draft.Stop();
         loading = true;
         selected = note?.Id;
         NoteTitle.Text = note?.Title ?? "";
@@ -88,7 +85,7 @@ public partial class TeamNotesControl : UserControl
         ArchiveButton.Content = note?.Archived == true ? "Restore Team note" : "Archive Team note";
         ReviewStatus.Text = note?.ReviewStatus ?? "Select an owned Team note to read, edit, or review.";
         ConfirmButton.IsEnabled = note is { NeedsReview: true, Archived: false };
-        unsaved = false;
+        draft.Reset();
         RetryButton.IsEnabled = DiscardButton.IsEnabled = false;
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
         loading = false;
@@ -128,34 +125,24 @@ public partial class TeamNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
-        unsaved = true;
-        saveTimer.Stop();
-        saveTimer.Start();
-        ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
-        NoteStatus.Text = "Pending private Team note edits — not yet saved.";
+        draft.Edited();
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
     }
 
     private async void SaveNoteDraft(object? sender, EventArgs e)
     {
-        saveTimer.Stop();
         if (workflow is null || selected is not { } id) return;
-        if (((MainWindow)Window.GetWindow(this)).HasPendingWork) { saveTimer.Start(); return; }
+        if (!draft.TryBeginSave()) return;
         var title = NoteTitle.Text;
         var markdown = MarkdownEditor.Text;
         var saved = await RunAsync(() => workflow.EditTeamNote(id, title, markdown), draft: true);
-        unsaved = !saved || title != NoteTitle.Text || markdown != MarkdownEditor.Text;
-        RetryButton.IsEnabled = DiscardButton.IsEnabled = unsaved;
-        if (!unsaved) RefreshNotes();
+        draft.CompleteSave(saved, title, markdown, NoteTitle.Text, MarkdownEditor.Text);
+        RetryButton.IsEnabled = DiscardButton.IsEnabled = draft.HasUnsavedChanges;
+        if (!draft.HasUnsavedChanges) RefreshNotes();
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
         RefreshContext();
         ShowStatus();
-        if (saved && unsaved)
-        {
-            saveTimer.Start();
-            ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
-            NoteStatus.Text = "Pending newer private Team note edits — not yet saved.";
-        }
+        draft.ResumeNewerEdits(saved);
     }
 
     private async void ConfirmNote(object sender, RoutedEventArgs e)
@@ -182,25 +169,20 @@ public partial class TeamNotesControl : UserControl
     private void RetrySave(object sender, RoutedEventArgs e) => SaveNoteDraft(null, EventArgs.Empty);
     private async void DiscardDraft(object sender, RoutedEventArgs e)
     {
-        if (!unsaved || workflow is null) return;
-        saveTimer.Stop();
-        var refreshed = await RunAsync(workflow.RefreshTeamNotes);
-        workflow.DiscardUnsavedChanges(selected);
-        RefreshNotes();
-        RefreshContext();
-        NoteStatus.Text = refreshed ? "Unsaved draft discarded; last saved local document shown." :
-            "Unsaved draft discarded. " + workflow.Status;
+        if (!draft.HasUnsavedChanges || workflow is null) return;
+        await draft.DiscardAsync(() => RunAsync(workflow.RefreshTeamNotes),
+            () => workflow.DiscardUnsavedChanges(selected), () => { RefreshNotes(); RefreshContext(); }, () => workflow.Status);
         changed?.Invoke();
     }
 
     public void RefreshExternalWorkspace()
     {
         if (workflow is null || owner is null) return;
-        if (!unsaved && !workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true).SequenceEqual(NotesList.Items.Cast<TeamNote>()))
+        if (!draft.HasUnsavedChanges && !workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true).SequenceEqual(NotesList.Items.Cast<TeamNote>()))
             RefreshNotes();
         RefreshContext();
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
-        if (!unsaved)
+        if (!draft.HasUnsavedChanges)
         {
             NoteTitle.IsEnabled = MarkdownEditor.IsEnabled =
                 workflow.IsWorkspaceCurrent && NotesList.SelectedItem is TeamNote { Archived: false };
@@ -212,7 +194,7 @@ public partial class TeamNotesControl : UserControl
 
     public void DiscardLocalDraft()
     {
-        if (unsaved) RefreshNotes();
+        if (draft.HasUnsavedChanges) RefreshNotes();
     }
 
     private void RefreshContext()
