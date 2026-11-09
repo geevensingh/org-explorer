@@ -17,5 +17,5 @@ public sealed partial class ApplicationWorkflow
 {
     private WorkspaceCompatibility compatibility = new(WorkspaceCompatibilityState.NotOpened,
         "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
-    public WorkspaceCompatibility Compatibility { get { lock (workspaceGate) return compatibility; } }
+    public WorkspaceCompatibility Compatibility => Volatile.Read(ref compatibility);
 }

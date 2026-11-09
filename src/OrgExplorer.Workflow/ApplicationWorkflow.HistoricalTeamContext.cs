@@ -34,6 +34,7 @@ public sealed partial class ApplicationWorkflow
 
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email)
     {
+        if (queryView is { } view) return view.GetHistoricalTeamContexts(email);
         lock (workspaceGate)
             return historicalTeamContexts.TryGetValue(email, out var contexts)
                 ? contexts.Select(c => c with
@@ -91,13 +92,21 @@ public sealed partial class ApplicationWorkflow
 
     private sealed record HistoricalContextDocument(int SchemaVersion, string Email, List<HistoricalTeamContext> Contexts);
 
-    private static void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts)
+    private static void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts,
+        Dictionary<string, List<HistoricalTeamContext>> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes)
     {
         var directory = Path.Combine(generation, "historical-team-context");
         Directory.CreateDirectory(directory);
-        foreach (var (email, captures) in contexts)
-            WriteDurably(Path.Combine(directory, HistoricalContextKey(email) + ".json"),
-                new HistoricalContextDocument(1, email, captures));
+        RunBoundedFileIo(contexts, entry =>
+        {
+            var name = HistoricalContextKey(entry.Key) + ".json";
+            var target = Path.Combine(directory, name);
+            var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "historical-team-context", name);
+            if (ReferenceEquals(previous.GetValueOrDefault(entry.Key), entry.Value) &&
+                source is not null && sourceBytes.TryGetValue(source, out var bytes))
+                WriteDurablyBytes(target, bytes);
+            else WriteDurably(target, new HistoricalContextDocument(1, entry.Key, entry.Value));
+        });
     }
 
     private static string HistoricalContextKey(string email) =>

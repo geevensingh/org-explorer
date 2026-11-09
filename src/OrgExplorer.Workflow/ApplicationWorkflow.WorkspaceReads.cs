@@ -2,6 +2,43 @@ namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
+    private static readonly AsyncLocal<IReadOnlyDictionary<string, byte[]>?> workspaceReadSnapshot = new();
+
+    private sealed class WorkspaceReadScope(IReadOnlyDictionary<string, byte[]> bytes) : IDisposable
+    {
+        private readonly IReadOnlyDictionary<string, byte[]>? previous = workspaceReadSnapshot.Value;
+        private readonly bool active = Set(bytes);
+        private static bool Set(IReadOnlyDictionary<string, byte[]> bytes) { workspaceReadSnapshot.Value = bytes; return true; }
+        public void Dispose() { if (active) workspaceReadSnapshot.Value = previous; }
+    }
+
+    private Dictionary<string, byte[]> CaptureWorkspaceBytes(bool allGenerations = false)
+    {
+        var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var paths = EnumerateWorkspaceFiles(workspace!, allGenerations)
+            .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).ToArray();
+        RunBoundedFileIo(paths, path => bytes[path] = ReadWorkspaceBytesUncached(path));
+        return new Dictionary<string, byte[]>(bytes, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void AcceptWorkspaceRevision()
+    {
+        var bytes = CaptureWorkspaceBytes();
+        using var read = new WorkspaceReadScope(bytes);
+        revision = WorkspaceFingerprint(snapshot: bytes);
+        personNotesRevision = PersonNotesFingerprint();
+        personNotesWorkspaceRevision = WorkspaceFingerprint(includePersonNotes: false, snapshot: bytes);
+        Volatile.Write(ref refreshNotBefore, Environment.TickCount64 + 100);
+    }
+
+    private static byte[] ReadWorkspaceBytesUncached(string path)
+    {
+        using var file = OpenWorkspaceRead(path);
+        using var bytes = new MemoryStream();
+        file.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
     // Windows replacement sources and overwritten backups must stay unopened, even with delete sharing.
     private static bool IsWorkspacePublicationFile(string root, string path)
     {

@@ -47,15 +47,26 @@ public sealed partial class ApplicationWorkflow
 {
     public IReadOnlyList<SearchResult> Search(string query)
     {
+        if (queryView is { } view)
+            return view.Search(query).Select(r => r with { IsWorkspaceCurrent = Volatile.Read(ref workspaceCurrent) }).ToArray();
         lock (workspaceGate)
         {
             var text = query.Trim();
             if (text.Length == 0) return [];
+            searchIndex ??= BuildSearchIndex();
+            return searchIndex.Where(r => r.MatchText.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                    r.NoteTitle?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
+                .Select(r => r with { IsWorkspaceCurrent = workspaceCurrent }).ToArray();
+        }
+    }
+
+    private IReadOnlyList<SearchResult> BuildSearchIndex()
+    {
             var results = new List<SearchResult>();
             foreach (var person in People)
             {
                 foreach (var (field, value) in SearchableProfile(person))
-                    if (value?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
+                    if (value is not null)
                         results.Add(new SearchResult(person, person.Archived ? SearchContext.Archived : SearchContext.Current,
                             SearchSource.Profile, field, value));
                 foreach (var note in GetPersonNotes(person.Email, true))
@@ -65,11 +76,11 @@ public sealed partial class ApplicationWorkflow
                 foreach (var inherited in GetInheritedTeamNotes(person.Email))
                     AddNote(person, SearchSource.InheritedTeamNote, inherited.Owner, inherited.Note.Id,
                         inherited.Note.Title, inherited.Note.Markdown, false, inherited.Note.NeedsReview);
-                foreach (var change in GetProfileTimeline(person.Email)!.Changes)
+                foreach (var change in profileHistory.GetValueOrDefault(person.Email)?.Changes ?? [])
                 {
                     var oldValue = change.OldValue.ValueKind == System.Text.Json.JsonValueKind.String
                         ? change.OldValue.GetString() : change.OldValue.GetRawText();
-                    if (oldValue?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
+                    if (oldValue is not null)
                         results.Add(new SearchResult(person, SearchContext.Historical, SearchSource.ProfileHistory,
                             change.Field, oldValue) { ProfileChange = change });
                 }
@@ -77,13 +88,11 @@ public sealed partial class ApplicationWorkflow
                 {
                     foreach (var owner in capture.ReportingChain)
                         foreach (var (field, value) in SearchableProfile(owner))
-                            if (value?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
+                            if (value is not null)
                                 results.Add(new SearchResult(person, SearchContext.Historical, SearchSource.FormerReportingChain,
                                     field, value)
                                 { HistoricalContextId = capture.Id, HistoricalContext = capture, NoteOwner = owner, CapturedAt = capture.CapturedAt });
                     foreach (var note in capture.TeamNotes)
-                        if (note.Title.Contains(text, StringComparison.OrdinalIgnoreCase) ||
-                            note.Markdown.Contains(text, StringComparison.OrdinalIgnoreCase))
                             results.Add(new SearchResult(person, SearchContext.Historical, SearchSource.HistoricalTeamNote, null,
                                 note.Markdown)
                             {
@@ -94,17 +103,14 @@ public sealed partial class ApplicationWorkflow
                             });
                 }
             }
-            return results.Select(r => r with { IsWorkspaceCurrent = workspaceCurrent }).ToArray();
+            return results;
 
             void AddNote(PersonProfile person, SearchSource source, PersonProfile owner, Guid id,
                 string title, string markdown, bool archived, bool needsReview = false)
             {
-                if (!title.Contains(text, StringComparison.OrdinalIgnoreCase) &&
-                    !markdown.Contains(text, StringComparison.OrdinalIgnoreCase)) return;
                 results.Add(new SearchResult(person, person.Archived || archived ? SearchContext.Archived : SearchContext.Current,
                     source, null, markdown)
                 { NoteOwner = owner, NoteId = id, NoteTitle = title, NoteArchived = archived, NoteNeedsReview = needsReview });
-            }
         }
     }
 

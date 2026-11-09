@@ -11,6 +11,8 @@
       <EventSetter Event="Loaded" Handler="RestoreTreeItem"/>
       <EventSetter Event="Expanded" Handler="ExpandPerson"/>
       <EventSetter Event="Collapsed" Handler="CollapsePerson"/>
+      <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+      <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
     </Style>
     <HierarchicalDataTemplate DataType="{x:Type workflow:ReportingNode}" ItemsSource="{Binding Reports}"
                               ItemContainerStyle="{StaticResource ReportingItem}">
@@ -42,23 +44,29 @@
       </Border>
     </StackPanel>
     <DockPanel Grid.Row="1" Margin="0,0,0,8">
-      <Button DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
+      <Button x:Name="OpenWorkspaceButton" DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
       <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>
       <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath" ToolTip="Workspace folder, separate from installation"/>
     </DockPanel>
     <DockPanel Grid.Row="2" Margin="0,0,0,8">
-      <Button DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
+      <Button x:Name="PreviewButton" DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
       <Button DockPanel.Dock="Right" Content="Choose JSON…" Click="ChooseImport" Margin="8,0"/>
       <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"/>
     </DockPanel>
     <DockPanel Grid.Row="3" Margin="0,0,0,12">
       <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
               IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
-      <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <TextBlock x:Name="PreviewText" AutomationProperties.AutomationId="Preview" TextWrapping="Wrap" Text="Import changes will appear here. No data changes until Apply."/>
-      </ScrollViewer>
+      <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>
+      <ListBox x:Name="PreviewText" AutomationProperties.AutomationId="Preview"
+               AutomationProperties.Name="Import changes will appear here. No data changes until Apply."
+               VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemTemplate>
+          <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
     </DockPanel>
-    <Grid Grid.Row="4">
+    <Grid x:Name="ExplorerPanel" Grid.Row="4">
       <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
@@ -111,6 +119,8 @@
           </ListBox>
         </StackPanel>
         <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People"
+                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
                   ItemContainerStyle="{StaticResource ReportingItem}" SelectedItemChanged="SelectPerson"/>
       </DockPanel>
       <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
@@ -124,7 +134,8 @@
         </WrapPanel>
         <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
           <StackPanel Margin="8">
-            <Button Content="Close search context" Click="CloseSearchContext" HorizontalAlignment="Right"/>
+            <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
+                    Click="CloseSearchContext" HorizontalAlignment="Right"/>
             <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
               <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"/>
             </ScrollViewer>
@@ -147,7 +158,12 @@
                 HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
         <StackPanel x:Name="ManagerEditor" IsEnabled="False" Margin="0,0,0,12">
           <TextBlock Text="Explicit Manager change (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
-          <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice">
+          <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
+                    VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                    ScrollViewer.CanContentScroll="True">
+            <ComboBox.ItemsPanel>
+              <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+            </ComboBox.ItemsPanel>
             <ComboBox.ItemContainerStyle>
               <Style TargetType="ComboBoxItem">
                 <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
@@ -230,6 +246,7 @@
       </ScrollViewer>
     </Grid>
     <StackPanel Grid.Row="5" Margin="0,16,0,0">
+      <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready"/>
       <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
       <WrapPanel>
         <Button x:Name="RetryProfileButton" Content="Retry unsaved profile edits" Click="RetryProfileSave"

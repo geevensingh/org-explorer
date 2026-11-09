@@ -122,8 +122,7 @@ public sealed partial class ApplicationWorkflow
             if (File.Exists(destination)) File.Replace(staged, destination, null);
             else File.Move(staged, destination);
             staged = null;
-            revision = WorkspaceFingerprint();
-            CapturePersonNoteRevision();
+            AcceptWorkspaceRevision();
             failedSaves.Remove($"team-note:{note.Id}");
             failedTeamNoteBases.Remove(note.Id);
             return true;

@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
+    <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj"/>
   </ItemGroup>

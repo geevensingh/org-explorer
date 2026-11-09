@@ -13,10 +13,13 @@ public partial class MainWindow : Window
     private string? selectedEmail;
     private bool loading;
     private readonly HashSet<string> expandedPeople = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TreeViewItem, object> treeRestorers = new();
 
     public MainWindow()
     {
         InitializeComponent();
+        profileSaveTimer.Tick += SaveProfileDraft;
+        SettingsGuidance.Text = workflow.Compatibility.Guidance;
         PersonNotes.Attach(workflow, () =>
         {
             ApplyButton.IsEnabled = false;
@@ -25,16 +28,21 @@ public partial class MainWindow : Window
         });
         AttachTeamNotes();
         Photo.PhotoEdited += EditPersonPhoto;
-        workflow.WorkspaceChanged += (_, _) => Dispatcher.BeginInvoke(RefreshExternalWorkspace);
+        workflow.WorkspaceChanged += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            if (workPending) externalRefreshPending = true;
+            else RefreshExternalWorkspace();
+        });
         Closing += (_, e) =>
         {
-            if (!workflow.CanSafelyClose)
+            if (workPending || unsavedAttributes.Count > 0 || !workflow.CanSafelyClose)
             {
                 e.Cancel = true;
-                StatusText.Text = workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
+                StatusText.Text = workPending ? "Local work is still pending; closing waits for it to finish." :
+                    workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
             }
         };
-        Closed += (_, _) => workflow.Dispose();
+        Closed += (_, _) => { profileSaveTimer.Stop(); workflow.Dispose(); };
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -46,10 +54,11 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "Import JSON|*.json", Title = "Choose a version-1 Import batch" };
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
-    private void OpenWorkspace(object sender, RoutedEventArgs e)
+    private async void OpenWorkspace(object sender, RoutedEventArgs e)
     {
         if (!TryLeaveLocalEdits()) return;
-        workflow.OpenWorkspace(WorkspacePath.Text);
+        var path = WorkspacePath.Text;
+        await RunWorkflowAsync(() => workflow.OpenWorkspace(path), "Opening Workspace…");
         PersonNotes.OpenPerson(null);
         TeamNotes.OpenPerson(null);
         preview = null;
@@ -73,14 +82,17 @@ public partial class MainWindow : Window
         RefreshPeople();
         ShowStatus();
     }
-    private void PreviewImport(object sender, RoutedEventArgs e)
+    private async void PreviewImport(object sender, RoutedEventArgs e)
     {
         preview = null;
         ApplyButton.IsEnabled = false;
         try
         {
-            var result = workflow.PreviewImportFile(ImportPath.Text);
-            PreviewText.Text = string.Join("\n", result.Errors.Concat(result.Warnings).Concat(result.Changes));
+            var path = ImportPath.Text;
+            var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…");
+            var messages = result.Errors.Concat(result.Warnings).Concat(result.Changes).ToArray();
+            PreviewText.ItemsSource = messages;
+            System.Windows.Automation.AutomationProperties.SetName(PreviewText, string.Join("\n", messages));
             preview = result.CanApply ? result.Id : null;
             ApplyButton.IsEnabled = result.CanApply;
             ShowStatus();
@@ -90,9 +102,9 @@ public partial class MainWindow : Window
             StatusText.Text = "Import file could not be read: " + ex.Message;
         }
     }
-    private void ApplyImport(object sender, RoutedEventArgs e)
+    private async void ApplyImport(object sender, RoutedEventArgs e)
     {
-        if (preview is { } id) workflow.ApplyImport(id);
+        if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…");
         ApplyButton.IsEnabled = false;
         preview = null;
         RefreshPeople();
@@ -101,6 +113,7 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
+        if (workPending) { RestorePersonSelection(); return; }
         if (!OpenPerson(node.Person)) RestorePersonSelection();
         else RefreshArchivedPeople();
     }
@@ -130,6 +143,7 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person)
     {
+        if (workPending) return false;
         if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !TryLeaveLocalEdits())
             return false;
         selectedEmail = person.Email;
@@ -145,7 +159,8 @@ public partial class MainWindow : Window
     private void RefreshPeople()
     {
         loading = true;
-        PeopleList.ItemsSource = workflow.ReportingRoots;
+        var roots = workflow.ReportingRoots;
+        if (!ReferenceEquals(PeopleList.ItemsSource, roots)) PeopleList.ItemsSource = roots;
         RefreshArchivedPeople();
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
@@ -212,11 +227,29 @@ public partial class MainWindow : Window
             context = workflow.GetRelationships(manager.Email)!;
         }
         RefreshPeople();
+        RestoreRealizedTreeState(PeopleList);
         return true;
+    }
+    private void RestoreRealizedTreeState(ItemsControl parent)
+    {
+        var parents = new Stack<ItemsControl>();
+        parents.Push(parent);
+        while (parents.TryPop(out var current))
+            foreach (var item in current.Items)
+                if (current.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
+                {
+                    RestoreTreeItem(container, null!);
+                    if (container.IsExpanded) parents.Push(container);
+                }
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
     {
         if (sender is not TreeViewItem item || item.DataContext is not ReportingNode node) return;
+        if (!treeRestorers.TryGetValue(item, out _))
+        {
+            treeRestorers.Add(item, new object());
+            item.DataContextChanged += (_, _) => RestoreTreeItem(item, null!);
+        }
         item.IsExpanded = expandedPeople.Contains(node.Person.Email);
         item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
     }
@@ -228,10 +261,11 @@ public partial class MainWindow : Window
     {
         if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
     }
-    private void EditPersonPhoto(string? localPath)
+    private async void EditPersonPhoto(string? localPath)
     {
         if (selectedEmail is null) return;
-        if (workflow.EditPhoto(selectedEmail, localPath))
+        var email = selectedEmail;
+        if (await RunWorkflowAsync(() => workflow.EditPhoto(email, localPath), "Saving local photo…"))
             ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
         ApplyButton.IsEnabled = false;
         preview = null;
@@ -239,6 +273,7 @@ public partial class MainWindow : Window
     }
     private void RefreshExternalWorkspace()
     {
+        queryDirty = true;
         if (workflow.IsWorkspaceCurrent) RefreshPeople();
         ApplyButton.IsEnabled = false;
         preview = null;

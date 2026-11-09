@@ -13,10 +13,13 @@ public partial class PersonNotesControl : UserControl
     private Guid? selected;
     private bool loading;
     private bool unsaved;
+    private readonly System.Windows.Threading.DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
 
     public PersonNotesControl()
     {
         InitializeComponent();
+        saveTimer.Tick += SaveNoteDraft;
+        Unloaded += (_, _) => saveTimer.Stop();
     }
     public void Attach(IApplicationWorkflow application, Action onChanged)
     {
@@ -66,6 +69,7 @@ public partial class PersonNotesControl : UserControl
 
     private void LoadNote(PersonNote? note)
     {
+        saveTimer.Stop();
         loading = true;
         selected = note?.Id;
         NoteTitle.Text = note?.Title ?? "";
@@ -92,10 +96,14 @@ public partial class PersonNotesControl : UserControl
         LoadNote(NotesList.SelectedItem as PersonNote);
     }
 
-    private void CreateNote(object sender, RoutedEventArgs e)
+    private Task<T> RunAsync<T>(Func<T> operation, bool draft = false) =>
+        ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Person note…", noteDraft: draft ? this : null);
+
+    private async void CreateNote(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || owner is null) return;
-        var note = workflow.CreatePersonNote(owner, "New Person note", "");
+        var email = owner;
+        var note = await RunAsync(() => workflow.CreatePersonNote(email, "New Person note", ""));
         if (note is not null)
         {
             selected = note.Id;
@@ -109,7 +117,23 @@ public partial class PersonNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
-        unsaved = !workflow.EditPersonNote(id, NoteTitle.Text, MarkdownEditor.Text);
+        unsaved = true;
+        saveTimer.Stop();
+        saveTimer.Start();
+        ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
+        NoteStatus.Text = "Pending private Person note edits — not yet saved.";
+        Render();
+    }
+
+    private async void SaveNoteDraft(object? sender, EventArgs e)
+    {
+        saveTimer.Stop();
+        if (workflow is null || selected is not { } id) return;
+        if (((MainWindow)Window.GetWindow(this)).HasPendingWork) { saveTimer.Start(); return; }
+        var title = NoteTitle.Text;
+        var markdown = MarkdownEditor.Text;
+        var saved = await RunAsync(() => workflow.EditPersonNote(id, title, markdown), draft: true);
+        unsaved = !saved || title != NoteTitle.Text || markdown != MarkdownEditor.Text;
         RetryButton.IsEnabled = DiscardButton.IsEnabled = unsaved;
         if (!unsaved)
         {
@@ -121,13 +145,19 @@ public partial class PersonNotesControl : UserControl
         }
         Render();
         ShowStatus();
+        if (saved && unsaved)
+        {
+            saveTimer.Start();
+            ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
+            NoteStatus.Text = "Pending newer private Person note edits — not yet saved.";
+        }
     }
 
-    private void ArchiveNote(object sender, RoutedEventArgs e)
+    private async void ArchiveNote(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
         var note = workflow.GetPersonNotes(owner!, true).Single(n => n.Id == id);
-        if (workflow.ArchivePersonNote(id, !note.Archived)) RefreshNotes();
+        if (await RunAsync(() => workflow.ArchivePersonNote(id, !note.Archived))) RefreshNotes();
         ShowStatus();
     }
 
@@ -137,11 +167,12 @@ public partial class PersonNotesControl : UserControl
         if (TryLeave()) RefreshNotes();
     }
 
-    private void RetrySave(object sender, RoutedEventArgs e) => EditNote(sender, null!);
-    private void DiscardDraft(object sender, RoutedEventArgs e)
+    private void RetrySave(object sender, RoutedEventArgs e) => SaveNoteDraft(null, EventArgs.Empty);
+    private async void DiscardDraft(object sender, RoutedEventArgs e)
     {
         if (!unsaved || workflow is null) return;
-        var refreshed = workflow.RefreshPersonNotes();
+        saveTimer.Stop();
+        var refreshed = await RunAsync(workflow.RefreshPersonNotes);
         workflow.DiscardUnsavedChanges(selected);
         RefreshNotes();
         NoteStatus.Text = refreshed

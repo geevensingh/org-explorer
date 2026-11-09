@@ -13,47 +13,70 @@ jobs:
   core:
     name: Core and view models
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - run: dotnet restore tests\OrgExplorer.Core.Tests --locked-mode
-      - run: dotnet test tests\OrgExplorer.Core.Tests -c Release --no-restore --logger trx
-      - run: .\tests\CiGate.Tests.ps1
+      - run: .\eng\Run-CiLane.ps1 core
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: core-timings
+          path: |
+            .ci-results/core/*.json
+            .ci-results/core/*.log
+            .ci-results/core/*.trx
 
   filesystem:
     name: Real filesystem persistence
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 11
     steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - run: dotnet restore tests\OrgExplorer.Persistence.Tests --locked-mode
-      - run: dotnet test tests\OrgExplorer.Persistence.Tests -c Release --no-restore --logger trx
+      - run: .\eng\Run-CiLane.ps1 filesystem
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: filesystem-timings
+          path: |
+            .ci-results/filesystem/*.json
+            .ci-results/filesystem/*.log
+            .ci-results/filesystem/*.trx
 
   desktop:
     name: Actual Windows desktop smoke
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 11
     steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - run: dotnet restore src\OrgExplorer.Desktop --locked-mode
-      - run: dotnet restore tests\OrgExplorer.Desktop.Smoke --locked-mode
-      - run: dotnet build src\OrgExplorer.Desktop -c Release --no-restore
-      - run: dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-restore -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
+      - run: .\eng\Run-CiLane.ps1 desktop
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: desktop-timings
+          path: |
+            .ci-results/desktop/*.json
+            .ci-results/desktop/*.log
 
   ci:
     name: CI

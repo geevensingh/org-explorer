@@ -55,6 +55,7 @@ public sealed partial class ApplicationWorkflow
             if (!Save(proposed, batches, history: history, operation: $"profile:{email.ToLowerInvariant()}:{field}")) return false;
             people = proposed;
             profileHistory = history;
+            InvalidateProjections();
             pending = null;
             Status = "Saved locally.";
             return true;

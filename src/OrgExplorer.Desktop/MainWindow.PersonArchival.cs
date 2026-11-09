@@ -64,10 +64,11 @@ public partial class MainWindow
     private void ArchivePerson(object sender, RoutedEventArgs e) => ChangePersonArchival(true);
     private void ReactivatePerson(object sender, RoutedEventArgs e) => ChangePersonArchival(false);
 
-    private void ChangePersonArchival(bool archived)
+    private async void ChangePersonArchival(bool archived)
     {
         if (selectedEmail is null || !TryLeaveLocalEdits()) return;
-        if (workflow.EditPersonArchived(selectedEmail, archived))
+        var email = selectedEmail;
+        if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived), "Saving Person archival state…"))
         {
             unsavedArchived = null;
             RefreshPeople();
@@ -76,10 +77,11 @@ public partial class MainWindow
         InvalidateRelationshipPreview();
     }
 
-    private void ChangePersonManager(object sender, RoutedEventArgs e)
+    private async void ChangePersonManager(object sender, RoutedEventArgs e)
     {
         if (selectedEmail is null || ManagerChoices.SelectedItem is not ManagerChoice choice || !TryLeaveLocalEdits()) return;
-        if (workflow.EditPersonManager(selectedEmail, choice.Email))
+        var email = selectedEmail;
+        if (await RunWorkflowAsync(() => workflow.EditPersonManager(email, choice.Email), "Saving Manager change…"))
         {
             unsavedManager = null;
             RefreshPeople();
@@ -95,11 +97,11 @@ public partial class MainWindow
         ShowStatus();
     }
 
-    private void RetryRelationshipSave()
+    private async Task RetryRelationshipSave()
     {
         if (selectedEmail is null) return;
-        if (unsavedManager is { } manager && workflow.EditPersonManager(selectedEmail, manager.Email)) unsavedManager = null;
-        if (unsavedArchived is { } archived && workflow.EditPersonArchived(selectedEmail, archived)) unsavedArchived = null;
-        if (unsavedFavorite is { } favorite && workflow.EditFavorite(selectedEmail, favorite)) unsavedFavorite = null;
+        if (unsavedManager is { } manager && await RunWorkflowAsync(() => workflow.EditPersonManager(selectedEmail, manager.Email), "Retrying Manager save…")) unsavedManager = null;
+        if (unsavedArchived is { } archived && await RunWorkflowAsync(() => workflow.EditPersonArchived(selectedEmail, archived), "Retrying archival save…")) unsavedArchived = null;
+        if (unsavedFavorite is { } favorite && await RunWorkflowAsync(() => workflow.EditFavorite(selectedEmail, favorite), "Retrying favorite save…")) unsavedFavorite = null;
     }
 }

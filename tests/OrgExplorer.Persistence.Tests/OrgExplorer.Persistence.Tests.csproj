@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
+    <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

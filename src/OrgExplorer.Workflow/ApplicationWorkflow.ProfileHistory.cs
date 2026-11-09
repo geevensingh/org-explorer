@@ -65,7 +65,8 @@ public sealed partial class ApplicationWorkflow
     private sealed record PersonHistory(string Email, List<ProfileChange> Changes, List<FieldEvidence> Observations);
 
     public ProfileTimeline? GetProfileTimeline(string email)
-    { lock (workspaceGate) return GetProfileTimelineCore(email); }
+    { if (queryView is { } view) return view.GetProfileTimeline(email);
+      lock (workspaceGate) return GetProfileTimelineCore(email); }
 
     private ProfileTimeline? GetProfileTimelineCore(string email)
     {
@@ -141,15 +142,21 @@ public sealed partial class ApplicationWorkflow
                     "Review before Apply; this does not establish an exact effective date.");
     }
 
-    private static void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history)
+    private static void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history,
+        Dictionary<string, PersonHistory> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes)
     {
         var directory = Path.Combine(generation, "profile-history");
         Directory.CreateDirectory(directory);
-        foreach (var person in history.Values)
+        RunBoundedFileIo(history.Values, person =>
         {
             var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-            WriteVersionedRecord(Path.Combine(directory, key + ".json"), person);
-        }
+            var target = Path.Combine(directory, key + ".json");
+            var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "profile-history", key + ".json");
+            if (ReferenceEquals(previous.GetValueOrDefault(person.Email), person) &&
+                source is not null && sourceBytes.TryGetValue(source, out var bytes))
+                WriteDurablyBytes(target, bytes);
+            else WriteVersionedRecord(target, person);
+        });
     }
 
     private static Dictionary<string, PersonHistory> ReadProfileHistory(string generation,

@@ -12,7 +12,8 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     public IReadOnlyList<PersonProfile> ArchivedPeople
-    { get { lock (workspaceGate) return People.Where(p => p.Archived).ToArray(); } }
+    { get { if (queryView is { } view) return view.ArchivedPeople;
+        lock (workspaceGate) return People.Where(p => p.Archived).ToArray(); } }
 
     public bool EditPersonArchived(string email, bool archived)
     {
@@ -50,6 +51,7 @@ public sealed partial class ApplicationWorkflow
         if (!Save(proposed, batches, history: history, operation: $"profile:{before.Email.ToLowerInvariant()}:{field}")) return false;
         people = proposed;
         profileHistory = history;
+        InvalidateProjections();
         pending = null;
         Status = savedStatus;
         return true;

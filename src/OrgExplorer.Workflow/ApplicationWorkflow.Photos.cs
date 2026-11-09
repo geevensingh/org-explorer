@@ -17,7 +17,8 @@ public sealed partial class ApplicationWorkflow
         byte[] Bytes, string Extension);
 
     public PersonPhoto? GetPhoto(string email)
-    { lock (workspaceGate) return GetPhotoCore(email); }
+    { if (queryView is { } view) return view.GetPhoto(email);
+      lock (workspaceGate) return GetPhotoCore(email); }
 
     private PersonPhoto? GetPhotoCore(string email)
     {
@@ -52,6 +53,7 @@ public sealed partial class ApplicationWorkflow
             people = proposed;
             photos = proposedPhotos;
             profileHistory = history;
+            InvalidateProjections();
             pending = null;
             Status = "Saved locally.";
             return true;
@@ -70,8 +72,11 @@ public sealed partial class ApplicationWorkflow
             var name = person.PhotoPath!;
             if (!Regex.IsMatch(name, @"^[a-f0-9]{64}\.(png|jpg)$"))
                 throw new FormatException($"{person.Email}.photoPath: invalid Workspace image reference.");
-            var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath");
-            loadedPhotos[name] = resource.Bytes;
+            if (!loadedPhotos.ContainsKey(name))
+            {
+                var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath");
+                loadedPhotos[name] = resource.Bytes;
+            }
         }
         return loadedPhotos;
     }
