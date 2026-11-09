@@ -41,9 +41,11 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "About Root");
             Set(window, "PersonNoteMarkdown", "Never inherited");
+            AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Organization");
             Set(window, "TeamNoteMarkdown", markdown);
+            AwaitLocalWorkIdle(window);
             SelectTab(window, "TeamNoteReadTab");
             Await(() => TeamReadingText(window).Contains("Private Root writing."));
             OpenPerson(window, "root@example.com", "manager@example.com");
@@ -52,6 +54,7 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "Manager writing");
+            AwaitLocalWorkIdle(window);
             var managerFile = Directory.GetFiles(Path.Combine(workspace, "team-notes"), "*.md")
                 .Single(f => File.ReadAllText(f).Contains("manager@example.com"));
             Set(window, "JobTitle", "Director");
@@ -72,6 +75,7 @@ internal static partial class Program
             Click(window, "RetryTeamNoteSave");
             Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("saved locally"));
             Set(window, "TeamNoteMarkdown", "Manager writing");
+            AwaitLocalWorkIdle(window);
             Set(window, "Department", "Research");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             OpenPerson(window, "root@example.com", "manager@example.com");
@@ -94,6 +98,7 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "To archive");
             Set(window, "TeamNoteMarkdown", "Retained archived writing");
+            AwaitLocalWorkIdle(window);
             Set(window, "JobTitle", "Vice President");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             Click(window, "ArchiveTeamNote");
@@ -105,10 +110,12 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Replacement context");
             Set(window, "TeamNoteMarkdown", "New chain writing");
+            AwaitLocalWorkIdle(window);
             OpenPerson(window, "root@example.com", "manager@example.com");
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Avery direct");
             Set(window, "PersonNoteMarkdown", "Direct survives move");
+            AwaitLocalWorkIdle(window);
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"90000000-0000-4000-8000-000000000002",
                 "observedAt":"2026-11-02T17:00:00Z","people":[
