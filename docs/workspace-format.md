@@ -268,8 +268,9 @@ External delivery still requires whole-state fingerprints/validation, and the
 exclusive local writer lease still refuses actual competing writers and access
 failures. Coordination adds no catch-all recovery or write retries.
 
-Debounced watcher callbacks defer when their workflow gate is busy rather than
-occupying thread-pool workers behind a synchronous local mutation. Explicit
+Debounced watcher callbacks defer when either their workflow gate or the
+process-local Workspace I/O gate is busy rather than occupying thread-pool
+workers behind a synchronous local mutation. Explicit
 refresh still coordinates complete reads, and a deferred callback rechecks the
 latest files; this changes scheduling, not validation or failed-save policy.
 

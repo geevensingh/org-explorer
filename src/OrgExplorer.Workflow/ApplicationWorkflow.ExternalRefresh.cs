@@ -103,11 +103,11 @@ public sealed partial class ApplicationWorkflow
 
     private void RefreshAfterFolderEvent()
     {
+        // Timer callbacks must not occupy pool workers behind synchronous publication.
         bool changed;
         if (!Monitor.TryEnter(workspaceGate))
         {
-            lock (watcherGate)
-                if (!disposed) refreshTimer?.Change(100, Timeout.Infinite);
+            DeferBusyRefresh();
             return;
         }
         try
@@ -119,6 +119,12 @@ public sealed partial class ApplicationWorkflow
                 refreshTimer?.Change(remaining, Timeout.Infinite);
                 return;
             }
+            using var access = memory ? null : TryCoordinateWorkspaceIo(workspace);
+            if (!memory && access is null)
+            {
+                DeferBusyRefresh();
+                return;
+            }
             var previousRevision = revision;
             var previousStatus = Status;
             var valid = RefreshWorkspaceCore();
@@ -127,6 +133,12 @@ public sealed partial class ApplicationWorkflow
         }
         finally { Monitor.Exit(workspaceGate); }
         if (changed) WorkspaceChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void DeferBusyRefresh()
+    {
+        lock (watcherGate)
+            if (!disposed) refreshTimer?.Change(100, Timeout.Infinite);
     }
 
     public bool RefreshWorkspace()
