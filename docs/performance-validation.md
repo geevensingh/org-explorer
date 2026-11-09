@@ -330,3 +330,89 @@ verification-blocked; #17–#19 remain blocked. No push, pull request, issue
 closure, installer merge, desktop/login change or pixel-assertion bypass was
 performed. The three CI lanes and their 29-minute summed fail-closed ceiling
 are unchanged.
+
+## Post-merge sharing failure follow-up — unresolved (2026-11-09)
+
+The parent merged the review work as
+`591b6ecbd6ae37e206d7fbfc6cd2d2ffeac25107`. Its exact 58-case selection passed
+once, then failed 57/58 at
+`LocalPublicationDeliveryTests.A_local_publication_accepts_only_its_validated_base_and_own_changes`
+(`person`, Person-note delivery, valid delivery), at the initial local-save
+assertion. The reported error was `Unable to remove the file to be replaced.`
+The remaining parent repetitions were not run.
+
+The isolated branch was fast-forwarded to that integration tip. Investigation
+did **not** establish a root cause or a justified product/test repair. In
+particular, a sharing exception is not proof of an in-process read-coordination
+bug: a deliberately restrictive external read correctly refuses publication,
+retains the saved note, and surfaces an explicit save failure. The corresponding
+permissive read/delete-sharing control succeeds. These controls distinguish the
+contracts, but do **not** identify the owner of the sporadic reported lock.
+
+Every repetition below used the parent's original filter, not the earlier
+similarly sized selection containing Profile-history tests:
+
+```text
+FullyQualifiedName~PersonNotePersistenceTests|FullyQualifiedName~TeamNotePersistenceTests|FullyQualifiedName~HistoricalTeamContextPersistenceTests|FullyQualifiedName~PersonArchivalPersistenceTests|FullyQualifiedName~WorkspaceReadLifetimeTests|FullyQualifiedName~LocalPublicationDeliveryTests
+```
+
+All scheduled iterations in each batch were completed and retained, including
+failures; none was discarded or rerun to replace its result.
+
+| Follow-up batch | Complete 58-case runs | Passed test executions | Failed test executions |
+| --- | ---: | ---: | ---: |
+| Uninstrumented baseline | 11 | 636 | 2 |
+| Temporary native lock-owner diagnostics | 10 | 580 | 0 |
+| Failure-only native owner diagnostics | 20 | 1,160 | 0 |
+| Paired-process/read-lifetime diagnostics | 20 | 1,160 | 0 |
+| First-pass exception diagnostics | 20 | 1,159 | 1 |
+| Final uninstrumented, unchanged original selection | 20 | 1,160 | 0 |
+| **All follow-up batches** | **101** | **5,855** | **3** |
+
+No tests were skipped. The baseline failures were the concurrent read/favorite
+save assertion and a `batches.json` cleanup sharing exception in
+`WorkspaceReadLifetimeTests`. The first-pass diagnostic batch failed while
+`PersonArchivalPersistenceTests.Seed` deleted `producer.png` after import.
+Neither is silently treated as a successful reproduction or repair of the
+parent's exact initial Person-note publication failure.
+
+Minimization/observation attempts also retained:
+
+- 200 isolated repetitions of the exact reported Person-note scenario passed.
+  A further instrumented 200 repetitions and 100 concurrent read/favorite
+  scenarios passed; these are workflow iterations inside two diagnostic tests,
+  not 300 additional discovered test cases.
+- Two raw-filesystem probes, with no application workflow or watcher, each
+  completed 10,000 stage/flush/provider-write/replace/delete sequences. One used
+  unique names and JSON-front-matter content. Both passed.
+- Read-only Windows Restart Manager lock-owner observation was calibrated
+  against a deliberately held handle. No unexpected publication exception
+  recurred while that observation was active, so **no culprit process or
+  in-process handle was identified**.
+- All diagnostic callbacks, reader tracking and throwaway probe source were
+  removed. `src\` and `tests\` were confirmed byte-for-byte unchanged from the
+  merged integration state before final validation. No writer retries,
+  catch-all fallback, assertion relaxation, filesystem-indexing exclusion, OS
+  change or pixel-assertion bypass was introduced.
+
+Final validation on that unchanged code:
+
+| Validation | Result | Execution |
+| --- | --- | ---: |
+| Full core plus fail-closed CI-gate checks | 139 passed, no skips | 13.614 s |
+| Full real-filesystem lane | 168 passed, no skips | 360.909 s |
+| Original 58-case selection, complete final batch | 20/20 runs passed; 1,160/1,160 test executions | All per-run TRX retained |
+| Actual Team-note UI | Passed | 149.637 s |
+| Actual Person-note UI | Failed closed at mandatory photo pixels: interactive/unlocked desktop prerequisite unavailable | 31.192 s |
+
+Complete per-run outcomes, errors, traces and validation timing are retained in
+`.ci-results\publication-repair\followup-results.json` and the adjacent TRX/logs.
+The later all-green batch is **not evidence of a causal fix**: it cannot erase
+the initial/intermediate sharing failures. Publication/concurrency acceptance
+therefore remains unresolved. A file-I/O ownership capture during an actual
+uninstrumented failure is still needed before attributing the lock to app
+readers, test resource lifetime, or another process and changing policy.
+The prior validated-revision, shared-writer, validator and draft-safety fixes
+remain intact; this follow-up does not claim that their complete concurrency
+verification is finished. #15 stays acceptance-open, #16 stays unmerged, and
+#17–#19 stay blocked. No push or issue/PR closure was performed.
