@@ -1,5 +1,3 @@
-using System.Text;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -22,8 +20,6 @@ public sealed partial class ApplicationWorkflow
 {
     private Dictionary<Guid, PersonNote> personNotes = [];
     private readonly Dictionary<Guid, PersonNote> failedNoteBases = [];
-    private string? personNotesRevision;
-    private string? personNotesWorkspaceRevision;
     private sealed record PersonNoteMetadata(
         [property: JsonRequired] int SchemaVersion,
         [property: JsonRequired] string Kind,
@@ -103,35 +99,6 @@ public sealed partial class ApplicationWorkflow
 
     public bool RefreshPersonNotes() => RefreshWorkspace();
 
-    private void CapturePersonNoteRevision()
-    {
-        if (memory) return;
-        personNotesRevision = PersonNotesFingerprint();
-        personNotesWorkspaceRevision = WorkspaceFingerprint(includePersonNotes: false);
-    }
-
-    private string PersonNotesFingerprint()
-    {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var folder in new[] { "notes", "team-notes" })
-        {
-            var directory = Path.Combine(workspace!, folder);
-            hash.AppendData(Encoding.UTF8.GetBytes(folder));
-            if (Directory.Exists(directory))
-            {
-                RejectNoteLink(directory);
-                foreach (var file in Directory.GetFiles(directory, "*.md").Order(StringComparer.Ordinal))
-                {
-                    RejectNoteLink(file);
-                    hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
-                    hash.AppendData(ReadWorkspaceBytes(file));
-                }
-            }
-            else if (File.Exists(directory)) throw new IOException("Notes folder is not a directory.");
-        }
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
-
     private static Dictionary<Guid, PersonNote> LoadPersonNotes(string path, Dictionary<string, PersonProfile> owners)
     {
         var result = new Dictionary<Guid, PersonNote>();
@@ -184,36 +151,16 @@ public sealed partial class ApplicationWorkflow
             failedNoteBases.Remove(note.Id);
             return true;
         }
-        string? staged = null;
         try
         {
-            using var access = CoordinateWorkspaceIo(workspace!);
-            EnsureWorkspaceWritable();
-            using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
-                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            if (failedNoteBases.TryGetValue(note.Id, out var previous) && personNotes.GetValueOrDefault(note.Id) != previous)
-                throw new IOException("Person note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
-            if (WorkspaceFingerprint() != revision)
-                throw new IOException("Workspace changed. Reopen before editing; no note changes saved.");
-            var directory = Path.Combine(workspace!, "notes");
-            Directory.CreateDirectory(directory);
-            RejectNoteLink(directory);
-            var destination = Path.Combine(directory, note.Id.ToString("D") + ".md");
-            if (File.Exists(destination)) RejectNoteLink(destination);
-            staged = Path.Combine(directory, note.Id.ToString("D") + ".next");
             var metadata = new PersonNoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt);
             var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            using (var file = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            WriteMarkdownAtomically("notes", note.Id, content, () =>
             {
-                var bytes = new UTF8Encoding(false, true).GetBytes(content);
-                file.Write(bytes);
-                file.Flush(true);
-            }
-            if (File.Exists(destination)) File.Replace(staged, destination, null);
-            else File.Move(staged, destination);
-            staged = null;
-            AcceptWorkspaceRevision();
+                if (failedNoteBases.TryGetValue(note.Id, out var previous) && personNotes.GetValueOrDefault(note.Id) != previous)
+                    throw new IOException("Person note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
+            });
             failedSaves.Remove($"note:{note.Id}");
             failedNoteBases.Remove(note.Id);
             return true;
@@ -222,14 +169,6 @@ public sealed partial class ApplicationWorkflow
         {
             if (personNotes.TryGetValue(note.Id, out var previous)) failedNoteBases.TryAdd(note.Id, previous);
             return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
-        }
-        finally
-        {
-            if (staged is not null)
-            {
-                try { File.Delete(staged); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
         }
     }
 

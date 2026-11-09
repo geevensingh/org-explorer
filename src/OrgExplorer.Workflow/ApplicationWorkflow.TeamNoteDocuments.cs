@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -92,37 +91,18 @@ public sealed partial class ApplicationWorkflow
             failedTeamNoteBases.Remove(note.Id);
             return true;
         }
-        string? staged = null;
         try
         {
-            using var access = CoordinateWorkspaceIo(workspace!);
-            EnsureWorkspaceWritable();
-            using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
-                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            if (failedTeamNoteBases.TryGetValue(note.Id, out var previous) &&
-                (teamNotes.GetValueOrDefault(note.Id) != previous.Note ||
-                 teamNoteConfirmations.GetValueOrDefault(note.Id) != previous.Confirmation))
-                throw new IOException("Team note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
-            if (WorkspaceFingerprint() != revision)
-                throw new IOException("Workspace changed. Reopen before editing; no note changes saved.");
-            var directory = Path.Combine(workspace!, "team-notes");
-            Directory.CreateDirectory(directory);
-            RejectNoteLink(directory);
-            var destination = Path.Combine(directory, note.Id.ToString("D") + ".md");
-            if (File.Exists(destination)) RejectNoteLink(destination);
-            staged = Path.Combine(directory, note.Id.ToString("D") + ".next");
             var metadata = new TeamNoteMetadata(1, "team", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt, confirmation);
             var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            using (var file = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            WriteMarkdownAtomically("team-notes", note.Id, content, () =>
             {
-                file.Write(new UTF8Encoding(false, true).GetBytes(content));
-                file.Flush(true);
-            }
-            if (File.Exists(destination)) File.Replace(staged, destination, null);
-            else File.Move(staged, destination);
-            staged = null;
-            AcceptWorkspaceRevision();
+                if (failedTeamNoteBases.TryGetValue(note.Id, out var previous) &&
+                    (teamNotes.GetValueOrDefault(note.Id) != previous.Note ||
+                     teamNoteConfirmations.GetValueOrDefault(note.Id) != previous.Confirmation))
+                    throw new IOException("Team note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
+            });
             failedSaves.Remove($"team-note:{note.Id}");
             failedTeamNoteBases.Remove(note.Id);
             return true;
@@ -132,14 +112,6 @@ public sealed partial class ApplicationWorkflow
             if (teamNotes.TryGetValue(note.Id, out var previous))
                 failedTeamNoteBases.TryAdd(note.Id, (previous, teamNoteConfirmations[note.Id]));
             return SaveFailed($"team-note:{note.Id}", "Team note save failed; changes are NOT saved locally: " + ex.Message);
-        }
-        finally
-        {
-            if (staged is not null)
-            {
-                try { File.Delete(staged); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
         }
     }
 }

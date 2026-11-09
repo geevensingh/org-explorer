@@ -110,7 +110,7 @@ public sealed partial class ApplicationWorkflow
             if (batches.RootElement.ValueKind != JsonValueKind.Object)
                 throw new FormatException("Accepted batches must be an object.");
             foreach (var batch in batches.RootElement.EnumerateObject())
-                RequireVersion(Required(batch.Value, "source", "Accepted batch"), "accepted batch source", [1]);
+                ValidateImportVersion(Required(batch.Value, "source", "Accepted batch"), "accepted batch source", workspaceSource: true);
         }
         return version;
     }
@@ -163,11 +163,12 @@ public sealed partial class ApplicationWorkflow
         return record.Deserialize<T>(JsonOptions);
     }
 
-    private static void WriteVersionedRecord<T>(string path, T value)
+    private static void WriteVersionedRecord<T>(string path, T value,
+        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>? published = null)
     {
         var record = JsonSerializer.SerializeToNode(value, JsonOptions)!.AsObject();
         record["schemaVersion"] = 2;
-        WriteDurably(path, record);
+        WriteDurably(path, record, published);
     }
 
     private void ConvertVersionOneWorkspace()

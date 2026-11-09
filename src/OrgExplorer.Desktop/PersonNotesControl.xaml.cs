@@ -12,14 +12,16 @@ public partial class PersonNotesControl : UserControl
     private string? owner;
     private Guid? selected;
     private bool loading;
-    private bool unsaved;
-    private readonly System.Windows.Threading.DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private readonly NoteDraftState draft;
 
     public PersonNotesControl()
     {
         InitializeComponent();
-        saveTimer.Tick += SaveNoteDraft;
-        Unloaded += (_, _) => saveTimer.Stop();
+        draft = new NoteDraftState("Person note", SaveNoteDraft,
+            () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
+            () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
+            message => NoteStatus.Text = message);
+        Unloaded += (_, _) => draft.Stop();
     }
     public void Attach(IApplicationWorkflow application, Action onChanged)
     {
@@ -32,12 +34,7 @@ public partial class PersonNotesControl : UserControl
         };
     }
 
-    public bool TryLeave()
-    {
-        if (!unsaved) return true;
-        NoteStatus.Text = "Unsaved Person note. Resolve the local save error and retry before leaving or closing.";
-        return false;
-    }
+    public bool TryLeave() => draft.TryLeave();
 
     public void OpenPerson(string? email)
     {
@@ -69,7 +66,7 @@ public partial class PersonNotesControl : UserControl
 
     private void LoadNote(PersonNote? note)
     {
-        saveTimer.Stop();
+        draft.Stop();
         loading = true;
         selected = note?.Id;
         NoteTitle.Text = note?.Title ?? "";
@@ -77,7 +74,7 @@ public partial class PersonNotesControl : UserControl
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = note is not null && !note.Archived;
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore note" : "Archive note";
-        unsaved = false;
+        draft.Reset();
         RetryButton.IsEnabled = DiscardButton.IsEnabled = false;
         Render();
         loading = false;
@@ -117,25 +114,20 @@ public partial class PersonNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
-        unsaved = true;
-        saveTimer.Stop();
-        saveTimer.Start();
-        ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
-        NoteStatus.Text = "Pending private Person note edits — not yet saved.";
+        draft.Edited();
         Render();
     }
 
     private async void SaveNoteDraft(object? sender, EventArgs e)
     {
-        saveTimer.Stop();
         if (workflow is null || selected is not { } id) return;
-        if (((MainWindow)Window.GetWindow(this)).HasPendingWork) { saveTimer.Start(); return; }
+        if (!draft.TryBeginSave()) return;
         var title = NoteTitle.Text;
         var markdown = MarkdownEditor.Text;
         var saved = await RunAsync(() => workflow.EditPersonNote(id, title, markdown), draft: true);
-        unsaved = !saved || title != NoteTitle.Text || markdown != MarkdownEditor.Text;
-        RetryButton.IsEnabled = DiscardButton.IsEnabled = unsaved;
-        if (!unsaved)
+        draft.CompleteSave(saved, title, markdown, NoteTitle.Text, MarkdownEditor.Text);
+        RetryButton.IsEnabled = DiscardButton.IsEnabled = draft.HasUnsavedChanges;
+        if (!draft.HasUnsavedChanges)
         {
             loading = true;
             var notes = workflow.GetPersonNotes(owner!, IncludeArchived.IsChecked == true);
@@ -145,12 +137,7 @@ public partial class PersonNotesControl : UserControl
         }
         Render();
         ShowStatus();
-        if (saved && unsaved)
-        {
-            saveTimer.Start();
-            ((MainWindow)Window.GetWindow(this)).MarkDraftPending();
-            NoteStatus.Text = "Pending newer private Person note edits — not yet saved.";
-        }
+        draft.ResumeNewerEdits(saved);
     }
 
     private async void ArchiveNote(object sender, RoutedEventArgs e)
@@ -170,27 +157,22 @@ public partial class PersonNotesControl : UserControl
     private void RetrySave(object sender, RoutedEventArgs e) => SaveNoteDraft(null, EventArgs.Empty);
     private async void DiscardDraft(object sender, RoutedEventArgs e)
     {
-        if (!unsaved || workflow is null) return;
-        saveTimer.Stop();
-        var refreshed = await RunAsync(workflow.RefreshPersonNotes);
-        workflow.DiscardUnsavedChanges(selected);
-        RefreshNotes();
-        NoteStatus.Text = refreshed
-            ? "Unsaved draft discarded; last saved local document shown."
-            : "Unsaved draft discarded. " + workflow.Status;
+        if (!draft.HasUnsavedChanges || workflow is null) return;
+        await draft.DiscardAsync(() => RunAsync(workflow.RefreshPersonNotes),
+            () => workflow.DiscardUnsavedChanges(selected), RefreshNotes, () => workflow.Status);
         changed?.Invoke();
     }
 
     public void RefreshExternalWorkspace()
     {
         if (workflow is null || owner is null) return;
-        if (!unsaved)
+        if (!draft.HasUnsavedChanges)
         {
             var notes = workflow.GetPersonNotes(owner, IncludeArchived.IsChecked == true);
             if (!notes.SequenceEqual(NotesList.Items.Cast<PersonNote>())) RefreshNotes();
         }
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
-        if (!unsaved)
+        if (!draft.HasUnsavedChanges)
         {
             var editable = workflow.IsWorkspaceCurrent && NotesList.SelectedItem is PersonNote { Archived: false };
             NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = editable;
@@ -201,7 +183,7 @@ public partial class PersonNotesControl : UserControl
 
     public void DiscardLocalDraft()
     {
-        if (unsaved) RefreshNotes();
+        if (draft.HasUnsavedChanges) RefreshNotes();
     }
 
     private void ShowStatus()

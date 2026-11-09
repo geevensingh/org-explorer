@@ -21,13 +21,11 @@ public sealed partial class ApplicationWorkflow
         return new Dictionary<string, byte[]>(bytes, StringComparer.OrdinalIgnoreCase);
     }
 
-    private void AcceptWorkspaceRevision()
+    private void AcceptWorkspaceRevision(IReadOnlyDictionary<string, byte[]> expected)
     {
-        var bytes = CaptureWorkspaceBytes();
-        using var read = new WorkspaceReadScope(bytes);
-        revision = WorkspaceFingerprint(snapshot: bytes);
-        personNotesRevision = PersonNotesFingerprint();
-        personNotesWorkspaceRevision = WorkspaceFingerprint(includePersonNotes: false, snapshot: bytes);
+        // Only the validated base plus our own published bytes describe the state in memory.
+        // Provider delivery during publication must remain different until a validated refresh.
+        revision = WorkspaceFingerprint(snapshot: expected);
         Volatile.Write(ref refreshNotBefore, Environment.TickCount64 + 100);
     }
 

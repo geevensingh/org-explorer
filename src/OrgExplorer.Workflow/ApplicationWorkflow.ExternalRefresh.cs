@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
-using System.Globalization;
 
 namespace OrgExplorer.Workflow;
 
@@ -104,8 +103,14 @@ public sealed partial class ApplicationWorkflow
 
     private void RefreshAfterFolderEvent()
     {
+        // Timer callbacks must not occupy pool workers behind synchronous publication.
         bool changed;
-        lock (workspaceGate)
+        if (!Monitor.TryEnter(workspaceGate))
+        {
+            DeferBusyRefresh();
+            return;
+        }
+        try
         {
             if (disposed || workspace is null) return;
             var remaining = Volatile.Read(ref refreshNotBefore) - Environment.TickCount64;
@@ -114,13 +119,26 @@ public sealed partial class ApplicationWorkflow
                 refreshTimer?.Change(remaining, Timeout.Infinite);
                 return;
             }
+            using var access = memory ? null : TryCoordinateWorkspaceIo(workspace);
+            if (!memory && access is null)
+            {
+                DeferBusyRefresh();
+                return;
+            }
             var previousRevision = revision;
             var previousStatus = Status;
             var valid = RefreshWorkspaceCore();
             changed = revision != previousRevision || Status != previousStatus;
             if (!valid) refreshTimer?.Change(300, Timeout.Infinite);
         }
+        finally { Monitor.Exit(workspaceGate); }
         if (changed) WorkspaceChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void DeferBusyRefresh()
+    {
+        lock (watcherGate)
+            if (!disposed) refreshTimer?.Change(100, Timeout.Infinite);
     }
 
     public bool RefreshWorkspace()
@@ -274,8 +292,6 @@ public sealed partial class ApplicationWorkflow
         }
         var loadedNotes = memory ? [] : LoadPersonNotes(workspace!, loaded);
         var loadedTeamNotes = memory ? new TeamNoteDocuments([], []) : LoadTeamNotes(workspace!, loaded);
-        var notesRevision = memory ? null : PersonNotesFingerprint();
-        var otherRevision = memory ? null : WorkspaceFingerprint(includePersonNotes: false, snapshot: snapshot);
         if (!memory && WorkspaceFingerprint(allGenerations: allGenerations) != current)
             throw new IOException("Workspace delivery changed while reading; waiting for complete local files.");
         people = loaded;
@@ -291,8 +307,6 @@ public sealed partial class ApplicationWorkflow
         InvalidateProjections();
         revision = current;
         workspaceCurrent = true;
-        personNotesRevision = notesRevision;
-        personNotesWorkspaceRevision = otherRevision;
     }
 
     private static IEnumerable<string> EnumerateWorkspaceFiles(string root, bool allGenerations = false)
@@ -324,41 +338,12 @@ public sealed partial class ApplicationWorkflow
 
     private static void ValidateAcceptedSource(JsonElement source)
     {
-        RequireVersion(source, "accepted batch source", [1]);
-        CheckProperties(source, ["schemaVersion", "batchId", "observedAt", "producer", "people"], "Accepted batch");
-        var version = Required(source, "schemaVersion", "Accepted batch");
-        if (version.ValueKind != JsonValueKind.Number || !version.TryGetDecimal(out var number) || number != 1)
-            throw new FormatException("Unsupported accepted batch source version; upgrade the app.");
-        var observed = Text(Required(source, "observedAt", "Accepted batch"), "Accepted batch.observedAt", false)!;
-        if (!Regex.IsMatch(observed, @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z$") ||
-            !DateTimeOffset.TryParseExact(observed, ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'"],
-                CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
-            throw new FormatException("Accepted batch.observedAt: expected a real UTC calendar timestamp.");
-        if (source.TryGetProperty("producer", out var producer)) Text(producer, "Accepted batch.producer", false);
-        var records = Required(source, "people", "Accepted batch");
-        if (records.ValueKind != JsonValueKind.Array || records.GetArrayLength() == 0)
-            throw new FormatException("Accepted batch.people: expected a nonempty array.");
+        var (_, _, records) = ValidateImportEnvelope(source, "Accepted batch", workspaceSource: true);
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in records.EnumerateArray())
         {
-            CheckProperties(record, ["email", "displayName", "preferredName", "alias", "jobTitle", "department",
-                "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-                "managerEmail", "archived", "isFavorite", "photoPath"], "Accepted batch Person");
-            var email = Email(Required(record, "email", "Accepted batch Person"), "Accepted batch Person.email");
+            var email = ValidateImportRecord(record, "Accepted batch Person");
             if (!keys.Add(email)) throw new FormatException("Accepted batch: duplicate Person identity.");
-            foreach (var (field, property, _) in TextFields)
-                if (record.TryGetProperty(property, out var text)) ValidateText(text, field, $"{email}.{property}");
-            if (record.TryGetProperty("managerEmail", out var manager) && manager.ValueKind != JsonValueKind.Null)
-                Email(manager, $"{email}.managerEmail");
-            if (record.TryGetProperty("archived", out var archived)) Boolean(archived, $"{email}.archived");
-            if (record.TryGetProperty("isFavorite", out var favorite)) Boolean(favorite, $"{email}.isFavorite");
-            if (record.TryGetProperty("photoPath", out var photo) && photo.ValueKind != JsonValueKind.Null)
-            {
-                var relative = Text(photo, $"{email}.photoPath", false)!;
-                if (Path.IsPathRooted(relative) || relative.Contains(':') ||
-                    relative.Split(['\\', '/']).Any(segment => segment == ".."))
-                    throw new FormatException($"{email}.photoPath: expected a safe local relative source path.");
-            }
         }
     }
 
@@ -370,7 +355,9 @@ public sealed partial class ApplicationWorkflow
 
     private static byte[] ReadWorkspaceBytes(string path)
     {
-        return workspaceReadSnapshot.Value?.GetValueOrDefault(path) ?? ReadWorkspaceBytesUncached(path);
+        if (workspaceReadSnapshot.Value is not { } snapshot) return ReadWorkspaceBytesUncached(path);
+        return snapshot.TryGetValue(path, out var bytes) ? bytes
+            : throw new IOException("Workspace delivery changed while reading: " + Path.GetFileName(path));
     }
 
     private static string ReadWorkspaceText(string path)
@@ -378,8 +365,7 @@ public sealed partial class ApplicationWorkflow
         // Provider delivery must not be blocked by a reader, including clients
         // waiting on an incompatible/incomplete Workspace. Byte fingerprints
         // and whole-state validation, not read leases, establish a stable view.
-        using Stream file = workspaceReadSnapshot.Value?.GetValueOrDefault(path) is { } bytes
-            ? new MemoryStream(bytes, false) : OpenWorkspaceRead(path);
+        using Stream file = new MemoryStream(ReadWorkspaceBytes(path), false);
         using var text = new StreamReader(file, new UTF8Encoding(false, true));
         return text.ReadToEnd();
     }

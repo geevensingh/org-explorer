@@ -143,7 +143,8 @@ public sealed partial class ApplicationWorkflow
     }
 
     private static void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history,
-        Dictionary<string, PersonHistory> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes)
+        Dictionary<string, PersonHistory> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
+        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {
         var directory = Path.Combine(generation, "profile-history");
         Directory.CreateDirectory(directory);
@@ -154,8 +155,8 @@ public sealed partial class ApplicationWorkflow
             var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "profile-history", key + ".json");
             if (ReferenceEquals(previous.GetValueOrDefault(person.Email), person) &&
                 source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                WriteDurablyBytes(target, bytes);
-            else WriteVersionedRecord(target, person);
+                WriteDurablyBytes(target, bytes, published);
+            else WriteVersionedRecord(target, person, published);
         });
     }
 

@@ -230,6 +230,27 @@ Workspace fingerprint and supplied import-photo resources are checked again
 after staging, immediately before publication; intervening delivery invalidates
 the operation instead of overwriting it.
 
+After local publication, the accepted revision is computed from that validated
+base and the exact bytes the writer flushed, not from a new unvalidated scan of
+live files. This applies both to complete generations and to the shared atomic
+Person/Team Markdown writer. Delivery of another note during the final
+check/publication interval therefore remains a revision difference: refresh
+must load and validate it before it can become current. Invalid delivery retains
+the last validated state and blocks writes without repairing provider files.
+The read snapshot never falls back to live bytes for a file absent from that
+snapshot. A narrow `IWorkspaceFilePublisher` operating-system boundary permits
+controlled delivery at publication in real-filesystem workflow tests.
+
+Import preview and accepted-source reopening share envelope/property allowlists
+and scalar validation, including real UTC calendar timestamps. Reopening source
+evidence does not reapply a partial batch against today's graph or reread old
+producer resources; proposed-state graph and import-resource checks remain
+separate. Import version validation is also shared with pre-write version
+inspection: a numeric representation of import version 1 accepted by preview
+(such as `1.0`) must still reopen and replay. Workspace/record version-header
+rules are unchanged, and unsupported source versions still block writes with
+upgrade guidance.
+
 Validated Workspace reads use short-lived handles that permit external writes
 and deletion/replacement. Opening a reader must not lock a provider's same-path
 delivery or another client's atomic publication. Complete before/after byte
@@ -246,6 +267,12 @@ not provider synchronization, a semantic merge, or an on-disk read lease.
 External delivery still requires whole-state fingerprints/validation, and the
 exclusive local writer lease still refuses actual competing writers and access
 failures. Coordination adds no catch-all recovery or write retries.
+
+Debounced watcher callbacks defer when either their workflow gate or the
+process-local Workspace I/O gate is busy rather than occupying thread-pool
+workers behind a synchronous local mutation. Explicit
+refresh still coordinates complete reads, and a deferred callback rechecks the
+latest files; this changes scheduling, not validation or failed-save policy.
 
 The app's `workspace.next` and UUID-named `.next` files directly beneath `notes\`
 and `team-notes\` are uncommitted staging, not canonical data. Refresh traversal

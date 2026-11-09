@@ -12,7 +12,10 @@ public sealed partial class ApplicationWorkflow
     private static readonly object workspaceIoRegistryGate = new();
     private static readonly Dictionary<string, WorkspaceIoEntry> workspaceIoEntries = new(StringComparer.OrdinalIgnoreCase);
 
-    private static IDisposable CoordinateWorkspaceIo(string path)
+    private static IDisposable CoordinateWorkspaceIo(string path) => AcquireWorkspaceIo(path, wait: true)!;
+    private static IDisposable? TryCoordinateWorkspaceIo(string path) => AcquireWorkspaceIo(path, wait: false);
+
+    private static IDisposable? AcquireWorkspaceIo(string path, bool wait)
     {
         var key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         WorkspaceIoEntry entry;
@@ -22,8 +25,19 @@ public sealed partial class ApplicationWorkflow
                 workspaceIoEntries.Add(key, entry = new WorkspaceIoEntry());
             entry.Users++;
         }
-        Monitor.Enter(entry.Gate);
+        if (wait) Monitor.Enter(entry.Gate);
+        else if (!Monitor.TryEnter(entry.Gate))
+        {
+            ReleaseWorkspaceIoReference(key, entry);
+            return null;
+        }
         return new WorkspaceIoLease(key, entry);
+    }
+
+    private static void ReleaseWorkspaceIoReference(string key, WorkspaceIoEntry entry)
+    {
+        lock (workspaceIoRegistryGate)
+            if (--entry.Users == 0) workspaceIoEntries.Remove(key);
     }
 
     private sealed class WorkspaceIoLease(string key, WorkspaceIoEntry entry) : IDisposable
@@ -34,8 +48,7 @@ public sealed partial class ApplicationWorkflow
             if (disposed) return;
             disposed = true;
             Monitor.Exit(entry.Gate);
-            lock (workspaceIoRegistryGate)
-                if (--entry.Users == 0) workspaceIoEntries.Remove(key);
+            ReleaseWorkspaceIoReference(key, entry);
         }
     }
 }
