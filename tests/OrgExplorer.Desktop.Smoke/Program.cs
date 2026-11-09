@@ -19,6 +19,7 @@ internal static partial class Program
             if (args.Length == 2 && args[1] == "--team-notes") { RunTeamNoteFlow(args[0]); return 0; }
             if (args.Length == 2 && args[1] == "--person-notes") { RunPersonNoteFlow(args[0]); return 0; }
             if (args.Length == 2 && args[1] == "--scale") { RunScaleFlow(args[0]); return 0; }
+            if (args.Length == 1) RunNavigationFeedbackFlow(args[0], root);
             if (args.Length == 1 || args[1] == "migration") RunWorkspaceCompatibilityFlow(args[0], root);
             if (args.Length == 2 && args[1] == "migration")
             {
