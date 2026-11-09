@@ -49,8 +49,7 @@ internal static partial class Program
             SelectTab(window, "TeamNoteReadTab");
             Await(() => TeamReadingText(window).Contains("Private Root writing."));
             OpenPerson(window, "root@example.com", "manager@example.com");
-            Click(window, "NavigateManager");
-            Await(() => Find(window, "Email").Current.Name == "manager@example.com");
+            NavigateToManager(window, "manager@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "Manager writing");

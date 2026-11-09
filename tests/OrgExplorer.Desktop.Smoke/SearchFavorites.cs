@@ -52,7 +52,7 @@ internal static partial class Program
             if (((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
                 throw new InvalidOperationException("Archived-note search did not open the retained note.");
             Click(window, "ArchivePersonNote");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Former team");
             Set(window, "TeamNoteMarkdown", $"# Cedar\nFormer Team writing\n![remote]({remote}/team.png)");

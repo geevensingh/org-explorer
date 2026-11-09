@@ -112,8 +112,7 @@ internal static partial class Program
             Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            Click(window, "NavigateManager");
-            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+            NavigateToManager(window, "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com") ||
                 Find(window, "PersonNotes").FindAll(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Count != 0)

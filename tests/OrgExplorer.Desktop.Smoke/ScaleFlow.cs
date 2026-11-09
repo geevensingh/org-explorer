@@ -68,7 +68,7 @@ internal static partial class Program
             Set(window, "SearchQuery", "");
             ScaleFixture.Measure("UI-manager-navigation", () =>
             {
-                Click(window, "NavigateManager");
+                NavigateToManager(window, ScaleFixture.Email(11));
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 00011");
             });
             ScaleFixture.Measure("UI-deep-profile", () =>

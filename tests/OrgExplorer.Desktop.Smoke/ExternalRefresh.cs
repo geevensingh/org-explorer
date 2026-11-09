@@ -35,11 +35,10 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteMarkdown").Current.IsEnabled);
             Set(window, "PersonNoteMarkdown", "# Saved context");
-            Await(() => Find(window, "Status").Current.Name.Contains("saved locally"));
+            AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteMarkdown", "# Saved owned Team context");
-            Click(window, "NavigateManager");
-            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+            NavigateToManager(window, "casey@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Saved inherited Team context");

@@ -64,7 +64,7 @@ internal static partial class Program
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
             AssertPhotoVisible(window);
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Morgan Example");
             var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
