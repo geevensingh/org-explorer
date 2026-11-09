@@ -183,3 +183,150 @@ summed hard ceiling, but no passing hosted CI run is claimed. The actual
 product publish isolation check passed separately after the desktop failure;
 it is not a substitute for that failed lane. Installer #16, updater and CD
 remain outside this ticket.
+
+## Review-fix validation (2026-11-09)
+
+Review fixes were implemented in an isolated worktree on
+`implement/review-fixes`, based on integration `6bb1f762b8b71b5e6bfcb84e72af8b5701b47321`.
+The integration checkout was neither switched nor edited.
+
+The integration evidence initially reported 154/158 filesystem tests, with two
+note-save/replacement failures and two watcher-delivery failures. The isolated
+baseline reproduced the two watcher failures: **156 passed, 2 failed, no skips**,
+401.190 s including restore/build/fixtures. All 41 selected note/history/archival
+tests passed in isolation, as did twelve repetitions of the four originally
+failing tests. The note-replacement errors were not independently reproduced;
+they are not claimed as separately diagnosed.
+
+A real-file overlap first reproduced the review defect: saving note A allowed
+delivery of note B to be fingerprinted as current while queries still returned
+`Provider original`, not `Provider delivered`. The retained regression uses the
+public workflow and a narrow operating-system publication boundary that writes
+real files, controlling delivery between the final check and atomic replacement
+without sleeps or oversized documents. Nine cases cover Person/Team publication,
+generation publication, either delivered note kind, invalid ownership, refresh,
+reopen and retained failed drafts. Reinstating the original live-capture
+acceptance made **all nine fail**; expected-byte acceptance made **all nine pass**.
+The red/green TRX files are in `.ci-results\review-focused\`.
+
+Targeted watcher tracing measured callbacks blocked behind busy workflow gates
+for more than ten seconds during concurrent fixture construction. A minimized
+same-process fixture-load run reproduced delivery failures. Nonblocking gate
+deferral then passed all 167 cases in that diagnostic run (including its
+temporary fixture-load probe), without extending eventual assertions. The probe
+and all debug instrumentation were removed. The permanent suite retains its full
+10,000-Person fixture and adds the nine publication cases.
+
+The review also consolidated the duplicated atomic Markdown transaction,
+import-envelope/record scalar validation and composed desktop note-draft safety.
+Person versus Team metadata, review/inheritance UI, proposed graph validation
+and resource checks remain independent.
+
+A follow-up red test exposed a concrete remaining validator drift:
+`schemaVersion: 1.0` passed import preview/apply but failed reopening with
+`accepted batch source.schemaVersion: expected an integer`. The shared import
+version rule now also serves pre-write version inspection and accepted-source
+reopening, preserving preview's supported numeric representation and
+unsupported-version upgrade blocking. This adds one further public-workflow/
+real-filesystem regression, bringing the permanent filesystem suite to 168.
+
+The complete desktop attempt on this date did obtain actual rendered photo
+pixels, unlike the earlier recorded host attempt. Its mandatory lane still
+failed closed at **660.457 s**, exhausting the unchanged execution budget during
+scale flows after search/favorites and actual photo rendering; measured profile
+and favorite mutations were 90.300 s and 105.081 s under concurrent validation.
+This is not a complete desktop pass, and the previous pixel prerequisite must
+not be represented as the failure of this newer attempt. No desktop/login
+configuration or pixel assertion was changed.
+
+After committing the code fixes (`c0b84d36e5fb9013c9902d91059944dd9a8e0917`),
+the integration tip was merged again (already up to date), and combined
+validation was rerun on that state. All runs used the existing SDK/tooling on the
+same shared Windows host; these are local reference results, not hosted CI
+claims.
+
+| Validation | Result | Execution |
+| --- | --- | ---: |
+| Core plus fail-closed CI gate checks | 139 passed, no skips; aggregate/budget rejection checks passed | 92.279 s |
+| Complete filesystem lane, first combined run | 167 passed, no skips, including genuine 10,000-Person operations | 500.423 s |
+| Five concurrent-load repetitions of note/history/archival/read-lifetime/overlap cases | 57 passed in each repetition, no failures or skips | TRX results retained per repetition |
+| Separate actual product publish/isolation check | Passed; 8 product files, no fixtures or test assemblies | 3.623 s |
+
+The first combined filesystem run remained below the eleven-minute hard
+ceiling, but **did not achieve the five-minute optimization target**. Its durable
+favorite, profile and reviewed-apply operations measured 67.485 s, 74.845 s and
+85.397 s respectively. No practical desktop-latency acceptance is inferred from
+these timings.
+
+The second full repetition on that intermediate state was **not stable**:
+166/167 passed and one unchanged five-second invalid-delivery assertion timed
+out, in 573.473 s. This result is retained in
+`.ci-results\review-validation\filesystem-2-failed\`; it is not counted as a
+passing repetition. Watcher callbacks now defer at the process-local Workspace
+I/O gate as well as their own workflow gate, rather than blocking pool workers
+behind sibling clients' synchronous publication. Explicit refresh/read
+coordination still waits normally. The complete non-scale suite then passed
+167/167, including the new version regression, in 13 s.
+
+### Final refinement results
+
+The final production-code refinement is
+`b5948ff5c722ccb9e29869424209180ac45f6932`. Subsequent
+`39cf2f715b68dcb9bece4c95e2a8d28ada7b4525` adds observable autosave-completion
+barriers to the real Team-note smoke flow. That flow initially hit an
+Automation enabled-check/`SetValue` race when an outstanding note autosave
+disabled profile controls. The fix waits on the existing Ready/Pending UI
+states before dependent operations; it adds no sleeps, exception retries,
+skips, weakened assertions or longer timeouts.
+
+| Validation | Result | Execution |
+| --- | --- | ---: |
+| Final core and fail-closed CI gate checks | 139 passed, no skips; rejection/budget checks passed | 13.827 s |
+| Complete final filesystem lane | 168 passed, no skips | 304.850 s |
+| Complete final filesystem repetition, after refreshing integration ancestry | 168 passed, no skips | 286.283 s |
+| Five final concurrent-load note/history/archival/read-lifetime/overlap repetitions | 58 passed each, no failures or skips | Per-run TRX retained |
+| Actual WPF Team-note flow | Passed ownership, inheritance, review, failed-save/retry, moves, private rendering and reopen | 50.222 s |
+| Actual WPF Person-note flow | Passed edit/read, real photos, external delivery, failed saves, retry/discard, navigation/close guards and reopen | 52.013 s |
+| Final rebuilt product publish/isolation | Passed; 8 product-only files | 4.028 s |
+
+The 304.850-second filesystem result still misses the five-minute target when
+restore/build are included, despite its test-only duration being under five
+minutes. The 286.283-second full repetition did achieve that local filesystem
+target. No rounding-down or test-only timing is used, and neither run establishes
+an application-latency SLA or a passing five-minute complete desktop result.
+
+The second integrated **complete desktop lane** failed closed at 660.213 s
+before the final I/O-gate refinement. Unlike the prior pixel-blocked attempt,
+it passed real photo rendering, search/favorites and the **entire genuine
+10,000-Person UI flow**, including historical search, navigation, mutations,
+validated refresh, external delivery and reopen. Its log contains that flow's
+explicit PASS; it does not contain a complete desktop-executable PASS. Scale UI
+profile/favorite mutations measured 81.676/87.619 s, the reviewed refresh
+122.102 s, external delivery 21.533 s and reopen 35.818 s.
+
+Finally, the complete desktop lane was rerun on **all committed fixes**
+(`39cf2f715b68dcb9bece4c95e2a8d28ada7b4525`) after another integration ancestry
+check and cleanup of stopped synthetic fixtures. It failed closed in
+**154.583 s** at the mandatory scale photo assertion:
+
+```text
+Actual UI pixels are unavailable. Desktop smoke requires an interactive,
+unlocked Windows desktop; image assertions cannot be skipped.
+```
+
+That latest attempt passed migration and search/favorites before reaching scale
+load/tree/current search, but is not a complete scale or desktop pass. The host
+therefore supplied real pixels in earlier runs and lost that prerequisite in the
+final run; neither outcome is inferred from older evidence. No OS/login
+configuration or pixel assertion was changed. The current final logs/timing are
+in `.ci-results\desktop\`; the previous budget failure is retained in
+`.ci-results\review-validation\desktop-2-budget\`.
+
+The focused note flows and product publish are separate successful
+checks, not a substitute for the failed complete desktop lane. **#15 remains
+acceptance-open** pending a passing complete desktop lane and its remaining
+end-to-end budget/latency verification. #16 remains unmerged and
+verification-blocked; #17–#19 remain blocked. No push, pull request, issue
+closure, installer merge, desktop/login change or pixel-assertion bypass was
+performed. The three CI lanes and their 29-minute summed fail-closed ceiling
+are unchanged.
