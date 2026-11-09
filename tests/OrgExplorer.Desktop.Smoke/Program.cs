@@ -212,6 +212,7 @@ internal static partial class Program
     }
     internal static void OpenPerson(AutomationElement window, params string[] ancestors)
     {
+        AwaitLocalWorkIdle(window);
         foreach (var email in ancestors)
         {
             AutomationElement? ancestor = null;
@@ -228,7 +229,14 @@ internal static partial class Program
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        Await(() => Find(window, "PreferredName").Current.IsEnabled);
+        Await(() => Find(window, "Email").Current.Name == "avery@example.com" &&
+            Find(window, "PreferredName").Current.IsEnabled);
+    }
+    private static void NavigateToManager(AutomationElement window, string email)
+    {
+        AwaitLocalWorkIdle(window);
+        Click(window, "NavigateManager");
+        Await(() => Find(window, "Email").Current.Name == email);
     }
     internal static void Close(Process process)
     {

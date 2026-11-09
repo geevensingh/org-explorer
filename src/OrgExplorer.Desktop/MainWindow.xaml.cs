@@ -113,7 +113,6 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
-        if (workPending) { RestorePersonSelection(); return; }
         if (!OpenPerson(node.Person)) RestorePersonSelection();
         else RefreshArchivedPeople();
     }
@@ -143,8 +142,7 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person)
     {
-        if (workPending) return false;
-        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase) && !TryLeaveLocalEdits())
+        if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) && !TryLeaveLocalEdits())
             return false;
         selectedEmail = person.Email;
         if (selectedMatch is not null && !string.Equals(selectedMatch.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
@@ -305,9 +303,18 @@ public partial class MainWindow : Window
 
     private bool TryLeaveLocalEdits()
     {
+        if (workPending)
+        {
+            ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");
+            return false;
+        }
         if (!TryLeaveNotes()) return false;
         if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship) return true;
-        StatusText.Text = workflow.Status + "\nRetry or discard unsaved profile edits before leaving.";
+        ShowNavigationBlocked(workflow.LocalSaveError is null
+            ? "Navigation blocked: profile edits are pending. Please wait for saving to finish before leaving."
+            : "Navigation blocked: profile edits were NOT saved. Retry or discard unsaved profile edits before leaving.");
         return false;
     }
+
+    internal void ShowNavigationBlocked(string message) => StatusText.Text = message;
 }

@@ -73,10 +73,10 @@ internal static partial class Program
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
                 Click(window, "NavigateManager");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                SelectTreePerson(window, "casey@example.com");
+                SelectTreePerson(window, "casey@example.com", expectNavigation: false);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 ((ExpandCollapsePattern)Find(window, "avery@example.com").GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
-                SelectTreePerson(window, "jordan@example.com");
+                SelectTreePerson(window, "jordan@example.com", expectNavigation: false);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
@@ -201,13 +201,14 @@ internal static partial class Program
         Await(() => Value(window, "PersonNoteTitle") == title);
     }
 
-    private static void SelectTreePerson(AutomationElement window, string email)
+    private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
     {
         AwaitLocalWorkIdle(window);
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        if (expectNavigation) Await(() => Find(window, "Email").Current.Name == email);
     }
 
     private static void AssertBlockedNoteNavigation(AutomationElement window, string draft)

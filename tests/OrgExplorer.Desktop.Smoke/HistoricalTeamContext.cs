@@ -33,11 +33,11 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual");
             Set(window, "PersonNoteMarkdown", "Direct writing survives");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Morgan context");
             Set(window, "TeamNoteMarkdown", "# Frozen direct\nOriginal direct");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "casey@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Casey context");
             Set(window, "TeamNoteMarkdown", "# Frozen ancestor\nOriginal ancestor");
@@ -73,7 +73,7 @@ internal static partial class Program
             Set(window, "TeamNoteMarkdown", "# Changed former root\nLater root writing");
             Set(window, "PreferredName", "Casey renamed later");
             OpenPerson(window, "alex@example.com", "morgan@example.com");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
             Set(window, "TeamNoteMarkdown", "# Changed direct\nLater direct writing");
             OpenPerson(window, "alex@example.com", "morgan@example.com");

@@ -20,7 +20,8 @@ public partial class PersonNotesControl : UserControl
         draft = new NoteDraftState("Person note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
-            message => NoteStatus.Text = message);
+            message => NoteStatus.Text = message,
+            message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
         Unloaded += (_, _) => draft.Stop();
     }
     public void Attach(IApplicationWorkflow application, Action onChanged)

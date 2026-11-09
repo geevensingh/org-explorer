@@ -76,7 +76,13 @@ public partial class MainWindow
         if (refreshingQueries || SearchResults.SelectedItem is not SearchResult result) return;
         var query = SearchQuery.Text;
         var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
-        if (query != SearchQuery.Text || workPending) return;
+        if (query != SearchQuery.Text) return;
+        if (workPending)
+        {
+            TryLeaveLocalEdits();
+            RestoreSearchSelection();
+            return;
+        }
         if (current is null)
         {
             RefreshSearchAndFavorites();
@@ -86,10 +92,7 @@ public partial class MainWindow
         result = current;
         if (!TryLeaveLocalEdits() || !NavigateTo(result.Person.Email))
         {
-            refreshingQueries = true;
-            SearchResults.SelectedItem = SearchResults.Items.Cast<SearchResult>().FirstOrDefault(r =>
-                selectedMatch is not null && SameSearchDestination(r, selectedMatch));
-            refreshingQueries = false;
+            RestoreSearchSelection();
             return;
         }
         selectedMatch = result;
@@ -100,6 +103,14 @@ public partial class MainWindow
         ShowSearchContext(result);
         SearchContextPanel.BringIntoView();
         ShowStatus();
+    }
+
+    private void RestoreSearchSelection()
+    {
+        refreshingQueries = true;
+        SearchResults.SelectedItem = SearchResults.Items.Cast<SearchResult>().FirstOrDefault(r =>
+            selectedMatch is not null && SameSearchDestination(r, selectedMatch));
+        refreshingQueries = false;
     }
 
     private void ShowSearchContext(SearchResult result)

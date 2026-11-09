@@ -87,6 +87,13 @@ internal static partial class Program
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
                 Set(window, "OfficeNumber", "0009U");
+                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving local profile"));
+                Click(window, "NavigateManager");
+                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
+                if (!Find(window, "Status").Current.Name.Contains("in progress") ||
+                    !Find(window, "Status").Current.Name.Contains("Please wait") ||
+                    Find(window, "Email").Current.Name != ScaleFixture.Target)
+                    throw new InvalidOperationException("Navigation during a save did not explain waiting or retain the current Person.");
                 AwaitScale(() => Find(window, "Status").Current.Name == "Saved locally.");
             });
             ScaleFixture.Measure("UI-favorite-mutation", () =>

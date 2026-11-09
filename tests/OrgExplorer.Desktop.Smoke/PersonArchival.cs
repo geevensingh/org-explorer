@@ -35,19 +35,20 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Retained individual");
             Set(window, "PersonNoteMarkdown", "# Retained individual writing");
+            AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Retained owned Team note");
             Set(window, "TeamNoteMarkdown", "Owned Team writing");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Frozen Manager\nOriginal Manager writing");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "casey@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Ancestor context");
             Set(window, "TeamNoteMarkdown", "# Frozen ancestor\nOriginal ancestor writing");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
-            Click(window, "NavigateManager");
+            NavigateToManager(window, "morgan@example.com");
             Click(window, "ArchivePerson");
             Await(() => Find(window, "Status").Current.Name.Contains("avery@example.com.managerEmail"));
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active") ||
@@ -106,13 +107,13 @@ internal static partial class Program
                 throw new InvalidOperationException("Archived-profile reopening lost frozen context.");
             Set(window, "PersonNoteTitle", "");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-            SelectTreePerson(window, "casey@example.com");
+            SelectTreePerson(window, "casey@example.com", expectNavigation: false);
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Archived-profile navigation discarded an unsaved retained-note draft.");
             AssertSelectionMatchesProfile(window);
             Click(window, "DiscardPersonNoteDraft");
-            AssertValue(window, "PersonNoteTitle", "Retained individual");
-            Click(window, "NavigateManager");
+            Await(() => Value(window, "PersonNoteTitle") == "Retained individual");
+            NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Manager context");
             Set(window, "TeamNoteMarkdown", "# Later Manager\nLater Manager writing");
             SelectArchivedPerson(window, "avery@example.com");
@@ -201,6 +202,7 @@ internal static partial class Program
 
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {
+        AwaitLocalWorkIdle(window);
         AutomationElement? person = null;
         Await(() => (person = Find(window, "ArchivedPeople").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

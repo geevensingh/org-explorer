@@ -23,7 +23,8 @@ public partial class TeamNotesControl : UserControl
         draft = new NoteDraftState("Team note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
-            message => NoteStatus.Text = message);
+            message => NoteStatus.Text = message,
+            message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
         Unloaded += (_, _) => draft.Stop();
     }
 

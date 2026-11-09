@@ -44,8 +44,12 @@ profile/Markdown typing is coalesced after a short quiet interval; the visible
 draft stays editable while a previous write completes. Pending/newer drafts are
 explicitly **not yet saved**, and navigation/closing cannot discard them. A
 failed write still requires retry or deliberate discard. Tree expansion and
-Settings remain usable while local work is outstanding. Search runs locally in
-the background and ignores superseded query responses. None of this changes
+Settings remain usable while local work is outstanding. Rejected navigation is
+explained in the main status: pending edits or an in-progress save ask you to
+wait; a failed save asks you to retry or discard. Note-specific feedback also
+appears beside the affected note. Desktop smoke waits for saves and verifies
+the destination Person before continuing a successful navigation. Search runs
+locally in the background and ignores superseded query responses. None of this changes
 the import review checkpoint, atomic generation publication, or data formats.
 
 Known version-1 Workspaces open through automatic validated **1 → 2 conversion**,
