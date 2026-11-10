@@ -45,6 +45,7 @@ try {
                 '--results-directory', '.ci-results\core')
             & "$root\tests\CiGate.Tests.ps1"
             & "$root\tests\Performance.Tests.ps1"
+            & "$root\tests\DesktopResults.Tests.ps1"
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')
@@ -52,11 +53,15 @@ try {
                 '--results-directory', '.ci-results\filesystem', '--filter', 'Category!=Performance')
         }
         desktop {
+            $env:DESKTOP_RESULTS_DIRECTORY = $results
+            Remove-Item (Join-Path $results 'scenarios.json') -Force -ErrorAction SilentlyContinue
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
             Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
             Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
                 '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
+            . "$root\eng\DesktopResults.ps1"
+            Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\DesktopScenarios.json" -Raw | ConvertFrom-Json)
             Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-build', '--no-restore',
                 '-o', '.ci-results\desktop\product-check')
             $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File

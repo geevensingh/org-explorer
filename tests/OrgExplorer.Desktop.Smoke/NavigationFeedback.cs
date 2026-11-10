@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -25,6 +26,22 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             OpenPerson(window, "casey@example.com");
+            var profileEditor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
+            var navigate = (InvokePattern)Find(window, "NavigateManager").GetCurrentPattern(InvokePattern.Pattern);
+            var activity = Find(window, "WorkflowActivity");
+            var mainStatus = Find(window, "Status");
+            var owner = Find(window, "Email");
+            profileEditor.SetValue("0009P");
+            if (!activity.Current.Name.Contains("Pending"))
+                throw new InvalidOperationException("The pending autosave state was not observed.");
+            navigate.Invoke();
+            var pendingStatus = mainStatus.Current.Name;
+            if (!pendingStatus.StartsWith("Navigation blocked:") || !pendingStatus.Contains("Please wait") ||
+                owner.Current.Name != "avery@example.com")
+                throw new InvalidOperationException("Pending autosave navigation was not visibly rejected: " + pendingStatus);
+            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            NavigateToManager(window, "casey@example.com");
+            OpenPerson(window, "casey@example.com");
             foreach (var kind in new[] { "Person", "Team" })
             {
                 Click(window, $"New{kind}Note");
@@ -48,7 +65,7 @@ internal static partial class Program
         }
         finally
         {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+            if (process is not null) StopApplication(process);
         }
     }
 }

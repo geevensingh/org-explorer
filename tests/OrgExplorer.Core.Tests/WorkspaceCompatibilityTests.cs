@@ -21,6 +21,7 @@ public sealed class WorkspaceCompatibilityTests
     }
 
     [Fact]
+    [Trait("Category", "Filesystem")]
     public void View_model_reports_future_data_globally_without_a_compatible_Workspace_or_any_writes()
     {
         var folder = FixturePath();
@@ -49,6 +50,7 @@ public sealed class WorkspaceCompatibilityTests
     }
 
     [Fact]
+    [Trait("Category", "Filesystem")]
     public void View_model_reports_failed_conversion_and_validated_retry_without_fabricating_loaded_state()
     {
         var folder = FixturePath();

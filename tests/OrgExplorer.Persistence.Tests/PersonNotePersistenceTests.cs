@@ -94,6 +94,34 @@ public sealed class PersonNotePersistenceTests : IDisposable
     }
 
     [Fact]
+    public void Failed_Person_draft_retry_cannot_overwrite_external_writing_and_discard_accepts_the_delivered_version()
+    {
+        using var app = Open();
+        var note = app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!;
+        var file = Path.Combine(folder, "notes", note.Id + ".md");
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.False(app.EditPersonNote(note.Id, note.Title, "Unsaved competing draft"));
+        Assert.False(app.CanSafelyClose);
+        File.WriteAllText(file, File.ReadAllText(file).Replace("Saved writing", "Delivered writing"));
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal("Delivered writing", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
+        Assert.False(app.EditPersonNote(note.Id, note.Title, "Unsaved competing draft"));
+        Assert.Contains("changed externally", app.Status);
+        Assert.False(app.CanSafelyClose);
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal("Delivered writing", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
+        }
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.True(app.CanSafelyClose);
+        Assert.True(app.EditPersonNote(note.Id, note.Title, "Deliberate delivered-version edit"), app.Status);
+        using var edited = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(edited.OpenWorkspace(folder), edited.Status);
+        Assert.Equal("Deliberate delivered-version edit", Assert.Single(edited.GetPersonNotes("avery@example.com")).Markdown);
+    }
+
+    [Fact]
     public void Concurrent_profile_and_note_changes_are_accepted_as_one_validated_Workspace()
     {
         using var first = Open();

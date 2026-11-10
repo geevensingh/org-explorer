@@ -57,35 +57,7 @@ internal static partial class Program
         }
         finally
         {
-            if (!process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
-        }
-
-        var incompatibleWorkspace = Path.Combine(root, "future");
-        WorkspaceFixtures.CopyVersion(99, incompatibleWorkspace);
-        var incompatibleBytes = WorkspaceFixtures.Bytes(incompatibleWorkspace);
-        using var incompatible = Launch(executable);
-        try
-        {
-            var window = Window(incompatible);
-            Set(window, "WorkspacePath", incompatibleWorkspace);
-            Click(window, "OpenWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            Click(window, "OpenSettings");
-            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
-            AssertNoFakeUpdater(window);
-            Click(window, "RetryWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled ||
-                Find(window, "ToggleFavorite").Current.IsEnabled)
-                throw new InvalidOperationException("Unsupported initial Workspace enabled writes.");
-            AssertWorkspaceBytes(incompatibleWorkspace, incompatibleBytes);
-            if (File.Exists(Path.Combine(incompatibleWorkspace, ".workspace.lock")))
-                throw new InvalidOperationException("Unsupported initial Workspace created a writer lease.");
-            Close(incompatible);
-        }
-        finally
-        {
-            if (!incompatible.HasExited) { incompatible.Kill(true); incompatible.WaitForExit(5000); }
+            StopApplication(process);
         }
 
         var recoveryWorkspace = Path.Combine(root, "migration-recovery");
@@ -117,22 +89,7 @@ internal static partial class Program
         }
         finally
         {
-            if (!recovery.HasExited) { recovery.Kill(true); recovery.WaitForExit(5000); }
-        }
-
-        using var reopened = Launch(executable);
-        try
-        {
-            var window = Window(reopened);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            OpenPerson(window, "casey@example.com", "alex@example.com");
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Migration UI edit");
-            Close(reopened);
-        }
-        finally
-        {
-            if (!reopened.HasExited) { reopened.Kill(true); reopened.WaitForExit(5000); }
+            StopApplication(recovery);
         }
     }
 

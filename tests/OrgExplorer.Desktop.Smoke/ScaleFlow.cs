@@ -10,6 +10,7 @@ internal static partial class Program
     private static void RunScaleFlow(string executable)
     {
         using var fixture = new ScaleFixture();
+        Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
         fixture.Build();
         Process? process = null;
         try
@@ -152,7 +153,7 @@ internal static partial class Program
         }
         finally
         {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+            if (process is not null) StopApplication(process);
         }
     }
 
