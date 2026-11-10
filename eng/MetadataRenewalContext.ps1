@@ -14,7 +14,10 @@ function Get-MetadataRenewalContext([string]$Root, [string]$ControllerRevision, 
     $null = Invoke-ReleaseGit $Root @('merge-base', '--is-ancestor', $state.product.sourceSha, $ControllerRevision)
     $runner = (Invoke-ReleaseGit $Root @('show', "$($state.product.sourceSha):tests/OrgExplorer.Desktop.Smoke/SmokeScenarioRunner.cs", '--')) -join "`n"
     $regressions = (Invoke-ReleaseGit $Root @('show', "$($state.product.sourceSha):tests/OrgExplorer.Core.Tests/DesktopScenarioRunnerTests.cs", '--')) -join "`n"
-    if (!$runner.Contains('checkOnStartup = false') -or !$regressions.Contains('Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch')) {
+    $hasIsolationRegression =
+        $regressions.Contains('Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch') -or
+        $regressions.Contains('Non_update_fixtures_opt_out_of_production_updates_before_any_application_can_launch')
+    if (!$runner.Contains('checkOnStartup = false') -or !$hasIsolationRegression) {
         throw 'Original candidate predates scale production-update isolation. Ship a genuine bridge product release before automatic renewal; do not modify an historical candidate or run it against production updates.'
     }
     Assert-PublishedReleaseInventory $state.productRelease $state.product

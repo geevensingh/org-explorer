@@ -256,28 +256,43 @@ try {
         @{ schemaVersion = 1; manifestUrl = 'https://github.com/geevensingh/org-explorer/releases/latest/download/org-explorer-update.win-x64.json'
             keys = @(@{ keyId = 'test-active'; algorithm = 'ES256'; publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo()) }) } |
             ConvertTo-Json -Depth 5 | Set-Content "$sourceRoot\src\OrgExplorer.Desktop\update-trust.json"
-        'checkOnStartup = false' | Set-Content "$sourceRoot\tests\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs"
-        'Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch' | Set-Content "$sourceRoot\tests\OrgExplorer.Core.Tests\DesktopScenarioRunnerTests.cs"
         git -C $sourceRoot init --quiet
-        git -C $sourceRoot add --all
-        git -C $sourceRoot -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Controlled original source'
-        if ($LASTEXITCODE -ne 0) { throw 'Controlled original source commit failed.' }
-        $candidate = (git -C $sourceRoot rev-parse HEAD).Trim()
-        $main = $candidate; $run.head_sha = $candidate
-        $original = $assetResponse | ConvertFrom-Json
-        $original.sourceSha = $candidate
-        $original | ConvertTo-Json -Depth 10 | Set-Content "$fixture\release-provenance.json"
-        $assetResponse = Get-Content "$fixture\release-provenance.json" -Raw
-        $manifestResponse = Get-Content "$fixture\org-explorer-update.win-x64.json" -Raw
-        $originalRelease.assets = @(Get-ReleaseInventory $fixture | ForEach-Object {
-            @{ id = if ($_.fileName -ceq 'release-provenance.json') { 7 } else { 8 }; name = $_.fileName; size = $_.size; digest = 'sha256:' + $_.sha256 }
-        })
-        $effects.Clear()
-        $context = Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1
-        Assert ($context.plan.publish -and $context.plan.sourceSha -ceq $candidate -and $context.controllerCiRunId -eq 42 -and $effects.Count -eq 0) 'Scheduled evaluation must authenticate original metadata/trust at its real Git source and authorize no publication effects.'
-        $missingCurrentCi = $true
-        Rejects { Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1 } 'a controller main without successful CI'
-        $missingCurrentCi = $false
+        $currentRegressions = Get-Content "$PSScriptRoot\OrgExplorer.Core.Tests\DesktopScenarioRunnerTests.cs" -Raw
+        foreach ($source in @(
+            @{ name = 'current'; regressions = $currentRegressions; isolated = $true; allowed = $true },
+            @{ name = 'historical'; regressions = 'Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch'; isolated = $true; allowed = $true },
+            @{ name = 'missing-regression'; regressions = 'Unrelated_passing_tests'; isolated = $true; allowed = $false },
+            @{ name = 'missing-isolation'; regressions = $currentRegressions; isolated = $false; allowed = $false }
+        )) {
+            $runner = if ($source.isolated) { 'checkOnStartup = false' } else { 'No startup opt-out' }
+            $runner | Set-Content "$sourceRoot\tests\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs"
+            $source.regressions | Set-Content "$sourceRoot\tests\OrgExplorer.Core.Tests\DesktopScenarioRunnerTests.cs"
+            git -C $sourceRoot add -- src\OrgExplorer.Desktop\update-trust.json `
+                tests\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs tests\OrgExplorer.Core.Tests\DesktopScenarioRunnerTests.cs
+            git -C $sourceRoot -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m "Controlled original source: $($source.name)"
+            if ($LASTEXITCODE -ne 0) { throw 'Controlled original source commit failed.' }
+            $candidate = (git -C $sourceRoot rev-parse HEAD).Trim()
+            $main = $candidate; $run.head_sha = $candidate
+            $original = $assetResponse | ConvertFrom-Json
+            $original.sourceSha = $candidate
+            $original | ConvertTo-Json -Depth 10 | Set-Content "$fixture\release-provenance.json"
+            $assetResponse = Get-Content "$fixture\release-provenance.json" -Raw
+            $manifestResponse = Get-Content "$fixture\org-explorer-update.win-x64.json" -Raw
+            $originalRelease.assets = @(Get-ReleaseInventory $fixture | ForEach-Object {
+                @{ id = if ($_.fileName -ceq 'release-provenance.json') { 7 } else { 8 }; name = $_.fileName; size = $_.size; digest = 'sha256:' + $_.sha256 }
+            })
+            $effects.Clear()
+            if ($source.allowed) {
+                $context = Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1
+                Assert ($context.plan.publish -and $context.plan.sourceSha -ceq $candidate -and $context.controllerCiRunId -eq 42 -and $effects.Count -eq 0) "Scheduled evaluation must authenticate $($source.name) original metadata/trust at its real Git source without publication effects."
+                $missingCurrentCi = $true
+                Rejects { Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1 } 'a controller main without successful CI'
+                $missingCurrentCi = $false
+            } else {
+                Rejects { Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1 } $source.name
+                Assert ($effects.Count -eq 0) 'Missing isolation evidence must fail before publication effects.'
+            }
+        }
         $releases = @()
         Assert (!(Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1).plan.publish) 'First scheduled evaluation without a public product must not require or fabricate an original source/release.'
         Remove-Item $sourceRoot -Recurse -Force
