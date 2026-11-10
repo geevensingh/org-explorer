@@ -87,7 +87,7 @@ and remove obsolete drafts after investigation, but automation does not overwrit
 or promote them. A legacy/ambiguous public release without valid provenance
 blocks planning and needs owner reconciliation, never an adjacent-commit guess.
 
-## Owner prerequisites (not provisioned by this change)
+## Owner-controlled prerequisites
 
 Before real publication, the owner must:
 
@@ -100,7 +100,8 @@ Before real publication, the owner must:
    case-sensitive embedded public-key ID.
 4. Commit the matching **public-only** SPKI configuration in
    `src\OrgExplorer.Desktop\update-trust.json`, reviewed as part of the trusted
-   bootstrap. Its `keys` array is currently empty. The signer derives public
+   bootstrap. The committed configuration contains the owner's public key; no
+   private material is included. The signer derives public
    SPKI from the supplied private key and rejects absent, malformed, wrong-curve,
    unembedded or mismatched configuration before creating public artifacts.
    Adding the owner's public resource needs no signer-code change.

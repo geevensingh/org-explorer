@@ -16,15 +16,18 @@ data in these requests. Discovery downloads only the small signed envelope.
 An authorized newer result automatically starts the full-package workflow below;
 there is no second confirmation button or unsigned package-selection feed.
 
-## Owner provisioning is still required
+## Owner-controlled trust
 
-The committed `src\OrgExplorer.Desktop\update-trust.json` deliberately has an
-empty `keys` array. The app visibly reports **not configured / availability
-unknown**, without making a network request. This is not a production signing
-key, a fake available update, or publication readiness. The owner must provision
-and securely retain the production signing key outside this repository/client.
-No production private key has been generated, acquired, installed or committed
-by this implementation. The [release workflow](releasing.md) requires the
+The committed `src\OrgExplorer.Desktop\update-trust.json` contains the
+owner-provided public ES256/P-256 trust configuration. Only public SPKI bytes are
+embedded; the owner provisions and securely retains the production private key
+outside this repository/client. Private signing material must never be committed
+or included in product outputs.
+
+An empty or invalid trust configuration still visibly reports **not configured /
+availability unknown**, without making a network request or falling back to
+unsigned metadata. Embedding public trust does not mean a release is published
+or available. The [release workflow](releasing.md) requires the
 owner-provisioned Actions secret `ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8` (base64 DER
 PKCS#8 P-256) and public variable `ORG_EXPLORER_UPDATE_KEY_ID`, matching an embedded
 public SPKI. It derives and checks the match before publishing; an empty secret

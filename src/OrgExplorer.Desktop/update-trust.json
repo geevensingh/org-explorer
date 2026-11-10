@@ -1,5 +1,11 @@
 {
   "schemaVersion": 1,
   "manifestUrl": "https://github.com/geevensingh/org-explorer/releases/latest/download/org-explorer-update.win-x64.json",
-  "keys": []
+  "keys": [
+    {
+      "keyId": "org-explorer-2026-11",
+      "algorithm": "ES256",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEh/giYw24VS/GGDWay2swaACBQECyysOV8EPpjxH//i4Gzc76okD7YWCtAwBoVwcl4gj5TvzZEAmpuXeqoVR/Xw=="
+    }
+  ]
 }
