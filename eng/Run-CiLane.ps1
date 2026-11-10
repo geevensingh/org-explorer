@@ -12,6 +12,8 @@ $index = 0
 $artifactBuild = Join-Path $results 'build'
 $ceilingSeconds = if ($Lane -eq 'core') { 300 } else { 660 }
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
+$updateFixture = $null
+$previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
 
 function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
     $Arguments = @($Arguments[0], '--artifacts-path', $artifactBuild) + $Arguments[1..($Arguments.Length - 1)]
@@ -56,15 +58,21 @@ try {
         desktop {
             $env:DESKTOP_RESULTS_DIRECTORY = $results
             Remove-Item (Join-Path $results 'scenarios.json') -Force -ErrorAction SilentlyContinue
+            $updateFixture = Join-Path $root ('.test-workspaces\update-trust-' + [guid]::NewGuid().ToString('N'))
+            & "$root\eng\New-UpdateTestFixture.ps1" -Directory $updateFixture
+            $env:ORG_EXPLORER_UPDATE_FIXTURE = $updateFixture
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
-            Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
+            Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
+                "-p:UpdateTrustFile=`"$(Join-Path $updateFixture 'trust.json')`"")
             Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
                 '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
             . "$root\eng\DesktopResults.ps1"
             Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\DesktopScenarios.json" -Raw | ConvertFrom-Json)
-            Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-build', '--no-restore',
+            Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
                 '-o', '.ci-results\desktop\product-check')
+            & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
+                -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
             $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
             if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
                 throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
@@ -72,6 +80,8 @@ try {
         }
     }
 } finally {
+    $env:ORG_EXPLORER_UPDATE_FIXTURE = $previousUpdateFixture
+    if ($updateFixture -and (Test-Path -LiteralPath $updateFixture)) { Remove-Item -LiteralPath $updateFixture -Recurse -Force }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
         ceilingSeconds = $ceilingSeconds; steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |

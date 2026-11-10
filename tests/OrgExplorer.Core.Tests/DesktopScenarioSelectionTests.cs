@@ -12,7 +12,7 @@ public sealed class DesktopScenarioSelectionTests
         var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
         Assert.Equal(new[] { "profile-journey", "draft-navigation", "person-note-rendering",
             "team-context-history", "search-favorites", "archival-navigation",
-            "compatibility-settings", "external-refresh" }, selection.Select(null));
+            "compatibility-settings", "update-settings", "external-refresh" }, selection.Select(null));
         Assert.Equal(new[] { "scale-navigation-rendering", "scale-mutation-responsiveness" },
             selection.Select("--ui-scale"));
         Assert.Equal(new[] { "scale-navigation-rendering" }, selection.Select("scale-navigation-rendering"));

@@ -18,7 +18,8 @@ slice passed all then-required nine scenarios, all three lanes and the aggregate
 in [run 42768271599](https://github.com/geevensingh/org-explorer/actions/runs/42768271599)
 at `8f241a4fa796b8660f9a80a6026cb12df73c333d`. Its ninth scenario was the old
 combined scale flow. These are dependency evidence, not proof of #24's two
-separate WPF scenarios or its final eight-scenario required lane.
+separate WPF scenarios or its final required lane, which also retains #17's
+authenticated update/settings scenario.
 
 During #22, GitHub rejected direct dispatch of `scale-verification.yml` at
 published integration commit `18dcee007e25f453eff2d6a8840c98def7b31885`

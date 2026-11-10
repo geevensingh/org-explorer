@@ -29,6 +29,7 @@ internal static partial class Program
                 ["search-favorites"] = root => RunSearchFavoriteFlow(executable, root),
                 ["archival-navigation"] = root => RunPersonArchivalFlow(executable, root),
                 ["compatibility-settings"] = root => RunWorkspaceCompatibilityFlow(executable, root),
+                ["update-settings"] = root => RunUpdateSettingsFlow(executable, root),
                 ["external-refresh"] = root => RunExternalRefreshFlow(executable, root),
                 ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
                 ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
@@ -44,11 +45,14 @@ internal static partial class Program
             var scenarios = selected.Select(name => new SmokeScenario(name, root =>
             {
                 diagnostics = Path.Combine(results, name + "-ui.log");
+                var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
+                Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", Path.Combine(root, "app-settings"));
                 try { actions[name](root); }
                 finally
                 {
                     foreach (var process in Applications) { StopApplication(process); process.Dispose(); }
                     Applications.Clear();
+                    Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
                 }
             })).ToArray();
             return new SmokeScenarioRunner(scenarios).Run(fixtures, Path.Combine(results, "scenarios.json")) ? 0 : 1;

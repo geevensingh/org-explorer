@@ -30,12 +30,21 @@
                 Click="ToggleSettings" HorizontalAlignment="Right"/>
         <TextBlock Text="Private offline Workspace" FontSize="24"/>
       </DockPanel>
+      <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
+                 TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
       <Border x:Name="SettingsPanel" Visibility="Collapsed" BorderBrush="Gray" BorderThickness="1" Padding="12" Margin="0,0,0,12">
         <StackPanel>
           <TextBlock Text="Settings — Workspace compatibility and recovery" FontWeight="SemiBold"/>
           <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,8"/>
-          <TextBlock AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"
-                     Text="Automatic updates are not implemented yet. Installer verification is a prerequisite for the later updater. Obtain a compatible app release through the project's trusted release channel; no update availability has been checked."/>
+          <WrapPanel Margin="0,8">
+            <Button x:Name="CheckForUpdatesButton" Content="Check for updates" AutomationProperties.AutomationId="CheckForUpdates"
+                    Click="CheckForUpdates" Margin="0,0,12,0"/>
+            <CheckBox x:Name="StartupUpdateChecks" Content="Check for updates on startup" IsChecked="True"
+                      AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center" Click="ChangeStartupUpdateChecks"/>
+          </WrapPanel>
+          <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
+          <TextBlock Text="Project-key authorization is not Windows publisher verification and does not remove installer warnings. Automatic installation and restart are not connected yet."
+                     TextWrapping="Wrap"/>
           <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
                      TextWrapping="Wrap" Margin="0,8"/>
           <Button Content="Retry Workspace validation / conversion" AutomationProperties.AutomationId="RetryWorkspace"

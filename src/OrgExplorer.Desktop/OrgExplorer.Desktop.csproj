@@ -9,11 +9,14 @@
     <Version>0.1.0</Version>
     <Product>Org explorer</Product>
     <Description>Private offline-first Windows org explorer</Description>
+    <UpdateTrustFile Condition="'$(UpdateTrustFile)' == ''">$(MSBuildProjectDirectory)\update-trust.json</UpdateTrustFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <PackageReference Include="Markdig" Version="0.37.0" />
     <Content Include="..\..\docs\INSTALLATION.md" Link="INSTALLATION.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\update-protocol.md" Link="update-protocol.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="$(UpdateTrustFile)" LogicalName="OrgExplorer.UpdateTrust.json" />
   </ItemGroup>
 </Project>
