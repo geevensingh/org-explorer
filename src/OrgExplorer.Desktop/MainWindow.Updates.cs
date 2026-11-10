@@ -64,7 +64,9 @@ public partial class MainWindow
 
     private void ChangeStartupUpdateChecks(object sender, RoutedEventArgs e)
     {
-        updates?.SetCheckOnStartup(StartupUpdateChecks.IsChecked == true);
+        // State events also fire when restoring the accepted setting, including after a failed save.
+        if (updates is null || StartupUpdateChecks.IsChecked == updates.CheckOnStartup) return;
+        updates.SetCheckOnStartup(StartupUpdateChecks.IsChecked == true);
         ShowUpdates();
     }
 
@@ -73,6 +75,7 @@ public partial class MainWindow
         CheckForUpdatesButton.IsEnabled = updates is not null && !updateCheckPending;
         StartupUpdateChecks.IsEnabled = updates is not null;
         StartupUpdateChecks.IsChecked = updates?.CheckOnStartup ?? true;
+        StartupUpdateStatus.Text = updates?.StartupPreferenceGuidance ?? "Startup update preference is unavailable.";
         var message = updateCheckPending
             ? "Checking project-authorized updates… Local browsing and editing remain available."
             : updates?.Result.Message;

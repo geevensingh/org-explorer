@@ -14,6 +14,7 @@ internal static class Program
     private static string Root = @"C:\OrgExplorerInstallerTest";
     private static string Results = @"C:\TestResults";
     private static readonly Stopwatch Execution = Stopwatch.StartNew();
+    private static readonly List<object> UninstallCompletions = [];
 
     private static int Main(string[] args)
     {
@@ -42,6 +43,7 @@ internal static class Program
             ["runnerImageVersion"] = Environment.GetEnvironmentVariable("ImageVersion") ?? "not-provided",
             ["sourceCommit"] = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local-sandbox-input",
             ["trustLimitations"] = "Unsigned fixture installers; no Windows trust bypass, production publication, signing key, or authenticated automatic update is exercised.",
+            ["uninstallCompletions"] = UninstallCompletions,
             ["result"] = "failed"
         };
         var install = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "geevensingh.OrgExplorer");
@@ -206,8 +208,13 @@ internal static class Program
             throw new InvalidOperationException(operation + " changed or removed private Workspace bytes.");
     }
 
-    private static void Uninstall(string install, string label) =>
+    private static void Uninstall(string install, string label)
+    {
         Run(Path.Combine(install, "Update.exe"), label, "--silent", "--rootDir", install, "--log", Path.Combine(Results, label + ".log"), "uninstall");
+        if (Directory.Exists(install))
+            throw new InvalidOperationException("Uninstall process tree completed but the installation directory remains: " + install);
+        UninstallCompletions.Add(new { stage = label, completedAt = DateTimeOffset.UtcNow, processTreeCompleted = true, installationDirectoryAbsent = true });
+    }
 
     private static void Run(string file, string label, params string[] args)
     {
@@ -220,6 +227,14 @@ internal static class Program
             RedirectStandardError = captureConsole
         };
         foreach (var argument in args) start.ArgumentList.Add(argument);
+        if (args.Contains("uninstall"))
+        {
+            var remaining = Math.Min(150000, 420000 - (int)Execution.ElapsedMilliseconds);
+            if (remaining <= 0) throw new TimeoutException("The uninstall lifecycle budget is exhausted.");
+            var exitCode = UninstallProcess.RunToCompletion(start, TimeSpan.FromMilliseconds(remaining));
+            if (exitCode != 0) throw new InvalidOperationException(label + " failed with exit code " + exitCode);
+            return;
+        }
         using var process = Process.Start(start) ?? throw new InvalidOperationException(label + " did not start.");
         var output = captureConsole ? process.StandardOutput.ReadToEndAsync() : Task.FromResult("");
         var errors = captureConsole ? process.StandardError.ReadToEndAsync() : Task.FromResult("");

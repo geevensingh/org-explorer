@@ -93,6 +93,9 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "orgexplorer.installer.processfixture": {
+        "type": "Project"
+      },
       "orgexplorer.workflow": {
         "type": "Project"
       }

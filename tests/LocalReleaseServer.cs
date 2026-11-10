@@ -36,7 +36,10 @@ internal sealed class LocalReleaseServer : IDisposable
         {
             while (!lifetime.IsCancellationRequested)
             {
-                using var connection = await listener.AcceptTcpClientAsync(lifetime.Token);
+                TcpClient accepted;
+                try { accepted = await listener.AcceptTcpClientAsync(lifetime.Token); }
+                catch (ObjectDisposedException) when (lifetime.IsCancellationRequested) { return; }
+                using var connection = accepted;
                 await using var stream = connection.GetStream();
                 var header = new List<byte>();
                 var single = new byte[1];
@@ -66,7 +69,7 @@ internal sealed class LocalReleaseServer : IDisposable
         disposed = true;
         lifetime.Cancel();
         listener.Stop();
-        serving.GetAwaiter().GetResult();
-        lifetime.Dispose();
+        try { serving.GetAwaiter().GetResult(); }
+        finally { lifetime.Dispose(); }
     }
 }
