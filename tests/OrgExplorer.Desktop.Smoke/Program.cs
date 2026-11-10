@@ -14,8 +14,12 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale" or "--team-notes" or "--person-notes"))
+            var installerFlow = args.Length == 4 && args[2] is "create" or "reopen";
+            var reopenOnly = installerFlow && args[2] == "reopen";
+            if (!installerFlow && (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale" or "--team-notes" or "--person-notes")))
                 throw new ArgumentException("Supply the actual built WPF executable path; optionally migration, --search-favorites, --scale, --team-notes or --person-notes for a focused real UI flow.");
+            if (!installerFlow)
+            {
             if (args.Length == 2 && args[1] == "--team-notes") { RunTeamNoteFlow(args[0]); return 0; }
             if (args.Length == 2 && args[1] == "--person-notes") { RunPersonNoteFlow(args[0]); return 0; }
             if (args.Length == 2 && args[1] == "--scale") { RunScaleFlow(args[0]); return 0; }
@@ -33,6 +37,7 @@ internal static partial class Program
             RunHistoricalTeamContextFlow(args[0], root);
             RunExternalRefreshFlow(args[0], root);
             RunTeamNoteFlow(args[0]);
+            }
             var producer = Path.Combine(root, "producer");
             Directory.CreateDirectory(producer);
             CreatePhotoFixture(Path.Combine(producer, "avery.png"));
@@ -49,12 +54,42 @@ internal static partial class Program
                 {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
                 """;
             File.WriteAllText(import, initialImport);
-            var workspace = Path.Combine(root, "workspace");
+            var workspace = installerFlow ? Path.GetFullPath(args[1]) : Path.Combine(root, "workspace");
             process = Launch(args[0]);
             var window = Window(process);
+            if (args.Length == 4 && !window.Current.Name.Contains($"Org explorer {args[3]} (Windows x64 / win)"))
+                throw new InvalidOperationException("Real desktop version/platform/channel does not match the packaged release.");
+            if (installerFlow)
+            {
+            var applicationDirectory = Path.GetDirectoryName(Path.GetFullPath(args[0]))!;
+            var installation = File.Exists(Path.Combine(applicationDirectory, "..", "Update.exe"))
+                ? Path.GetFullPath(Path.Combine(applicationDirectory, "..")) : applicationDirectory;
+            foreach (var unsafeWorkspace in new[] { applicationDirectory, installation, Path.Combine(installation, "private-data"),
+                Path.GetDirectoryName(installation)!, Path.GetPathRoot(installation)! })
+            {
+                Set(window, "WorkspacePath", unsafeWorkspace);
+                Click(window, "OpenWorkspace");
+                Await(() => Find(window, "Status").Current.Name.Contains("outside the application installation"));
+            }
+            }
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
+            if (reopenOnly)
+            {
+                OpenPerson(window, "casey@example.com", "alex@example.com");
+                Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+                AssertValue(window, "OfficeNumber", "0002B");
+                AssertValue(window, "Department", "");
+                AssertValue(window, "PreferredName", "Ave");
+                AssertValue(window, "Alias", "avery");
+                AssertValue(window, "JobTitle", "Engineer");
+                AssertPhotoVisible(window);
+                Close(process);
+                process = null;
+                Console.WriteLine("PASS: actual WPF reopens unchanged external Workspace and retained Person after installation replacement.");
+                return 0;
+            }
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -146,8 +181,27 @@ internal static partial class Program
             AssertValue(window, "JobTitle", "Engineer");
             AssertPhotoVisible(window);
             ExercisePhotoImports(window, root);
+            if (installerFlow)
+            {
+                var retainedPhotoImport = Path.Combine(root, "retained-photo.json");
+                File.WriteAllText(retainedPhotoImport, """
+                    {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000028",
+                    "observedAt":"2026-11-03T17:00:00Z","people":[
+                    {"email":"avery@example.com","photoPath":"avery.png"}]}
+                    """);
+                Set(window, "ImportPath", retainedPhotoImport);
+                Click(window, "PreviewImport");
+                Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+                Click(window, "ApplyImport");
+                AssertPhotoVisible(window);
+            }
             Close(process);
             process = null;
+            if (installerFlow)
+            {
+                Console.WriteLine("PASS: real installed WPF creates durable external Workspace data and reopens it after lifecycle changes.");
+                return 0;
+            }
             PersonAttributeFlow.Run(args[0], root);
             ProfileHistoryFlow.Run(args[0], root);
             RunPersonNoteFlow(args[0]);

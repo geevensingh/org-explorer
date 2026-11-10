@@ -3,3 +3,4 @@
 **/.test-workspaces/
 .vs/
 .ci-results/
+**/.artifacts/

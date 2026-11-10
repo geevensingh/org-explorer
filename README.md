@@ -18,6 +18,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Example import files](docs/examples/)
 - [Architectural decisions](docs/adr/README.md)
 - [Installer, updater, and signing research](docs/research/installer-updater.md)
+- [Installation and unsigned-installer trust limitations](docs/INSTALLATION.md)
 
 ## Run locally
 
@@ -244,6 +245,48 @@ dotnet test OrgExplorer.slnx -c Release --no-build
 dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
 .\tests\CiGate.Tests.ps1
 ```
+
+## Build the local Windows installer
+
+Use PowerShell 7 on Windows x64 with the .NET 10 SDK:
+
+```powershell
+.\eng\Package-Windows.ps1 -Version 0.1.0
+.\eng\Test-WindowsInstaller.ps1 -Version 0.1.0
+```
+
+Packaging uses the repository-local pinned `vpk` tool (1.2.161, matching the
+Velopack client), a fresh self-contained WPF publish, and bootstrap validation.
+Outputs are under `.artifacts\installer\0.1.0\releases`; this command does **not**
+publish anything. See the shipped [installation guide](docs/INSTALLATION.md)
+for the exact artifact set, metadata, Workspace separation and trust limitations.
+Existing output is rejected rather than mixed with stale files. A custom
+`-NuGetConfig` can select your approved package cache/source without changing
+repository or global settings.
+
+`Test-WindowsInstaller` requires **Windows Sandbox already enabled**. It maps only
+the built installer, self-contained test executables, and a dedicated results
+folder, disables networking/clipboard/audio input/printer redirection, and drives
+the real installed desktop. It checks default per-user installation/automatic
+launch, local editing, replacement, uninstall/reinstall and unchanged external
+Workspace data. No .NET runtime is installed separately. Its native harness
+refuses to run outside the disposable Sandbox account; no PowerShell execution
+policy or Windows trust protection is bypassed.
+
+If Sandbox is unavailable, the command prepares the offline `.wsb` payload,
+then **fails with an explicit verification blocker**. `-PrepareOnly` prepares it
+without claiming a passed install test. Never run setup on a shared host merely
+to make verification pass. `--installto` and environment overrides alone do not
+isolate Velopack's user-registry and shortcut effects.
+
+CI additionally builds the artifacts, checks all four fast bootstrap hooks, and
+runs real WPF flows from the self-contained portable payload with an independent
+fictitious Workspace beneath the checkout. Replacing all app files preserves
+that Workspace. A controlled newer local package does not trigger implicit apply.
+These host checks do not install setup/registry entries/shortcuts and are **not**
+a substitute for the isolated install/uninstall test. Velopack's normal per-user
+diagnostic logger remains active during host desktop checks; private test data and
+staging locations are isolated beneath the checkout.
 
 The smoke runner requires an interactive Windows desktop and drives the actual
 WPF controls using Windows UI Automation. It launches the normal app without

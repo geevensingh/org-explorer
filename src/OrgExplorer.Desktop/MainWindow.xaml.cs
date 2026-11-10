@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -20,6 +21,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         profileSaveTimer.Tick += SaveProfileDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
+        var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
+        Title = $"Org explorer {version} (Windows x64 / win)";
         PersonNotes.Attach(workflow, () =>
         {
             ApplyButton.IsEnabled = false;
@@ -56,6 +59,12 @@ public partial class MainWindow : Window
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        try { WorkspaceLocation.RequireIndependent(WorkspacePath.Text); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            StatusText.Text = ex.Message;
+            return;
+        }
         if (!TryLeaveLocalEdits()) return;
         var path = WorkspacePath.Text;
         await RunWorkflowAsync(() => workflow.OpenWorkspace(path), "Opening Workspace…");
