@@ -89,7 +89,7 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
 .\tests\UiScale.Tests.ps1
-dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests|FullyQualifiedName~UninstallProcessTests'
+dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests|FullyQualifiedName~ControlReadinessTests|FullyQualifiedName~UninstallProcessTests'
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
 dotnet build src\OrgExplorer.Desktop -c Release
 ```
@@ -233,7 +233,12 @@ profiles; loopback listeners and actual pixels/text are evidence, not filenames
 or image dimensions alone.
 
 UI Automation invocation can return before WPF processes the queued button
-handler. The pending-profile scenario keeps real typing active until rejection
+handler. Click and value helpers acquire an enabled control and its required
+pattern within the existing bounded observation wait, then invoke or set once
+without a second control lookup. Only preparation is retried, never the action.
+The headless readiness regression scripts missing/disabled controls and transient
+pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
+The pending-profile scenario keeps real typing active until rejection
 and records actual status-name change events, so the 300 ms debounce cannot
 silently become its observation deadline or erase transient feedback.
 A rejection check invokes once, then observes the actual rejection

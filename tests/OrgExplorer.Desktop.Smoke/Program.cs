@@ -121,13 +121,13 @@ internal static partial class Program
     }
     internal static void Set(AutomationElement window, string id, string value)
     {
-        Await(() => Find(window, id).Current.IsEnabled);
-        ((ValuePattern)Find(window, id).GetCurrentPattern(ValuePattern.Pattern)).SetValue(value);
+        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
     }
     internal static void Click(AutomationElement window, string id)
     {
-        Await(() => Find(window, id).Current.IsEnabled);
-        ((InvokePattern)Find(window, id).GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
     private static void AwaitLocalWorkIdle(AutomationElement window) => Await(() =>
         Find(window, "WorkflowActivity").Current.Name == "Ready" &&
