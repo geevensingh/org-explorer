@@ -1,6 +1,12 @@
 name: Scale verification
 
 on:
+  workflow_call:
+    inputs:
+      revision:
+        description: Exact candidate commit supplied by the calling workflow
+        required: true
+        type: string
   schedule:
     - cron: '23 10 * * *'
   workflow_dispatch:
