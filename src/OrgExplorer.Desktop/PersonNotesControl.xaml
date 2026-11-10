@@ -23,10 +23,12 @@
     </ListBox>
     <TextBlock Text="Title (autosaved)" Margin="0,8,0,4"/>
     <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="PersonNoteTitle"
+             AutomationProperties.Name="Person note title"
              IsEnabled="False" TextChanged="EditNote"/>
     <TabControl x:Name="Views" Margin="0,8,0,0">
       <TabItem x:Name="EditTab" Header="Edit Markdown" AutomationProperties.AutomationId="PersonNoteEditTab">
         <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="PersonNoteMarkdown"
+                 AutomationProperties.Name="Person note Markdown"
                  IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
                  TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
       </TabItem>

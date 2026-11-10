@@ -96,6 +96,11 @@ public partial class MainWindow
 
     private void DiscardProfileDraft(object sender, RoutedEventArgs e)
     {
+        if (workPending)
+        {
+            ShowNavigationBlocked("Discard blocked: local work is in progress. Please wait for it to finish.");
+            return;
+        }
         unsavedAttributes.Clear();
         profileSaveTimer.Stop();
         unsavedArchived = null;

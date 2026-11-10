@@ -23,19 +23,33 @@ function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
     $log = Join-Path $results "$script:index-$Name.log"
     $errors = Join-Path $results "$script:index-$Name-errors.log"
     $script:index++
-    $process = Start-Process dotnet -ArgumentList $Arguments -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
+    $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::Start($start)
+    $output = $process.StandardOutput.ReadToEndAsync()
+    $errorOutput = $process.StandardError.ReadToEndAsync()
     try {
         if (!$process.WaitForExit([int]$remaining.TotalMilliseconds)) {
             $process.Kill($true)
             $process.WaitForExit()
             throw "$Name exceeded the remaining execution budget."
         }
-        Get-Content $log
-        Get-Content $errors
         if ($process.ExitCode -ne 0) { throw "$Name failed with exit code $($process.ExitCode)." }
     } finally {
-        $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds })
-        $process.Dispose()
+        try {
+            if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
+            [IO.File]::WriteAllText($log, $output.GetAwaiter().GetResult())
+            [IO.File]::WriteAllText($errors, $errorOutput.GetAwaiter().GetResult())
+            Get-Content -LiteralPath $log
+            Get-Content -LiteralPath $errors
+        } finally {
+            $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds })
+            $process.Dispose()
+        }
     }
 }
 
@@ -46,6 +60,8 @@ try {
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Core.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
                 '--results-directory', '.ci-results\core')
             & "$root\tests\CiGate.Tests.ps1"
+            & "$root\tests\CiRunner.Tests.ps1"
+            & "$root\tests\DraftDiscard.Tests.ps1"
             & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"
             & "$root\tests\UiScale.Tests.ps1"
@@ -71,8 +87,8 @@ try {
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
             Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
-                "-p:UpdateTrustFile=`"$(Join-Path $updateFixture 'trust.json')`"",
-                "-p:UpdateEffectsFile=`"$(Join-Path $root 'tests\ControlledUpdateEffects.cs')`"")
+                "-p:UpdateTrustFile=$(Join-Path $updateFixture 'trust.json')",
+                "-p:UpdateEffectsFile=$(Join-Path $root 'tests\ControlledUpdateEffects.cs')")
             Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
                 '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
             . "$root\eng\DesktopResults.ps1"

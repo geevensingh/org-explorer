@@ -26,10 +26,12 @@
                TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
     <TextBlock Text="Title (autosaved; editing confirms current applicability)" TextWrapping="Wrap" Margin="0,4"/>
     <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="TeamNoteTitle"
+             AutomationProperties.Name="Team note title"
              IsEnabled="False" TextChanged="EditNote"/>
     <TabControl x:Name="Views" Margin="0,8,0,0">
       <TabItem x:Name="EditTab" Header="Edit Markdown" AutomationProperties.AutomationId="TeamNoteEditTab">
         <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="TeamNoteMarkdown"
+                 AutomationProperties.Name="Team note Markdown"
                  IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
                  TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
       </TabItem>

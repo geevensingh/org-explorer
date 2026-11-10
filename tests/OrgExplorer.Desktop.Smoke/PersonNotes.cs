@@ -14,7 +14,7 @@ internal static partial class Program
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        var markdown = "# Private context\nMeeting with **Avery**.\n\n"
+        var markdown = "# Private context\nMeeting with **Avery**.\nR&amp;D &#169; &#x1F680; &lt;script&gt;\n\n"
             + $"![Remote portrait](http://127.0.0.1:{port}/portrait.png)\n\n"
             + $"<img src=\"http://127.0.0.1:{port}/html.png\">\n\n"
             + $"[External reference](http://127.0.0.1:{port}/reference)";
@@ -43,11 +43,16 @@ internal static partial class Program
             AssertPhotoVisible(window);
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
+            if (Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
+                Find(window, "PersonNoteMarkdown").Current.Name != "Person note Markdown")
+                throw new InvalidOperationException("Person note title and writing lack distinct accessible names.");
             Set(window, "PersonNoteTitle", "Private meeting");
             Set(window, "PersonNoteMarkdown", markdown);
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
             SelectTab(window, "PersonNoteReadTab");
             Await(() => ReadingText(window).Contains("Private context") && ReadingText(window).Contains("Meeting with Avery."));
+            if (!ReadingText(window).Contains("R&D \u00a9 \U0001F680 <script>"))
+                throw new InvalidOperationException("Markdown entities were lost or interpreted as HTML instead of readable text.");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("Person-note owner was not explicit.");
             if (!ReadingText(window).Contains("Image not loaded"))

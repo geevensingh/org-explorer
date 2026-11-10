@@ -38,10 +38,15 @@ internal static partial class Program
             Set(window, "PersonNoteMarkdown", "Never inherited");
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
+            if (Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
+                Find(window, "TeamNoteMarkdown").Current.Name != "Team note Markdown")
+                throw new InvalidOperationException("Team note title and writing lack distinct accessible names.");
             Set(window, "TeamNoteTitle", "Casey context");
-            Set(window, "TeamNoteMarkdown", $"# Frozen ancestor\nOriginal **ancestor**\n![Remote image]({image})");
+            Set(window, "TeamNoteMarkdown", $"# Frozen ancestor\nOriginal **ancestor** R&amp;D\n![Remote image]({image})");
             SelectTab(window, "TeamNoteReadTab");
             Await(() => TeamReadingText(window).Contains("Original ancestor"));
+            if (!TeamReadingText(window).Contains("R&D"))
+                throw new InvalidOperationException("Owned Team reading lost decoded Markdown entities.");
             if (!TeamReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Owned Team Markdown did not show remote-image suppression.");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
@@ -91,7 +96,7 @@ internal static partial class Program
                 !summary.Contains("locally known at processing time") || !summary.Contains("unknown actual transfer instant"))
                 throw new InvalidOperationException("Historical presentation lost former attribution or honest dates.");
             var frozen = HistoricalReadingText(window);
-            if (!frozen.Contains("Original ancestor") || !frozen.Contains("Original direct") ||
+            if (!frozen.Contains("Original ancestor R&D") || !frozen.Contains("Original direct") ||
                 frozen.Contains("New branch writing") || !CurrentReadingText(window).Contains("New branch writing") ||
                 CurrentReadingText(window).Contains("Original ancestor"))
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");

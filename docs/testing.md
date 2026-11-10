@@ -80,6 +80,8 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 
 ```powershell
 .\tests\CiGate.Tests.ps1
+.\tests\CiRunner.Tests.ps1
+.\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
 .\tests\UiScale.Tests.ps1
@@ -223,12 +225,18 @@ profiles; loopback listeners and actual pixels/text are evidence, not filenames
 or image dimensions alone.
 
 UI Automation invocation can return before WPF processes the queued button
-handler. A rejection check invokes once, then observes the actual rejection
+handler. The pending-profile scenario keeps real typing active until rejection
+and records actual status-name change events, so the 300 ms debounce cannot
+silently become its observation deadline or erase transient feedback.
+A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to
 remain selected. A generic pending message or a completed save is not rejection
 evidence. The runner's non-UI ordering regression covers pending → rejected
 observations and refuses missing feedback, wrong feedback or changed destination;
 hosted WPF still supplies the real UI evidence.
+Headless draft-discard coverage compiles the actual note coordinator with only
+its timer substituted. Busy retries must refuse discard before any refresh or
+draft mutation; idle explicit discard remains available.
 
 ## Separate scale commands and results
 

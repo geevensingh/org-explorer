@@ -74,8 +74,8 @@ internal static partial class Program
             encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(2, 2, 96, 96, PixelFormats.Bgra32, null, greenPixels, 8)));
             using (var file = File.Create(image)) encoder.Save(file);
             File.SetLastWriteTimeUtc(image, timestamp);
-            ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern))
-                .SetScrollPercent(ScrollPattern.NoScroll, 0);
+            var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+            if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
             Await(() =>
             {
                 var bounds = Find(window, "PersonPhoto").Current.BoundingRectangle;

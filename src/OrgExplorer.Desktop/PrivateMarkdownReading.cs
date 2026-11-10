@@ -72,6 +72,9 @@ internal static class PrivateMarkdownReading
             case LiteralInline literal:
                 output.Add(new Run(literal.Content.ToString()));
                 break;
+            case HtmlEntityInline entity:
+                output.Add(new Run(entity.Transcoded.ToString()));
+                break;
             case CodeInline code:
                 output.Add(new Run(code.Content) { FontFamily = new System.Windows.Media.FontFamily("Consolas") });
                 break;

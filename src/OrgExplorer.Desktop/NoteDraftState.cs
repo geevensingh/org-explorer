@@ -79,6 +79,11 @@ internal sealed class NoteDraftState
 
     public async Task DiscardAsync(Func<Task<bool>> refresh, Action discard, Action reload, Func<string> status)
     {
+        if (workPending())
+        {
+            showStatus($"Discard blocked: local work is in progress. Please wait before discarding the {kind} draft.");
+            return;
+        }
         timer.Stop();
         var refreshed = await refresh();
         discard();

@@ -21,6 +21,18 @@ try {
     Assert-Rejected { Assert-DesktopResults $report $expected }
     Write-Result (Passing-Results)
     Assert-DesktopResults $report $expected
+    $culture = [Threading.Thread]::CurrentThread.CurrentCulture
+    try {
+        [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('en-GB')
+        $scenarios = @(Passing-Results)
+        $scenarios[0].startedAt = '2026-11-23T17:00:00Z'
+        $scenarios[0].finishedAt = '2026-11-23T18:00:01+01:00'
+        Write-Result $scenarios
+        Assert-DesktopResults $report $expected
+        $scenarios[0].finishedAt = '2026-11-23T17:59:59+01:00'
+        Write-Result $scenarios
+        Assert-Rejected { Assert-DesktopResults $report $expected }
+    } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $culture }
     foreach ($status in @('NotRun', 'Running', 'Failed', 'Skipped', 'Cancelled', 'TimedOut', '', 'unknown')) {
         $scenarios = @(Passing-Results)
         $scenarios[1].status = $status

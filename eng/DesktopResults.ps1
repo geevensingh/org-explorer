@@ -13,7 +13,7 @@ function Assert-DesktopResults([string] $Path, [string[]] $Expected) {
     foreach ($scenario in $scenarios) {
         if ($scenario.status -cne 'Passed' -or $scenario.error -or !$scenario.startedAt -or !$scenario.finishedAt -or
             $null -eq $scenario.seconds -or $scenario.seconds -lt 0 -or
-            [DateTimeOffset]::Parse($scenario.finishedAt) -lt [DateTimeOffset]::Parse($scenario.startedAt)) {
+            [DateTimeOffset]$scenario.finishedAt -lt [DateTimeOffset]$scenario.startedAt) {
             throw "Desktop scenario '$($scenario.name)' did not finish successfully: $($scenario.status) $($scenario.error)"
         }
     }

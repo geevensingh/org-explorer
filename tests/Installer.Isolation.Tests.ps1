@@ -3,14 +3,17 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ([Environment]::UserName -eq 'WDAGUtilityAccount') { throw 'The fail-closed host guard test must run outside Windows Sandbox.' }
+$checkout = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 foreach ($scenario in 'no-isolation', 'shared-runner', 'foreign-repository', 'outside-checkout') {
     $start = [Diagnostics.ProcessStartInfo]::new((Resolve-Path $Harness).Path)
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     if ($scenario -ne 'no-isolation') {
-        foreach ($argument in '--github-hosted', 'C:\not-the-checkout\packages', 'C:\not-the-checkout\smoke.exe',
-            'C:\not-the-checkout\lifecycle', 'C:\not-the-checkout\results') {
+        $paths = if ($scenario -eq 'outside-checkout') { 'C:\not-the-checkout' }
+            else { Join-Path $checkout ('.artifacts\isolation-refusal-' + [guid]::NewGuid().ToString('N')) }
+        foreach ($argument in '--github-hosted', (Join-Path $paths 'packages'), (Join-Path $paths 'smoke.exe'),
+            (Join-Path $paths 'lifecycle'), (Join-Path $paths 'results')) {
             $start.ArgumentList.Add($argument)
         }
         $start.Environment['CI'] = 'true'
@@ -18,7 +21,7 @@ foreach ($scenario in 'no-isolation', 'shared-runner', 'foreign-repository', 'ou
         $start.Environment['RUNNER_OS'] = 'Windows'
         $start.Environment['RUNNER_ENVIRONMENT'] = if ($scenario -eq 'shared-runner') { 'self-hosted' } else { 'github-hosted' }
         $start.Environment['GITHUB_REPOSITORY'] = if ($scenario -eq 'foreign-repository') { 'other/repository' } else { 'geevensingh/org-explorer' }
-        $start.Environment['GITHUB_WORKSPACE'] = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+        $start.Environment['GITHUB_WORKSPACE'] = $checkout
     }
     $process = [Diagnostics.Process]::Start($start)
     try {
