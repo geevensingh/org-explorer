@@ -1,6 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 
 namespace OrgExplorer.Workflow;
 
@@ -19,16 +17,6 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     private Dictionary<Guid, PersonNote> personNotes = [];
-    private readonly Dictionary<Guid, PersonNote> failedNoteBases = [];
-    private sealed record PersonNoteMetadata(
-        [property: JsonRequired] int SchemaVersion,
-        [property: JsonRequired] string Kind,
-        [property: JsonRequired] Guid Id,
-        [property: JsonRequired] string OwnerEmail,
-        [property: JsonRequired] string Title,
-        [property: JsonRequired] bool Archived,
-        [property: JsonRequired] DateTimeOffset CreatedAt,
-        [property: JsonRequired] DateTimeOffset UpdatedAt);
 
     public IReadOnlyList<PersonNote> GetPersonNotes(string email, bool includeArchived = false)
     { if (queryView is { } view) return view.GetPersonNotes(email, includeArchived);
@@ -50,14 +38,8 @@ public sealed partial class ApplicationWorkflow
             Fail("Person note title must be nonblank.");
             return null;
         }
-        var now = DateTimeOffset.UtcNow;
-        var note = new PersonNote(Guid.NewGuid(), person.Email, title, markdown, false, now, now);
-        if (!SavePersonNote(note)) return null;
-        personNotes.Add(note.Id, note);
-        InvalidateProjections();
-        pending = null;
-        Status = "Person note saved locally.";
-        return note;
+        var draft = BeginNoteDraft(NoteScope.Person, person.Email)!;
+        return SaveNoteDraft(draft, title, markdown) is { } saved ? personNotes[saved.Id] : null;
     }
 
     public bool EditPersonNote(Guid noteId, string title, string markdown)
@@ -69,7 +51,7 @@ public sealed partial class ApplicationWorkflow
             return Fail("Open an existing Person note before editing.");
         if (string.IsNullOrWhiteSpace(title))
         {
-            failedNoteBases.TryAdd(note.Id, note);
+            RetainNoteBase(NoteScope.Person, note.Id);
             return SaveFailed($"note:{note.Id}", "Person note title must be nonblank; changes are NOT saved locally.");
         }
         var proposed = note with { Title = title, Markdown = markdown, UpdatedAt = DateTimeOffset.UtcNow };
@@ -112,30 +94,8 @@ public sealed partial class ApplicationWorkflow
         foreach (var file in Directory.GetFiles(directory, "*.md"))
         {
             RejectNoteLink(file);
-            var text = ReadWorkspaceText(file);
-            var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
-            if (!frontMatter.Success)
-                throw new FormatException($"Person note {Path.GetFileName(file)}: expected JSON front matter.");
-            using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
-            RequireVersion(document.RootElement, "Person note", [1]);
-            CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
-                "archived", "createdAt", "updatedAt"], $"Person note {Path.GetFileName(file)}");
-            var metadata = document.RootElement.Deserialize<PersonNoteMetadata>(JsonOptions)
-                ?? throw new FormatException($"Person note {Path.GetFileName(file)}: invalid metadata.");
-            if (metadata.SchemaVersion != 1)
-                throw new FormatException("Unsupported Person note version. Upgrade the app; writes are blocked.");
-            if (metadata.Kind != "person")
-                throw new FormatException($"Person note {Path.GetFileName(file)}: expected kind 'person'.");
-            Email(JsonSerializer.SerializeToElement(metadata.OwnerEmail), "Person note ownerEmail");
-            if (!owners.ContainsKey(metadata.OwnerEmail))
-                throw new FormatException($"Person note {Path.GetFileName(file)}: unknown owner {metadata.OwnerEmail}.");
-            if (metadata.Id == Guid.Empty || string.IsNullOrWhiteSpace(metadata.Title) ||
-                metadata.CreatedAt == default || metadata.UpdatedAt < metadata.CreatedAt ||
-                metadata.CreatedAt.Offset != TimeSpan.Zero || metadata.UpdatedAt.Offset != TimeSpan.Zero)
-                throw new FormatException($"Person note {Path.GetFileName(file)}: invalid identity, title, or UTC timestamps.");
-            if (!Path.GetFileName(file).Equals(metadata.Id.ToString("D") + ".md", StringComparison.OrdinalIgnoreCase))
-                throw new FormatException($"Person note {Path.GetFileName(file)}: filename must match its stable note identity.");
-            var note = new PersonNote(metadata.Id, metadata.OwnerEmail, metadata.Title, text[frontMatter.Length..],
+            var (metadata, markdown) = ReadNoteDocument<NoteMetadata>(file, NoteScope.Person, owners);
+            var note = new PersonNote(metadata.Id, metadata.OwnerEmail, metadata.Title, markdown,
                 metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt);
             if (!result.TryAdd(note.Id, note))
                 throw new FormatException($"Person note {Path.GetFileName(file)}: duplicate note identity {note.Id}.");
@@ -145,29 +105,24 @@ public sealed partial class ApplicationWorkflow
 
     private bool SavePersonNote(PersonNote note)
     {
-        if (memory)
-        {
-            failedSaves.Remove($"note:{note.Id}");
-            failedNoteBases.Remove(note.Id);
-            return true;
-        }
         try
         {
-            var metadata = new PersonNoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
+            if (memory)
+            {
+                ValidateNoteDraft(NoteScope.Person, note.Id);
+                AcceptNoteSave(NoteScope.Person, note.Id);
+                return true;
+            }
+            var metadata = new NoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt);
             var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            WriteMarkdownAtomically("notes", note.Id, content, () =>
-            {
-                if (failedNoteBases.TryGetValue(note.Id, out var previous) && personNotes.GetValueOrDefault(note.Id) != previous)
-                    throw new IOException("Person note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
-            });
-            failedSaves.Remove($"note:{note.Id}");
-            failedNoteBases.Remove(note.Id);
+            WriteMarkdownAtomically("notes", note.Id, content, () => ValidateNoteDraft(NoteScope.Person, note.Id));
+            AcceptNoteSave(NoteScope.Person, note.Id);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
-            if (personNotes.TryGetValue(note.Id, out var previous)) failedNoteBases.TryAdd(note.Id, previous);
+            RetainNoteBase(NoteScope.Person, note.Id);
             return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
         }
     }

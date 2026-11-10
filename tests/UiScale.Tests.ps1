@@ -58,9 +58,11 @@ try {
         }
     }
     $runner = Get-Content "$root\eng\Run-UiScale.ps1" -Raw
-    foreach ($required in @('Assert-DesktopResults', 'UiScaleScenarios.json', "'--ui-scale'", '$process.Kill($true)')) {
+    foreach ($required in @('Assert-DesktopResults', 'UiScaleScenarios.json', "'--ui-scale'", 'Invoke-ScaleSuite')) {
         if (!$runner.Contains($required)) { throw "UI-scale entry point is missing $required" }
     }
+    $shared = Get-Content "$root\eng\ScaleRunner.ps1" -Raw
+    if (!$shared.Contains('$process.Kill($true)')) { throw 'Shared scale execution lost owned process-tree termination.' }
     $ciRunner = Get-Content "$root\eng\Run-CiLane.ps1" -Raw
     if (!$ciRunner.Contains('& "$root\tests\UiScale.Tests.ps1"')) {
         throw 'Required core execution must verify the UI-scale command contract without launching UI.'

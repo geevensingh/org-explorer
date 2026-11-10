@@ -96,9 +96,7 @@ public sealed partial class ApplicationWorkflow
             {
                 RejectWorkspaceLink(file);
                 var text = ReadWorkspaceText(file);
-                var front = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
-                if (!front.Success) throw new FormatException($"{folder}: expected JSON front matter.");
-                using var record = JsonDocument.Parse(front.Groups["metadata"].Value);
+                using var record = ReadNoteFrontMatter(text, folder, out _);
                 RequireVersion(record.RootElement, folder, [1]);
             }
         }

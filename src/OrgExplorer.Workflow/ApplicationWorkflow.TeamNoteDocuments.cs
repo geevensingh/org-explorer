@@ -1,21 +1,15 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 
 namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
     private sealed record TeamNoteMetadata(
-        [property: JsonRequired] int SchemaVersion,
-        [property: JsonRequired] string Kind,
-        [property: JsonRequired] Guid Id,
-        [property: JsonRequired] string OwnerEmail,
-        [property: JsonRequired] string Title,
-        [property: JsonRequired] bool Archived,
-        [property: JsonRequired] DateTimeOffset CreatedAt,
-        [property: JsonRequired] DateTimeOffset UpdatedAt,
-        [property: JsonRequired] Guid ConfirmedContextRevision);
+        int SchemaVersion, string Kind, Guid Id, string OwnerEmail, string Title,
+        bool Archived, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+        [property: JsonRequired, JsonPropertyOrder(1)] Guid ConfirmedContextRevision)
+        : NoteMetadata(SchemaVersion, Kind, Id, OwnerEmail, Title, Archived, CreatedAt, UpdatedAt);
     private sealed record TeamNoteDocuments(Dictionary<Guid, TeamNote> Notes, Dictionary<Guid, Guid> Confirmations);
 
     private static TeamNoteDocuments LoadTeamNotes(string path, Dictionary<string, PersonProfile> owners)
@@ -31,30 +25,8 @@ public sealed partial class ApplicationWorkflow
         foreach (var file in Directory.GetFiles(directory, "*.md"))
         {
             RejectNoteLink(file);
-            var text = ReadWorkspaceText(file);
-            var frontMatter = Regex.Match(text, @"\A---\r?\n(?<metadata>[\s\S]*?)\r?\n---\r?\n");
-            if (!frontMatter.Success)
-                throw new FormatException($"Team note {Path.GetFileName(file)}: expected JSON front matter.");
-            using var document = JsonDocument.Parse(frontMatter.Groups["metadata"].Value);
-            RequireVersion(document.RootElement, "Team note", [1]);
-            CheckProperties(document.RootElement, ["schemaVersion", "kind", "id", "ownerEmail", "title",
-                "archived", "createdAt", "updatedAt", "confirmedContextRevision"], $"Team note {Path.GetFileName(file)}");
-            var metadata = document.RootElement.Deserialize<TeamNoteMetadata>(JsonOptions)
-                ?? throw new FormatException($"Team note {Path.GetFileName(file)}: invalid metadata.");
-            if (metadata.SchemaVersion != 1)
-                throw new FormatException("Unsupported Team note version. Upgrade the app; writes are blocked.");
-            if (metadata.Kind != "team")
-                throw new FormatException($"Team note {Path.GetFileName(file)}: expected kind 'team'.");
-            Email(JsonSerializer.SerializeToElement(metadata.OwnerEmail), "Team note ownerEmail");
-            if (!owners.ContainsKey(metadata.OwnerEmail))
-                throw new FormatException($"Team note {Path.GetFileName(file)}: unknown owner {metadata.OwnerEmail}.");
-            if (metadata.Id == Guid.Empty || string.IsNullOrWhiteSpace(metadata.Title) ||
-                metadata.CreatedAt == default || metadata.UpdatedAt < metadata.CreatedAt ||
-                metadata.CreatedAt.Offset != TimeSpan.Zero || metadata.UpdatedAt.Offset != TimeSpan.Zero)
-                throw new FormatException($"Team note {Path.GetFileName(file)}: invalid identity, title, or UTC timestamps.");
-            if (!Path.GetFileName(file).Equals(metadata.Id.ToString("D") + ".md", StringComparison.OrdinalIgnoreCase))
-                throw new FormatException($"Team note {Path.GetFileName(file)}: filename must match its stable note identity.");
-            var note = new TeamNote(metadata.Id, metadata.OwnerEmail, metadata.Title, text[frontMatter.Length..],
+            var (metadata, markdown) = ReadNoteDocument<TeamNoteMetadata>(file, NoteScope.Team, owners);
+            var note = new TeamNote(metadata.Id, metadata.OwnerEmail, metadata.Title, markdown,
                 metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt);
             if (!result.Notes.TryAdd(note.Id, note))
                 throw new FormatException($"Team note {Path.GetFileName(file)}: duplicate note identity {note.Id}.");
@@ -85,32 +57,24 @@ public sealed partial class ApplicationWorkflow
 
     private bool SaveTeamNote(TeamNote note, Guid confirmation)
     {
-        if (memory)
-        {
-            failedSaves.Remove($"team-note:{note.Id}");
-            failedTeamNoteBases.Remove(note.Id);
-            return true;
-        }
         try
         {
+            if (memory)
+            {
+                ValidateNoteDraft(NoteScope.Team, note.Id);
+                AcceptNoteSave(NoteScope.Team, note.Id);
+                return true;
+            }
             var metadata = new TeamNoteMetadata(1, "team", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt, confirmation);
             var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            WriteMarkdownAtomically("team-notes", note.Id, content, () =>
-            {
-                if (failedTeamNoteBases.TryGetValue(note.Id, out var previous) &&
-                    (teamNotes.GetValueOrDefault(note.Id) != previous.Note ||
-                     teamNoteConfirmations.GetValueOrDefault(note.Id) != previous.Confirmation))
-                    throw new IOException("Team note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
-            });
-            failedSaves.Remove($"team-note:{note.Id}");
-            failedTeamNoteBases.Remove(note.Id);
+            WriteMarkdownAtomically("team-notes", note.Id, content, () => ValidateNoteDraft(NoteScope.Team, note.Id));
+            AcceptNoteSave(NoteScope.Team, note.Id);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
-            if (teamNotes.TryGetValue(note.Id, out var previous))
-                failedTeamNoteBases.TryAdd(note.Id, (previous, teamNoteConfirmations[note.Id]));
+            RetainNoteBase(NoteScope.Team, note.Id);
             return SaveFailed($"team-note:{note.Id}", "Team note save failed; changes are NOT saved locally: " + ex.Message);
         }
     }

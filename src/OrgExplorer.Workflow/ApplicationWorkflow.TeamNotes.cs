@@ -23,7 +23,6 @@ public sealed partial class ApplicationWorkflow
 {
     private Dictionary<Guid, TeamNote> teamNotes = [];
     private Dictionary<Guid, Guid> teamNoteConfirmations = [];
-    private readonly Dictionary<Guid, (TeamNote Note, Guid Confirmation)> failedTeamNoteBases = [];
     private Dictionary<string, Guid> teamContextRevisions = new(StringComparer.OrdinalIgnoreCase);
     public bool RefreshTeamNotes() => RefreshPersonNotes();
 
@@ -63,16 +62,8 @@ public sealed partial class ApplicationWorkflow
             Fail("Team note title must be nonblank.");
             return null;
         }
-        var now = DateTimeOffset.UtcNow;
-        var note = new TeamNote(Guid.NewGuid(), person.Email, title, markdown, false, now, now);
-        var confirmation = teamContextRevisions.GetValueOrDefault(person.Email);
-        if (!SaveTeamNote(note, confirmation)) return null;
-        teamNotes.Add(note.Id, note);
-        teamNoteConfirmations.Add(note.Id, confirmation);
-        InvalidateProjections();
-        pending = null;
-        Status = "Team note saved locally.";
-        return note;
+        var draft = BeginNoteDraft(NoteScope.Team, person.Email)!;
+        return SaveNoteDraft(draft, title, markdown) is { } saved ? teamNotes[saved.Id] : null;
     }
 
     public bool EditTeamNote(Guid noteId, string title, string markdown)
@@ -84,7 +75,7 @@ public sealed partial class ApplicationWorkflow
             return Fail("Open an existing Team note before editing.");
         if (string.IsNullOrWhiteSpace(title))
         {
-            failedTeamNoteBases.TryAdd(note.Id, (note, teamNoteConfirmations[note.Id]));
+            RetainNoteBase(NoteScope.Team, note.Id);
             return SaveFailed($"team-note:{note.Id}", "Team note title must be nonblank; changes are NOT saved locally.");
         }
         var proposed = note with { Title = title, Markdown = markdown, UpdatedAt = DateTimeOffset.UtcNow };

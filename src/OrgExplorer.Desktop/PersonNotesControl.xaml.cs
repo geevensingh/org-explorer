@@ -13,6 +13,7 @@ public partial class PersonNotesControl : UserControl
     private Guid? selected;
     private bool loading;
     private readonly NoteDraftState draft;
+    private NoteDraft? noteBase;
 
     public PersonNotesControl()
     {
@@ -40,6 +41,7 @@ public partial class PersonNotesControl : UserControl
     public void OpenPerson(string? email)
     {
         if (owner == email) return;
+        if (!TryLeave()) return;
         owner = email;
         selected = null;
         Ownership.Text = email is null ? "Select a Person." : $"Owned by {email}. Not inherited by reports. No sharing.";
@@ -70,9 +72,10 @@ public partial class PersonNotesControl : UserControl
         draft.Stop();
         loading = true;
         selected = note?.Id;
-        NoteTitle.Text = note?.Title ?? "";
-        MarkdownEditor.Text = note?.Markdown ?? "";
-        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = note is not null && !note.Archived;
+        noteBase = note is null ? null : workflow?.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id);
+        NoteTitle.Text = noteBase?.Title ?? "";
+        MarkdownEditor.Text = noteBase?.Markdown ?? "";
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore note" : "Archive note";
         draft.Reset();
@@ -115,6 +118,7 @@ public partial class PersonNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
+        if (!draft.HasUnsavedChanges && noteBase is { } basis) workflow.RetainNoteDraft(basis);
         draft.Edited();
         Render();
     }
@@ -125,12 +129,15 @@ public partial class PersonNotesControl : UserControl
 
     private async Task SaveNoteDraftAsync()
     {
-        if (workflow is null || selected is not { } id) return;
+        if (workflow is null || selected is not { } id || noteBase is not { } basis) return;
         if (!draft.TryBeginSave()) return;
         var title = NoteTitle.Text;
         var markdown = MarkdownEditor.Text;
-        var saved = await RunAsync(() => workflow.EditPersonNote(id, title, markdown), draft: true);
+        var accepted = await RunAsync(() => workflow.SaveNoteDraft(basis, title, markdown), draft: true);
+        var saved = accepted is not null;
+        if (saved) noteBase = accepted;
         draft.CompleteSave(saved, title, markdown, NoteTitle.Text, MarkdownEditor.Text);
+        if (saved && draft.HasUnsavedChanges) workflow.RetainNoteDraft(accepted!);
         RetryButton.IsEnabled = DiscardButton.IsEnabled = draft.HasUnsavedChanges;
         if (!draft.HasUnsavedChanges)
         {
