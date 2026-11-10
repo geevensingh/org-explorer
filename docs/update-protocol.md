@@ -127,10 +127,14 @@ Protocol 1 is deliberately narrow:
   Expiry must be later than issuance and the current time; validity is at most
   31 days; issuance allows at most five minutes of future clock skew.
   The signer must refresh expiring metadata even when no new product version
-  ships. The release signer currently issues 14-day metadata; no automatic
-  renewal scheduler is enabled. The [safe renewal operating policy and explicit
-  remaining limitation](releasing.md#expiry-and-safe-renewal-policy) must be
-  addressed before relying on continuously available production updates.
+  ships. The release signer issues 14-day metadata; the daily
+  [automatic renewal workflow](releasing.md#expiry-and-safe-renewal-policy)
+  renews when seven days or less remain. An immutable metadata-only release
+  preserves the original app version, `v{version}` package URL, length/SHA256 and
+  identical latest-download bootstrap assets. It uses original embedded trust,
+  current trusted main and both fresh exact-original-product scale gates;
+  it never becomes the product-comparison baseline. Scheduler/key/gate failures
+  remain visible and require owner attention, not unsigned substitutes.
   Expired metadata reports verification failure, not "up to date."
   This bounds freeze/replay exposure; it does not prove that a host never
   withheld a newer release during the signed validity interval.

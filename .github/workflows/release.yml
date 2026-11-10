@@ -5,6 +5,8 @@ on:
     workflows: [Continuous integration]
     types: [completed]
     branches: [main]
+  schedule:
+    - cron: '17 9 * * *'
 
 permissions:
   contents: read
@@ -84,3 +86,66 @@ jobs:
           ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8: ${{ secrets.ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 }}
           ORG_EXPLORER_UPDATE_KEY_ID: ${{ vars.ORG_EXPLORER_UPDATE_KEY_ID }}
         run: .\eng\Invoke-Release.ps1 -Mode Publish -Candidate $env:CANDIDATE -CiRunId $env:CI_RUN_ID -ExpectedVersion $env:EXPECTED_VERSION
+
+  renewal-plan:
+    if: ${{ github.event_name == 'schedule' && github.repository == 'geevensingh/org-explorer' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    outputs:
+      renew: ${{ steps.plan.outputs.renew }}
+      product-revision: ${{ steps.plan.outputs.product-revision }}
+      previous-publication: ${{ steps.plan.outputs.previous-publication }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate original app and evaluate signed metadata expiry
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTROLLER_REVISION: ${{ github.sha }}
+        run: .\eng\Invoke-MetadataRenewal.ps1 -Mode Plan -ControllerRevision $env:CONTROLLER_REVISION
+
+  renewal-scale:
+    needs: renewal-plan
+    if: ${{ needs.renewal-plan.outputs.renew == 'true' }}
+    uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ needs.renewal-plan.outputs.product-revision }}
+
+  renew-metadata:
+    needs: [renewal-plan, renewal-scale]
+    if: ${{ always() && needs.renewal-plan.result == 'success' && needs.renewal-plan.outputs.renew == 'true' && needs.renewal-scale.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: non-ui-performance-${{ needs.renewal-plan.outputs.product-revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/performance
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-scale-${{ needs.renewal-plan.outputs.product-revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/ui-scale
+      - name: Revalidate original bytes and trust, sign bounded metadata and promote immutable renewal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTROLLER_REVISION: ${{ github.sha }}
+          PRODUCT_REVISION: ${{ needs.renewal-plan.outputs.product-revision }}
+          PREVIOUS_PUBLICATION: ${{ needs.renewal-plan.outputs.previous-publication }}
+          ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8: ${{ secrets.ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 }}
+          ORG_EXPLORER_UPDATE_KEY_ID: ${{ vars.ORG_EXPLORER_UPDATE_KEY_ID }}
+        run: .\eng\Invoke-MetadataRenewal.ps1 -Mode Publish -ControllerRevision $env:CONTROLLER_REVISION -ExpectedProductRevision $env:PRODUCT_REVISION -ExpectedPreviousPublicationTag $env:PREVIOUS_PUBLICATION

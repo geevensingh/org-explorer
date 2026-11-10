@@ -11,6 +11,8 @@ Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 . "$PSScriptRoot\Release.ps1"
+$releasePrivateValue = $env:ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8
+$env:ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 = $null
 
 if ($env:GITHUB_EVENT_NAME -cne 'workflow_run' -or $env:GITHUB_REPOSITORY -cne $ReleaseRepository -or
     $env:GITHUB_REF -cne 'refs/heads/main') { throw 'Production release runs only in the trusted main workflow_run path; use the secret-free verification bridge before merge.' }
@@ -23,6 +25,7 @@ $last = Get-LastSuccessfulRelease
 $reserved = @(Get-ReservedReleaseVersions)
 $plan = Get-ReleasePlan -Root $root -Candidate $Candidate -LastRelease $last -ReservedVersions $reserved
 if ($Mode -eq 'Plan') {
+    $releasePrivateValue = $null
     New-Item '.artifacts' -ItemType Directory -Force | Out-Null
     $plan | ConvertTo-Json -Depth 6 | Set-Content '.artifacts\release-plan.json'
     if ($env:GITHUB_OUTPUT) {
@@ -44,7 +47,8 @@ Assert-ReleaseVerification -PerformanceDirectory (Join-Path $GatesDirectory 'per
 $key = $null
 try {
     $key = Open-ReleaseSigningKey -TrustFile "$root\src\OrgExplorer.Desktop\update-trust.json" `
-        -KeyId $env:ORG_EXPLORER_UPDATE_KEY_ID -PrivateKeyBase64 $env:ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8
+        -KeyId $env:ORG_EXPLORER_UPDATE_KEY_ID -PrivateKeyBase64 $releasePrivateValue
+    $releasePrivateValue = $null
     $env:ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 = $null
     & "$PSScriptRoot\Package-Windows.ps1" -Version $plan.version
     $release = Join-Path $root ".artifacts\installer\$($plan.version)\releases"
@@ -56,6 +60,7 @@ try {
         @(Invoke-ReleaseGit $root @('status', '--porcelain')).Count -ne 0) { throw 'Candidate changed while packaging.' }
     Publish-Release -Plan $plan -ReleaseDirectory $release -CiRunId $CiRunId -Key $key -KeyId $env:ORG_EXPLORER_UPDATE_KEY_ID
 } finally {
+    $releasePrivateValue = $null
     $env:ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 = $null
     if ($key) { $key.Dispose() }
 }

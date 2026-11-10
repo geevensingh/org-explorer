@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][string] $Configuration
 )
 $ErrorActionPreference = 'Stop'
-$compiled = [Reflection.Assembly]::LoadFile((Resolve-Path -LiteralPath $Assembly).Path)
+$compiled = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Assembly).Path))
 if ($compiled.GetType('OrgExplorer.Desktop.ControlledUpdateEffectsMarker')) {
     throw 'Controlled external update effects leaked into the product publish.'
 }
