@@ -146,6 +146,8 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   editing/saving during a pending check, signed availability, persisted opt-out
   and reopen, unknown signer/tampered signature/unsupported channel/rate-limit/
   offline rejection, and a visible signature failure on a later startup.
+  Preference changes wait for the app's accepted-setting guidance as well as the
+  checkbox state before closing; a visually toggled checkbox alone is not a save.
   The lane prepares this normal-product test build and later verifies a fresh
   production-trust publish; see [the protocol contract](update-protocol.md#controlled-verification).
 - `external-refresh`: actual folder delivery changes the open profile, note
