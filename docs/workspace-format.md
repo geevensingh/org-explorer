@@ -52,10 +52,13 @@ reports NotOpened, Compatible, Unsupported, RecoveryRequired, or Unavailable,
 the supported Workspace version, observed data version when known, guidance,
 and a validated originals path when available. WPF shows upgrade/recovery
 guidance and offers retry validation/conversion without enabling blocked edits.
-No updater/feed/installer operation or fake availability check is implemented
-by this slice. The later authenticated updater remains dependent on installer
-verification; it can consume this global status without a loaded compatible
-Workspace.
+The authenticated updater consumes this global status without requiring a
+compatible loaded Workspace. Before handoff, the desktop flushes pending local
+drafts and `IApplicationWorkflow.RestartWhenSafe` waits on the existing local
+work gate, rejects failed saves, and supplies the actual opened Workspace path.
+The restart receipt is outside the Workspace. Reopening after an update uses
+these same conversion/recovery rules; installer rollback is not data rollback.
+See [the update protocol](update-protocol.md).
 
 `generations\<generation>\people\` contains separate indented UTF-8 JSON Person
 records with stable email, Directory name, Preferred name, Alias, job title,

@@ -119,7 +119,11 @@ public partial class PersonNotesControl : UserControl
         Render();
     }
 
-    private async void SaveNoteDraft(object? sender, EventArgs e)
+    private async void SaveNoteDraft(object? sender, EventArgs e) => await SaveNoteDraftAsync();
+
+    public Task<bool> FlushPendingDraftAsync() => draft.FlushPendingAsync(SaveNoteDraftAsync);
+
+    private async Task SaveNoteDraftAsync()
     {
         if (workflow is null || selected is not { } id) return;
         if (!draft.TryBeginSave()) return;

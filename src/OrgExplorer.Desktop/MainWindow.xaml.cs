@@ -39,10 +39,11 @@ public partial class MainWindow : Window
         });
         Closing += (_, e) =>
         {
-            if (workPending || unsavedAttributes.Count > 0 || !workflow.CanSafelyClose)
+            if (updateHandoffPending || workPending || unsavedAttributes.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose)
             {
                 e.Cancel = true;
-                StatusText.Text = workPending ? "Local work is still pending; closing waits for it to finish." :
+                StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
+                    workPending ? "Local work is still pending; closing waits for it to finish." :
                     workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
             }
         };

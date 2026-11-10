@@ -7,6 +7,10 @@ on:
       - '.config/dotnet-tools.json'
       - 'eng/Package-Windows.ps1'
       - 'eng/Test-WindowsInstaller.ps1'
+      - 'eng/New-UpdateTestFixture.ps1'
+      - 'tests/ControlledUpdateEffects.cs'
+      - 'tests/SignedReleaseFixture.cs'
+      - 'tests/LocalReleaseServer.cs'
       - 'tests/Installer.*.Tests.ps1'
       - 'tests/OrgExplorer.Installer.Smoke/**'
       - 'tests/OrgExplorer.Installer.ProcessFixture/**'
@@ -49,14 +53,31 @@ jobs:
         run: |
           dotnet restore tests\OrgExplorer.Core.Tests --locked-mode
           dotnet test tests\OrgExplorer.Core.Tests -c Release --no-restore --filter FullyQualifiedName~UninstallProcessTests
+      - name: Prepare ephemeral public trust and isolated external update transport
+        run: |
+          $fixture = Join-Path $env:GITHUB_WORKSPACE '.test-workspaces\installer-update-trust'
+          "ORG_EXPLORER_UPDATE_FIXTURE=$fixture" >> $env:GITHUB_ENV
+          .\eng\New-UpdateTestFixture.ps1 -Directory $fixture
       - name: Build two real runtime-included fixture installers
         run: |
-          .\eng\Package-Windows.ps1 -Version 0.1.0
-          .\eng\Package-Windows.ps1 -Version 0.1.1
+          $trust = Join-Path $env:ORG_EXPLORER_UPDATE_FIXTURE 'trust.json'
+          .\eng\Package-Windows.ps1 -Version 0.1.0 -UpdateTrustFile $trust -UpdateEffectsFile tests\ControlledUpdateEffects.cs
+          .\eng\Package-Windows.ps1 -Version 0.1.1 -UpdateTrustFile $trust -UpdateEffectsFile tests\ControlledUpdateEffects.cs
+          Copy-Item .artifacts\installer\0.1.1\releases\geevensingh.OrgExplorer-0.1.1-full.nupkg (Join-Path $env:ORG_EXPLORER_UPDATE_FIXTURE 'package.nupkg')
       - name: Verify fast lifecycle bootstrap without opening Workspace or WPF
         run: .\tests\Installer.Bootstrap.Tests.ps1 -Executable .artifacts\installer\0.1.0\publish\OrgExplorer.Desktop.exe
       - name: Install, start, upgrade, preserve Workspace, uninstall and reinstall
         run: .\eng\Test-WindowsInstaller.ps1 -Version 0.1.0 -UpgradeVersion 0.1.1 -Mode Hosted
+      - name: Prove production trust and effects isolation
+        run: |
+          dotnet publish src\OrgExplorer.Desktop -c Release -o .artifacts\production-update-check
+          .\tests\Update.Trust.Tests.ps1 -Assembly .artifacts\production-update-check\OrgExplorer.Desktop.dll -Configuration src\OrgExplorer.Desktop\update-trust.json
+      - name: Remove ephemeral signing material
+        if: ${{ always() }}
+        run: |
+          if ($env:ORG_EXPLORER_UPDATE_FIXTURE -and (Test-Path $env:ORG_EXPLORER_UPDATE_FIXTURE)) {
+            Remove-Item -LiteralPath $env:ORG_EXPLORER_UPDATE_FIXTURE -Recurse -Force
+          }
       - name: Report lifecycle outcome and coverage limits
         if: ${{ always() }}
         run: |

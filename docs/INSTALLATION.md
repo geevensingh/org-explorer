@@ -65,8 +65,22 @@ bootstrap containing public keys. Private keys never belong in the app.
 The [owner's protocol/provisioning contract](update-protocol.md) specifies that
 separate requirement. Do not trust an arbitrary key downloaded alongside a feed.
 
-Checks do not download packages, install or restart the app yet. No releases or
-public CD are configured by this change. Velopack's implicit pending-package
-apply on startup remains disabled. The authenticated download/apply and
-local-save/restart policy (#18) and publication gates (#19) must be completed
-before unattended apply or production publication is enabled.
+Once trusted public keys are provisioned, an authorized newer release downloads
+automatically. Signed length/SHA256, fresh authorization expiry and Velopack
+package integrity must all pass. Pending local saves and Import application
+finish before installation/restart; failed writing is retained and blocks exit.
+Resolve its visible retry/discard guidance, then check again. External folder
+sync does not delay a safe local update.
+
+The app reopens the same independent Workspace and uses its normal supported
+automatic conversions/recovery originals. An unsupported Workspace remains
+write-blocked with Settings/update access. Download, installer-start and recovery
+failures stay visible. A durable restart receipt confirms the running target
+version, not merely an installer launch; an unconfirmed old-version restart
+pauses automatic retry to prevent a loop. A failed relaunch is also reported
+when the app is next opened manually.
+
+Velopack's implicit pending-package apply on startup remains disabled, and no
+cached package alone authorizes installation. Standard Windows protections
+remain in force. No production release or public CD is configured here;
+owner-provisioned trust and publication gates (#19) are still prerequisites.

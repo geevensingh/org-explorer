@@ -148,11 +148,34 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   offline rejection, and a visible signature failure on a later startup.
   Preference changes wait for the app's accepted-setting guidance as well as the
   checkbox state before closing; a visually toggled checkbox alone is not a save.
+  Authorized results are consumed automatically: signed invalid package bytes
+  fail Velopack verification. A valid controlled signed package then exercises
+  real locked-note save rejection, retained writing, explicit retry, and final
+  draft durability before the external installer boundary. The unpackaged
+  boundary reports a deliberate installation failure; it is not an install pass.
   The lane prepares this normal-product test build and later verifies a fresh
   production-trust publish; see [the protocol contract](update-protocol.md#controlled-verification).
 - `external-refresh`: actual folder delivery changes the open profile, note
   editors, inherited reading/review and same-path photo pixels; invalid graph
   delivery becomes visibly stale, retains last good data and recovers.
+
+The filesystem update tests exercise actual cryptography, staged files, HTTP,
+Velopack integrity/explicit launch arguments, real pending Import publication,
+failed Person/Team saves, supported conversion originals, unsupported-data
+nonmutation and durable unconfirmed-restart recovery. Only actual external
+transport/process effects and clock are controlled. Neither a success flag nor
+a per-record repository is an update safety seam.
+
+Actual authenticated install/restart is additionally covered by the hosted-only
+`installer-verification.yml` workflow. Its two real self-contained fixture
+versions embed ephemeral public trust and a build-time external transport
+adapter; the normal verification/workflow and actual Velopack installer are
+unchanged. It requires the final running version, automatic same-Workspace
+reopen, pre-handoff file hashes, retained final WPF writing, unauthorized-pending
+protection, and both owned uninstall-tree/directory-absence barriers. Missing
+fixture or automatic-update evidence fails the hosted lifecycle. The final
+production build rejects test trust/effects; always-run cleanup removes private
+fixture material. This is not production-update/public-key provisioning evidence.
 
 These nine required scenarios use ordinary fixtures. They do not construct the
 complete scale population; all genuine UI-scale work has explicit execution below.
