@@ -19,7 +19,7 @@ Write-Host 'PASS: CI gate rejects failures, skips, cancellations, timeouts and i
 $workflow = Get-Content "$PSScriptRoot\..\.github\workflows\ci.yml" -Raw
 $budget = 0
 foreach ($lane in @('core', 'filesystem', 'desktop', 'ci')) {
-    $job = [regex]::Match($workflow, "(?ms)^  ${lane}:\r?`n(?<body>.*?)(?=^  [a-z]+:|\z)").Groups['body'].Value
+    $job = [regex]::Match($workflow, "(?ms)^  ${lane}:\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
     if (!$job) { throw "Missing required CI lane $lane" }
     $minutes = [regex]::Match($job, 'timeout-minutes:\s*(\d+)').Groups[1].Value
     if (!$minutes) { throw "Missing execution deadline for $lane" }

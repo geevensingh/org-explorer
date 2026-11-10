@@ -82,14 +82,37 @@ try {
         throw 'Ordinary filesystem execution must exclude only the complete performance category.'
     }
     $workflow = Get-Content "$root\.github\workflows\scale-verification.yml" -Raw
-    foreach ($required in @('schedule:', 'workflow_dispatch:', 'timeout-minutes: 11', 'SCALE_STARTED_AT=',
+    foreach ($required in @('schedule:', 'workflow_dispatch:', 'workflow_call:', 'timeout-minutes: 11', 'SCALE_STARTED_AT=',
         'TESTED_REVISION=', 'Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION', 'if-no-files-found: error')) {
         if (!$workflow.Contains($required)) { throw "Separate scale workflow is missing $required" }
+    }
+    if ($workflow -notmatch '(?s)  workflow_call:\s+inputs:\s+revision:\s+description:[^\r\n]+\s+required: true\s+type: string') {
+        throw 'Reusable scale verification must require an explicit candidate revision.'
     }
     if ($workflow -match '(?m)^  (pull_request|push):' -or
         $workflow -notmatch 'if:\s*\$\{\{\s*always\(\)\s*\}\}') {
         throw 'Performance must be nightly/manual, with diagnostic artifacts even after failure.'
     }
+    $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw
+    if ($ci -notmatch '(?s)  workflow_dispatch:\s+inputs:\s+run_scale_verification:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean') {
+        throw 'Registered CI must expose an opt-in Boolean scale verification input, defaulting to false.'
+    }
+    $bridge = [regex]::Match($ci, '(?ms)^  scale-verification:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
+    foreach ($required in @(
+        'if: ${{ github.event_name == ''workflow_dispatch'' && inputs.run_scale_verification }}',
+        'uses: ./.github/workflows/scale-verification.yml',
+        'revision: ${{ github.sha }}'
+    )) {
+        if (!$bridge.Contains($required)) { throw "Manual scale bridge is missing $required" }
+    }
+    if ($bridge -match '(?m)^\s+(steps|runs-on|needs|run):' -or $ci.Contains('Run-Performance.ps1')) {
+        throw 'The manual bridge must call the shared workflow, not duplicate or serialize its execution.'
+    }
+    $aggregate = [regex]::Match($ci, '(?ms)^  ci:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
+    if (!$aggregate.Contains('needs: [core, filesystem, desktop]')) {
+        throw 'The stable required CI aggregate must depend on exactly its three ordinary lanes.'
+    }
+    Write-Host 'PASS: registered CI offers only manual opt-in reuse at its exact dispatch commit, outside the three required lanes.'
     Write-Host 'PASS: ordinary selection and separate nightly/manual candidate-bound execution preserve their contracts.'
 } finally {
     Remove-Item $results -Recurse -Force

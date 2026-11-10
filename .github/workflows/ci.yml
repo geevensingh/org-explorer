@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_scale_verification:
+        description: Run separate scale verification at this dispatch commit
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -94,3 +100,10 @@ jobs:
         run: |
           . .\eng\CiGate.ps1
           Assert-CiResults @($env:CORE_RESULT, $env:FILESYSTEM_RESULT, $env:DESKTOP_RESULT)
+
+  scale-verification:
+    name: Optional manual scale verification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification }}
+    uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ github.sha }}
