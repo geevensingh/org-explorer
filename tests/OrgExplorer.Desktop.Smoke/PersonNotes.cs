@@ -43,7 +43,8 @@ internal static partial class Program
             AssertPhotoVisible(window);
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
-            if (Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
+            if (Find(window, "PersonNotes").Current.Name != "Person notes" ||
+                Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
                 Find(window, "PersonNoteMarkdown").Current.Name != "Person note Markdown")
                 throw new InvalidOperationException("Person note title and writing lack distinct accessible names.");
             Set(window, "PersonNoteTitle", "Private meeting");

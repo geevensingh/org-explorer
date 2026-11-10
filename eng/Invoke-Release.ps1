@@ -43,7 +43,7 @@ if ($verificationRun.event -cne 'workflow_run' -or $verificationRun.path -cne '.
     throw 'Scale evidence must belong to this trusted exact-candidate release execution.'
 }
 Assert-ReleaseVerification -PerformanceDirectory (Join-Path $GatesDirectory 'performance') -UiScaleDirectory (Join-Path $GatesDirectory 'ui-scale') `
-    -Candidate $Candidate -StartedAt ([DateTimeOffset]::Parse($verificationRun.created_at))
+    -Candidate $Candidate -StartedAt ([DateTimeOffset]$verificationRun.created_at)
 $key = $null
 try {
     $key = Open-ReleaseSigningKey -TrustFile "$root\src\OrgExplorer.Desktop\update-trust.json" `

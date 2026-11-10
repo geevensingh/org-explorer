@@ -324,7 +324,11 @@ public sealed partial class ApplicationWorkflow
             RejectWorkspaceLink(directory);
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
-                if (IsWorkspacePublicationFile(root, entry)) continue;
+                if (IsWorkspacePublicationFile(root, entry))
+                {
+                    RejectWorkspaceLink(entry);
+                    continue;
+                }
                 if (directory == root && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase)) continue;
                 if (!allGenerations && directory.Equals(generations, StringComparison.OrdinalIgnoreCase) &&
                     !Path.GetFileName(entry).Equals(currentGeneration, StringComparison.OrdinalIgnoreCase)) continue;

@@ -31,7 +31,7 @@ function Get-ReleasePublicationState {
     $pages = Invoke-ReleaseApi "repos/$ReleaseRepository/releases" @('--paginate', '--slurp')
     $published = @($pages | ForEach-Object { $_ } | Where-Object { !$_.draft -and !$_.prerelease })
     if ($published.Count -eq 0) { return $null }
-    $ordered = @($published | Sort-Object @{ Expression = { [DateTimeOffset]::Parse($_.published_at) }; Descending = $true },
+    $ordered = @($published | Sort-Object @{ Expression = { [DateTimeOffset]$_.published_at }; Descending = $true },
         @{ Expression = { $_.id }; Descending = $true })
     $latest = $ordered[0]
     $products = @($ordered | Where-Object { $_.tag_name -cmatch '^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\z' })

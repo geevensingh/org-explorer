@@ -42,7 +42,7 @@ try {
         throw 'Renewal is no longer due or its original/latest publication changed. Re-evaluate, never replace a newer product/renewal.'
     }
     Assert-ReleaseVerification -PerformanceDirectory (Join-Path $GatesDirectory 'performance') -UiScaleDirectory (Join-Path $GatesDirectory 'ui-scale') `
-        -Candidate $plan.sourceSha -StartedAt ([DateTimeOffset]::Parse($run.created_at))
+        -Candidate $plan.sourceSha -StartedAt ([DateTimeOffset]$run.created_at)
     try {
         $key = Open-ReleaseSigningKey -TrustFile $context.trustFile -KeyId $env:ORG_EXPLORER_UPDATE_KEY_ID -PrivateKeyBase64 $privateValue
     } catch {

@@ -14,10 +14,10 @@ function Assert-ReleaseVerification(
             $report.trackedChanges -ne $false -or $report.untrackedChanges -ne $false -or
             $report.ceilingSeconds -ne 660 -or $report.executionSeconds -lt 0 -or $report.executionSeconds -gt 660 -or
             $report.runDirectory -cnotmatch '^run-[0-9a-f]{32}$' -or
-            [DateTimeOffset]::Parse($report.startedAt) -lt $StartedAt -or
-            [DateTimeOffset]::Parse($report.completedAt) -lt [DateTimeOffset]::Parse($report.startedAt) -or
-            [DateTimeOffset]::Parse($report.completedAt) -gt [DateTimeOffset]::UtcNow -or
-            ([DateTimeOffset]::Parse($report.completedAt) - [DateTimeOffset]::Parse($report.startedAt)).TotalSeconds -gt 660) {
+            [DateTimeOffset]$report.startedAt -lt $StartedAt -or
+            [DateTimeOffset]$report.completedAt -lt [DateTimeOffset]$report.startedAt -or
+            [DateTimeOffset]$report.completedAt -gt [DateTimeOffset]::UtcNow -or
+            ([DateTimeOffset]$report.completedAt - [DateTimeOffset]$report.startedAt).TotalSeconds -gt 660) {
             throw "Release requires fresh, complete, clean, exact-candidate $suite success from this execution. Nightly or previous artifacts are not approval."
         }
         $run = Join-Path $directory $report.runDirectory

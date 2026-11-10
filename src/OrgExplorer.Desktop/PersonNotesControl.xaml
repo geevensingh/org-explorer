@@ -12,7 +12,7 @@
                 AutomationProperties.AutomationId="ShowArchivedPersonNotes"
                 Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
     </DockPanel>
-    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="PersonNotes"
+    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="PersonNotes" AutomationProperties.Name="Person notes"
              DisplayMemberPath="Title" Height="80" SelectionChanged="SelectNote">
       <ListBox.ItemContainerStyle>
         <Style TargetType="ListBoxItem">

@@ -49,14 +49,17 @@ public sealed class DesktopScenarioRunnerTests : IDisposable
 
     [Fact]
     [Trait("Category", "Runner")]
-    public void Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch()
+    public void Non_update_fixtures_opt_out_of_production_updates_before_any_application_can_launch()
     {
         var observed = new List<string>();
-        var names = new[] { "scale-navigation-rendering", "scale-mutation-responsiveness", "update-settings", "installer-update" };
+        var names = new[] { "profile-journey", "draft-navigation", "person-note-rendering", "team-context-history",
+            "search-favorites", "archival-navigation", "compatibility-settings", "external-refresh",
+            "scale-navigation-rendering", "scale-mutation-responsiveness", "installer-create", "installer-reopen",
+            "update-settings", "installer-update" };
         var runner = new SmokeScenarioRunner(names.Select(name => new SmokeScenario(name, fixture =>
         {
             var preference = Path.Combine(fixture, "app-settings", "update-settings.json");
-            if (name.StartsWith("scale-", StringComparison.Ordinal))
+            if (name is not ("update-settings" or "installer-update"))
             {
                 using var json = JsonDocument.Parse(File.ReadAllText(preference));
                 Assert.Equal(1, json.RootElement.GetProperty("schemaVersion").GetInt32());

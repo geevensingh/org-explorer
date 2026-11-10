@@ -13,6 +13,11 @@ public interface IProfileLinkOpener
     void Open(Uri profileUrl);
 }
 
+public partial interface IApplicationWorkflow
+{
+    PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
+}
+
 public sealed partial class ApplicationWorkflow
 {
     private readonly IProfileLinkOpener? profileLinkOpener;
@@ -40,6 +45,28 @@ public sealed partial class ApplicationWorkflow
 
     public bool EditPersonText(string email, PersonTextField field, string? value)
     { lock (workspaceGate) return EditPersonTextCore(email, field, value); }
+
+    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+    {
+        lock (workspaceGate)
+        {
+            if (!Enum.IsDefined(field))
+            {
+                EditPersonTextCore(basis.Email, field, value);
+                return null;
+            }
+            if (workspace is null ||
+                !people.TryGetValue(basis.Email, out var current) ||
+                ReadText(current, field) != ReadText(basis, field))
+            {
+                SaveFailed($"profile:{basis.Email.ToLowerInvariant()}:{field}",
+                    "Profile field changed externally while a draft was unsaved; changes are NOT saved locally. " +
+                    "Discard the draft before editing the delivered value.");
+                return null;
+            }
+            return EditPersonTextCore(basis.Email, field, value) ? people[basis.Email] : null;
+        }
+    }
 
     private bool EditPersonTextCore(string email, PersonTextField field, string? value)
     {

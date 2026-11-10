@@ -95,6 +95,60 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.Equal("avery@example.com", Assert.Single(reopened.People).Heading);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void First_profile_autosave_and_retry_preserve_a_changed_delivered_field_until_explicit_discard(bool emptyBase)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        if (emptyBase) Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, null), app.Status);
+        var basis = Assert.Single(app.People);
+        using var provider = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(provider.OpenWorkspace(folder), provider.Status);
+        Assert.True(provider.EditPersonText(basis.Email, PersonTextField.OfficeNumber, "Delivered"), provider.Status);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "Local draft"));
+        Assert.Contains("changed externally", app.Status);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Delivered", Assert.Single(app.People).OfficeNumber);
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "Local draft"));
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal("Delivered", Assert.Single(reopened.People).OfficeNumber);
+        }
+        app.DiscardUnsavedChanges();
+        var accepted = Assert.Single(app.People);
+        Assert.NotNull(app.SavePersonTextDraft(accepted, PersonTextField.OfficeNumber, "Intentional edit"));
+        Assert.True(app.CanSafelyClose);
+    }
+
+    [Fact]
+    public void Profile_draft_accepts_other_field_delivery_and_returns_the_exact_saved_base_for_newer_typing()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        var basis = Assert.Single(app.People);
+        using var provider = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(provider.OpenWorkspace(folder), provider.Status);
+        Assert.True(provider.EditPersonText(basis.Email, PersonTextField.Department, "Delivered department"), provider.Status);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "First"));
+        var saved = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "First"));
+        Assert.Equal("Delivered department", saved.Department);
+        Assert.Equal("First", saved.OfficeNumber);
+        var newer = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(saved, PersonTextField.OfficeNumber, "Newer"));
+        Assert.Equal("Newer", newer.OfficeNumber);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(newer, Assert.Single(reopened.People));
+    }
+
     [Fact]
     public void Rejected_batch_and_local_save_failure_retain_the_last_durable_complete_profile()
     {

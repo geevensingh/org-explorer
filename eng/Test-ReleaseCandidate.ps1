@@ -13,7 +13,7 @@ if ((Invoke-ReleaseGit $root @('rev-parse', 'HEAD')).Trim() -cne $Candidate -or
 $runId = [long]$env:GITHUB_RUN_ID
 $run = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$runId"
 Assert-ReleaseVerification -PerformanceDirectory (Join-Path $GatesDirectory 'performance') -UiScaleDirectory (Join-Path $GatesDirectory 'ui-scale') `
-    -Candidate $Candidate -StartedAt ([DateTimeOffset]::Parse($run.created_at))
+    -Candidate $Candidate -StartedAt ([DateTimeOffset]$run.created_at)
 $fixture = Join-Path $root ('.test-workspaces\release-signing-' + [guid]::NewGuid().ToString('N'))
 $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
 $signer = $null

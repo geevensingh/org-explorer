@@ -38,7 +38,8 @@ internal static partial class Program
             Set(window, "PersonNoteMarkdown", "Never inherited");
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
-            if (Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
+            if (Find(window, "TeamNotes").Current.Name != "Owned Team notes" ||
+                Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
                 Find(window, "TeamNoteMarkdown").Current.Name != "Team note Markdown")
                 throw new InvalidOperationException("Team note title and writing lack distinct accessible names.");
             Set(window, "TeamNoteTitle", "Casey context");

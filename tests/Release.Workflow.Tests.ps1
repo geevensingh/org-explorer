@@ -17,6 +17,9 @@ foreach ($required in @(
 if ($release -match '(?m)^  (pull_request|push|workflow_dispatch):' -or
     $release -match '(?i)--clobber|--force|secrets:\s*inherit') { throw 'Production publication must have no PR/manual entry or force/implicit secret path.' }
 $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw
+if (!$ci.Contains('inputs.run_scale_verification && !inputs.run_release_verification')) {
+    throw 'Selecting both manual verification options must run scale only through release verification, without duplicate artifact names.'
+}
 if ($ci -notmatch '(?s)run_release_verification:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean' -or
     !$ci.Contains('github.event_name == ''workflow_dispatch'' && inputs.run_release_verification') -or
     !$ci.Contains('uses: ./.github/workflows/release-verification.yml')) { throw 'PR-safe release verification must be a default-off manual bridge.' }

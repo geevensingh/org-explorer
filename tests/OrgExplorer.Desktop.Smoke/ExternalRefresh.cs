@@ -106,6 +106,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
             AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
+            AssertFirstProfileAutosaveDeliveryConflict(window, personFile);
             Close(process);
             Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
         }
@@ -113,6 +114,44 @@ internal static partial class Program
         {
             StopApplication(process);
         }
+    }
+
+    private static void AssertFirstProfileAutosaveDeliveryConflict(AutomationElement window, string personFile)
+    {
+        AwaitLocalWorkIdle(window);
+        var editor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
+        var local = "Local profile draft";
+        editor.SetValue(local);
+        var profile = JsonNode.Parse(File.ReadAllText(personFile))!;
+        profile["officeNumber"] = "Delivered office";
+        profile["preferredName"] = "Delivered while typing profile";
+        File.WriteAllText(personFile, profile.ToJsonString());
+        var delivered = File.ReadAllBytes(personFile);
+        var timer = Stopwatch.StartNew();
+        var edits = 0;
+        while (Find(window, "ProfileHeading").Current.Name != "Delivered while typing profile")
+        {
+            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
+                throw new TimeoutException("Profile delivery was not accepted while typing within 20 seconds.");
+            local = $"Local profile draft {++edits}";
+            editor.SetValue(local);
+            Thread.Sleep(10);
+        }
+        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
+        AssertValue(window, "OfficeNumber", local);
+        Click(window, "RetryProfileSave");
+        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        AssertValue(window, "OfficeNumber", local);
+        if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
+            throw new InvalidOperationException("Profile autosave or retry overwrote the delivered field.");
+        Click(window, "DiscardProfileDraft");
+        Await(() => Value(window, "OfficeNumber") == "Delivered office");
+        AwaitLocalWorkIdle(window);
+        if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
+            throw new InvalidOperationException("Profile discard rewrote delivered bytes.");
+        Set(window, "OfficeNumber", "Intentional delivered-version edit");
+        Await(() => Find(window, "Status").Current.Name == "Saved locally.");
     }
 
     private static void AssertFirstAutosaveDeliveryConflict(

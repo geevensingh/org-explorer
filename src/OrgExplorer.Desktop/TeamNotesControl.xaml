@@ -13,7 +13,7 @@
                 Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
     </DockPanel>
     <TextBlock Text="Owned Team notes (not inherited from another Manager)" FontWeight="SemiBold"/>
-    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes"
+    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes" AutomationProperties.Name="Owned Team notes"
              DisplayMemberPath="Title" Height="80" SelectionChanged="SelectNote">
       <ListBox.ItemContainerStyle>
         <Style TargetType="ListBoxItem">

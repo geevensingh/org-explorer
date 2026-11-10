@@ -481,7 +481,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var staged = Path.Combine(workspace!, "workspace.next");
             var files = published.Keys
                 .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
-            WriteDurably(staged, new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), published);
+            // Unlink only the app-owned stage, then create exclusively so a raced link is never followed.
+            File.Delete(staged);
+            WriteDurablyBytes(staged, JsonSerializer.SerializeToUtf8Bytes(
+                new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), JsonOptions), published);
             if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
             var destination = Path.Combine(workspace!, "workspace.json");

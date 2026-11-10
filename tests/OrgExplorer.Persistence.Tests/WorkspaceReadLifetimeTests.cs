@@ -6,6 +6,44 @@ namespace OrgExplorer.Persistence.Tests;
 public sealed class WorkspaceReadLifetimeTests
 {
     [Theory]
+    [InlineData("workspace.next")]
+    [InlineData("workspace.previous.json")]
+    [InlineData("notes\\20000000-0013-4000-8000-999999999992.next")]
+    [InlineData("team-notes\\20000000-0013-4000-8000-999999999993.next")]
+    public void Ignored_publication_paths_reject_links_without_changing_their_external_target(string relative)
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+            ".test-workspaces", Guid.NewGuid().ToString("N")));
+        var folder = Path.Combine(root, "workspace");
+        var outside = Path.Combine(root, "outside.txt");
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        try
+        {
+            Assert.True(app.OpenWorkspace(folder), app.Status);
+            Assert.True(app.ApplyImport(app.PreviewImport("""
+                {"schemaVersion":1,"batchId":"20000000-0013-4000-8000-999999999994",
+                "observedAt":"2026-11-06T17:00:00Z","people":[
+                {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id), app.Status);
+            File.WriteAllText(outside, "External file must never be truncated.");
+            var link = Path.Combine(folder, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+            File.CreateSymbolicLink(link, outside);
+            Assert.False(app.RefreshWorkspace());
+            Assert.False(reopened.OpenWorkspace(folder));
+            Assert.False(app.EditFavorite("avery@example.com", true));
+            Assert.Equal("External file must never be truncated.", File.ReadAllText(outside));
+        }
+        finally
+        {
+            reopened.Dispose();
+            app.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task A_refreshing_client_does_not_block_another_clients_local_autosave(bool favorite)

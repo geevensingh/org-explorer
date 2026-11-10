@@ -71,7 +71,7 @@ function Get-MetadataRenewalPlan(
 ) {
     if ($ControllerRevision -cnotmatch '^[0-9a-f]{40}\z' -or $RunId -le 0 -or $Attempt -le 0) { throw 'Renewal requires an exact controller revision and execution identity.' }
     if ($null -eq $State) { return @{ publish = $false; reason = 'No published product; metadata renewal cannot create an app release.' } }
-    if ([DateTimeOffset]::Parse($Authorization.expiresAt) -gt $Now.AddDays(7)) {
+    if ([DateTimeOffset]$Authorization.expiresAt -gt $Now.AddDays(7)) {
         return @{ publish = $false; reason = 'Authenticated metadata has more than seven days remaining.' }
     }
     $original = @($State.productRelease.assets | Where-Object name -CEQ 'release-provenance.json')

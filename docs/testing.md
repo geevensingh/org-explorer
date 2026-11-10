@@ -34,6 +34,10 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and migration version checks stay explicit.
+Profile text autosave similarly submits the displayed field's immutable Person
+base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
+other-field delivery is retained, and success returns the exact saved base for
+newer typing rather than rereading a possibly newer provider revision.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -191,6 +195,10 @@ fixture material. This is not production-update/public-key provisioning evidence
 
 These nine required scenarios use ordinary fixtures. They do not construct the
 complete scale population; all genuine UI-scale work has explicit execution below.
+Every scenario opts out of startup update checks before launching the app,
+except the controlled `update-settings` and `installer-update` scenarios.
+This includes ordinary smoke, manual normal-build execution and installed
+create/reopen flows; they must never fetch or apply a production release.
 
 For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,

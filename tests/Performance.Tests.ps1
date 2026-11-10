@@ -151,7 +151,7 @@ try {
     }
     $bridge = [regex]::Match($ci, '(?ms)^  scale-verification:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
     foreach ($required in @(
-        'if: ${{ github.event_name == ''workflow_dispatch'' && inputs.run_scale_verification }}',
+        'if: ${{ github.event_name == ''workflow_dispatch'' && inputs.run_scale_verification && !inputs.run_release_verification }}',
         'uses: ./.github/workflows/scale-verification.yml',
         'revision: ${{ github.sha }}'
     )) {

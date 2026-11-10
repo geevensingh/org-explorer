@@ -8,6 +8,8 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private readonly Dictionary<PersonTextField, string?> unsavedAttributes = [];
+    private readonly Dictionary<PersonTextField, PersonProfile> displayedAttributeBases = [];
+    private readonly Dictionary<PersonTextField, PersonProfile> profileDraftBases = [];
     private readonly System.Windows.Threading.DispatcherTimer profileSaveTimer =
         new() { Interval = TimeSpan.FromMilliseconds(300) };
     private TextBox[] PersonEditors =>
@@ -17,6 +19,8 @@ public partial class MainWindow
     private void ClearPersonEditors()
     {
         loading = true;
+        displayedAttributeBases.Clear();
+        profileDraftBases.Clear();
         foreach (var editor in PersonEditors) editor.Clear();
         AttributeEditors.IsEnabled = false;
         OpenLinkedInButton.IsEnabled = false;
@@ -36,6 +40,7 @@ public partial class MainWindow
         OfficeState.Text = person.OfficeState ?? "";
         OfficeCountry.Text = person.OfficeCountry ?? "";
         LinkedInProfileUrl.Text = person.LinkedInProfileUrl ?? "";
+        foreach (var field in Enum.GetValues<PersonTextField>()) displayedAttributeBases[field] = person;
         AttributeEditors.IsEnabled = true;
         OpenLinkedInButton.IsEnabled = person.LinkedInProfileUrl is not null;
         OpenLinkedInButton.ToolTip = person.LinkedInProfileUrl;
@@ -47,6 +52,7 @@ public partial class MainWindow
         if (loading || selectedEmail is null || sender is not TextBox editor) return;
         var field = Enum.Parse<PersonTextField>((string)editor.Tag);
         var value = editor.Text.Length == 0 ? null : editor.Text;
+        profileDraftBases.TryAdd(field, displayedAttributeBases[field]);
         unsavedAttributes[field] = value;
         if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
         profileSaveTimer.Stop();
@@ -64,13 +70,20 @@ public partial class MainWindow
         profileSaveTimer.Stop();
         if (selectedEmail is null || unsavedAttributes.Count == 0) return;
         if (workPending) { profileSaveTimer.Start(); return; }
-        var email = selectedEmail;
         var failed = false;
         foreach (var (field, value) in unsavedAttributes.ToArray())
         {
-            if (await RunWorkflowAsync(() => workflow.EditPersonText(email, field, value), "Saving local profile…", keepProfileDraft: true))
+            var basis = profileDraftBases[field];
+            var accepted = await RunWorkflowAsync(() => workflow.SavePersonTextDraft(basis, field, value),
+                "Saving local profile…", keepProfileDraft: true);
+            if (accepted is not null)
             {
-                if (unsavedAttributes.TryGetValue(field, out var current) && current == value) unsavedAttributes.Remove(field);
+                displayedAttributeBases[field] = profileDraftBases[field] = accepted;
+                if (unsavedAttributes.TryGetValue(field, out var current) && current == value)
+                {
+                    unsavedAttributes.Remove(field);
+                    profileDraftBases.Remove(field);
+                }
             }
             else { failed = true; break; }
         }
@@ -102,6 +115,7 @@ public partial class MainWindow
             return;
         }
         unsavedAttributes.Clear();
+        profileDraftBases.Clear();
         profileSaveTimer.Stop();
         unsavedArchived = null;
         unsavedManager = null;

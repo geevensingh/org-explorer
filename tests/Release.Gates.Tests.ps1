@@ -11,7 +11,8 @@ function Rejects([scriptblock]$Action, [string]$Reason) {
 }
 $root = Join-Path $PSScriptRoot ("..\.ci-results\release-gates-" + [guid]::NewGuid().ToString('N'))
 $candidate = 'a' * 40
-$started = [DateTimeOffset]::UtcNow.AddMinutes(-2)
+$month = [DateTimeOffset]::UtcNow.AddMonths(-1)
+$started = [DateTimeOffset]::new($month.Year, $month.Month, 23, 17, 0, 0, [TimeSpan]::Zero)
 $runName = 'run-' + ('b' * 32)
 function Write-FixtureReport([string]$Suite, [string]$Outcome = 'success', [string]$Revision = $candidate, [DateTimeOffset]$Start = $started.AddSeconds(1)) {
     $directory = Join-Path $root $Suite
@@ -39,6 +40,11 @@ try {
     } }
     $scenarios | ConvertTo-Json -Depth 6 | Set-Content "$root\ui-scale\$runName\scenarios.json"
     Verify
+    $culture = [Threading.Thread]::CurrentThread.CurrentCulture
+    try {
+        [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('en-GB')
+        Verify
+    } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $culture }
     foreach ($suite in @('non-ui-performance', 'ui-scale')) {
         foreach ($outcome in @('failure', 'running', 'skipped', 'cancelled', 'timed_out', '')) {
             Write-FixtureReport $suite $outcome

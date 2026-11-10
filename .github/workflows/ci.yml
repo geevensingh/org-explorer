@@ -108,7 +108,7 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}

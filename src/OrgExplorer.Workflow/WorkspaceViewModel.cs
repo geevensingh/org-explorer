@@ -49,6 +49,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
     public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
     public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
+    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) =>
+        Observe(() => workflow.SavePersonTextDraft(basis, field, value));
     public bool OpenLinkedInProfile(string email) => Observe(() => workflow.OpenLinkedInProfile(email));
 
     private T Observe<T>(Func<T> operation)
