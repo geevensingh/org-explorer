@@ -35,8 +35,45 @@ ref. The workflow records the checked-out SHA and passes it to:
 .\eng\Run-Performance.ps1 -ExpectedRevision <full-40-character-candidate-SHA>
 ```
 
-For hosted manual verification, use the repository's authorized account, push
-the candidate branch, then dispatch and inspect the resulting run:
+### Hosted manual verification before default-branch registration
+
+GitHub rejected direct dispatch of `scale-verification.yml` at published
+integration commit `18dcee007e25f453eff2d6a8840c98def7b31885` with HTTP 404:
+the workflow was not found on the default branch. Passing `--ref integration`
+does not register a new dispatchable workflow. This is a genuine GitHub
+prerequisite, not a passing or skipped performance run; no main-branch mutation
+is needed to work around it.
+
+The already registered `ci.yml` provides an **optional manual-only bridge**.
+Push a candidate branch containing both workflow files, then use the
+repository's authorized account:
+
+```powershell
+gh workflow run ci.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f run_scale_verification=true
+gh run list --repo geevensingh/org-explorer --workflow ci.yml --event workflow_dispatch --limit 5
+gh run view YOUR_RUN_ID --repo geevensingh/org-explorer --json headSha,status,conclusion,jobs
+gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
+```
+
+Confirm the run's `headSha` is the intended full candidate SHA. The bridge
+calls the **same local reusable workflow file at that dispatch commit**, passes
+`github.sha` as its required `revision`, and uses the existing checkout,
+bounded command, semantic assertions, revision report and artifacts. No
+performance job steps or commands are duplicated in `ci.yml`.
+
+The input is Boolean and defaults to false. The bridge is guarded by both
+`workflow_dispatch` and that explicit opt-in, so ordinary PR/main execution
+still has exactly the three independent required lanes. The CI aggregate
+still depends only on core, filesystem and desktop. A manual bridge run also
+executes those normal lanes; inspect the called scale job and the overall run
+conclusion, not merely the independent `CI` check, for scale success. Artifacts
+must identify that same SHA and successful complete execution. This is manual
+verification, not a publication gate or permission to reuse prior results.
+
+### Direct scale dispatch and nightly activation
+
+After GitHub registers `scale-verification.yml` on the default branch, direct
+manual dispatch remains available:
 
 ```powershell
 gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=YOUR_CANDIDATE_SHA
@@ -45,10 +82,12 @@ gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
 ```
 
 Replace the placeholders with the pushed workflow branch, full candidate SHA
-and returned run ID; inspect/download that run's diagnostic artifact. GitHub
-must first register this dispatchable workflow on the default branch. Before
-that prerequisite, the local callable command works, but neither a hosted
-manual run nor an active nightly schedule is claimed.
+and selected run ID; inspect/download that run's diagnostic artifact. The
+nightly schedule activates only with the file on the default branch. Until
+then, use the registered-CI bridge for hosted manual verification; adding
+`workflow_call` does not itself activate a schedule. The bridge remains a useful
+explicit opt-in after registration. No hosted success is claimed merely because
+the entry points are wired.
 
 Expected-revision execution refuses a different SHA, tracked modifications or
 non-ignored untracked files,
