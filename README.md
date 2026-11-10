@@ -249,6 +249,11 @@ Default local verification is non-UI:
 .\eng\Run-CiLane.ps1 filesystem
 ```
 
+The complete real-file 10,000-Person non-UI workload runs separately with
+`.\eng\Run-Performance.ps1` and the nightly/manual `Scale verification` workflow.
+The ordinary filesystem lane excludes only `Category=Performance`; its durable
+write, delivery, recovery and watcher checks remain required.
+
 Actual WPF verification defaults to hosted Windows or a dedicated isolated
 interactive desktop. **Local desktop automation requires separate explicit
 permission.** On an authorized desktop run `.\eng\Run-CiLane.ps1 desktop`.

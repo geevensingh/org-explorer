@@ -44,12 +44,13 @@ try {
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Core.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
                 '--results-directory', '.ci-results\core')
             & "$root\tests\CiGate.Tests.ps1"
+            & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Persistence.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
-                '--results-directory', '.ci-results\filesystem')
+                '--results-directory', '.ci-results\filesystem', '--filter', 'Category!=Performance')
         }
         desktop {
             $env:DESKTOP_RESULTS_DIRECTORY = $results

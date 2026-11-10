@@ -1,5 +1,114 @@
 # 10,000-Person validation
 
+## Current non-UI suite selection
+
+The complete real-filesystem performance workload is explicitly selectable:
+
+```powershell
+.\eng\Run-Performance.ps1
+```
+
+This command launches no desktop application. It runs the complete
+`Category=Performance` workload in `OrgExplorer.Persistence.Tests`, including
+the genuine rich 10,000-Person fixture described below, load/reopen,
+current/historical search, durable mutations, a reviewed 10,000-record partial
+Import batch, both latest/original batch replays, validated and invalid external
+delivery, recovery and complete retained-data comparisons. Fixture construction
+and real persistence remain part of the test; no smaller population, truncated
+chain, reduced assertions or import cap replaces them.
+
+The ordinary `.\eng\Run-CiLane.ps1 filesystem` command excludes only that
+category. All ordinary persistence, errors, migration/recovery,
+publication/concurrent-client and bounded watcher checks remain there. The core
+lane retains its targeted 10,001-Person long-chain/no-import-cap correctness
+test. The three required PR/main lanes, docs/test-only execution, fail-closed
+aggregate and their existing deadlines are unchanged by this split.
+
+The `Scale verification` workflow (`.github\workflows\scale-verification.yml`)
+runs this **same command** nightly at **10:23 UTC**, and through
+`workflow_dispatch`. Schedules execute the default branch once this workflow is
+present there; adding this file on a PR branch does not activate a schedule.
+Manual input `revision` selects a commit/ref; blank means the selected workflow
+ref. The workflow records the checked-out SHA and passes it to:
+
+```powershell
+.\eng\Run-Performance.ps1 -ExpectedRevision <full-40-character-candidate-SHA>
+```
+
+For hosted manual verification, use the repository's authorized account, push
+the candidate branch, then dispatch and inspect the resulting run:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=YOUR_CANDIDATE_SHA
+gh run list --repo geevensingh/org-explorer --workflow scale-verification.yml --limit 5
+gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
+```
+
+Replace the placeholders with the pushed workflow branch, full candidate SHA
+and returned run ID; inspect/download that run's diagnostic artifact. GitHub
+must first register this dispatchable workflow on the default branch. Before
+that prerequisite, the local callable command works, but neither a hosted
+manual run nor an active nightly schedule is claimed.
+
+Expected-revision execution refuses a different SHA, tracked modifications or
+non-ignored untracked files,
+and checks the candidate again after testing. Local exploratory execution
+without that argument reports checkout modifications honestly; it is not exact
+release-candidate evidence. Every invocation creates a unique result directory
+under `.ci-results\performance\`, with SHA, selection, outcome, start/end,
+whole-execution timing, step logs, scale-operation timings and TRX. The root
+`result.json` is marked running immediately and points to that invocation, never
+an old passing result. A successful
+process exit with no discovered workload, missing/duplicate TRX, an unexecuted
+test, a failed assertion, candidate changes, cleanup failure or an exhausted
+budget cannot pass. GitHub retains diagnostic artifacts even after failure;
+missing setup/results or a job timeout remains a failed job, not a pass.
+
+There is **one shared 660-second budget**, beginning before checkout/SDK setup
+on the host, including restore/build, fixtures, assertions and cleanup. The job
+also has an eleven-minute hard deadline. Workflows/watchers are disposed before
+fixture cleanup; after the test process exits the runner removes its isolated
+build/fixture tree. Only fictitious local resources are used, and test fixtures
+remain excluded from product output. This suite is not another required PR
+check and does not increase the existing required deadlines or five-minute PR
+target. Correctness within the bound establishes neither a performance baseline
+nor a new latency SLA.
+
+The future release-publication workflow must invoke this command **fresh** in a
+clean checkout of its exact candidate SHA and block on failure, missing results
+or timeout. Saved nightly/manual logs are diagnostic evidence, not release
+authorization. This ticket does not implement a release gate or publication.
+The separate UI-scale work extends the same nightly/manual workflow with actual
+WPF execution; non-UI success is not rendering/responsiveness evidence.
+
+## Latest acceptance checkpoint (2026-11-09)
+
+Hosted [CI run 42709147493, attempt 2](https://github.com/geevensingh/org-explorer/actions/runs/42709147493/attempts/2)
+passed all three required lanes and the fail-closed aggregate at
+`845ce1b77a5a4b57dfa4f18a58b926dd38d24b51`. The complete genuine
+10,000-Person WPF flow reported an explicit PASS, including actual photo
+rendering, history, mutations, refresh and reopen, followed by PASS results for
+all remaining desktop flows. This supplies the previously missing complete
+desktop acceptance for #15; it is not a new result from the separated suite.
+
+Desktop execution was **368.92 s including setup**: below the existing
+660-second ceiling but above the 300-second target. Reported UI-scale profile,
+favorite, reviewed refresh, external delivery and reopen operations were
+26.906 s, 25.636 s, 29.050 s, 4.254 s and 7.213 s respectively. These are
+historical hosted observations, not a baseline, input-latency guarantee or SLA.
+
+The owner has parked the rare lock/publication investigation and authorized
+proceeding assuming it fixed for now. A later separate elevated capture
+completed 30 runs / 1,740 passed test executions, no failures or lost events;
+that is **not causal proof of a repair** and does not erase the failures below.
+Explicit safe save errors and all safety assertions remain intact.
+
+The chronological records below retain their original failures, prerequisites
+and then-current acceptance statements. In particular, earlier “#15 remains
+open” or “no hosted pass” statements are historical, superseded by this
+checkpoint, not claims about the current state. Installer/release status in
+those records is also historical and is not changed by this test-process work.
+
 ## Reference conditions
 
 Measurements are local observations, not an agreed application-latency SLA.
@@ -9,7 +118,8 @@ The SDK is .NET 10.0.403; test runtime is .NET 10.0.14. Builds use Release.
 NuGet packages are cached. The machine is shared, not a dedicated benchmark
 host. Parallel local filesystem/desktop lanes contend on the same volume;
 hosted CI jobs use separate runners. Queue time and later CD are excluded.
-No hosted-runner timings or installer/update performance are claimed here.
+These reference conditions describe the recorded local measurements below,
+not the later hosted checkpoint. No installer/update performance is claimed.
 
 ## Population and public seams
 
@@ -37,8 +147,10 @@ desktop lane includes scale, not a success-only app flag. It opens the Workspace
 uses Settings while loading, selects profiles/search destinations, navigates
 Managers/deep branches, checks **actual rendered photo pixels**, edits, reviews
 an actual 10,000-record partial batch, applies it, observes validated external
-writing and reopens durable results. Ordinary smoke flows additionally retain
-full import, notes, historical/archival, migration and failure coverage.
+writing and reopens durable results. Ordinary smoke retains representative
+WPF journeys and presentation/wiring checks. Exhaustive import, notes,
+historical/archival, migration and failure assertions belong at the workflow
+and real-filesystem seams; see the authoritative [testing strategy](testing.md).
 
 Tests poll meaningful eventual UI/file state with bounded deadlines. A missing
 virtualized/not-yet-realized control is retried only until that deadline; wrong

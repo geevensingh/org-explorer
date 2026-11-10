@@ -63,11 +63,16 @@ Default local verification is non-UI:
 ```
 
 Each runner isolates build artifacts. They may run in independent processes.
+The filesystem runner excludes only `Category=Performance`; ordinary persistence,
+delivery, recovery and watcher coverage remains required. The core runner also
+checks the CI gate, performance selection/results and named desktop-result
+contracts without launching WPF.
 For a narrow change, use `dotnet test` with combined selectors rather than
 rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 
 ```powershell
 .\tests\CiGate.Tests.ps1
+.\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
 dotnet test tests\OrgExplorer.Core.Tests --filter FullyQualifiedName~DesktopScenarioRunnerTests
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
@@ -160,8 +165,10 @@ or image dimensions alone.
 
 The approved end state separates complete performance workloads from required
 PR smoke, preserving the rich 10,000-Person fixture and targeted graph correctness.
-[#22](https://github.com/geevensingh/org-explorer/issues/22) supplies the non-UI
-performance command, selection and nightly/manual schedule; consult
+The non-UI portion from [#22](https://github.com/geevensingh/org-explorer/issues/22)
+now runs separately through `.\eng\Run-Performance.ps1`, selected by
+`Category=Performance`, and the nightly/manual `scale-verification.yml` workflow.
+Consult
 [performance validation](performance-validation.md) for implemented entry points
 and historical measurements. Do not equate older timings with current results.
 [#24](https://github.com/geevensingh/org-explorer/issues/24) supplies explicit
