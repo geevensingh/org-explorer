@@ -241,7 +241,7 @@ adapter. File parsing/storage stay behind that seam. See
 
 Read the [testing strategy](docs/testing.md) before placing, migrating or running
 tests. It is the authoritative guide to test categories, commands, scenario
-results, scale scheduling and current versus pending migration.
+results, scale scheduling and future pre-publication requirements.
 Default local verification is non-UI:
 
 ```powershell
@@ -250,7 +250,10 @@ Default local verification is non-UI:
 ```
 
 The complete real-file 10,000-Person non-UI workload runs separately with
-`.\eng\Run-Performance.ps1` and the nightly/manual `Scale verification` workflow.
+`.\eng\Run-Performance.ps1`. Genuine WPF scale uses `.\eng\Run-UiScale.ps1` on
+an authorized interactive desktop. Both reuse the nightly/manual `Scale
+verification` workflow; the testing guide explains default-branch registration,
+the existing CI manual bridge, exact-candidate results and future release reuse.
 The ordinary filesystem lane excludes only `Category=Performance`; its durable
 write, delivery, recovery and watcher checks remain required.
 
@@ -261,9 +264,11 @@ Named scenarios run sequentially with independent fixtures, JSON results and
 failure diagnostics; missing/unexecuted work cannot pass. They retain real
 photo pixels, Markdown rendering, draft protection, navigation, current/Historical
 context and external refresh rather than repeating every business permutation.
-The complete 10,000-Person UI workload remains required until its explicit
-separate execution is implemented. See [performance validation](docs/performance-validation.md)
-for rich fixtures, separate command availability and historical evidence.
+Required smoke contains eight ordinary scenarios, not the complete scale fixture.
+The explicit UI-scale command runs two independent rich 10,000-Person scenarios
+for realization/navigation/rendering and pending-mutation responsiveness.
+See [performance validation](docs/performance-validation.md) for fixture detail
+and historical evidence, not current execution instructions.
 
 Every PR and main commit, including docs/test-only changes, retains three
 parallel required lanes and a fail-closed aggregate `CI`. Deadlines and the

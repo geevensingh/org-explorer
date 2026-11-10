@@ -15,5 +15,6 @@ Single-context: root `GLOSSARY.md` and `docs/adr/`. Read `docs/agents/domain.md`
 ### Tests
 
 Read `docs/testing.md` before placing, migrating or running tests, changing CI,
-or claiming validation. Default to non-UI local checks; desktop automation uses
-hosted Windows or an explicitly authorized isolated desktop.
+or claiming validation. It owns required-smoke versus explicit scale selection
+and exact-candidate verification. Default to non-UI local checks; desktop
+automation requires hosted Windows or an explicitly authorized isolated desktop.

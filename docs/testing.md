@@ -13,7 +13,7 @@ name. A desktop click alone does not establish a successful navigation or save.
 | Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, migration originals/recovery and retained context. A projection does not prove rendered pixels. |
 | Desktop smoke | Normal WPF executable and actual UI Automation | Representative import/edit/save/reopen journeys; selection/bindings, Manager/report navigation, draft rejection feedback, local photo pixels, Markdown reading, current/Historical attribution, archive/filter/reactivation, Settings and refresh reaching an open client. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
-| UI scale | Real WPF at the full rich population | Realization, large-population search/navigation, rendering and responsive Settings. Neither smaller fixtures nor view-model substitutes prove these risks. |
+| UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
 | Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
 
 `OrgExplorer.Core.Tests` is **not synonymous with isolated unit tests**. Its two
@@ -65,7 +65,7 @@ Default local verification is non-UI:
 Each runner isolates build artifacts. They may run in independent processes.
 The filesystem runner excludes only `Category=Performance`; ordinary persistence,
 delivery, recovery and watcher coverage remains required. The core runner also
-checks the CI gate, performance selection/results and named desktop-result
+checks the CI gate, separate-suite selection/results and named desktop-result
 contracts without launching WPF.
 For a narrow change, use `dotnet test` with combined selectors rather than
 rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
@@ -74,7 +74,8 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 .\tests\CiGate.Tests.ps1
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
-dotnet test tests\OrgExplorer.Core.Tests --filter FullyQualifiedName~DesktopScenarioRunnerTests
+.\tests\UiScale.Tests.ps1
+dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests'
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
 dotnet build src\OrgExplorer.Desktop -c Release
 ```
@@ -133,12 +134,15 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 - `external-refresh`: actual folder delivery changes the open profile, note
   editors, inherited reading/review and same-path photo pixels; invalid graph
   delivery becomes visibly stale, retains last good data and recovers.
-- `scale`: the **existing complete 10,000-Person WPF workload**, including
-  in-progress save rejection, remains required during this incremental migration.
+
+These eight required scenarios use ordinary fixtures. They do not construct the
+complete scale population; all genuine UI-scale work has explicit execution below.
 
 For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,
-`--person-notes`, `--team-notes`, `--scale` selectors remain aliases.
+`--person-notes`, `--team-notes` selectors remain aliases.
+The obsolete combined `scale` / `--scale` selectors are rejected; use `--ui-scale`
+or a single explicit scale scenario name.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
 
@@ -149,8 +153,10 @@ The required lane validates against the manifest, not just exit code or PASS tex
 Failures continue to independent scenarios while budget remains. Each has a fresh
 fixture; successful fixtures are removed after workflows/apps stop. Failed small
 fixtures stay at their reported path, and `*-ui.log` captures available control
-IDs/names before abnormal app termination. The scale fixture retains its own
-isolated lifecycle and logs its path. Hosted artifacts include JSON and logs.
+IDs/names before abnormal app termination. Scale fixtures also live at their
+reported scenario paths: apps/workflows stop before cleanup, successful fixtures
+are removed, and failed fixtures remain for investigation. Hosted artifacts
+include result JSON and logs, not the complete fictitious Workspace.
 
 Successful navigation waits for meaningful local completion and asserts destination
 email/context. Explicit rejection paths invoke once, assert retained owner,
@@ -169,26 +175,121 @@ evidence. The runner's non-UI ordering regression covers pending → rejected
 observations and refuses missing feedback, wrong feedback or changed destination;
 hosted WPF still supplies the real UI evidence.
 
-## Scale scheduling and migration status
+## Separate scale commands and results
 
-The approved end state separates complete performance workloads from required
-PR smoke, preserving the rich 10,000-Person fixture and targeted graph correctness.
-The non-UI portion from [#22](https://github.com/geevensingh/org-explorer/issues/22)
-now runs separately through `.\eng\Run-Performance.ps1`, selected by
-`Category=Performance`, and the nightly/manual `scale-verification.yml` workflow.
-Consult
-[performance validation](performance-validation.md) for implemented entry points
-and historical measurements. Do not equate older timings with current results.
-[#24](https://github.com/geevensingh/org-explorer/issues/24) supplies explicit
-nightly/manual WPF-scale execution before removing `scale` from the default
-desktop manifest. This ticket does **not** make that removal in advance.
-No new baseline collection, regression budget or latency thresholds are implied.
+The complete workloads are outside required PR smoke, not removed:
 
-The future release-publication workflow must execute the **same separate suite
-commands fresh against the exact release-candidate commit**, fail on absent,
-failed or timed-out work, and only then publish. Earlier nightly/manual artifacts
-are diagnostic evidence, not reusable deployment authorization. This describes
-a required future integration, not an already operational publication gate.
+| Command | Required selection | Evidence |
+|---|---|---|
+| `.\eng\Run-Performance.ps1` | Complete `Category=Performance` filesystem workload | `.ci-results\performance\result.json`, unique run directory, complete named TRX and logs |
+| `.\eng\Run-UiScale.ps1` | Both names in `tests\UiScaleScenarios.json` | `.ci-results\ui-scale\result.json`, unique run directory, `scenarios.json` and UI/step logs |
+
+Non-UI performance proves genuine 10,000-Person load/reopen, current/historical
+search, durable mutations, reviewed 10,000-record imports, original/latest batch
+replay, external delivery/recovery and complete retained-data comparisons.
+Targeted large-graph/no-import-cap correctness remains in required core coverage.
+
+UI scale builds and drives the **normal WPF executable**, sequentially in one
+interactive Windows job, with a fresh rich 10,000-Person fixture per scenario:
+
+- `scale-navigation-rendering`: Settings visibly works while real opening is
+  pending; expand/collapse, scroll and select a distant realized tree row;
+  current/frozen/deep-chain/final-archived-Person search and Manager navigation;
+  actual photo pixels and rendered current/frozen Markdown.
+- `scale-mutation-responsiveness`: Settings visibly works while an actual
+  file-backed profile mutation is pending; explicit navigation rejection retains
+  the owner and explains waiting; favorite mutation, complete reviewed import,
+  external note delivery/rendering, and durable profile/Manager/favorite/photo
+  reopening.
+
+The same shared `ScaleFixture` preserves 9,900 active/100 Archived people, the
+complete 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes,
+200 frozen contexts and retained Profile evidence. No population/chain truncation,
+import cap or non-UI proxy replaces either WPF scenario. The old combined scale
+runner is retired; it is not also invoked by smoke or the explicit command.
+
+For investigation on an authorized interactive desktop, append `--ui-scale` to
+the harness invocation above, or one scale name. Use `Run-UiScale.ps1` for the
+complete bounded candidate-bound suite. A one-scenario pass is not suite success.
+Missing/locked interactive desktops and unavailable pixels are visible failures;
+never skip rendering, change shared-machine settings or launch local automation
+without separate permission.
+
+Each suite has its own **660-second whole-execution budget** and hosted
+eleven-minute deadline. `SCALE_STARTED_AT` begins before checkout/SDK setup;
+restore, builds, fixture generation, assertions and cleanup all count. These
+are execution bounds, not new latency thresholds or a baseline collection scheme.
+See [performance validation](performance-validation.md) for fixture detail and
+historical measurements, not current command authority.
+
+Each invocation marks a fresh root report `running` before execution and writes
+revision, expected revision, dirty/untracked state, selected tests/scenarios,
+outcome, timestamps and timings. Successful suite status requires all named work;
+missing/duplicate/partial results, failed assertions, skipped/cancelled/timed-out
+work, changed candidates, cleanup errors and exhausted budgets fail closed.
+Interrupted reports remain incomplete, never an old passing result.
+
+## Nightly and manual execution
+
+`.github\workflows\scale-verification.yml` owns **both** independent jobs and
+calls the exact commands above. UI scenarios are serial within their own job,
+not parallel competing windows. Each suite records the same exact candidate SHA
+in independently named results/artifacts; artifacts upload even on failure, and
+missing artifacts fail. Neither job is another required PR check.
+
+The workflow declares **10:23 UTC nightly**, direct manual dispatch and
+`workflow_call` with a required exact candidate. The nightly schedule and new
+workflow dispatch registration become active only after the file reaches the
+default branch; wiring them on integration does not activate a schedule.
+
+Before that registration, use the existing `ci.yml` **manual-only opt-in bridge**
+from a pushed candidate branch, with the repository-authorized account:
+
+```powershell
+gh workflow run ci.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f run_scale_verification=true
+gh run list --repo geevensingh/org-explorer --workflow ci.yml --event workflow_dispatch --limit 5
+gh run view YOUR_RUN_ID --repo geevensingh/org-explorer --json headSha,status,conclusion,jobs
+gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
+```
+
+Verify `headSha` is the intended candidate, both scale jobs succeeded, every named
+result passed and both artifacts identify that SHA. The bridge calls the same
+local reusable workflow at `github.sha`; it duplicates no suite commands. The
+Boolean defaults to false and its guard requires manual dispatch. The ordinary
+three lanes still run on a bridge dispatch, but their independent `CI` aggregate
+does not attest to scale success: inspect both scale jobs and the whole run.
+Omit the flag for ordinary focused CI only.
+
+Once GitHub registers the scale workflow, direct manual execution is:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=FULL_40_CHARACTER_CANDIDATE_SHA
+```
+
+Blank `revision` uses that workflow dispatch's commit; supplied values must be a
+full immutable SHA, not a mutable ref. Both jobs check that checkout equals the
+requested SHA before invoking the runner with `-ExpectedRevision`.
+
+## Future pre-publication integration
+
+Publication is not implemented by this test-process change. Its future workflow
+must use a fresh clean checkout of the exact release candidate and run **both**
+established commands, optionally by calling the reusable workflow at that same
+candidate with its required `revision` input:
+
+```powershell
+.\eng\Run-Performance.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
+.\eng\Run-UiScale.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
+```
+
+Expected-revision execution refuses a different SHA, tracked changes or
+non-ignored untracked files, and rechecks after assertions. Exploratory execution
+without that argument reports modifications honestly; it is not candidate proof.
+The future publisher must require both successful, complete, same-revision suite
+results and block on failure, absence, required skip, cancellation or timeout.
+Earlier nightly/manual artifacts are diagnostic evidence, **never** reusable
+deployment approvals. No active publication gate or successful hosted run follows
+merely from these callable entry points.
 
 ## Isolation and remaining blockers
 
