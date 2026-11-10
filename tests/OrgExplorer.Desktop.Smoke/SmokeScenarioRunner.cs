@@ -30,6 +30,13 @@ internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios
                 if (Directory.Exists(result.Fixture))
                     throw new InvalidOperationException("Scenario fixture already exists; refusing to reuse state.");
                 Directory.CreateDirectory(result.Fixture);
+                if (result.Name.StartsWith("scale-", StringComparison.Ordinal))
+                {
+                    var settings = Path.Combine(result.Fixture, "app-settings");
+                    Directory.CreateDirectory(settings);
+                    File.WriteAllText(Path.Combine(settings, "update-settings.json"),
+                        JsonSerializer.Serialize(new { schemaVersion = 1, checkOnStartup = false }));
+                }
                 scenarios[index].Execute(result.Fixture);
                 Directory.Delete(result.Fixture, true);
                 result.Status = "Passed";
