@@ -34,11 +34,9 @@ internal static partial class Program
             profileEditor.SetValue("0009P");
             if (!activity.Current.Name.Contains("Pending"))
                 throw new InvalidOperationException("The pending autosave state was not observed.");
-            navigate.Invoke();
-            var pendingStatus = mainStatus.Current.Name;
-            if (!pendingStatus.StartsWith("Navigation blocked:") || !pendingStatus.Contains("Please wait") ||
-                owner.Current.Name != "avery@example.com")
-                throw new InvalidOperationException("Pending autosave navigation was not visibly rejected: " + pendingStatus);
+            NavigationRejection.AssertPending(navigate.Invoke, () => mainStatus.Current.Name,
+                () => owner.Current.Name, "avery@example.com", Await);
+            AssertValue(window, "OfficeNumber", "0009P");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             NavigateToManager(window, "casey@example.com");
             OpenPerson(window, "casey@example.com");
