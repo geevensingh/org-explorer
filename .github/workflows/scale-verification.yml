@@ -1,0 +1,48 @@
+name: Scale verification
+
+on:
+  schedule:
+    - cron: '23 10 * * *'
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Commit or ref to check freshly (blank uses the selected workflow ref)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scale-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  non-ui-performance:
+    name: Thorough non-UI performance
+    runs-on: windows-latest
+    timeout-minutes: 11
+    steps:
+      - name: Start shared execution budget before setup
+        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+      - name: Identify the exact checked-out candidate
+        run: '"TESTED_REVISION=$(git rev-parse HEAD)" >> $env:GITHUB_ENV'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Run fresh complete non-UI performance verification
+        run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .ci-results/performance/**/*.json
+            .ci-results/performance/**/*.log
+            .ci-results/performance/**/*.trx
