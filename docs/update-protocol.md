@@ -24,8 +24,11 @@ unknown**, without making a network request. This is not a production signing
 key, a fake available update, or publication readiness. The owner must provision
 and securely retain the production signing key outside this repository/client.
 No production private key has been generated, acquired, installed or committed
-by this implementation. #19 must arrange owner-approved secret storage and
-signing permissions; an empty GitHub secret list is not a usable signer.
+by this implementation. The [release workflow](releasing.md) requires the
+owner-provisioned Actions secret `ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8` (base64 DER
+PKCS#8 P-256) and public variable `ORG_EXPLORER_UPDATE_KEY_ID`, matching an embedded
+public SPKI. It derives and checks the match before publishing; an empty secret
+or trust list is not a usable signer.
 
 Embed the corresponding **public** configuration in a trusted app build:
 
@@ -59,7 +62,7 @@ Manifest endpoints must be HTTPS, without user information or fragments.
 HTTP is allowed only on loopback for controlled feeds. There is no runtime
 feed/public-key environment override.
 
-## Envelope and signer contract for #19
+## Envelope and signer contract
 
 Publish `org-explorer-update.win-x64.json` as a stable GitHub Release asset.
 The installed app fetches the latest-download link **once**. It does not read
@@ -124,7 +127,11 @@ Protocol 1 is deliberately narrow:
   Expiry must be later than issuance and the current time; validity is at most
   31 days; issuance allows at most five minutes of future clock skew.
   The signer must refresh expiring metadata even when no new product version
-  ships. Expired metadata reports verification failure, not "up to date."
+  ships. The release signer currently issues 14-day metadata; no automatic
+  renewal scheduler is enabled. The [safe renewal operating policy and explicit
+  remaining limitation](releasing.md#expiry-and-safe-renewal-policy) must be
+  addressed before relying on continuously available production updates.
+  Expired metadata reports verification failure, not "up to date."
   This bounds freeze/replay exposure; it does not prove that a host never
   withheld a newer release during the signed validity interval.
 - Only a strictly newer authorized version is offered. A successfully verified,
@@ -133,8 +140,9 @@ Protocol 1 is deliberately narrow:
 
 The ordinary `releases.win.json`, `assets.win.json`, `RELEASES`, setup and
 unsigned `package-metadata.json` inventory remain packaging artifacts, not
-substitutes for this authorization. #19 must publish a mutually consistent,
-immutable versioned package and its signed envelope only after release gates.
+substitutes for this authorization. The release workflow checks all inventories
+and publishes the immutable versioned package and signed envelope only after
+trusted main CI and both fresh exact-candidate scale gates.
 
 ## Rotation and authenticated automatic application
 

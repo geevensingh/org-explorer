@@ -11,6 +11,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_release_verification:
+        description: Verify exact candidate scale and release packaging with ephemeral keys, never publish
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -105,5 +110,15 @@ jobs:
     name: Optional manual scale verification
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification }}
     uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ github.sha }}
+
+  release-verification:
+    name: Optional secret-free release verification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-verification.yml
     with:
       revision: ${{ github.sha }}

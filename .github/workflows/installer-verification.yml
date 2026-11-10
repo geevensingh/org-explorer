@@ -6,6 +6,7 @@ on:
       - '.github/workflows/installer-verification.yml'
       - '.config/dotnet-tools.json'
       - 'eng/Package-Windows.ps1'
+      - 'eng/ReleaseArtifacts.ps1'
       - 'eng/Test-WindowsInstaller.ps1'
       - 'eng/New-UpdateTestFixture.ps1'
       - 'tests/ControlledUpdateEffects.cs'

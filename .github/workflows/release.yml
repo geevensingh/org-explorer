@@ -1,0 +1,86 @@
+name: Product release
+
+on:
+  workflow_run:
+    workflows: [Continuous integration]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: org-explorer-production-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.repository == 'geevensingh/org-explorer' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Plan against the last successful publication
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: .\eng\Invoke-Release.ps1 -Mode Plan -Candidate $env:CANDIDATE -CiRunId $env:CI_RUN_ID
+
+  scale:
+    needs: plan
+    if: ${{ needs.plan.outputs.publish == 'true' }}
+    uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+
+  publish:
+    needs: [plan, scale]
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publish == 'true' && needs.scale.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/download-artifact@v4
+        with:
+          name: non-ui-performance-${{ github.event.workflow_run.head_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/performance
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-scale-${{ github.event.workflow_run.head_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/ui-scale
+      - name: Validate owner signer, package, sign, verify and publish complete draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
+          ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8: ${{ secrets.ORG_EXPLORER_UPDATE_PRIVATE_KEY_PKCS8 }}
+          ORG_EXPLORER_UPDATE_KEY_ID: ${{ vars.ORG_EXPLORER_UPDATE_KEY_ID }}
+        run: .\eng\Invoke-Release.ps1 -Mode Publish -Candidate $env:CANDIDATE -CiRunId $env:CI_RUN_ID -ExpectedVersion $env:EXPECTED_VERSION

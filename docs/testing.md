@@ -322,12 +322,11 @@ Blank `revision` uses that workflow dispatch's commit; supplied values must be a
 full immutable SHA, not a mutable ref. Both jobs check that checkout equals the
 requested SHA before invoking the runner with `-ExpectedRevision`.
 
-## Future pre-publication integration
+## Active pre-publication integration
 
-Publication is not implemented by this test-process change. Its future workflow
-must use a fresh clean checkout of the exact release candidate and run **both**
-established commands, optionally by calling the reusable workflow at that same
-candidate with its required `revision` input:
+`release.yml` calls the reusable scale workflow with the exact source SHA after
+successful trusted main CI and product-impact planning. Every product publication
+uses a fresh clean checkout and **both** established commands:
 
 ```powershell
 .\eng\Run-Performance.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
@@ -337,11 +336,24 @@ candidate with its required `revision` input:
 Expected-revision execution refuses a different SHA, tracked changes or
 non-ignored untracked files, and rechecks after assertions. Exploratory execution
 without that argument reports modifications honestly; it is not candidate proof.
-The future publisher must require both successful, complete, same-revision suite
-results and block on failure, absence, required skip, cancellation or timeout.
+The publisher requires both successful, complete, same-revision suite results
+from its own run/attempt, and blocks on failure, absence, required skip,
+cancellation or timeout.
 Earlier nightly/manual artifacts are diagnostic evidence, **never** reusable
-deployment approvals. No active publication gate or successful hosted run follows
-merely from these callable entry points.
+deployment approvals. Wiring is not a successful hosted execution or owner-key
+provisioning. Before merge, the registered `ci.yml` default-off
+`run_release_verification=true` bridge invokes the same fresh scale workflow,
+then genuine packaging/signing with ephemeral keys and production-trust
+isolation, with no production publication. See [release operations](releasing.md)
+for the exact safe hosted command, required results and remaining prerequisites.
+
+Core CI also runs the non-UI `Release*.Tests.ps1` contracts: real temporary Git
+history, controlled ephemeral cryptography, exact suite evidence, archive
+isolation and fake external GitHub publication effects. They never call a real
+publication endpoint, open WPF or run an installer.
+The core runner-category signer interoperability test also invokes the real
+PowerShell signer with an ephemeral key and feeds its exact envelope to the real
+`UpdateChecker`, checking pinned bytes and mutation rejection without network IO.
 
 ## Isolation and remaining blockers
 
@@ -352,6 +364,6 @@ data, error and rejected-save semantics while relocating tests.
 
 Test migration neither repairs nor waives the separately parked rare
 note-publication failure. If observed, report the exact failure rather than
-masking it with retries. Installer verification, updater/signing and unfinished
-release work remain separate blockers; test reorganization is not v1 acceptance
+masking it with retries. Installer verification, owner signing/trust provisioning and release operating
+prerequisites remain separate evidence; test reorganization is not v1 acceptance
 or permission to publish.
