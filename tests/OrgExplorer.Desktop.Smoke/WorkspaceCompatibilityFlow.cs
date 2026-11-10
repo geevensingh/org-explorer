@@ -95,10 +95,10 @@ internal static partial class Program
 
     private static void AssertNoFakeUpdater(AutomationElement window)
     {
-        if (!Find(window, "UpdateGuidance").Current.Name.Contains("not implemented") ||
-            window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "CheckForUpdates")) is not null)
-            throw new InvalidOperationException("Settings fabricated updater availability.");
+        _ = Find(window, "CheckForUpdates");
+        if (string.IsNullOrWhiteSpace(Find(window, "UpdateGuidance").Current.Name) ||
+            Find(window, "UpdateGuidance").Current.Name.Contains("up to date", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Settings fabricated an up-to-date result without an available verified feed.");
     }
 
     private static void AssertWorkspaceBytes(string root, Dictionary<string, byte[]> expected)

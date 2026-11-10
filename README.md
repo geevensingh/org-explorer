@@ -20,6 +20,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Architectural decisions](docs/adr/README.md)
 - [Installer, updater, and signing research](docs/research/installer-updater.md)
 - [Installation and unsigned-installer trust limitations](docs/INSTALLATION.md)
+- [Project-authorized release protocol and owner key provisioning](docs/update-protocol.md)
 
 ## Run locally
 
@@ -67,9 +68,13 @@ Resolve the local failure and retry; do not treat staged output as committed.
 **Settings and upgrade guidance** is always accessible, including before choosing
 a Workspace or after incompatible data/conversion failure. **Retry Workspace
 validation / conversion** retries local loading without enabling invalid edits.
-Automatic updates are **not implemented yet**: installer verification still
-blocks the later updater, and Settings does not pretend to have checked update
-availability. Installer rollback does not restore Workspace data; follow the
+**Check for updates** verifies project-key signed releases, and startup checks
+default to enabled. Availability and offline/rate-limit/verification errors are
+explicit and do not block local work. Production trust is deliberately
+**not configured** until the owner provisions embedded public keys; no production
+private key or credential is included. See the [protocol/provisioning contract](docs/update-protocol.md).
+Automatic download, installation and restart are **not connected yet** (#18).
+Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
 before restoring files externally.
 
