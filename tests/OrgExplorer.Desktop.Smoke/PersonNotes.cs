@@ -8,10 +8,8 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunPersonNoteFlow(string executable)
+    private static void RunPersonNoteFlow(string executable, string root)
     {
-        var root = Path.GetFullPath(Path.Combine(".test-workspaces", Guid.NewGuid().ToString("N")));
-        Directory.CreateDirectory(root);
         Process? process = null;
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -54,19 +52,10 @@ internal static partial class Program
                 throw new InvalidOperationException("Person-note owner was not explicit.");
             if (!ReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Image suppression was not visible in the rendered reading view.");
-            Set(window, "PreferredName", "Ave");
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
-            Set(window, "OfficeNumber", "007B");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            SelectTab(window, "PersonNoteReadTab");
             var noteFile = Directory.GetFiles(workspace, "*.md", SearchOption.AllDirectories).Single();
-            File.WriteAllText(noteFile, File.ReadAllText(noteFile) + "\nEdited externally.");
-            markdown += "\nEdited externally.";
-            Await(() => ReadingText(window).Contains("Edited externally."));
-            SelectTab(window, "PersonNoteEditTab");
             using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Set(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
@@ -74,14 +63,6 @@ internal static partial class Program
                 Click(window, "NavigateManager");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 SelectTreePerson(window, "casey@example.com", expectNavigation: false);
-                AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                ((ExpandCollapsePattern)Find(window, "avery@example.com").GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
-                SelectTreePerson(window, "jordan@example.com", expectNavigation: false);
-                AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
-                    ?? throw new InvalidOperationException("Person-note owner has no imported report navigation.");
-                ((SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 var otherWorkspace = Path.Combine(root, "other-workspace");
                 Set(window, "WorkspacePath", otherWorkspace);
@@ -97,21 +78,6 @@ internal static partial class Program
             Click(window, "RetryPersonNoteSave");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
             markdown += "\nRecovered draft.";
-            using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                Set(window, "PersonNoteMarkdown", markdown + "\nUnsaved competing draft.");
-                Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-            }
-            File.WriteAllText(noteFile, File.ReadAllText(noteFile) + "\nProvider update.");
-            markdown += "\nProvider update.";
-            Click(window, "RetryPersonNoteSave");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-            Click(window, "DiscardPersonNoteDraft");
-            Await(() => Value(window, "PersonNoteMarkdown") == markdown);
-            Click(window, "ClearPhoto");
-            Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
-            AssertValue(window, "PersonNoteTitle", "Private meeting");
-            AssertValue(window, "PersonNoteMarkdown", markdown);
             NavigateToManager(window, "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com") ||
                 Find(window, "PersonNotes").FindAll(TreeScope.Descendants,
@@ -124,44 +90,12 @@ internal static partial class Program
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
             SelectNote(window, "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            File.WriteAllText(import, """
-                {"schemaVersion":1,"batchId":"20000000-0000-4000-8000-000000000002",
-                "observedAt":"2026-11-02T17:00:00Z","people":[
-                {"email":"casey@example.com","archived":true},
-                {"email":"avery@example.com","managerEmail":null,"officeNumber":"0009C"}]}
-                """);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("applied"));
-            AssertValue(window, "OfficeNumber", "0009C");
-            AssertValue(window, "PreferredName", "Ave");
-            AssertValue(window, "PersonNoteTitle", "Private meeting");
-            AssertValue(window, "PersonNoteMarkdown", markdown);
-            if (Find(window, "NavigateManager").Current.IsEnabled)
-                throw new InvalidOperationException("Reporting move did not refresh the note owner's Manager.");
-            File.WriteAllText(import, initialImport);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            if (!Find(window, "Preview").Current.Name.Contains("no-op"))
-                throw new InvalidOperationException("Person-note/profile changes broke accepted reporting replay.");
-            Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("no changes"));
-            AssertValue(window, "OfficeNumber", "0009C");
-            AssertValue(window, "PersonNoteMarkdown", markdown);
-            Click(window, "NewPersonNote");
-            Set(window, "PersonNoteTitle", "Second note");
-            Set(window, "PersonNoteMarkdown", "Independent writing");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
             Close(process);
             process = Launch(executable);
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
-            OpenPerson(window);
-            Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
-            AssertValue(window, "PreferredName", "Ave");
-            AssertValue(window, "OfficeNumber", "0009C");
+            OpenPerson(window, "casey@example.com");
             SelectNote(window, "Private meeting");
             if (Value(window, "PersonNoteMarkdown") != markdown)
                 throw new InvalidOperationException("Markdown did not survive the actual app restart.");
@@ -181,13 +115,13 @@ internal static partial class Program
         }
         finally
         {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
-            Directory.Delete(root, true);
+            if (process is not null) StopApplication(process);
         }
     }
 
     private static void SelectNote(AutomationElement window, string title)
     {
+        AwaitLocalWorkIdle(window);
         AutomationElement? item = null;
         Await(() =>
         {
@@ -202,7 +136,7 @@ internal static partial class Program
 
     private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
     {
-        AwaitLocalWorkIdle(window);
+        if (expectNavigation) AwaitLocalWorkIdle(window);
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

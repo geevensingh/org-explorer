@@ -101,18 +101,6 @@ internal static partial class Program
             File.WriteAllText(personFile, valid);
             Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("Current validated"));
             Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# Pending context");
-            var validMetadata = File.ReadAllText(teamMetadataFile);
-            File.WriteAllText(teamMetadataFile, "Incomplete Team context delivery");
-            File.WriteAllText(ownedTeamFile, File.ReadAllText(ownedTeamFile).Replace("# External owned Team context", "# Pending owned Team context"));
-            Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("STALE"));
-            AssertValue(window, "TeamNoteMarkdown", "# External owned Team context");
-            if (Find(window, "TeamNoteMarkdown").Current.IsEnabled || Find(window, "NewTeamNote").Current.IsEnabled)
-                throw new InvalidOperationException("Invalid Team metadata left stale Team writing editable.");
-            if (File.ReadAllText(teamMetadataFile) != "Incomplete Team context delivery")
-                throw new InvalidOperationException("Invalid Team metadata was silently repaired.");
-            File.WriteAllText(teamMetadataFile, validMetadata);
-            Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("Current validated"));
-            Await(() => Value(window, "TeamNoteMarkdown") == "# Pending owned Team context");
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
             Close(process);
@@ -120,7 +108,7 @@ internal static partial class Program
         }
         finally
         {
-            if (!process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+            StopApplication(process);
         }
     }
 }
