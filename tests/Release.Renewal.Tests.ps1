@@ -83,6 +83,17 @@ try {
     Rejects { Read-ReleaseAuthorization -Text $text -TrustFile $trustFile -Product $product } 'expired client authorization'
     Rejects { Read-ReleaseAuthorization -Text $text.Replace('"ES256"', '"none"') -TrustFile $trustFile -Product $product -AllowExpired } 'untrusted algorithm'
     Rejects { Read-ReleaseAuthorization -Text $text.Insert(1, '"keyId":"original-app-key",') -TrustFile $trustFile -Product $product -AllowExpired } 'ambiguous duplicate envelope fields'
+    $wrongType = $text | ConvertFrom-Json
+    $wrongType.algorithm = @('ES256')
+    Rejects { Read-ReleaseAuthorization -Text ($wrongType | ConvertTo-Json -Compress) -TrustFile $trustFile -Product $product -AllowExpired } 'array-valued envelope algorithm that the actual client rejects'
+    $wrongType = $text | ConvertFrom-Json
+    $payload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($wrongType.payload)) | ConvertFrom-Json
+    $payload.version = @('0.1.0')
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Depth 8 -Compress))
+    $wrongType.payload = [Convert]::ToBase64String($bytes)
+    $wrongType.signature = [Convert]::ToBase64String($key.SignData($bytes, [Security.Cryptography.HashAlgorithmName]::SHA256,
+        [Security.Cryptography.DSASignatureFormat]::IeeeP1363FixedFieldConcatenation))
+    Rejects { Read-ReleaseAuthorization -Text ($wrongType | ConvertTo-Json -Compress) -TrustFile $trustFile -Product $product -AllowExpired } 'even owner-signed unsupported array-valued app identity'
     $product.artifacts[0].size = 4
     Rejects { Read-ReleaseAuthorization -Text $text -TrustFile $trustFile -Product $product -AllowExpired } 'original provenance/package binding mismatch'
     $product.artifacts[0].size = 3

@@ -12,6 +12,9 @@ function Read-ReleaseAuthorization([string]$Text, [string]$TrustFile, $Product, 
     $key = $null
     try {
         Assert-ReleaseJsonFields $envelopeDocument.RootElement @('keyId', 'algorithm', 'payload', 'signature')
+        foreach ($field in @('keyId', 'algorithm', 'payload', 'signature')) {
+            if ($envelopeDocument.RootElement.GetProperty($field).ValueKind -ne [Text.Json.JsonValueKind]::String) { throw 'Envelope fields must be JSON strings.' }
+        }
         $envelope = $Text | ConvertFrom-Json
         if ($envelope.algorithm -cne 'ES256') { throw 'Unsupported metadata algorithm.' }
         $bytes = [Convert]::FromBase64String($envelope.payload)
@@ -23,6 +26,10 @@ function Read-ReleaseAuthorization([string]$Text, [string]$TrustFile, $Product, 
         $payloadDocument = [Text.Json.JsonDocument]::Parse([ReadOnlyMemory[byte]]::new($bytes), $options)
         $json = $payloadDocument.RootElement
         Assert-ReleaseJsonFields $json @('protocolVersion', 'appId', 'version', 'platform', 'channel', 'releaseTag', 'issuedAt', 'expiresAt', 'assets')
+        foreach ($field in @('appId', 'version', 'platform', 'channel', 'releaseTag', 'issuedAt', 'expiresAt')) {
+            if ($json.GetProperty($field).ValueKind -ne [Text.Json.JsonValueKind]::String) { throw 'Signed app identity/timestamps must be JSON strings.' }
+        }
+        if ($json.GetProperty('assets').ValueKind -ne [Text.Json.JsonValueKind]::Array -or $json.GetProperty('assets').GetArrayLength() -ne 1) { throw 'Signed assets must be a one-element JSON array.' }
         $payload = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
         $package = @($Product.artifacts | Where-Object { $_.fileName -ceq "geevensingh.OrgExplorer-$($Product.version)-full.nupkg" })
         if ($package.Count -ne 1 -or $package[0].size -le 0 -or $package[0].size -gt 2147483648 -or $package[0].sha256 -cnotmatch '^[0-9a-f]{64}\z') { throw 'Original package provenance is invalid.' }
@@ -30,11 +37,15 @@ function Read-ReleaseAuthorization([string]$Text, [string]$TrustFile, $Product, 
         if (@($payload.assets).Count -ne 1) { throw 'Original authorization must select exactly one full package.' }
         $asset = $json.GetProperty('assets')[0]
         Assert-ReleaseJsonFields $asset @('kind', 'fileName', 'size', 'sha256', 'url')
+        foreach ($field in @('kind', 'fileName', 'sha256', 'url')) {
+            if ($asset.GetProperty($field).ValueKind -ne [Text.Json.JsonValueKind]::String) { throw 'Signed package identity must use JSON strings.' }
+        }
         $issued = $json.GetProperty('issuedAt').GetString()
         $expires = $json.GetProperty('expiresAt').GetString()
         if ($json.GetProperty('protocolVersion').ValueKind -ne [Text.Json.JsonValueKind]::Number -or
             $asset.GetProperty('size').ValueKind -ne [Text.Json.JsonValueKind]::Number -or
-            $payload.protocolVersion -ne 1 -or $payload.appId -cne 'geevensingh.OrgExplorer' -or
+            $json.GetProperty('protocolVersion').GetInt32() -ne 1 -or $asset.GetProperty('size').GetInt64() -ne $package[0].size -or
+            $payload.appId -cne 'geevensingh.OrgExplorer' -or
             $payload.version -cne $Product.version -or $payload.releaseTag -cne $Product.tag -or
             $payload.platform -cne 'win-x64' -or $payload.channel -cne 'win' -or $payload.assets[0].kind -cne 'full' -or
             $payload.assets[0].fileName -cne $package[0].fileName -or $payload.assets[0].size -ne $package[0].size -or
@@ -44,6 +55,8 @@ function Read-ReleaseAuthorization([string]$Text, [string]$TrustFile, $Product, 
             [DateTimeOffset]$issued -gt [DateTimeOffset]::UtcNow.AddMinutes(5) -or [DateTimeOffset]$expires -le [DateTimeOffset]$issued -or
             ([DateTimeOffset]$expires - [DateTimeOffset]$issued).TotalDays -gt 31 -or
             (!$AllowExpired -and [DateTimeOffset]$expires -le [DateTimeOffset]::UtcNow)) { throw 'Authorization does not bind the exact original stable app/package/protocol and bounded validity.' }
+        $payload.issuedAt = $issued
+        $payload.expiresAt = $expires
         return $payload
     } finally {
         if ($key) { $key.Dispose() }
