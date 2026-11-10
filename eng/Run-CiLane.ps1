@@ -49,6 +49,11 @@ try {
             & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"
             & "$root\tests\UiScale.Tests.ps1"
+            & "$root\tests\Release.Tests.ps1"
+            & "$root\tests\Release.Gates.Tests.ps1"
+            & "$root\tests\Release.Publication.Tests.ps1"
+            & "$root\tests\Release.Workflow.Tests.ps1"
+            & "$root\tests\Release.Payload.Tests.ps1"
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')

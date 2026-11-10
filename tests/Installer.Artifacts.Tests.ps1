@@ -4,6 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. "$PSScriptRoot\..\eng\ReleaseArtifacts.ps1"
 $release = (Resolve-Path $ReleaseDirectory).Path
 $metadata = Get-Content (Join-Path $release 'package-metadata.json') -Raw | ConvertFrom-Json
 if ($metadata.appId -ne 'geevensingh.OrgExplorer' -or $metadata.version -ne $Version -or
@@ -15,6 +16,8 @@ if ($metadata.appId -ne 'geevensingh.OrgExplorer' -or $metadata.version -ne $Ver
 $setup = Join-Path $release 'geevensingh.OrgExplorer-win-Setup.exe'
 $package = Join-Path $release "geevensingh.OrgExplorer-$Version-full.nupkg"
 $portable = Join-Path $release 'geevensingh.OrgExplorer-win-Portable.zip'
+Assert-ReleasePayload $package
+Assert-ReleasePayload $portable
 foreach ($file in $setup, $package, $portable, (Join-Path $release 'releases.win.json'),
     (Join-Path $release 'assets.win.json'), (Join-Path $release 'RELEASES')) {
     if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Required Velopack artifact is missing: $file" }

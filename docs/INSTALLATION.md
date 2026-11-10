@@ -50,6 +50,10 @@ indexes, a portable ZIP, and an unsigned
 is `win-x64`; the build version is shared by the app, package and feed.
 These hashes establish integrity against the supplied inventory, **not**
 authorization by a trusted project key.
+An automatic product release additionally includes the authenticated
+`org-explorer-update.win-x64.json` and exact-source `release-provenance.json`.
+Those publication gates and owner prerequisites are described in the repository's
+`docs\releasing.md`; local packaging alone is not public publication.
 
 ## Update checks
 
@@ -82,5 +86,8 @@ when the app is next opened manually.
 
 Velopack's implicit pending-package apply on startup remains disabled, and no
 cached package alone authorizes installation. Standard Windows protections
-remain in force. No production release or public CD is configured here;
-owner-provisioned trust and publication gates (#19) are still prerequisites.
+remain in force. Automatic product-impact publication is implemented, but real
+publication still requires owner-provisioned matching signing/trust configuration
+and successful trusted main CI plus fresh exact-candidate scale checks.
+The current public trust list remains empty; this text is not production
+provisioning or successful publication evidence.
