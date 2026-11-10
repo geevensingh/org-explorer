@@ -116,10 +116,21 @@ to activate that implicit apply path. No feed or unattended apply is introduced.
 The pinned Windows installer also writes a user uninstall registry entry even
 with an explicit `--installto` directory. Environment overrides do not isolate
 Windows known folders/registry. Full install/replacement/uninstall verification
-therefore uses a disposable, offline Windows Sandbox with only dedicated mapped
-inputs/results, and reports an explicit blocker if Sandbox is unavailable.
-Artifact/bootstrap/portable-desktop checks can run without installing setup on
-the host. See [shipped installation help](../INSTALLATION.md).
+therefore uses either a disposable, offline Windows Sandbox with only dedicated
+mapped inputs/results, or the separate ephemeral GitHub-hosted Windows workflow.
+The native harness rejects shared/self-hosted execution and bounds the hosted
+inputs/results beneath the checkout. It tests two actual setup versions, real WPF
+editing/reopening, retained Workspace bytes through upgrade/uninstall/reinstall,
+and a staged newer package not being implicitly applied. Loaded native runtime
+paths prove bundled runtime use rather than relying on the runner lacking SDKs.
+
+Hosted evidence records the actual OS/product/build. A Windows Server runner is
+not Windows 11 client, servicing, publisher-reputation, or organization-policy
+certification. No hosted install success is inferred from artifact/preparation
+checks, and no unsigned inventory authorizes production updates. Only fixture
+logs/results/inventories are uploaded; no Workspace or installer binaries are
+published. See [verification instructions](../../README.md#isolated-hosted-windows-verification)
+and [shipped installation help](../INSTALLATION.md).
 
 - [Pinned bootstrap source](https://github.com/velopack/velopack/blob/1.2.161/src/lib-csharp/VelopackApp.cs)
 - [Pinned Windows install source](https://github.com/velopack/velopack/blob/1.2.161/src/bins/src/commands/install.rs)

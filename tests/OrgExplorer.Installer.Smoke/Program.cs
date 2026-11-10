@@ -1,52 +1,74 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace OrgExplorer.Installer.Smoke;
 
 internal static class Program
 {
-    private const string PackageInput = @"C:\PackageInput";
-    private const string SmokeRunner = @"C:\SmokeInput\OrgExplorer.Desktop.Smoke.exe";
-    private const string Root = @"C:\OrgExplorerInstallerTest";
-    private const string Results = @"C:\TestResults";
+    private static string PackageInput = @"C:\PackageInput";
+    private static string SmokeRunner = @"C:\SmokeInput\OrgExplorer.Desktop.Smoke.exe";
+    private static string Root = @"C:\OrgExplorerInstallerTest";
+    private static string Results = @"C:\TestResults";
     private static readonly Stopwatch Execution = Stopwatch.StartNew();
 
-    private static int Main()
+    private static int Main(string[] args)
     {
-        if (Environment.UserName != "WDAGUtilityAccount" ||
-            !File.Exists(Path.Combine(PackageInput, "package-metadata.json")) || !File.Exists(SmokeRunner))
+        var sandbox = args.Length == 0 && Environment.UserName == "WDAGUtilityAccount";
+        var hosted = args.Length == 5 && args[0] == "--github-hosted" &&
+            Environment.GetEnvironmentVariable("CI") == "true" &&
+            Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" &&
+            Environment.GetEnvironmentVariable("RUNNER_OS") == "Windows" &&
+            Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") == "github-hosted" &&
+            Environment.GetEnvironmentVariable("GITHUB_REPOSITORY") == "geevensingh/org-explorer" &&
+            Environment.GetEnvironmentVariable("GITHUB_WORKSPACE") is { Length: > 0 } checkout &&
+            args.Skip(1).All(path => Within(Path.Combine(checkout, ".artifacts"), path));
+        if (!sandbox && !hosted)
         {
-            Console.Error.WriteLine("Installer execution requires the disposable Windows Sandbox test account and dedicated mapped inputs. No host installation was attempted.");
+            Console.Error.WriteLine("Installer execution requires disposable Windows Sandbox or ephemeral GitHub-hosted Windows with checkout-contained inputs/results. No host installation was attempted.");
             return 1;
         }
+        if (hosted) (PackageInput, SmokeRunner, Root, Results) = (args[1], args[2], args[3], args[4]);
 
         var evidence = new Dictionary<string, object>
         {
-            ["isolation"] = "Disposable Windows Sandbox; network disabled; dedicated read-only package/harness/smoke inputs",
+            ["isolation"] = sandbox ? "Disposable Windows Sandbox; network disabled; dedicated read-only inputs" : "Ephemeral GitHub-hosted Windows runner; no self-hosted execution",
             ["user"] = Environment.UserName,
+            ["os"] = DescribeOs(),
+            ["runnerImage"] = Environment.GetEnvironmentVariable("ImageOS") ?? "Windows Sandbox",
+            ["runnerImageVersion"] = Environment.GetEnvironmentVariable("ImageVersion") ?? "not-provided",
+            ["sourceCommit"] = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local-sandbox-input",
+            ["trustLimitations"] = "Unsigned fixture installers; no Windows trust bypass, production publication, signing key, or authenticated automatic update is exercised.",
             ["result"] = "failed"
         };
         var install = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "geevensingh.OrgExplorer");
         var workspace = Path.Combine(Root, "Workspace");
         var exe = Path.Combine(install, "current", "OrgExplorer.Desktop.exe");
-        var setup = Path.Combine(PackageInput, "geevensingh.OrgExplorer-win-Setup.exe");
+        var setup = Path.Combine(PackageInput, "baseline", "geevensingh.OrgExplorer-win-Setup.exe");
+        var upgradedSetup = Path.Combine(PackageInput, "upgrade", "geevensingh.OrgExplorer-win-Setup.exe");
         try
         {
             if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) || !Environment.Is64BitOperatingSystem)
-                throw new InvalidOperationException("The clean Sandbox must run Windows 11 x64.");
+                throw new InvalidOperationException("The isolated Windows x64 runner must meet the package minimum build 22000. A Windows Server run does not prove Windows 11 client coverage.");
             if (Directory.Exists(install))
                 throw new InvalidOperationException("The per-user installation must be initially absent.");
-            if (Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared", "Microsoft.WindowsDesktop.App")))
+            if (Directory.Exists(Root))
+                throw new InvalidOperationException("The lifecycle scratch root must be initially absent.");
+            if (sandbox && Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared", "Microsoft.WindowsDesktop.App")))
                 throw new InvalidOperationException("Use a clean Sandbox without a separately installed desktop runtime.");
-            using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(PackageInput, "package-metadata.json")));
+            using var metadata = ReadFixture("baseline");
+            using var upgradedMetadata = ReadFixture("upgrade");
             var version = metadata.RootElement.GetProperty("version").GetString()!;
-            var setupAsset = metadata.RootElement.GetProperty("artifacts").EnumerateArray()
-                .Single(a => a.GetProperty("fileName").GetString() == Path.GetFileName(setup));
-            using (var input = File.OpenRead(setup))
-                if (!string.Equals(Convert.ToHexString(SHA256.HashData(input)), setupAsset.GetProperty("sha256").GetString(), StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Mapped setup bytes do not match the built artifact inventory.");
+            var upgradedVersion = upgradedMetadata.RootElement.GetProperty("version").GetString()!;
+            if (Version.Parse(upgradedVersion) <= Version.Parse(version))
+                throw new InvalidOperationException("The second real installer must contain a strictly newer fixture version.");
+            VerifyAsset(metadata, setup);
+            VerifyAsset(upgradedMetadata, upgradedSetup);
+            var pendingPackage = Path.Combine(PackageInput, "upgrade", $"geevensingh.OrgExplorer-{upgradedVersion}-full.nupkg");
+            VerifyAsset(upgradedMetadata, pendingPackage);
             Directory.CreateDirectory(Root);
             Directory.CreateDirectory(Results);
             var scratch = Path.Combine(Root, "Scratch");
@@ -58,29 +80,45 @@ internal static class Program
             Environment.SetEnvironmentVariable("DOTNET_ROOT_X64", Path.Combine(scratch, "no-global-dotnet"));
             Environment.SetEnvironmentVariable("DOTNET_MULTILEVEL_LOOKUP", "0");
             evidence["version"] = version;
+            evidence["upgradedVersion"] = upgradedVersion;
             evidence["installDirectory"] = install;
             evidence["workspace"] = workspace;
 
             Run(setup, "install", "--log", Path.Combine(Results, "install.log"));
             if (!File.Exists(exe) || !File.Exists(Path.Combine(install, "Update.exe")))
                 throw new InvalidOperationException("Default per-user installation did not contain the built app and updater.");
-            CloseAutomaticallyLaunchedDesktop(exe, version);
+            evidence["bundledRuntimeModules"] = CloseAutomaticallyLaunchedDesktop(exe, version);
             evidence["automaticRealWpfLaunch"] = true;
             Run(SmokeRunner, "desktop-create", exe, workspace, "create", version);
+            var savedWorkspace = Snapshot(workspace);
+            evidence["workspaceFiles"] = savedWorkspace.Count;
 
-            Run(setup, "replace", "--silent", "--log", Path.Combine(Results, "replace.log"));
-            Run(SmokeRunner, "desktop-after-replace", exe, workspace, "reopen", version);
-            evidence["workspaceSurvivedReplacement"] = true;
+            // Staging is deliberately not authorization. Bootstrap must keep the original version.
+            Directory.CreateDirectory(Path.Combine(install, "packages"));
+            File.Copy(pendingPackage, Path.Combine(install, "packages", Path.GetFileName(pendingPackage)));
+            Run(SmokeRunner, "desktop-unauthorized-pending", exe, workspace, "reopen", version);
+            RequireUnchanged(workspace, savedWorkspace, "unauthorized pending package");
+            evidence["unauthorizedPendingPackageNotApplied"] = true;
+
+            Run(upgradedSetup, "upgrade", "--silent", "--log", Path.Combine(Results, "upgrade.log"));
+            RequireUnchanged(workspace, savedWorkspace, "installation upgrade");
+            Run(SmokeRunner, "desktop-after-upgrade", exe, workspace, "reopen", upgradedVersion);
+            RequireUnchanged(workspace, savedWorkspace, "upgraded app reopen");
+            evidence["workspaceSurvivedUpgrade"] = true;
 
             Uninstall(install, "uninstall");
             if (File.Exists(exe))
                 throw new InvalidOperationException("Uninstall left the installed application behind.");
-            if (!File.Exists(Path.Combine(workspace, "workspace.json")))
-                throw new InvalidOperationException("Uninstall removed the independent Workspace.");
-            Run(setup, "reinstall", "--silent", "--log", Path.Combine(Results, "reinstall.log"));
-            Run(SmokeRunner, "desktop-after-uninstall-reinstall", exe, workspace, "reopen", version);
+            RequireUnchanged(workspace, savedWorkspace, "uninstall");
+            Run(upgradedSetup, "reinstall", "--silent", "--log", Path.Combine(Results, "reinstall.log"));
+            Run(SmokeRunner, "desktop-after-uninstall-reinstall", exe, workspace, "reopen", upgradedVersion);
+            RequireUnchanged(workspace, savedWorkspace, "reinstall and reopen");
             evidence["workspaceSurvivedUninstall"] = true;
             Uninstall(install, "cleanup");
+            if (File.Exists(exe)) throw new InvalidOperationException("Final uninstall left an application executable behind.");
+            RequireUnchanged(workspace, savedWorkspace, "final uninstall");
+            evidence["finalApplicationRemoved"] = true;
+            evidence["executionSeconds"] = Execution.Elapsed.TotalSeconds;
             evidence["result"] = "passed";
         }
         catch (Exception ex)
@@ -94,15 +132,78 @@ internal static class Program
             var result = Path.Combine(Results, "result.json");
             File.WriteAllText(result + ".next", JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(result + ".next", result, true);
-            // This branch is reachable only in the disposable Sandbox account with mapped inputs.
-            // Dispose the test machine rather than leaving a background client after verification.
-            using var shutdown = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"))
+            if (sandbox)
             {
-                UseShellExecute = false,
-                ArgumentList = { "/s", "/t", "0" }
-            });
+                using var shutdown = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "shutdown.exe"))
+                {
+                    UseShellExecute = false,
+                    ArgumentList = { "/s", "/t", "0" }
+                });
+            }
         }
+
         return (string)evidence["result"] == "passed" ? 0 : 1;
+    }
+
+    private static bool Within(string parent, string path) =>
+        Path.IsPathFullyQualified(path) && Path.GetFullPath(path).StartsWith(
+            Path.GetFullPath(parent) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    private static object DescribeOs()
+    {
+        using var version = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+        using var options = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\ProductOptions");
+        var productType = options?.GetValue("ProductType")?.ToString() ?? "unknown";
+        return new
+        {
+            description = RuntimeInformation.OSDescription,
+            productName = version?.GetValue("ProductName")?.ToString(),
+            build = Environment.OSVersion.Version.ToString(),
+            productType,
+            architecture = RuntimeInformation.OSArchitecture.ToString(),
+            windows11Client = productType == "WinNT" && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000),
+            coverageLimit = "Hosted Windows Server coverage is not Windows 11 client, SmartScreen reputation, or organization-policy certification."
+        };
+    }
+
+    private static JsonDocument ReadFixture(string name)
+    {
+        var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(PackageInput, name, "package-metadata.json")));
+        var metadata = document.RootElement;
+        if (metadata.GetProperty("appId").GetString() != "geevensingh.OrgExplorer" ||
+            metadata.GetProperty("platform").GetString() != "win-x64" || metadata.GetProperty("channel").GetString() != "win" ||
+            !metadata.GetProperty("selfContained").GetBoolean())
+            throw new InvalidOperationException("Lifecycle input is not the expected runtime-included Windows x64 product.");
+        return document;
+    }
+
+    private static void VerifyAsset(JsonDocument metadata, string path)
+    {
+        var asset = metadata.RootElement.GetProperty("artifacts").EnumerateArray()
+            .Single(a => a.GetProperty("fileName").GetString() == Path.GetFileName(path));
+        using var input = File.OpenRead(path);
+        if (input.Length != asset.GetProperty("size").GetInt64() ||
+            !string.Equals(Convert.ToHexString(SHA256.HashData(input)), asset.GetProperty("sha256").GetString(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Setup/package bytes do not match their built fixture inventory.");
+    }
+
+    private static Dictionary<string, string> Snapshot(string workspace)
+    {
+        if (!File.Exists(Path.Combine(workspace, "workspace.json")))
+            throw new InvalidOperationException("Real desktop did not create an independent Workspace.");
+        return Directory.GetFiles(workspace, "*", SearchOption.AllDirectories).ToDictionary(
+            file => Path.GetRelativePath(workspace, file), file =>
+            {
+                using var input = File.OpenRead(file);
+                return Convert.ToHexString(SHA256.HashData(input));
+            }, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void RequireUnchanged(string workspace, Dictionary<string, string> expected, string operation)
+    {
+        var actual = Snapshot(workspace);
+        if (actual.Count != expected.Count || expected.Any(file => !actual.TryGetValue(file.Key, out var hash) || hash != file.Value))
+            throw new InvalidOperationException(operation + " changed or removed private Workspace bytes.");
     }
 
     private static void Uninstall(string install, string label) =>
@@ -124,9 +225,9 @@ internal static class Program
         var errors = captureConsole ? process.StandardError.ReadToEndAsync() : Task.FromResult("");
         try
         {
-            var remaining = Math.Min(120000, 240000 - (int)Execution.ElapsedMilliseconds);
+            var remaining = Math.Min(150000, 420000 - (int)Execution.ElapsedMilliseconds);
             if (remaining <= 0 || !process.WaitForExit(remaining))
-                throw new TimeoutException(label + " exceeded the two-minute process/four-minute total execution budget.");
+                throw new TimeoutException(label + " exceeded the 150-second process/seven-minute total lifecycle budget.");
             File.WriteAllText(Path.Combine(Results, label + ".stdout.txt"), output.GetAwaiter().GetResult());
             File.WriteAllText(Path.Combine(Results, label + ".stderr.txt"), errors.GetAwaiter().GetResult());
             if (process.ExitCode != 0)
@@ -138,12 +239,11 @@ internal static class Program
         }
     }
 
-    private static void CloseAutomaticallyLaunchedDesktop(string exe, string version)
+    private static string[] CloseAutomaticallyLaunchedDesktop(string exe, string version)
     {
         var watch = Stopwatch.StartNew();
         while (watch.Elapsed < TimeSpan.FromSeconds(20))
         {
-            var found = false;
             foreach (var process in Process.GetProcesses())
             {
                 using (process)
@@ -154,16 +254,22 @@ internal static class Program
                             process.MainWindowHandle == IntPtr.Zero) continue;
                         if (!process.MainWindowTitle.Contains($"Org explorer {version} (Windows x64 / win)"))
                             throw new InvalidOperationException("Automatically launched desktop metadata did not match the installed package.");
-                        found = true;
+                        var modules = new[] { "coreclr.dll", "wpfgfx_cor3.dll" }.Select(name =>
+                        {
+                            var module = process.Modules.Cast<ProcessModule>().SingleOrDefault(m => m.ModuleName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                            if (module is null || !Within(Path.GetDirectoryName(exe)!, module.FileName))
+                                throw new InvalidOperationException("Installed WPF did not load its bundled runtime module: " + name);
+                            return module.FileName;
+                        }).ToArray();
                         process.CloseMainWindow();
                         if (!process.WaitForExit(10000))
                             throw new TimeoutException("Automatically launched WPF application did not close normally.");
+                        return modules;
                     }
                     catch (Win32Exception) { }
                     catch (InvalidOperationException) when (process.HasExited) { }
                 }
             }
-            if (found) return;
             Thread.Sleep(100);
         }
         throw new TimeoutException("The per-user installer did not automatically launch the real WPF application.");

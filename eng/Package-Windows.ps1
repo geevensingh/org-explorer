@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')][string]$Version,
-    [string]$NuGetConfig = (Join-Path $PSScriptRoot '..\NuGet.Config')
+    [string]$NuGetConfig
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -8,7 +8,7 @@ if (![OperatingSystem]::IsWindows() -or ![Environment]::Is64BitOperatingSystem) 
     throw 'Packaging requires Windows x64 and the .NET 10 SDK.'
 }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$config = (Resolve-Path $NuGetConfig).Path
+$configArguments = if ($NuGetConfig) { @('--configfile', (Resolve-Path $NuGetConfig).Path) } else { @() }
 $output = Join-Path $repo ".artifacts\installer\$Version"
 if (Test-Path $output) { throw "Output already exists: $output. Choose a new version or explicitly remove this local build before rebuilding." }
 $scratch = Join-Path $output 'build-staging'
@@ -27,9 +27,9 @@ try {
         $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
         [Environment]::SetEnvironmentVariable($name, $scratch)
     }
-    dotnet tool restore --configfile $config
+    dotnet tool restore @configArguments
     if ($LASTEXITCODE -ne 0) { throw 'Restore the pinned local vpk tool; no global installation is required.' }
-    dotnet restore $app --locked-mode --configfile $config
+    dotnet restore $app --locked-mode @configArguments
     if ($LASTEXITCODE -ne 0) { throw 'Locked Windows x64 dependency/runtime restore failed.' }
     $publish = Join-Path $output 'publish'
     $releases = Join-Path $output 'releases'

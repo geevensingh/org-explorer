@@ -1,0 +1,76 @@
+name: Isolated Windows installer
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/installer-verification.yml'
+      - '.config/dotnet-tools.json'
+      - 'eng/Package-Windows.ps1'
+      - 'eng/Test-WindowsInstaller.ps1'
+      - 'tests/Installer.*.Tests.ps1'
+      - 'tests/OrgExplorer.Installer.Smoke/**'
+      - 'tests/OrgExplorer.Desktop.Smoke/**'
+      - 'src/**'
+      - 'docs/INSTALLATION.md'
+      - 'Directory.Build.props'
+      - 'NuGet.Config'
+      - 'global.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Isolated Windows installer lifecycle
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Record actual hosted operating system
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture | Format-List
+          Write-Host "Runner environment: $env:RUNNER_ENVIRONMENT; image: $env:ImageOS $env:ImageVersion"
+          Write-Host 'A hosted Windows Server run does not certify Windows 11 client or Windows publisher trust.'
+      - name: Build two real runtime-included fixture installers
+        run: |
+          .\eng\Package-Windows.ps1 -Version 0.1.0
+          .\eng\Package-Windows.ps1 -Version 0.1.1
+      - name: Verify fast lifecycle bootstrap without opening Workspace or WPF
+        run: .\tests\Installer.Bootstrap.Tests.ps1 -Executable .artifacts\installer\0.1.0\publish\OrgExplorer.Desktop.exe
+      - name: Install, start, upgrade, preserve Workspace, uninstall and reinstall
+        run: .\eng\Test-WindowsInstaller.ps1 -Version 0.1.0 -UpgradeVersion 0.1.1 -Mode Hosted
+      - name: Report lifecycle outcome and coverage limits
+        if: ${{ always() }}
+        run: |
+          $path = '.artifacts\installer-verification\0.1.0-to-0.1.1\results\result.json'
+          if (Test-Path $path) {
+            $result = Get-Content $path -Raw | ConvertFrom-Json
+            "## Isolated installer lifecycle: $($result.result)`nOS: $($result.os.description); product: $($result.os.productName); build: $($result.os.build).`nWindows 11 client run: $($result.os.windows11Client).`n$($result.os.coverageLimit)`n$($result.trustLimitations)" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            '## Installer verification did not complete; no passed lifecycle result exists.' >> $env:GITHUB_STEP_SUMMARY
+          }
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: isolated-installer-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/result.json
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.log
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.stdout.txt
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.stderr.txt
+            .artifacts/installer/0.1.0/releases/package-metadata.json
+            .artifacts/installer/0.1.1/releases/package-metadata.json

@@ -252,7 +252,8 @@ Use PowerShell 7 on Windows x64 with the .NET 10 SDK:
 
 ```powershell
 .\eng\Package-Windows.ps1 -Version 0.1.0
-.\eng\Test-WindowsInstaller.ps1 -Version 0.1.0
+.\eng\Package-Windows.ps1 -Version 0.1.1
+.\eng\Test-WindowsInstaller.ps1 -Version 0.1.0 -UpgradeVersion 0.1.1
 ```
 
 Packaging uses the repository-local pinned `vpk` tool (1.2.161, matching the
@@ -261,17 +262,20 @@ Outputs are under `.artifacts\installer\0.1.0\releases`; this command does **not
 publish anything. See the shipped [installation guide](docs/INSTALLATION.md)
 for the exact artifact set, metadata, Workspace separation and trust limitations.
 Existing output is rejected rather than mixed with stale files. A custom
-`-NuGetConfig` can select your approved package cache/source without changing
-repository or global settings.
+`-NuGetConfig` can explicitly select your approved package cache/source without
+changing repository or global settings. By default normal repository/user NuGet
+configuration inheritance is preserved, including configured transport settings;
+locked restore and vulnerability auditing are not disabled.
 
-`Test-WindowsInstaller` requires **Windows Sandbox already enabled**. It maps only
+The default `Test-WindowsInstaller` mode requires **Windows Sandbox already enabled**. It maps only
 the built installer, self-contained test executables, and a dedicated results
 folder, disables networking/clipboard/audio input/printer redirection, and drives
 the real installed desktop. It checks default per-user installation/automatic
-launch, local editing, replacement, uninstall/reinstall and unchanged external
-Workspace data. No .NET runtime is installed separately. Its native harness
-refuses to run outside the disposable Sandbox account; no PowerShell execution
-policy or Windows trust protection is bypassed.
+launch, local editing, a real two-version installation upgrade,
+uninstall/reinstall and byte-for-byte unchanged external Workspace data.
+Profiles, photos, Person notes, Profile changes and frozen former Team context
+are also reopened through the real UI. No .NET runtime is installed separately.
+No PowerShell execution policy or Windows trust protection is bypassed.
 
 If Sandbox is unavailable, the command prepares the offline `.wsb` payload,
 then **fails with an explicit verification blocker**. `-PrepareOnly` prepares it
@@ -279,14 +283,44 @@ without claiming a passed install test. Never run setup on a shared host merely
 to make verification pass. `--installto` and environment overrides alone do not
 isolate Velopack's user-registry and shortcut effects.
 
-CI additionally builds the artifacts, checks all four fast bootstrap hooks, and
-runs real WPF flows from the self-contained portable payload with an independent
-fictitious Workspace beneath the checkout. Replacing all app files preserves
-that Workspace. A controlled newer local package does not trigger implicit apply.
-These host checks do not install setup/registry entries/shortcuts and are **not**
-a substitute for the isolated install/uninstall test. Velopack's normal per-user
-diagnostic logger remains active during host desktop checks; private test data and
-staging locations are isolated beneath the checkout.
+### Isolated hosted Windows verification
+
+The separate **Isolated Windows installer** workflow runs on relevant PR changes
+or manual dispatch. It does not replace or rewrite the three required CI lanes.
+It builds fixture versions `0.1.0` and `0.1.1`, tests all four fast bootstrap
+hooks, then runs the actual setup/WPF/upgrade/uninstall lifecycle on a disposable
+GitHub-hosted Windows runner:
+
+```powershell
+.\eng\Test-WindowsInstaller.ps1 -Version 0.1.0 -UpgradeVersion 0.1.1 -Mode Hosted
+```
+
+**Do not run that command on a shared machine.** Both the script's native harness
+and its negative guard tests refuse ordinary host, self-hosted runner,
+foreign-repository and out-of-checkout execution. Hosted mode requires the
+GitHub Actions `github-hosted` Windows runner context for this repository.
+`-PrepareOnly` stages the real inputs without installing or claiming success;
+`tests\Installer.Preparation.Tests.ps1` exercises this safe preparation path.
+
+The hosted test observes loaded `coreclr.dll` and WPF native module paths beneath
+the installed app, proving bundled-runtime use even when the runner has SDKs.
+It stages a real newer package and verifies that startup does **not** apply it
+without authorization, before explicitly running the newer setup. The manual
+fixture upgrade is not an authenticated automatic-update test.
+
+`result.json` records actual OS description/build/product type, runner image,
+source commit, versions and lifecycle results. **`windows-latest` commonly runs
+Windows Server, not Windows 11.** A passing server lifecycle is useful isolated
+Windows x64 evidence, not Windows 11 client/servicing, SmartScreen, or corporate
+policy certification. The product still targets supported Windows 11 x64.
+No hosted result is claimed merely because packaging or preparation succeeds.
+
+Only allowlisted result JSON, test/installer logs and unsigned artifact
+inventories are retained for seven days. The workflow never uploads the
+Workspace, build staging, executables/packages, credentials or signing material,
+and does not publish releases or enable production CD. Networking is disabled
+in Sandbox; hosted mode uses local fixtures but does not claim network isolation.
+No production secrets are needed.
 
 The smoke runner requires an interactive Windows desktop and drives the actual
 WPF controls using Windows UI Automation. It launches the normal app without
@@ -385,4 +419,6 @@ merges are enabled. `eng\Configure-Repository.ps1` reapplies and verifies those
 settings using the explicitly routed account; it does not push or merge code.
 
 Installer verification, automatic updates and CD/release signing remain
-blocked subsequent slices; scale validation does not implement them.
+separately evidenced slices; scale validation does not implement them.
+Hosted installer evidence must be collected from the workflow, not inferred from
+local build results. The installer remains unsigned.
