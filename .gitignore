@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+**/.test-workspaces/
+.vs/
+.ci-results/
+**/.artifacts/

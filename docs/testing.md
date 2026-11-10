@@ -1,0 +1,419 @@
+# Testing
+
+This is the authoritative test-placement and execution strategy for developers
+and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issues/21)).
+Choose the lowest-cost agreed surface that can prove the behavior, not a project
+name. A desktop click alone does not establish a successful navigation or save.
+
+## Placement
+
+| Category | Observes | Examples and limits |
+|---|---|---|
+| Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
+| Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, migration originals/recovery and retained context. A projection does not prove rendered pixels. |
+| Desktop smoke | Normal WPF executable and actual UI Automation | Representative import/edit/save/reopen journeys; selection/bindings, Manager/report navigation, draft rejection feedback, local photo pixels, Markdown reading, current/Historical attribution, archive/filter/reactivation, Settings and refresh reaching an open client. |
+| Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
+| UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
+| Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
+
+`OrgExplorer.Core.Tests` is **not synonymous with isolated unit tests**. Its two
+file-backed `WorkspaceCompatibilityTests` carry `Category=Filesystem` and still
+run in the core lane; they observe unsupported-version nonmutation and conversion
+retry through the view model. `DesktopScenarioRunnerTests` also write real result
+and fixture files (`Category=Runner`) without opening WPF. Most other core cases
+use in-memory workflow state. Classify dependencies by what a test actually does.
+
+Use independent expected values at the agreed public surfaces. Keep parsing,
+storage mechanics and graphs behind the shared workflow; private-method tests,
+per-record public repositories and success-only app flags are not migration seams.
+`BeginNoteDraft` captures an immutable Person/Team document base (or expected
+absence) at the workflow/view-model seam. Editors display that snapshot and
+`RetainNoteDraft` marks it dirty without waiting behind in-flight Workspace I/O.
+Close/restart stays blocked through first autosave and retries; `SaveNoteDraft`
+returns the next base on success, retained again for newer typing. Real-file tests cover delivery before
+first save, absent → created and deleted documents, retained external bytes,
+discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
+behind that same seam; Team confirmation and migration version checks stay explicit.
+Profile text autosave similarly submits the displayed field's immutable Person
+base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
+other-field delivery is retained, and success returns the exact saved base for
+newer typing rather than rereading a possibly newer provider revision.
+Control only genuine external effects (clock, browser/release/installer boundary);
+do not mock away the business behavior being asserted.
+
+## Moving coverage
+
+1. Read the actual assertions at both layers before removing a desktop check.
+   A similarly named test is not equivalent coverage.
+2. Add missing lower-level assertions first and run them. For example, a failed
+   Person-note retry must not overwrite externally delivered writing; deliberate
+   discard accepts that version, and a subsequent intentional edit reopens.
+3. Retain the representative journey and any unique WPF behavior. Exhaustive
+   field, query, note-scope, inheritance, graph, transfer, replay, archival,
+   migration and delivery permutations belong below WPF; file safety stays
+   file-backed. One rendered profile is not proof of every field's business rules.
+4. Validate the migrated runner contract locally without UI, then run the real
+   scenarios hosted. Keep missing/unexecuted work red. There is no separate
+   coverage-map document; tests and these placement rules remain authoritative.
+
+## Required PR/main execution
+
+Every PR and `main` commit, including docs/test-only changes, retains three
+independent parallel jobs: workflow/view-model, filesystem, and actual desktop.
+The stable aggregate `CI` requires all three successes. Failure, required skip,
+cancellation, missing result and timeout cannot pass. Preserve the existing
+5/11/11-minute lane and 2-minute aggregate deadlines: 29 minutes summed, at most
+13 minutes on the parallel critical path, excluding queues and later CD.
+The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
+passing a hard deadline does not claim that target or a new latency SLA.
+
+Default local verification is non-UI:
+
+```powershell
+.\eng\Run-CiLane.ps1 core
+.\eng\Run-CiLane.ps1 filesystem
+```
+
+Each runner isolates build artifacts. They may run in independent processes.
+The filesystem runner excludes only `Category=Performance`; ordinary persistence,
+delivery, recovery and watcher coverage remains required. The core runner also
+checks the CI gate, separate-suite selection/results and named desktop-result
+contracts without launching WPF.
+For a narrow change, use `dotnet test` with combined selectors rather than
+rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
+
+```powershell
+.\tests\CiGate.Tests.ps1
+.\tests\CiRunner.Tests.ps1
+.\tests\DraftDiscard.Tests.ps1
+.\tests\Performance.Tests.ps1
+.\tests\DesktopResults.Tests.ps1
+.\tests\UiScale.Tests.ps1
+dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests|FullyQualifiedName~UninstallProcessTests'
+dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
+dotnet build src\OrgExplorer.Desktop -c Release
+```
+
+Dependency lock files are authoritative. Restore missing assets with locked mode;
+do not install unrelated tooling. A build proves compilation, not a desktop pass.
+
+Installer-runner process tests use a separate non-UI .NET fixture, never the
+installed app or setup. Its parent exits with application files already removed
+while a named-event-gated cleanup child still owns the fixture installation.
+Reinstall must remain blocked until that child exits; a held child must consume
+the original remaining deadline, fail, and be terminated with its owned job.
+These process-boundary regressions do not replace hosted installation/Workspace
+preservation verification.
+
+## Real desktop execution
+
+**Use hosted Windows or a dedicated isolated interactive desktop. Local desktop
+automation requires separate explicit permission.** Routine test implementation,
+this strategy and a request for CI do not grant permission to open/focus windows on
+a shared workstation. An unavailable/locked interactive desktop is a visible
+prerequisite failure, not a skipped photo assertion or an invitation to change
+shared-machine settings.
+
+On that authorized desktop, the required command is:
+
+```powershell
+.\eng\Run-CiLane.ps1 desktop
+```
+
+It builds the real product and harness, runs all selected scenarios **sequentially**
+in one process, verifies complete named results, then publishes a local
+product-check folder to reject leaked fixtures/test assemblies. That publish is
+not installer verification or release publication. After the lane prepares the
+ephemeral embedded update trust and fixture environment, the runner's invocation
+has this form (the lane uses its isolated artifact paths):
+
+```powershell
+dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
+  src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
+```
+
+The required names live in `tests\DesktopScenarios.json`. They cover:
+
+- `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
+  binding, representative partial change/clear, save/reopen, actual copied PNG
+  and JPEG pixels, photo clear/placeholder and Profile timeline.
+- `draft-navigation`: visibly pending autosave versus failed Person/Team drafts,
+  explicit blocked actions, retained owner/draft, deliberate discard, then
+  separately successful navigation.
+- `person-note-rendering`: editing/read tabs, actual Markdown text, loopback
+  no-fetch assertion, failed filesystem save, restored tree selection,
+  Workspace/close rejection, retry, independent ownership and durable reopening.
+- `team-context-history`: explicit Team ownership, all-ancestor attribution,
+  review navigation/confirmation and archive/restore, actual current/frozen reading and honest
+  historical dates through a representative ancestor move and reopen.
+- `search-favorites`: representative profile/note queries, real current,
+  archived and frozen destinations, reading, favorites, failed-save rejection
+  and retained favorites after reopening.
+- `archival-navigation`: rejected Manager archival, failed local save and retry,
+  current-tree filtering, retained archived profile, selection protection,
+  reactivation and explicit no-Manager UI.
+- `compatibility-settings`: global Settings before open, supported conversion,
+  unsupported delivered version/write blocking, recoverable conversion failure
+  and validated retry.
+- `update-settings`: actual default-enabled startup and manual checks against a
+  controlled loopback feed with ephemeral embedded public trust, responsive local
+  editing/saving during a pending check, signed availability, persisted opt-out
+  and reopen, unknown signer/tampered signature/unsupported channel/rate-limit/
+  offline rejection, and a visible signature failure on a later startup.
+  Preference changes wait for the app's accepted-setting guidance as well as the
+  checkbox state before closing; a visually toggled checkbox alone is not a save.
+  Authorized results are consumed automatically: signed invalid package bytes
+  fail Velopack verification. A valid controlled signed package then exercises
+  real locked-note save rejection, retained writing, explicit retry, and final
+  draft durability before the external installer boundary. The unpackaged
+  boundary reports a deliberate installation failure; it is not an install pass.
+  The lane prepares this normal-product test build and later verifies a fresh
+  production-trust publish; see [the protocol contract](update-protocol.md#controlled-verification).
+- `external-refresh`: actual folder delivery changes the open profile, note
+  editors, inherited reading/review and same-path photo pixels; invalid graph
+  delivery becomes visibly stale, retains last good data and recovers. Person
+  and Team typing across delivery also verifies first-autosave/retry rejection,
+  retained editor/delivered writing and deliberate discard through real WPF.
+
+The filesystem update tests exercise actual cryptography, staged files, HTTP,
+Velopack integrity/explicit launch arguments, real pending Import publication,
+failed Person/Team saves, supported conversion originals, unsupported-data
+nonmutation and durable unconfirmed-restart recovery. Only actual external
+transport/process effects and clock are controlled. Neither a success flag nor
+a per-record repository is an update safety seam.
+
+Actual authenticated install/restart is additionally covered by the hosted-only
+`installer-verification.yml` workflow. Its two real self-contained fixture
+versions embed ephemeral public trust and a build-time external transport
+adapter; the normal verification/workflow and actual Velopack installer are
+unchanged. It requires the final running version, automatic same-Workspace
+reopen, pre-handoff file hashes, retained final WPF writing, unauthorized-pending
+protection, and both owned uninstall-tree/directory-absence barriers. Missing
+fixture or automatic-update evidence fails the hosted lifecycle. The final
+production build rejects test trust/effects; always-run cleanup removes private
+fixture material. This is not production-update/public-key provisioning evidence.
+
+These nine required scenarios use ordinary fixtures. They do not construct the
+complete scale population; all genuine UI-scale work has explicit execution below.
+Every scenario opts out of startup update checks before launching the app,
+except the controlled `update-settings` and `installer-update` scenarios.
+This includes ordinary smoke, manual normal-build execution and installed
+create/reopen flows; they must never fetch or apply a production release.
+
+For investigation, append one name to the harness command, not the app
+(`profile-journey`, for example). Older `migration`, `--search-favorites`,
+`--person-notes`, `--team-notes` selectors remain aliases.
+The obsolete combined `scale` / `--scale` selectors are rejected; use `--ui-scale`
+or a single explicit scale scenario name.
+A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
+may select a separate result directory for manual runs.
+The full selection and `update-settings` require the prepared update fixture and
+matching test-trust build; a production-trust build cannot substitute for that
+controlled evidence. Other focused scenarios may use a normal build.
+
+`scenarios.json` is written before execution with all selected names `NotRun`,
+then `Running`, then `Passed` or `Failed`. It includes times, fixture locations
+and exception diagnostics. Interrupted work remains incomplete, never green.
+The required lane validates against the manifest, not just exit code or PASS text.
+Failures continue to independent scenarios while budget remains. Each has a fresh
+fixture; successful fixtures are removed after workflows/apps stop. Failed small
+fixtures stay at their reported path, and `*-ui.log` captures available control
+IDs/names before abnormal app termination. Scale fixtures also live at their
+reported scenario paths: apps/workflows stop before cleanup, successful fixtures
+are removed, and failed fixtures remain for investigation. Hosted artifacts
+include result JSON and logs, not the complete fictitious Workspace.
+
+Successful navigation waits for meaningful local completion and asserts destination
+email/context. Explicit rejection paths invoke once, assert retained owner,
+selection/draft and actionable status, and never retry their way into success.
+Pending and in-progress messages must explain waiting; failures require
+retry/discard. Poll bounded eventual states; keep existing 20-second smoke and
+180-second scale limits. Remote content is never fetched just to render notes or
+profiles; loopback listeners and actual pixels/text are evidence, not filenames
+or image dimensions alone.
+
+UI Automation invocation can return before WPF processes the queued button
+handler. The pending-profile scenario keeps real typing active until rejection
+and records actual status-name change events, so the 300 ms debounce cannot
+silently become its observation deadline or erase transient feedback.
+A rejection check invokes once, then observes the actual rejection
+message within the existing deadline while requiring the original Person to
+remain selected. A generic pending message or a completed save is not rejection
+evidence. The runner's non-UI ordering regression covers pending → rejected
+observations and refuses missing feedback, wrong feedback or changed destination;
+hosted WPF still supplies the real UI evidence.
+Headless draft-discard coverage compiles the actual note coordinator with only
+its timer substituted. Busy retries must refuse discard before any refresh or
+draft mutation; idle explicit discard remains available.
+
+## Separate scale commands and results
+
+The complete workloads are outside required PR smoke, not removed:
+
+| Command | Required selection | Evidence |
+|---|---|---|
+| `.\eng\Run-Performance.ps1` | Complete `Category=Performance` filesystem workload | `.ci-results\performance\result.json`, unique run directory, complete named TRX and logs |
+| `.\eng\Run-UiScale.ps1` | Both names in `tests\UiScaleScenarios.json` | `.ci-results\ui-scale\result.json`, unique run directory, `scenarios.json` and UI/step logs |
+
+Non-UI performance proves genuine 10,000-Person load/reopen, current/historical
+search, durable mutations, reviewed 10,000-record imports, original/latest batch
+replay, external delivery/recovery and complete retained-data comparisons.
+Targeted large-graph/no-import-cap correctness remains in required core coverage.
+
+UI scale builds and drives the **normal WPF executable**, sequentially in one
+interactive Windows job, with a fresh rich 10,000-Person fixture per scenario:
+
+- `scale-navigation-rendering`: Settings visibly works while real opening is
+  pending; expand/collapse, scroll and select a distant realized tree row;
+  current/frozen/deep-chain/final-archived-Person search and Manager navigation;
+  actual photo pixels and rendered current/frozen Markdown.
+- `scale-mutation-responsiveness`: Settings visibly works while an actual
+  file-backed profile mutation is pending; explicit navigation rejection retains
+  the owner and explains waiting; favorite mutation, complete reviewed import,
+  external note delivery/rendering, and durable profile/Manager/favorite/photo
+  reopening.
+
+The same shared `ScaleFixture` preserves 9,900 active/100 Archived people, the
+complete 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes,
+200 frozen contexts and retained Profile evidence. No population/chain truncation,
+import cap or non-UI proxy replaces either WPF scenario. The old combined scale
+runner is retired; it is not also invoked by smoke or the explicit command.
+
+For investigation on an authorized interactive desktop, append `--ui-scale` to
+the harness invocation above, or one scale name. Use `Run-UiScale.ps1` for the
+complete bounded candidate-bound suite. A one-scenario pass is not suite success.
+Missing/locked interactive desktops and unavailable pixels are visible failures;
+never skip rendering, change shared-machine settings or launch local automation
+without separate permission.
+
+Each suite has its own **660-second whole-execution budget** and hosted
+eleven-minute deadline. `SCALE_STARTED_AT` begins before checkout/SDK setup;
+restore, builds, fixture generation, assertions and cleanup all count. These
+are execution bounds, not new latency thresholds or a baseline collection scheme.
+Both standalone commands use `eng\ScaleRunner.ps1` for the budget, owned command
+lifecycle, fresh reports, exact-candidate checks and cleanup. Workload selection
+and complete named-result assertions remain in their separate entry points.
+See [performance validation](performance-validation.md) for fixture detail and
+historical measurements, not current command authority.
+
+Each invocation marks a fresh root report `running` before execution and writes
+revision, expected revision, dirty/untracked state, selected tests/scenarios,
+outcome, timestamps and timings. Successful suite status requires all named work;
+missing/duplicate/partial results, failed assertions, skipped/cancelled/timed-out
+work, changed candidates, cleanup errors and exhausted budgets fail closed.
+Interrupted reports remain incomplete, never an old passing result.
+
+The scale tree locates its distant row through the reporting branch's UI
+Automation item provider, requests realization/scrolling once, then observes
+visible geometry and real viewport movement before selecting and checking the
+destination Person. Realized-descendant enumeration alone cannot find a
+virtualized row. A timeout identifies the target and last observed geometry,
+viewport offset and selected email; it retains the existing 180-second bound.
+
+## Nightly and manual execution
+
+`.github\workflows\scale-verification.yml` owns **both** independent jobs and
+calls the exact commands above. UI scenarios are serial within their own job,
+not parallel competing windows. Each suite records the same exact candidate SHA
+in independently named results/artifacts; artifacts upload even on failure, and
+missing artifacts fail. Neither job is another required PR check.
+
+The workflow declares **10:23 UTC nightly**, direct manual dispatch and
+`workflow_call` with a required exact candidate. The nightly schedule and new
+workflow dispatch registration become active only after the file reaches the
+default branch; wiring them on integration does not activate a schedule.
+
+Before that registration, use the existing `ci.yml` **manual-only opt-in bridge**
+from a pushed candidate branch, with the repository-authorized account:
+
+```powershell
+gh workflow run ci.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f run_scale_verification=true
+gh run list --repo geevensingh/org-explorer --workflow ci.yml --event workflow_dispatch --limit 5
+gh run view YOUR_RUN_ID --repo geevensingh/org-explorer --json headSha,status,conclusion,jobs
+gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
+```
+
+Verify `headSha` is the intended candidate, both scale jobs succeeded, every named
+result passed and both artifacts identify that SHA. The bridge calls the same
+local reusable workflow at `github.sha`; it duplicates no suite commands. The
+Boolean defaults to false and its guard requires manual dispatch. The ordinary
+three lanes still run on a bridge dispatch, but their independent `CI` aggregate
+does not attest to scale success: inspect both scale jobs and the whole run.
+Omit the flag for ordinary focused CI only.
+
+Once GitHub registers the scale workflow, direct manual execution is:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=FULL_40_CHARACTER_CANDIDATE_SHA
+```
+
+Blank `revision` uses that workflow dispatch's commit; supplied values must be a
+full immutable SHA, not a mutable ref. Both jobs check that checkout equals the
+requested SHA before invoking the runner with `-ExpectedRevision`.
+
+## Active pre-publication integration
+
+`release.yml` calls the reusable scale workflow with the exact source SHA after
+successful trusted main CI and product-impact planning. Every product publication
+uses a fresh clean checkout and **both** established commands:
+
+```powershell
+.\eng\Run-Performance.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
+.\eng\Run-UiScale.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
+```
+
+Expected-revision execution refuses a different SHA, tracked changes or
+non-ignored untracked files, and rechecks after assertions. Exploratory execution
+without that argument reports modifications honestly; it is not candidate proof.
+The publisher requires both successful, complete, same-revision suite results
+from its own run/attempt, and blocks on failure, absence, required skip,
+cancellation or timeout.
+Earlier nightly/manual artifacts are diagnostic evidence, **never** reusable
+deployment approvals. Wiring is not a successful hosted execution or owner-key
+provisioning. Before merge, the registered `ci.yml` default-off
+`run_release_verification=true` bridge invokes the same fresh scale workflow,
+then genuine packaging/signing with ephemeral keys and production-trust
+isolation, with no production publication. See [release operations](releasing.md)
+for the exact safe hosted command, required results and remaining prerequisites.
+
+Core CI also runs the non-UI `Release*.Tests.ps1` contracts: real temporary Git
+history, controlled ephemeral cryptography, exact suite evidence, archive
+isolation and fake external GitHub publication effects. They never call a real
+publication endpoint, open WPF or run an installer.
+The core runner-category signer interoperability test also invokes the real
+PowerShell signer with an ephemeral key and feeds its exact envelope to the real
+`UpdateChecker`, checking pinned bytes and mutation rejection without network IO.
+Metadata renewal contracts additionally cover due/no-product/no-op evaluation,
+original source/trust/provenance, copied bootstrap bytes, unchanged app versions
+and stale/failed/concurrent fake GitHub publication. The hosted release bridge
+renews its genuine fixture package with ephemeral signing and uploads named
+renewal evidence, never a production release.
+
+The trust-verifier lifetime regression compiles a minimal public-resource
+assembly, runs both real trust checks, and immediately deletes the fixture tree
+in the same PowerShell process. It reproduces the hosted `Assembly.LoadFile`
+mapping/cleanup denial without WPF or installation. Byte-based inspection retains
+all trust/controlled-effects checks without holding the package DLL mapped.
+Cleanup must finish before the hosted release result can report success; there
+is no retry, swallowed deletion error or connection to the parked note issue.
+
+Both scale fixtures save the app's ordinary startup-update opt-out before launch,
+so a production-trusted historical candidate cannot download a production update
+while being tested. The runner's file-backed regression observes both preferences
+before scenario actions and verifies update/installed-update selections remain
+untouched. No product default, public key, transport effect or scenario assertion
+is replaced. Automatic renewal refuses historical candidates predating this
+isolation instead of modifying their exact-source test checkout.
+
+## Isolation and remaining blockers
+
+Use fictitious people and local images, never company exports or production
+credentials. Keep fixtures/results out of product output. Dispose workflows,
+watchers, streams and application processes before cleanup. Preserve version,
+data, error and rejected-save semantics while relocating tests.
+
+Test migration neither repairs nor waives the separately parked rare
+note-publication failure. If observed, report the exact failure rather than
+masking it with retries. Installer verification, owner signing/trust provisioning and release operating
+prerequisites remain separate evidence; test reorganization is not v1 acceptance
+or permission to publish.

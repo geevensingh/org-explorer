@@ -1,0 +1,569 @@
+using System.Collections.Concurrent;
+using System.Net.Mail;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace OrgExplorer.Workflow;
+
+public sealed record PersonProfile(string Email, string? DirectoryName, string? PreferredName, string? ManagerEmail,
+    bool Archived = false)
+{
+    public string? Alias { get; init; }
+    public string? JobTitle { get; init; }
+    public string? Department { get; init; }
+    public string? OfficeBuilding { get; init; }
+    public string? OfficeNumber { get; init; }
+    public string? OfficeState { get; init; }
+    public string? OfficeCountry { get; init; }
+    public string? LinkedInProfileUrl { get; init; }
+    public string Heading => PreferredName ?? DirectoryName ?? Email;
+    public string? PhotoPath { get; init; }
+    public bool IsFavorite { get; init; }
+}
+
+public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors)
+{
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+}
+
+public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
+public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
+
+public partial interface IApplicationWorkflow : IDisposable
+{
+    event EventHandler? WorkspaceChanged;
+    bool IsWorkspaceCurrent { get; }
+    bool CanSafelyClose { get; }
+    string? LocalSaveError { get; }
+    void DiscardUnsavedChanges(Guid? noteId = null);
+    bool RefreshWorkspace();
+    IReadOnlyList<PersonProfile> People { get; }
+    IReadOnlyList<ReportingNode> ReportingRoots { get; }
+    PersonRelationships? GetRelationships(string email);
+    ProfileTimeline? GetProfileTimeline(string email);
+    string Status { get; }
+    bool OpenWorkspace(string path);
+    ImportPreview PreviewImport(string json);
+    ImportPreview PreviewImportFile(string path);
+    bool ApplyImport(Guid previewId);
+    bool EditPreferredName(string email, string? preferredName);
+    PersonPhoto? GetPhoto(string email);
+    bool EditPhoto(string email, string? localPath);
+    bool EditPersonText(string email, PersonTextField field, string? value);
+    bool OpenLinkedInProfile(string email);
+}
+
+public sealed partial class ApplicationWorkflow : IApplicationWorkflow
+{
+    private readonly bool memory;
+    private readonly IWorkspaceFilePublisher filePublisher;
+    private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, AcceptedBatch> batches = [];
+    private string? workspace;
+    private string? revision;
+    private Pending? pending;
+    private string? importPath;
+    private string? importHash;
+    private sealed record Pending(ImportPreview Preview, Dictionary<string, PersonProfile> People,
+        string BatchId, string Fingerprint, JsonElement Source, Dictionary<string, byte[]> Photos,
+        IReadOnlyList<PhotoResource> Resources);
+    private sealed record AcceptedBatch(string Fingerprint, JsonElement Source, DateTimeOffset AppliedAt);
+    private sealed record WorkspaceMetadata(
+        [property: System.Text.Json.Serialization.JsonRequired] int SchemaVersion,
+        [property: System.Text.Json.Serialization.JsonRequired] string Generation,
+        IReadOnlyList<string>? Files = null,
+        IReadOnlyDictionary<string, int>? RecordVersions = null);
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+    };
+
+    private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener, TimeProvider? timeProvider,
+        IWorkspaceFilePublisher? filePublisher = null)
+    {
+        this.memory = memory;
+        this.profileLinkOpener = profileLinkOpener;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.filePublisher = filePublisher ?? new WorkspaceFilePublisher();
+    }
+    public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
+        new ApplicationWorkflow(true, profileLinkOpener, timeProvider);
+    public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null,
+        IWorkspaceFilePublisher? filePublisher = null) =>
+        new ApplicationWorkflow(false, profileLinkOpener, timeProvider, filePublisher);
+    public IReadOnlyList<PersonProfile> People
+    { get { if (queryView is { } view) return view.People; lock (workspaceGate) return OrderedPeople(); } }
+    public IReadOnlyList<ReportingNode> ReportingRoots
+    {
+        get
+        {
+            if (queryView is { } view) return view.ReportingRoots;
+            lock (workspaceGate)
+            {
+            if (reportingRoots is not null) return reportingRoots;
+            var children = new Dictionary<string, List<ReportingNode>>(StringComparer.OrdinalIgnoreCase);
+            var nodes = new Dictionary<string, ReportingNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (var person in People.Where(p => !p.Archived))
+            {
+                var reports = new List<ReportingNode>();
+                children.Add(person.Email, reports);
+                nodes.Add(person.Email, new ReportingNode(person, reports.AsReadOnly()));
+            }
+            var roots = new List<ReportingNode>();
+            foreach (var node in nodes.Values)
+                if (node.Person.ManagerEmail is { } manager) children[manager].Add(node);
+                else roots.Add(node);
+            return reportingRoots = roots.AsReadOnly();
+            }
+        }
+    }
+    public PersonRelationships? GetRelationships(string email)
+    { if (queryView is { } view) return view.GetRelationships(email);
+      lock (workspaceGate) return people.TryGetValue(email, out var person)
+        ? new PersonRelationships(person, person.ManagerEmail is { } manager ? people.GetValueOrDefault(manager) : null,
+            ReportsOf(person.Email))
+        : null; }
+    private string statusSnapshot = "Choose a Workspace.";
+    public string Status
+    {
+        get => Volatile.Read(ref statusSnapshot);
+        private set
+        {
+            var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
+            Volatile.Write(ref saveErrorSnapshot, error);
+            Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
+                ? value + "\n" + error : value);
+        }
+    }
+
+    public bool OpenWorkspace(string path)
+    { lock (workspaceGate) return OpenWorkspaceCore(path); }
+
+    private bool OpenWorkspaceCore(string path)
+    {
+        if (disposed) return Fail("The Workspace workflow is closed.");
+        StopWatching();
+        workspaceCurrent = false;
+        pending = null;
+        workspace = null;
+        compatibility = new(WorkspaceCompatibilityState.NotOpened,
+            "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (fullPath.StartsWith(@"\\", StringComparison.Ordinal))
+                throw new IOException("Choose an ordinary local Workspace, not a network share.");
+            if (!memory && fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Choose a Workspace outside the application installation.");
+            if (!memory) Directory.CreateDirectory(fullPath);
+            workspace = fullPath;
+            ReadAndAcceptWorkspace();
+            if (!memory) StartWatching();
+            Status = conversionMessage ?? "Workspace opened.";
+            return true;
+        }
+        catch (Exception ex) when (StorageError(ex))
+        {
+            MarkCompatibilityFailure(ex);
+            people.Clear();
+            batches.Clear();
+            profileHistory.Clear();
+            historicalTeamContexts.Clear();
+            personNotes.Clear();
+            teamNotes.Clear();
+            teamNoteConfirmations.Clear();
+            teamContextRevisions.Clear();
+            photos.Clear();
+            InvalidateProjections();
+            if (!memory && workspace is not null && Directory.Exists(workspace)) StartWatching();
+            return Fail("Workspace could not be opened: " + ex.Message);
+        }
+    }
+
+    public ImportPreview PreviewImport(string json)
+    { lock (workspaceGate) return PreviewImport(json, null); }
+
+    private ImportPreview PreviewImport(string json, string? importDirectory)
+    {
+        importPath = null;
+        importHash = null;
+        pending = null;
+        var errors = new List<string>();
+        var changes = new List<string>();
+        var warnings = new List<string>();
+        var id = Guid.NewGuid();
+        if (workspace is null) errors.Add("Open a Workspace first.");
+        else if (!workspaceCurrent) errors.Add("Workspace unavailable; retained information is STALE. Wait for valid local delivery before importing.");
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var (batchId, observedAt, records) = ValidateImportEnvelope(root, "batch");
+            var observed = root.GetProperty("observedAt").GetString()!;
+            root.TryGetProperty("producer", out var producer);
+            var previouslyAccepted = batches.ContainsKey(batchId);
+            var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var canonical = new List<string>();
+            var recordIndex = 0;
+            var proposedPhotos = new Dictionary<string, byte[]>(photos);
+            var resources = new List<PhotoResource>();
+            var resourcesByPath = new Dictionary<string, PhotoResource>(StringComparer.OrdinalIgnoreCase);
+            foreach (var record in records.EnumerateArray())
+            {
+                var scope = $"people[{recordIndex++}]";
+                var email = ValidateImportRecord(record, scope);
+                var priorChanges = changes.Count;
+                if (!keys.Add(email)) throw new FormatException($"{email}: duplicate Person identity.");
+                var existing = proposed.GetValueOrDefault(email);
+                var directoryName = record.TryGetProperty("displayName", out var name) ? Text(name, $"{email}.displayName") : existing?.DirectoryName;
+                var preferredName = record.TryGetProperty("preferredName", out var preferred) ? Text(preferred, $"{email}.preferredName") : existing?.PreferredName;
+                var manager = record.TryGetProperty("managerEmail", out var managerValue)
+                    ? managerValue.ValueKind == JsonValueKind.Null ? null : Email(managerValue, $"{email}.managerEmail")
+                    : existing?.ManagerEmail;
+                if (existing is null && (directoryName is null || !record.TryGetProperty("managerEmail", out _)))
+                    throw new FormatException($"{email}: creation requires displayName and explicit managerEmail (null means no Manager).");
+                var archived = record.TryGetProperty("archived", out var archival)
+                    ? Boolean(archival, $"{email}.archived") : existing?.Archived ?? false;
+                var favorite = record.TryGetProperty("isFavorite", out var favoriteValue)
+                    ? Boolean(favoriteValue, $"{email}.isFavorite") : existing?.IsFavorite ?? false;
+                var photoPath = existing?.PhotoPath;
+                string? photoHash = null;
+                if (record.TryGetProperty("photoPath", out var photo))
+                {
+                    if (photo.ValueKind == JsonValueKind.Null) photoPath = null;
+                    else
+                    {
+                        var relativePath = Text(photo, $"{email}.photoPath", false)!;
+                        if (importDirectory is null)
+                            throw new FormatException($"{email}.photoPath: select an import JSON file so local photos have a containing directory.");
+                        if (!resourcesByPath.TryGetValue(relativePath, out var resource))
+                        {
+                            resource = ReadPhotoResource(importDirectory, relativePath, $"{email}.photoPath");
+                            resourcesByPath.Add(relativePath, resource);
+                            resources.Add(resource);
+                        }
+                        photoHash = resource.Hash;
+                        photoPath = photoHash.ToLowerInvariant() + resource.Extension;
+                        proposedPhotos[photoPath] = resource.Bytes;
+                    }
+                    if (photoPath != existing?.PhotoPath)
+                        changes.Add($"{email}: Photo {(photoPath is null ? "→ (clear)" : "→ supplied local image")}");
+                }
+                var next = (existing ?? new PersonProfile(email, directoryName, preferredName, manager)) with
+                { DirectoryName = directoryName, PreferredName = preferredName, ManagerEmail = manager, Archived = archived,
+                    IsFavorite = favorite, PhotoPath = photoPath };
+                foreach (var (field, property, _) in TextFields)
+                    if (record.TryGetProperty(property, out var value))
+                        next = WithText(next, field, ValidateText(value, field, $"{email}.{property}"));
+                proposed[email] = next;
+                if (!previouslyAccepted) AddOlderEvidenceWarnings(email, record, observedAt, warnings);
+                if (existing is null) changes.Add($"Add {email}: Manager = {manager ?? "(none)"}");
+                foreach (var (field, _, label) in TextFields)
+                {
+                    var previous = existing is null ? null : ReadText(existing, field);
+                    var current = ReadText(next, field);
+                    if (previous != current)
+                        changes.Add($"{email}: {label} {previous ?? "(none)"} → {current ?? "(clear)"}");
+                }
+                if (existing is not null && !string.Equals(existing.ManagerEmail, manager, StringComparison.OrdinalIgnoreCase))
+                    changes.Add($"{email}: Manager {existing.ManagerEmail ?? "(none)"} → {manager ?? "(clear)"}");
+                if (existing?.Archived != archived && archived) changes.Add($"Archive {email}: retain profile and local context.");
+                if (existing?.Archived == true && !archived) changes.Add($"Reactivate {email} in the current reporting tree.");
+                if ((existing?.IsFavorite ?? false) != favorite)
+                    changes.Add($"{email}: Favorite {(favorite ? "→ marked" : "→ unmarked")}");
+                if (changes.Count == priorChanges)
+                {
+                    var supplied = record.EnumerateObject().Where(p => p.Name != "email")
+                        .Select(p => ProfileFieldLabel(p.Name)).ToArray();
+                    changes.Add($"{email}: No explicit field changes; omitted values and people stay unchanged." +
+                        (supplied.Length == 0 ? "" : $" Record explicit evidence for {string.Join(", ", supplied)} without a Profile change."));
+                }
+                canonical.Add(string.Join("|", record.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
+                    .Select(p => JsonSerializer.Serialize(p.Name) + ":" + (p.Name is "email" or "managerEmail" && p.Value.ValueKind == JsonValueKind.String
+                        ? JsonSerializer.Serialize(p.Value.GetString()!.ToLowerInvariant())
+                        : p.Value.ValueKind == JsonValueKind.String ? JsonSerializer.Serialize(p.Value.GetString()) : p.Value.GetRawText())))
+                    + (photoHash is null ? "" : "|photoBytes:" + photoHash));
+            }
+            var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                observed + "|" + (root.TryGetProperty("producer", out producer) ? producer.GetString() : "") + "|" + string.Join("\n", canonical.Order(StringComparer.Ordinal)))));
+            if (batches.TryGetValue(batchId, out var accepted))
+            {
+                if (accepted.Fingerprint != fingerprint) throw new FormatException("batchId: already accepted with different logical data.");
+                changes.Clear();
+                warnings.Clear();
+                changes.Add("Already applied: exact replay is a no-op.");
+            }
+            else
+            {
+                ValidateGraph(proposed);
+                PreviewTeamNoteReview(proposed, changes);
+            }
+            var preview = new ImportPreview(id, errors.Count == 0, changes, errors) { Warnings = warnings };
+            if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
+            Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
+            return preview;
+        }
+        catch (Exception ex) when (StorageError(ex) || ex is InvalidOperationException or KeyNotFoundException)
+        {
+            errors.Add(ex.Message);
+            Status = "Import rejected: " + string.Join("\n", errors);
+            return new ImportPreview(id, false, changes, errors);
+        }
+    }
+
+    public bool ApplyImport(Guid previewId)
+    { lock (workspaceGate) return ApplyImportCore(previewId); }
+
+    private bool ApplyImportCore(Guid previewId)
+    {
+        try
+        {
+            EnsureWorkspaceWritable();
+            if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
+            if ((importPath is not null && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(importPath))) != importHash) ||
+                (!memory && WorkspaceFingerprint() != revision) || !PhotoResourcesUnchanged(pending.Resources))
+            {
+                pending = null;
+                return Fail("Workspace or import file changed. Reopen and preview again before applying.");
+            }
+        }
+        catch (Exception ex) when (StorageError(ex))
+        {
+            pending = null;
+            return Fail("Preview could not be revalidated: " + ex.Message);
+        }
+        if (batches.ContainsKey(pending.BatchId))
+        {
+            pending = null;
+            Status = "Already applied: no changes.";
+            return true;
+        }
+        var appliedAt = timeProvider.GetUtcNow();
+        var history = CaptureImportHistory(pending.Source, pending.People, appliedAt);
+        var accepted = new Dictionary<string, AcceptedBatch>(batches)
+        { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, appliedAt) };
+        if (!Save(pending.People, accepted, pending.Photos, history, resources: pending.Resources)) { pending = null; return false; }
+        photos = pending.Photos;
+        people = pending.People;
+        batches = accepted;
+        profileHistory = history;
+        InvalidateProjections();
+        pending = null;
+        Status = "Import applied and saved locally.";
+        return true;
+    }
+
+    public bool EditPreferredName(string email, string? preferredName) =>
+        EditPersonText(email, PersonTextField.PreferredName, preferredName);
+
+    private bool Fail(string message) { Status = message; return false; }
+    public ImportPreview PreviewImportFile(string path)
+    { lock (workspaceGate) return PreviewImportFileCore(path); }
+
+    private ImportPreview PreviewImportFileCore(string path)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var offset = bytes.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf }) ? 3 : 0;
+            var preview = PreviewImport(new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset),
+                Path.GetDirectoryName(Path.GetFullPath(path)));
+            importPath = Path.GetFullPath(path);
+            importHash = Convert.ToHexString(SHA256.HashData(bytes));
+            return preview;
+        }
+        catch (Exception ex) when (StorageError(ex))
+        {
+            pending = null;
+            Fail("Import file could not be read: " + ex.Message);
+            return new ImportPreview(Guid.NewGuid(), false, [], [Status]);
+        }
+    }
+    private static bool StorageError(Exception ex) => ex is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException;
+    private static void ValidateGraph(Dictionary<string, PersonProfile> proposed)
+    {
+        foreach (var person in proposed.Values)
+        {
+            if (person.ManagerEmail is { } manager)
+            {
+                if (!proposed.TryGetValue(manager, out var ancestor))
+                    throw new FormatException($"{person.Email}.managerEmail: unknown Manager {manager}.");
+                if (!person.Archived && ancestor.Archived)
+                    throw new FormatException($"{person.Email}.managerEmail: active reports require an active Manager; {manager} is Archived. " +
+                        "Explicitly reassign, clear the Manager relationship, or archive each affected active report. No cascade or reassignment is inferred.");
+            }
+        }
+        var complete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var person in proposed.Values.Where(p => !p.Archived))
+        {
+            var path = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var current = person;
+            while (!complete.Contains(current.Email))
+            {
+                if (!path.Add(current.Email))
+                    throw new FormatException($"{person.Email}.managerEmail: active reporting cycle or self-reporting.");
+                if (current.ManagerEmail is null) break;
+                current = proposed[current.ManagerEmail];
+            }
+            complete.UnionWith(path);
+        }
+    }
+    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null,
+        IReadOnlyDictionary<string, byte[]>? snapshot = null, bool allGenerations = false)
+    {
+        using var access = CoordinateWorkspaceIo(workspace!);
+        snapshot ??= CaptureWorkspaceBytes(allGenerations);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var path in (snapshot is null ? EnumerateWorkspaceFiles(workspace!, allGenerations) : snapshot.Keys)
+            .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
+                (ignoredGeneration is null || !p.StartsWith(Path.Combine(workspace!, "generations", ignoredGeneration) +
+                    Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) &&
+                (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))).Order())
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
+            hash.AppendData(snapshot is null ? ReadWorkspaceBytesUncached(path) : snapshot[path]);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+    private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
+        Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
+        string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
+    {
+        var nextTeamContexts = NextTeamContextRevisions(proposed);
+        var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
+        if (memory)
+        {
+            teamContextRevisions = nextTeamContexts;
+            historicalTeamContexts = nextHistoricalContexts;
+            failedSaves.Remove(operation);
+            return true;
+        }
+        try
+        {
+            using var access = CoordinateWorkspaceIo(workspace!);
+            EnsureWorkspaceWritable();
+            using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var sourceBytes = CaptureWorkspaceBytes();
+            if (WorkspaceFingerprint(snapshot: sourceBytes) != revision)
+                throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
+            string? sourceGeneration = null;
+            if (sourceBytes.TryGetValue(Path.Combine(workspace!, "workspace.json"), out var pointerBytes))
+            {
+                using var sourcePointer = JsonDocument.Parse(pointerBytes);
+                sourceGeneration = Path.Combine(workspace!, "generations", ReadWorkspaceMetadata(sourcePointer.RootElement).Generation);
+            }
+            var generation = Guid.NewGuid().ToString("N");
+            var directory = Path.Combine(workspace!, "generations", generation);
+            var published = new ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            Directory.CreateDirectory(Path.Combine(directory, "people"));
+            RunBoundedFileIo(proposed.Values, person =>
+            {
+                var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
+                var target = Path.Combine(directory, "people", key + ".json");
+                var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "people", key + ".json");
+                if (people.TryGetValue(person.Email, out var prior) && prior == person &&
+                    source is not null && sourceBytes.TryGetValue(source, out var bytes))
+                    WriteDurablyBytes(target, bytes, published);
+                else WriteVersionedRecord(target, person, published);
+            });
+            SavePhotos(directory, proposed, proposedPhotos ?? photos, published);
+            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts, published);
+            WriteDurably(Path.Combine(directory, "batches.json"), accepted, published);
+            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes, published);
+            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes, published);
+            var staged = Path.Combine(workspace!, "workspace.next");
+            var files = published.Keys
+                .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
+            // Unlink only the app-owned stage, then create exclusively so a raced link is never followed.
+            File.Delete(staged);
+            WriteDurablyBytes(staged, JsonSerializer.SerializeToUtf8Bytes(
+                new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), JsonOptions), published);
+            if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
+                throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
+            var destination = Path.Combine(workspace!, "workspace.json");
+            filePublisher.Publish(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
+            liveGeneration = generation;
+            var generationPrefix = Path.Combine(workspace!, "generations") + Path.DirectorySeparatorChar;
+            var expected = sourceBytes.Where(entry => !entry.Key.StartsWith(generationPrefix, StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+            foreach (var (path, bytes) in published)
+                expected[path == staged ? destination : path] = bytes;
+            AcceptWorkspaceRevision(expected);
+            teamContextRevisions = nextTeamContexts;
+            historicalTeamContexts = nextHistoricalContexts;
+            failedSaves.Remove(operation);
+            return true;
+        }
+        catch (Exception ex) when (StorageError(ex))
+        {
+            return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
+        }
+    }
+    private static void WriteDurably<T>(string path, T value, ConcurrentDictionary<string, byte[]>? published = null)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+        using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        file.Write(bytes);
+        file.Flush(true);
+        if (published is not null) published[path] = bytes;
+    }
+    private static void WriteDurablyBytes(string path, byte[] bytes, ConcurrentDictionary<string, byte[]>? published = null)
+    {
+        using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        file.Write(bytes);
+        file.Flush(true);
+        if (published is not null) published[path] = bytes;
+    }
+    private static void RunBoundedFileIo<T>(IEnumerable<T> values, Action<T> write)
+    {
+        try
+        {
+            Parallel.ForEach(values, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) }, write);
+        }
+        catch (AggregateException error) when (error.Flatten().InnerExceptions.All(StorageError))
+        {
+            throw new IOException("Workspace file I/O failed: " +
+                error.Flatten().InnerExceptions[0].Message, error);
+        }
+    }
+    private static string? Text(JsonElement value, string field, bool nullable = true)
+    {
+        if (nullable && value.ValueKind == JsonValueKind.Null) return null;
+        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
+            throw new FormatException($"{field}: expected nonblank text{(nullable ? " or null" : "")}.");
+        return value.GetString();
+    }
+    private static string Email(JsonElement value, string field)
+    {
+        var email = Text(value, field, false)!;
+        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+$") || !MailAddress.TryCreate(email, out var parsed) || parsed.Address != email ||
+            !email[(email.LastIndexOf('@') + 1)..].Split('.').All(label =>
+                Regex.IsMatch(label, @"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")))
+            throw new FormatException($"{field}: expected a plain email mailbox.");
+        return email;
+    }
+    private static bool Boolean(JsonElement value, string field) =>
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean()
+            : throw new FormatException($"{field}: expected Boolean true or false; omission preserves the value.");
+    private static void CheckProperties(JsonElement value, string[] allowed, string scope)
+    {
+        if (value.ValueKind != JsonValueKind.Object) throw new FormatException($"{scope}: expected an object.");
+        var seen = new HashSet<string>();
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!seen.Add(property.Name)) throw new FormatException($"{scope}.{property.Name}: duplicate property.");
+            if (!allowed.Contains(property.Name))
+                throw new FormatException($"{scope}.{property.Name}: unsupported field in this app slice; nothing will be discarded or applied.");
+        }
+    }
+    private static JsonElement Required(JsonElement value, string property, string scope) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var result) ? result
+            : throw new FormatException($"{scope}.{property}: required field is missing or its record is not an object.");
+}

@@ -164,6 +164,11 @@ effective dates.
 
 ## CI and GitHub enforcement
 
+The approved [testing strategy](testing.md) defines current commands, test
+placement and the separation of exhaustive desktop acceptance into
+focused WPF scenarios plus separate performance suites. It supersedes the
+earlier expectation that every full scale workload runs on every PR.
+
 Run CI on every PR and after every commit reaches `main`, including documentation-
 only and test-only changes. Use separate parallel jobs with independently visible
 checks:
@@ -175,7 +180,14 @@ checks:
 | Desktop smoke | Actual Windows launch, open-profile, edit, and save flows; not a test-only success flag substituting for UI behavior. |
 
 Use fictitious people and local fixtures, never company data. Exercise the
-10,000-person target. Test updater verification, failure, and restart behavior
+10,000-person target in explicit performance suites while retaining targeted
+large-graph correctness in normal PR coverage. Both complete non-UI performance
+and genuine WPF-scale suites have explicit commands and share nightly/manual
+verification; required desktop smoke retains ordinary WPF-specific journeys.
+Future publication must run both commands fresh against its exact candidate
+and fail closed; this callable contract is not an implemented publication gate.
+See the testing strategy for commands, schedule activation and revision evidence.
+Test updater verification, failure, and restart behavior
 without acquiring real releases or using production secrets.
 
 A stable aggregate check, named `CI`, must pass only when every required lane

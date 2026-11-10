@@ -1,0 +1,124 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_scale_verification:
+        description: Run separate scale verification at this dispatch commit
+        required: false
+        default: false
+        type: boolean
+      run_release_verification:
+        description: Verify exact candidate scale and release packaging with ephemeral keys, never publish
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core and view models
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: .\eng\Run-CiLane.ps1 core
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: core-timings
+          path: |
+            .ci-results/core/*.json
+            .ci-results/core/*.log
+            .ci-results/core/*.trx
+
+  filesystem:
+    name: Real filesystem persistence
+    runs-on: windows-latest
+    timeout-minutes: 11
+    steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: .\eng\Run-CiLane.ps1 filesystem
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: filesystem-timings
+          path: |
+            .ci-results/filesystem/*.json
+            .ci-results/filesystem/*.log
+            .ci-results/filesystem/*.trx
+
+  desktop:
+    name: Actual Windows desktop smoke
+    runs-on: windows-latest
+    timeout-minutes: 11
+    steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: .\eng\Run-CiLane.ps1 desktop
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: desktop-timings
+          path: |
+            .ci-results/desktop/*.json
+            .ci-results/desktop/*.log
+
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: [core, filesystem, desktop]
+    runs-on: windows-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require every test lane to succeed
+        env:
+          CORE_RESULT: ${{ needs.core.result }}
+          FILESYSTEM_RESULT: ${{ needs.filesystem.result }}
+          DESKTOP_RESULT: ${{ needs.desktop.result }}
+        run: |
+          . .\eng\CiGate.ps1
+          Assert-CiResults @($env:CORE_RESULT, $env:FILESYSTEM_RESULT, $env:DESKTOP_RESULT)
+
+  scale-verification:
+    name: Optional manual scale verification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
+    uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ github.sha }}
+
+  release-verification:
+    name: Optional secret-free release verification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-verification.yml
+    with:
+      revision: ${{ github.sha }}

@@ -1,0 +1,63 @@
+<UserControl x:Class="OrgExplorer.Desktop.TeamNotesControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel>
+    <TextBlock Text="Team notes — private, explicitly inherited scope" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock x:Name="Ownership" AutomationProperties.AutomationId="TeamNoteOwnership"
+               TextWrapping="Wrap" Margin="0,4,0,8"/>
+    <DockPanel Margin="0,0,0,8">
+      <Button x:Name="NewButton" DockPanel.Dock="Right" Content="New Team note"
+              AutomationProperties.AutomationId="NewTeamNote" Click="CreateNote" IsEnabled="False"/>
+      <CheckBox x:Name="IncludeArchived" Content="Show archived Team notes"
+                AutomationProperties.AutomationId="ShowArchivedTeamNotes"
+                Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
+    </DockPanel>
+    <TextBlock Text="Owned Team notes (not inherited from another Manager)" FontWeight="SemiBold"/>
+    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes" AutomationProperties.Name="Owned Team notes"
+             DisplayMemberPath="Title" Height="80" SelectionChanged="SelectNote">
+      <ListBox.ItemContainerStyle>
+        <Style TargetType="ListBoxItem">
+          <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
+          <Setter Property="AutomationProperties.AutomationId" Value="{Binding Id}"/>
+        </Style>
+      </ListBox.ItemContainerStyle>
+    </ListBox>
+    <TextBlock x:Name="ReviewStatus" AutomationProperties.AutomationId="TeamNoteReview"
+               TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
+    <TextBlock Text="Title (autosaved; editing confirms current applicability)" TextWrapping="Wrap" Margin="0,4"/>
+    <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="TeamNoteTitle"
+             AutomationProperties.Name="Team note title"
+             IsEnabled="False" TextChanged="EditNote"/>
+    <TabControl x:Name="Views" Margin="0,8,0,0">
+      <TabItem x:Name="EditTab" Header="Edit Markdown" AutomationProperties.AutomationId="TeamNoteEditTab">
+        <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="TeamNoteMarkdown"
+                 AutomationProperties.Name="Team note Markdown"
+                 IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
+                 TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
+      </TabItem>
+      <TabItem Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
+        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
+                                  Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+      </TabItem>
+    </TabControl>
+    <WrapPanel Margin="0,8">
+      <Button x:Name="ConfirmButton" Content="Confirm still applies" AutomationProperties.AutomationId="ConfirmTeamNote"
+              Click="ConfirmNote" IsEnabled="False" Margin="0,0,8,0"/>
+      <Button x:Name="ArchiveButton" Content="Archive Team note" AutomationProperties.AutomationId="ArchiveTeamNote"
+              Click="ArchiveNote" IsEnabled="False" Margin="0,0,8,0"/>
+      <Button x:Name="RetryButton" Content="Retry local save" AutomationProperties.AutomationId="RetryTeamNoteSave"
+              Click="RetrySave" IsEnabled="False" Margin="0,0,8,0"/>
+      <Button x:Name="DiscardButton" Content="Discard unsaved draft" AutomationProperties.AutomationId="DiscardTeamNoteDraft"
+              Click="DiscardDraft" IsEnabled="False"/>
+    </WrapPanel>
+    <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" TextWrapping="Wrap"/>
+    <TextBlock Text="Current inherited Team context — every formal ancestor" FontSize="18" FontWeight="SemiBold"
+               TextWrapping="Wrap" Margin="0,16,0,4"/>
+    <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" TextWrapping="Wrap"/>
+    <StackPanel x:Name="ReviewOwners" Margin="0,4"/>
+    <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"
+                              Height="240" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+    <TextBlock Text="Team scope is not sharing. Person notes never inherit. Images and raw HTML are never loaded."
+               TextWrapping="Wrap" Foreground="DimGray" Margin="0,4"/>
+  </StackPanel>
+</UserControl>

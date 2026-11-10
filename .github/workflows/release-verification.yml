@@ -1,0 +1,72 @@
+name: Secret-free release candidate verification
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        description: Exact immutable candidate to verify without production publication
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  scale:
+    uses: ./.github/workflows/scale-verification.yml
+    with:
+      revision: ${{ inputs.revision }}
+
+  package:
+    needs: scale
+    if: ${{ always() && needs.scale.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/download-artifact@v4
+        with:
+          name: non-ui-performance-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/performance
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-scale-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/release-gates/ui-scale
+      - name: Verify genuine candidate packaging with ephemeral signing and no publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ inputs.revision }}
+        run: |
+          .\tests\Release.Tests.ps1
+          .\tests\Release.Gates.Tests.ps1
+          .\tests\Release.Publication.Tests.ps1
+          .\tests\Release.Renewal.Tests.ps1
+          .\tests\Release.Workflow.Tests.ps1
+          .\tests\Release.Payload.Tests.ps1
+          .\tests\Update.TrustLifetime.Tests.ps1
+          .\eng\Test-ReleaseCandidate.ps1 -Candidate $env:CANDIDATE
+      - name: Remove any interrupted ephemeral fixture
+        if: ${{ always() }}
+        run: |
+          Get-ChildItem .test-workspaces -Directory -Filter 'release-signing-*' -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: secret-free-release-evidence-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .artifacts/release-verification/result.json
+            .artifacts/release-verification/ephemeral-signed-manifest.json
+            .artifacts/release-verification/ephemeral-renewal-manifest.json
+            .artifacts/release-verification/package-metadata.json
