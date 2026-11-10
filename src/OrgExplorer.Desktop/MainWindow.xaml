@@ -45,7 +45,7 @@
           </WrapPanel>
           <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap"/>
           <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
-          <TextBlock Text="Project-key authorization is not Windows publisher verification and does not remove installer warnings. Automatic installation and restart are not connected yet."
+          <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
                      TextWrapping="Wrap"/>
           <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
                      TextWrapping="Wrap" Margin="0,8"/>
@@ -54,17 +54,17 @@
         </StackPanel>
       </Border>
     </StackPanel>
-    <DockPanel Grid.Row="1" Margin="0,0,0,8">
+    <DockPanel x:Name="WorkspaceControls" Grid.Row="1" Margin="0,0,0,8">
       <Button x:Name="OpenWorkspaceButton" DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
       <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>
       <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath" ToolTip="Workspace folder, separate from installation"/>
     </DockPanel>
-    <DockPanel Grid.Row="2" Margin="0,0,0,8">
+    <DockPanel x:Name="ImportControls" Grid.Row="2" Margin="0,0,0,8">
       <Button x:Name="PreviewButton" DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
       <Button DockPanel.Dock="Right" Content="Choose JSON…" Click="ChooseImport" Margin="8,0"/>
       <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"/>
     </DockPanel>
-    <DockPanel Grid.Row="3" Margin="0,0,0,12">
+    <DockPanel x:Name="ImportPreviewPanel" Grid.Row="3" Margin="0,0,0,12">
       <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
               IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
       <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>

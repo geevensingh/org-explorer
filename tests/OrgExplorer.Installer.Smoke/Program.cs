@@ -42,7 +42,7 @@ internal static class Program
             ["runnerImage"] = Environment.GetEnvironmentVariable("ImageOS") ?? "Windows Sandbox",
             ["runnerImageVersion"] = Environment.GetEnvironmentVariable("ImageVersion") ?? "not-provided",
             ["sourceCommit"] = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local-sandbox-input",
-            ["trustLimitations"] = "Unsigned fixture installers; no Windows trust bypass, production publication, signing key, or authenticated automatic update is exercised.",
+            ["trustLimitations"] = "Unsigned fixture installers; ephemeral project-key update authorization only when explicitly provisioned for this hosted run. No Windows trust bypass, production publication, production signing key, or Windows publisher certification.",
             ["uninstallCompletions"] = UninstallCompletions,
             ["result"] = "failed"
         };
@@ -101,6 +101,23 @@ internal static class Program
             Run(SmokeRunner, "desktop-unauthorized-pending", exe, workspace, "reopen", version);
             RequireUnchanged(workspace, savedWorkspace, "unauthorized pending package");
             evidence["unauthorizedPendingPackageNotApplied"] = true;
+
+            if (Environment.GetEnvironmentVariable("ORG_EXPLORER_UPDATE_FIXTURE") is { } updateFixture)
+            {
+                Run(SmokeRunner, "desktop-authenticated-automatic-update", exe, workspace, "update", version, upgradedVersion);
+                using var handoff = JsonDocument.Parse(File.ReadAllText(Path.Combine(updateFixture, "handoff.json")));
+                if (handoff.RootElement.GetProperty("version").GetString() != upgradedVersion ||
+                    handoff.RootElement.GetProperty("workspace").GetString() != workspace)
+                    throw new InvalidOperationException("Authenticated automatic handoff did not retain the exact version and Workspace.");
+                var beforeRestart = handoff.RootElement.GetProperty("workspaceFiles").EnumerateObject()
+                    .ToDictionary(file => file.Name, file => file.Value.GetString()!, StringComparer.OrdinalIgnoreCase);
+                RequireUnchanged(workspace, beforeRestart, "authenticated apply and automatic Workspace reopen");
+                savedWorkspace = Snapshot(workspace);
+                evidence["authenticatedAutomaticUpdateAndRestart"] = true;
+                evidence["safeLocalHandoffWorkspaceFiles"] = beforeRestart.Count;
+            }
+            else if (hosted)
+                throw new InvalidOperationException("Hosted ticket-18 lifecycle requires the ephemeral signed-update fixture; missing automatic update evidence cannot pass.");
 
             Run(upgradedSetup, "upgrade", "--silent", "--log", Path.Combine(Results, "upgrade.log"));
             RequireUnchanged(workspace, savedWorkspace, "installation upgrade");

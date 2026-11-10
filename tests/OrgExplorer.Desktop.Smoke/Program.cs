@@ -15,7 +15,8 @@ internal static partial class Program
     {
         try
         {
-            var installer = args.Length == 4 && args[2] is "create" or "reopen";
+            var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
+                args.Length == 5 && args[2] == "update";
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
@@ -36,7 +37,11 @@ internal static partial class Program
             };
             if (!selection.Smoke.Concat(selection.Scale).Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");
-            if (installer) actions.Add("installer-" + args[2], root => RunInstallerFlow(args, root));
+            if (installer) actions.Add("installer-" + args[2], root =>
+            {
+                if (args[2] == "update") RunInstalledAutomaticUpdate(args, root);
+                else RunInstallerFlow(args, root);
+            });
             var selected = installer ? ["installer-" + args[2]] : selection.Select(args.Length == 1 ? null : args[1]);
             var results = Path.GetFullPath(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ??
                 Path.Combine(".ci-results", "desktop"));

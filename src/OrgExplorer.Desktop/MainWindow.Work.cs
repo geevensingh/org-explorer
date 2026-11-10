@@ -6,6 +6,7 @@ public partial class MainWindow
 {
     private bool workPending;
     private bool externalRefreshPending;
+    private TaskCompletionSource? workCompleted;
 
     internal bool HasPendingWork => workPending;
     internal void MarkDraftPending()
@@ -16,6 +17,7 @@ public partial class MainWindow
         bool keepProfileDraft = false, System.Windows.Controls.UserControl? noteDraft = null)
     {
         workPending = true;
+        var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
@@ -29,6 +31,7 @@ public partial class MainWindow
         finally
         {
             workPending = false;
+            completion.TrySetResult();
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = true;
             PersonNotes.IsEnabled = TeamNotes.IsEnabled = true;
@@ -45,5 +48,11 @@ public partial class MainWindow
                 _ = Dispatcher.BeginInvoke(RefreshExternalWorkspace, DispatcherPriority.ContextIdle);
             }
         }
+    }
+
+    private async Task WaitForLocalWork()
+    {
+        while (workPending && workCompleted is { } completion) await completion.Task;
+        await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);
     }
 }

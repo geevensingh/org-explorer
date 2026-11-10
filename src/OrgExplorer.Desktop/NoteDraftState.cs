@@ -35,6 +35,13 @@ internal sealed class NoteDraftState
         return false;
     }
 
+    public async Task<bool> FlushPendingAsync(Func<Task> save)
+    {
+        if (saveFailed) return false;
+        if (HasUnsavedChanges) await save();
+        return !HasUnsavedChanges;
+    }
+
     public void Edited()
     {
         HasUnsavedChanges = true;

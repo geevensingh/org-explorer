@@ -26,7 +26,7 @@ public sealed class UpdateChecker(IReleaseFeed feed, UpdateTrust trust, Version 
             var envelope = await feed.ReadManifestAsync(timeout.Token).ConfigureAwait(false);
             var release = Verify(envelope);
             return release.Version > currentVersion
-                ? new(ReleaseCheckStatus.Available, $"Project-authorized update {release.Version} is available (Windows x64 / win). Download, installation and restart are not connected yet.", release)
+                ? new(ReleaseCheckStatus.Available, $"Project-authorized update {release.Version} is available (Windows x64 / win).", release)
                 : new(ReleaseCheckStatus.UpToDate, $"No newer eligible project-authorized release was found; installed version {currentVersion} is up to date with the verified feed.");
         }
         catch (Exception error) when (error is UpdateVerificationException or JsonException or CryptographicException or FormatException or InvalidOperationException or ArgumentException or OverflowException)

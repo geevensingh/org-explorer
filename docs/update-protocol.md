@@ -12,8 +12,9 @@ Checks are asynchronous, coalesced while in flight, bounded to 15 seconds and
 64 KiB of metadata, and never acquire the Workspace work gate. Offline, HTTP,
 rate-limit, malformed/untrusted/expired metadata and configuration failures remain
 explicit; they do not mean "up to date." There is no client token or Workspace
-data in these requests. A check downloads only the small signed envelope, not
-packages. Download/install/restart and save-safe application belong to #18.
+data in these requests. Discovery downloads only the small signed envelope.
+An authorized newer result automatically starts the full-package workflow below;
+there is no second confirmation button or unsigned package-selection feed.
 
 ## Owner provisioning is still required
 
@@ -135,7 +136,7 @@ unsigned `package-metadata.json` inventory remain packaging artifacts, not
 substitutes for this authorization. #19 must publish a mutually consistent,
 immutable versioned package and its signed envelope only after release gates.
 
-## Rotation and the #18 boundary
+## Rotation and authenticated automatic application
 
 Downloaded metadata cannot add trust. `keys`, `newKeys`, unsupported metadata
 and unknown signer IDs are rejected, even if an adjacent file supplies a key.
@@ -154,18 +155,49 @@ stream length and SHA256 and rejects expired authorization before and after
 reading. Hash/size mismatch never produces authorization for different bytes.
 Do not reconstruct an authorization from a mutable framework feed or cache.
 
-#18 must consume that exact authorization, verify freshly downloaded/staged
-bytes and current expiry before apply, constrain any Velopack source to the
-authorized full asset (including fallback/delta/cache paths), and keep staging
-immutable through application. It must also finish local saves/imports, reject
-failed saves, reopen the same Workspace, and handle download/install/restart
-failures. A check result alone does not establish those properties.
+`UpdateSettings` consumes that exact verifier-created object. `UpdateInstaller`
+always downloads its pinned full URL into a fresh, GUID-named staging directory
+outside the Workspace. Reads are bounded by the signed length and a ten-minute
+download deadline; wrong length, SHA256, expiry, malformed ZIP, or mismatched
+Velopack app/version/full-package identity fail before the local-work gate.
+The real Velopack package reader/checksum implementation runs against these
+bytes. Staging is held open with read-only sharing (no writes/deletes) through
+handoff, and authorization expiry is checked again after local work and before
+launching the updater. Failed attempts clean their staging; abandoned GUID
+downloads are pruned on the next attempt, never consumed as authorization.
+
+The WPF handoff temporarily freezes new Workspace actions, awaits the existing
+work completion signal, and flushes the existing profile and Person/Team-note
+debounces. It does not silently retry a previously failed draft: visible writing,
+retry/discard controls, and local-save errors remain in the usable old app.
+`IApplicationWorkflow.RestartWhenSafe` then runs under the same gate as real
+Import application and local publication. A failed save prevents handoff.
+There is no OneDrive/sync-provider wait or API.
+
+The installer boundary repeats Velopack's SHA256/length checks, persists a
+durable restart receipt outside the Workspace, and launches Velopack with the
+**explicit absolute staged full-package path**. It never requests latest/cache
+selection, a delta, a fallback download, or another feed. A deliberately
+nonfunctional framework source rejects any attempt to do so. WPF closes normally
+only after a successful handoff; `ApplyUpdatesAndRestart`'s immediate process
+exit is not used.
+
+On restart, the receipt reopens the same independent Workspace through the
+ordinary workflow, including supported automatic conversions and their validated
+recovery originals. Unsupported data is not repaired or written, and Settings/
+updates remain available. Running the target (or a newer) app version confirms
+installation, separately from whether Workspace recovery succeeded. If the
+updater restarts the old version, the receipt reports an unconfirmed failed
+installation and suppresses automatic retries of that version. A deliberate
+Settings check can retry. If installation/relaunch fails after the old process
+has exited, Velopack retains its ordinary error UI/logging; the durable receipt
+also reports the unconfirmed attempt on the next manual app launch. Merely
+launching an updater is never reported as a successful installation/restart.
 
 `VelopackApp.SetAutoApplyOnStartup(false)` remains in the early entry point.
-There is no `UpdateManager`, apply-on-exit/restart registration, pending-cache
-consumer or package download in this slice. Merely staging a newer package
-still cannot authorize implicit startup apply; the existing installed lifecycle
-test remains required.
+There is no apply-on-exit registration or pending-cache consumer. Merely staging
+a newer package still cannot authorize implicit startup apply; the installed
+lifecycle test still verifies this before exercising the authenticated path.
 
 This authenticates updates only to an **already trusted app**. It does not
 establish a Windows public-trust legal publisher or eliminate installer warnings.
@@ -190,12 +222,30 @@ and runs the actual `update-settings` WPF scenario alongside the other required
 scenarios. The harness signs fixtures with that ephemeral key; the product takes
 the same production verification path, with no bypass or success flag. The flow
 observes pending startup checks, enabled default, editable/saved local data,
-authorized availability, persisted disable/reopen/manual check, unknown signer,
+automatic consumption and rejection of signed non-package bytes, persisted
+disable/reopen/manual check, unknown signer,
 tampered signature, unsupported channel, rate-limit and offline failures, then
-re-enabled startup reporting a signature failure even with Settings closed.
+re-enabled startup reporting a signature failure even with Settings closed. It also uses a genuine signed,
+controlled ZIP package to reach the real draft-flush/safety logic: an actual
+locked note save blocks the installer and retains its draft, then explicit retry
+and final writing are durable before the observed external handoff. That
+unpackaged smoke's installer adapter deliberately reports a process-boundary
+failure instead of installing anything.
+
+Only a build-time `UpdateEffectsFile` replaces external package transport and
+installer/restart effects for hosted fixtures. It does not replace cryptography,
+staging, Velopack verification, local persistence, debounces, or coordination.
+There is no runtime production feed/trust/effect override or success flag.
+The optional hosted **Isolated Windows installer** workflow packages two genuine
+self-contained app versions with ephemeral public trust and the controlled
+transport, then actually authenticates, applies, restarts, reopens and checks the
+version plus final writing. It retains unauthorized-pending and both owned
+uninstall-process-tree/directory-absence barriers. Production releases are never
+downloaded or installed in CI.
 
 Finally the lane rebuilds/publishes with the production configuration and compares
 the compiled trust resource byte-for-byte against it, rejecting leaked test
-trust. Ephemeral private material is removed in `finally` and is outside uploaded
+trust **and** the controlled-effects marker type. Ephemeral private material is
+removed in `finally` (or an always-run hosted cleanup) and is outside uploaded
 results/product inputs. Missing fixture/bootstrap or unexecuted named scenarios
 fail closed. Local builds and non-UI tests do not claim a hosted WPF pass.

@@ -15,6 +15,13 @@ public partial class MainWindow
     private readonly CancellationTokenSource updateLifetime = new();
     private string? updateConfigurationError;
     private bool updateCheckPending;
+    private bool manualUpdateCheck;
+    private bool showInstallProgress;
+    private bool updateHandoffPending;
+    private UpdateInstaller? updateInstaller;
+    private UpdateRestartJournal? updateJournal;
+    private Version? installedVersion;
+    private string? updateRecoveryError;
 
     private void InitializeUpdates()
     {
@@ -28,8 +35,21 @@ public partial class MainWindow
                 .InformationalVersion.Split('+')[0];
             var directory = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY") ??
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OrgExplorer");
-            updates = new(new UpdateChecker(new HttpReleaseFeed(updateHttp, trust.ManifestUrl), trust, Version.Parse(version)),
-                Path.Combine(directory, "update-settings.json"));
+            installedVersion = Version.Parse(version);
+            updateJournal = new(Path.Combine(directory, "update-attempt.json"));
+            updateInstaller = new(UpdateEffects.Transport(updateHttp), UpdateEffects.Restart(updateJournal),
+                Path.Combine(directory, "staged-updates"), installedVersion);
+            updateInstaller.Changed += (_, _) =>
+            {
+                if (!updateLifetime.IsCancellationRequested) _ = Dispatcher.BeginInvoke(ShowUpdates);
+            };
+            updates = new(new UpdateChecker(new HttpReleaseFeed(updateHttp, trust.ManifestUrl), trust, installedVersion),
+                Path.Combine(directory, "update-settings.json"), async (release, token) =>
+                {
+                    if (!manualUpdateCheck && !updateJournal.AllowAutomatic(release)) return;
+                    showInstallProgress = true;
+                    await updateInstaller.InstallAsync(release, AtSafeUpdatePoint, token);
+                });
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or
             UpdateVerificationException or CryptographicException or ArgumentException or FormatException or InvalidOperationException)
@@ -39,27 +59,90 @@ public partial class MainWindow
         ShowUpdates();
         Loaded += async (_, _) =>
         {
+            if (updateJournal is not null && installedVersion is not null)
+            {
+                var previousWorkspace = updateJournal.PendingWorkspace;
+                try
+                {
+                    await RunWorkflowAsync(() =>
+                    {
+                        updateJournal.Recover(installedVersion, path =>
+                        {
+                            WorkspaceLocation.RequireIndependent(path);
+                            return workflow.OpenWorkspace(path);
+                        }, () => workflow.Status);
+                        return true;
+                    }, "Reopening Workspace after update…");
+                    if (previousWorkspace is not null)
+                    {
+                        WorkspacePath.Text = previousWorkspace;
+                        RefreshPeople();
+                        ShowStatus();
+                    }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+                {
+                    updateRecoveryError = "Update restart/Workspace recovery failed: " + error.Message + " No successful recovery is claimed. Settings remain available.";
+                }
+                ShowUpdates();
+            }
             if (updates is null || !updates.CheckOnStartup) return;
-            await RunUpdateCheck();
+            await RunUpdateCheck(manual: false);
         };
         Closed += (_, _) => { updateLifetime.Cancel(); updateHttp.Dispose(); updateLifetime.Dispose(); };
     }
 
-    private async void CheckForUpdates(object sender, RoutedEventArgs e) => await RunUpdateCheck();
+    private async void CheckForUpdates(object sender, RoutedEventArgs e) => await RunUpdateCheck(manual: true);
 
-    private async Task RunUpdateCheck()
+    private async Task RunUpdateCheck(bool manual)
     {
         if (updates is null || updateCheckPending) return;
         updateCheckPending = true;
+        manualUpdateCheck = manual;
+        showInstallProgress = false;
         ShowUpdates();
         // HTTP/cryptographic work never owns the Workspace work gate or dispatcher.
         var lifetime = updateLifetime.Token;
         try { await Task.Run(() => updates.CheckAsync(lifetime)); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         finally
         {
             updateCheckPending = false;
             if (!lifetime.IsCancellationRequested) ShowUpdates();
         }
+        if (updateInstaller?.Status == UpdateInstallStatus.Restarting && !lifetime.IsCancellationRequested) Close();
+    }
+
+    private async Task<bool> AtSafeUpdatePoint(Action<string?> restart)
+    {
+        return await Dispatcher.InvokeAsync(async () =>
+        {
+            updateHandoffPending = true;
+            SetUpdateWorkEnabled(false);
+            var accepted = false;
+            try
+            {
+                await WaitForLocalWork();
+                if (workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
+                await FlushProfileDraft();
+                if (unsavedAttributes.Count != 0 ||
+                    !await PersonNotes.FlushPendingDraftAsync() || !await TeamNotes.FlushPendingDraftAsync()) return false;
+                if (!TryLeaveLocalEdits()) return false;
+                accepted = await Task.Run(() => workflow.RestartWhenSafe(restart));
+                return accepted;
+            }
+            finally
+            {
+                updateHandoffPending = false;
+                if (!accepted) SetUpdateWorkEnabled(true);
+                ShowStatus();
+            }
+        }).Task.Unwrap();
+    }
+
+    private void SetUpdateWorkEnabled(bool enabled)
+    {
+        ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = ImportControls.IsEnabled = ImportPreviewPanel.IsEnabled = enabled;
     }
 
     private void ChangeStartupUpdateChecks(object sender, RoutedEventArgs e)
@@ -76,10 +159,10 @@ public partial class MainWindow
         StartupUpdateChecks.IsEnabled = updates is not null;
         StartupUpdateChecks.IsChecked = updates?.CheckOnStartup ?? true;
         StartupUpdateStatus.Text = updates?.StartupPreferenceGuidance ?? "Startup update preference is unavailable.";
-        var message = updateCheckPending
+        var message = showInstallProgress ? updateInstaller?.Message : updateCheckPending
             ? "Checking project-authorized updates… Local browsing and editing remain available."
             : updates?.Result.Message;
         UpdateSummary.Text = UpdateGuidance.Text = updateConfigurationError ??
-            string.Join("\n", new[] { message, updates?.PreferenceError }.Where(text => !string.IsNullOrEmpty(text)));
+            string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message }.Where(text => !string.IsNullOrEmpty(text)));
     }
 }

@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')][string]$Version,
-    [string]$NuGetConfig
+    [string]$NuGetConfig,
+    [string]$UpdateTrustFile,
+    [string]$UpdateEffectsFile
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -9,6 +11,9 @@ if (![OperatingSystem]::IsWindows() -or ![Environment]::Is64BitOperatingSystem) 
 }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $configArguments = if ($NuGetConfig) { @('--configfile', (Resolve-Path $NuGetConfig).Path) } else { @() }
+$updateArguments = @()
+if ($UpdateTrustFile) { $updateArguments += "-p:UpdateTrustFile=$((Resolve-Path $UpdateTrustFile).Path)" }
+if ($UpdateEffectsFile) { $updateArguments += "-p:UpdateEffectsFile=$((Resolve-Path $UpdateEffectsFile).Path)" }
 $output = Join-Path $repo ".artifacts\installer\$Version"
 if (Test-Path $output) { throw "Output already exists: $output. Choose a new version or explicitly remove this local build before rebuilding." }
 $scratch = Join-Path $output 'build-staging'
@@ -35,7 +40,7 @@ try {
     $releases = Join-Path $output 'releases'
     dotnet publish $app -c Release --runtime win-x64 --self-contained true --no-restore --output $publish `
         "-p:Version=$Version" "-p:InformationalVersion=$Version" -p:IncludeSourceRevisionInInformationalVersion=false `
-        -p:DebugType=None -p:DebugSymbols=false -p:PublishSingleFile=false -p:PublishTrimmed=false
+        -p:DebugType=None -p:DebugSymbols=false -p:PublishSingleFile=false -p:PublishTrimmed=false @updateArguments
     if ($LASTEXITCODE -ne 0) { throw 'Self-contained .NET 10 WPF publish failed.' }
     dotnet tool run vpk -- pack --packId geevensingh.OrgExplorer --packTitle 'Org explorer' `
         --packAuthors 'Geeven Singh' --packVersion $Version --mainExe OrgExplorer.Desktop.exe `
@@ -58,7 +63,7 @@ try {
     } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $releases 'package-metadata.json') -Encoding utf8
     & (Join-Path $repo 'tests\Installer.Artifacts.Tests.ps1') -ReleaseDirectory $releases -Version $Version
     Write-Host "Local unsigned installation artifacts: $releases"
-    Write-Host 'Not published. Feed hashes/package-metadata are NOT signed update authorization; no unattended apply is enabled.'
+    Write-Host 'Not published. Feed hashes/package-metadata are NOT signed update authorization. Automatic updates still require separately trusted signed metadata.'
 } finally {
     foreach ($name in $previousEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name])

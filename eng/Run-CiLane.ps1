@@ -64,7 +64,8 @@ try {
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
             Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
-                "-p:UpdateTrustFile=`"$(Join-Path $updateFixture 'trust.json')`"")
+                "-p:UpdateTrustFile=`"$(Join-Path $updateFixture 'trust.json')`"",
+                "-p:UpdateEffectsFile=`"$(Join-Path $root 'tests\ControlledUpdateEffects.cs')`"")
             Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
                 '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
             . "$root\eng\DesktopResults.ps1"

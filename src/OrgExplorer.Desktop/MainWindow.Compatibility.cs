@@ -11,6 +11,11 @@ public partial class MainWindow
 
     private async void RetryWorkspace(object sender, RoutedEventArgs e)
     {
+        if (updateHandoffPending)
+        {
+            StatusText.Text = "Workspace validation waits while the safe update handoff is in progress. Settings remain available.";
+            return;
+        }
         if (workPending) return;
         await RunWorkflowAsync(workflow.RefreshWorkspace, "Validating Workspace / conversion…");
         RefreshExternalWorkspace();

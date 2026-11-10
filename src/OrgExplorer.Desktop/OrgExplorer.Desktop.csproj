@@ -12,6 +12,8 @@
     <UpdateTrustFile Condition="'$(UpdateTrustFile)' == ''">$(MSBuildProjectDirectory)\update-trust.json</UpdateTrustFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="UpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
+    <Compile Include="$(UpdateEffectsFile)" Link="ControlledUpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <PackageReference Include="Markdig" Version="0.37.0" />

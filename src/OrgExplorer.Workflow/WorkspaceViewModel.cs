@@ -14,6 +14,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
     public bool CanSafelyClose => workflow.CanSafelyClose;
+    public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
     public string? LocalSaveError => workflow.LocalSaveError;
     public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
     private void ForwardWorkspaceChange(object? sender, EventArgs e)

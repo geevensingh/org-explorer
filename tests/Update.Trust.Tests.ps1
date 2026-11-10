@@ -4,6 +4,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $compiled = [Reflection.Assembly]::LoadFile((Resolve-Path -LiteralPath $Assembly).Path)
+if ($compiled.GetType('OrgExplorer.Desktop.ControlledUpdateEffectsMarker')) {
+    throw 'Controlled external update effects leaked into the product publish.'
+}
 $stream = $compiled.GetManifestResourceStream('OrgExplorer.UpdateTrust.json')
 if (!$stream) { throw 'The published app has no embedded update trust configuration.' }
 try {
