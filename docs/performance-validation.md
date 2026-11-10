@@ -35,6 +35,21 @@ ref. The workflow records the checked-out SHA and passes it to:
 .\eng\Run-Performance.ps1 -ExpectedRevision <full-40-character-candidate-SHA>
 ```
 
+For hosted manual verification, use the repository's authorized account, push
+the candidate branch, then dispatch and inspect the resulting run:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=YOUR_CANDIDATE_SHA
+gh run list --repo geevensingh/org-explorer --workflow scale-verification.yml --limit 5
+gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
+```
+
+Replace the placeholders with the pushed workflow branch, full candidate SHA
+and returned run ID; inspect/download that run's diagnostic artifact. GitHub
+must first register this dispatchable workflow on the default branch. Before
+that prerequisite, the local callable command works, but neither a hosted
+manual run nor an active nightly schedule is claimed.
+
 Expected-revision execution refuses a different SHA, tracked modifications or
 non-ignored untracked files,
 and checks the candidate again after testing. Local exploratory execution
@@ -132,8 +147,10 @@ desktop lane includes scale, not a success-only app flag. It opens the Workspace
 uses Settings while loading, selects profiles/search destinations, navigates
 Managers/deep branches, checks **actual rendered photo pixels**, edits, reviews
 an actual 10,000-record partial batch, applies it, observes validated external
-writing and reopens durable results. Ordinary smoke flows additionally retain
-full import, notes, historical/archival, migration and failure coverage.
+writing and reopens durable results. Ordinary smoke retains representative
+WPF journeys and presentation/wiring checks. Exhaustive import, notes,
+historical/archival, migration and failure assertions belong at the workflow
+and real-filesystem seams; see the authoritative [testing strategy](testing.md).
 
 Tests poll meaningful eventual UI/file state with bounded deadlines. A missing
 virtualized/not-yet-realized control is retried only until that deadline; wrong
