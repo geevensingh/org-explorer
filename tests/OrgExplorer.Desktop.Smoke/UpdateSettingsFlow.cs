@@ -43,7 +43,7 @@ internal static partial class Program
                 held.SetResult();
                 Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Project-authorized update 9999.0.0 is available"));
                 startup.Toggle();
-                Await(() => startup.Current.ToggleState == ToggleState.Off);
+                AwaitStartupPreference(window, ToggleState.Off);
                 Close(process);
             }
             finally { held.TrySetResult(); StopApplication(process); }
@@ -56,6 +56,7 @@ internal static partial class Program
         {
             var window = Window(reopened);
             Click(window, "OpenSettings");
+            AwaitStartupPreference(window, ToggleState.Off);
             Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("No update availability has been checked"));
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.Off ||
                 server.Requests != beforeReopen)
@@ -93,7 +94,7 @@ internal static partial class Program
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();
-            Await(() => startup.Current.ToggleState == ToggleState.On);
+            AwaitStartupPreference(window, ToggleState.On);
             Close(reopened);
         }
         finally { StopApplication(reopened); }
@@ -113,6 +114,13 @@ internal static partial class Program
             Close(rejectedStartup);
         }
         finally { StopApplication(rejectedStartup); }
+    }
+
+    private static void AwaitStartupPreference(AutomationElement window, ToggleState expected)
+    {
+        var guidance = expected == ToggleState.On ? "Startup update checks are enabled." : "Startup update checks are disabled.";
+        Await(() => ((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == expected &&
+            Find(window, "StartupUpdateStatus").Current.Name == guidance);
     }
 
     private static void AwaitUpdateFailure(AutomationElement window, string expected)

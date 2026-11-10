@@ -4,8 +4,9 @@ Settings offers **Check for updates** independently of Workspace compatibility.
 Startup checks default to enabled. The checkbox persists in
 `%LocalAppData%\OrgExplorer\update-settings.json`, outside every Workspace.
 `ORG_EXPLORER_SETTINGS_DIRECTORY` may relocate this preferences directory; it
-does **not** configure trust or the feed. A failed preference save retains the
-previous setting and reports the failure.
+does **not** configure trust or the feed. Settings reports the accepted enabled/
+disabled preference, not just the checkbox's visual state. A failed preference
+save retains the previous setting and reports the failure.
 
 Checks are asynchronous, coalesced while in flight, bounded to 15 seconds and
 64 KiB of metadata, and never acquire the Workspace work gate. Offline, HTTP,

@@ -40,8 +40,10 @@
             <Button x:Name="CheckForUpdatesButton" Content="Check for updates" AutomationProperties.AutomationId="CheckForUpdates"
                     Click="CheckForUpdates" Margin="0,0,12,0"/>
             <CheckBox x:Name="StartupUpdateChecks" Content="Check for updates on startup" IsChecked="True"
-                      AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center" Click="ChangeStartupUpdateChecks"/>
+                      AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center"
+                      Checked="ChangeStartupUpdateChecks" Unchecked="ChangeStartupUpdateChecks"/>
           </WrapPanel>
+          <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap"/>
           <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
           <TextBlock Text="Project-key authorization is not Windows publisher verification and does not remove installer warnings. Automatic installation and restart are not connected yet."
                      TextWrapping="Wrap"/>

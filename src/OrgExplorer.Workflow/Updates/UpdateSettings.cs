@@ -7,6 +7,8 @@ public sealed class UpdateSettings
     private readonly UpdateChecker checker;
     private readonly string preferencePath;
     public bool CheckOnStartup { get; private set; } = true;
+    public string StartupPreferenceGuidance => CheckOnStartup
+        ? "Startup update checks are enabled." : "Startup update checks are disabled.";
     public string? PreferenceError { get; private set; }
     public ReleaseCheckResult Result { get; private set; } = new(ReleaseCheckStatus.NotChecked, "No update availability has been checked.");
 

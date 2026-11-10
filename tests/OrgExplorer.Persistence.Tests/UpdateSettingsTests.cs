@@ -17,11 +17,14 @@ public sealed class UpdateSettingsTests : IDisposable
         var path = Path.Combine(root, "settings.json");
         var settings = new UpdateSettings(fixture.Checker(), path);
         Assert.True(settings.CheckOnStartup);
+        Assert.Equal("Startup update checks are enabled.", settings.StartupPreferenceGuidance);
         await settings.StartupAsync();
         Assert.Equal(ReleaseCheckStatus.Available, settings.Result.Status);
         Assert.True(settings.SetCheckOnStartup(false));
+        Assert.Equal("Startup update checks are disabled.", settings.StartupPreferenceGuidance);
         var reopened = new UpdateSettings(fixture.Checker(), path);
         Assert.False(reopened.CheckOnStartup);
+        Assert.Equal("Startup update checks are disabled.", reopened.StartupPreferenceGuidance);
         await reopened.StartupAsync();
         Assert.Equal(ReleaseCheckStatus.NotChecked, reopened.Result.Status);
         await reopened.CheckAsync();
@@ -125,16 +128,19 @@ public sealed class UpdateSettingsTests : IDisposable
         File.WriteAllText(path, "{broken");
         var settings = new UpdateSettings(fixture.Checker(), path);
         Assert.True(settings.CheckOnStartup);
+        Assert.Equal("Startup update checks are enabled.", settings.StartupPreferenceGuidance);
         Assert.Contains("could not be read", settings.PreferenceError);
         using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Assert.False(settings.SetCheckOnStartup(false));
             Assert.True(settings.CheckOnStartup);
+            Assert.Equal("Startup update checks are enabled.", settings.StartupPreferenceGuidance);
             Assert.Contains("not saved", settings.PreferenceError);
             Assert.Equal("{broken", File.ReadAllText(path));
         }
         Assert.True(settings.SetCheckOnStartup(false));
         Assert.Null(settings.PreferenceError);
+        Assert.Equal("Startup update checks are disabled.", settings.StartupPreferenceGuidance);
         Assert.False(new UpdateSettings(fixture.Checker(), path).CheckOnStartup);
         Assert.Empty(Directory.GetFiles(root, "*.pending"));
     }
