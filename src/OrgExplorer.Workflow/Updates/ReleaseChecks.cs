@@ -53,7 +53,7 @@ public sealed class AuthorizedRelease
         RequireCurrentAuthorization(clock);
     }
 
-    private void RequireCurrentAuthorization(TimeProvider? clock)
+    internal void RequireCurrentAuthorization(TimeProvider? clock)
     {
         if ((clock ?? TimeProvider.System).GetUtcNow() >= ExpiresAt)
             throw new UpdateVerificationException("The project authorization has expired. Check again before using this package.");

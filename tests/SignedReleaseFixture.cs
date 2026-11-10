@@ -9,7 +9,7 @@ internal sealed class SignedReleaseFixture : IDisposable
 {
     public ECDsa Key { get; } = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     public const string KeyId = "ephemeral-release-key";
-    public byte[] Package { get; } = "Fictitious full package, never installed."u8.ToArray();
+    public byte[] Package { get; set; } = "Fictitious full package, never installed."u8.ToArray();
 
     public string Configuration(string manifestUrl = "https://github.com/geevensingh/org-explorer/releases/latest/download/org-explorer-update.win-x64.json") =>
         JsonSerializer.Serialize(new
