@@ -38,7 +38,7 @@ internal sealed class LocalReleaseServer : IDisposable
             {
                 TcpClient accepted;
                 try { accepted = await listener.AcceptTcpClientAsync(lifetime.Token); }
-                catch (ObjectDisposedException) when (lifetime.IsCancellationRequested) { return; }
+                catch (InvalidOperationException) when (lifetime.IsCancellationRequested) { return; }
                 using var connection = accepted;
                 await using var stream = connection.GetStream();
                 var header = new List<byte>();

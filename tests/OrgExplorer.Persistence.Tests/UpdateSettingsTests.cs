@@ -132,22 +132,26 @@ public sealed class UpdateSettingsTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Server_shutdown_does_not_hide_unexpected_response_disposal_faults()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Server_shutdown_does_not_hide_unexpected_response_faults(bool disposed)
     {
         var responseReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception expected = disposed
+            ? new ObjectDisposedException("response-handler")
+            : new InvalidOperationException("Unexpected response failure.");
         using var server = new LocalReleaseServer(() =>
         {
             responseReached.SetResult();
-            throw new ObjectDisposedException("response-handler");
+            throw expected;
         });
         using var client = new System.Net.Sockets.TcpClient();
         await client.ConnectAsync(server.ManifestUrl.Host, server.ManifestUrl.Port);
         await client.GetStream().WriteAsync("GET /manifest HTTP/1.1\r\nHost: localhost\r\n\r\n"u8.ToArray());
         await responseReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var error = Assert.Throws<ObjectDisposedException>(server.Dispose);
-        Assert.Equal("response-handler", error.ObjectName);
+        Assert.Same(expected, Record.Exception(server.Dispose));
     }
 
     [Fact]
