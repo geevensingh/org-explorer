@@ -354,6 +354,27 @@ publication endpoint, open WPF or run an installer.
 The core runner-category signer interoperability test also invokes the real
 PowerShell signer with an ephemeral key and feeds its exact envelope to the real
 `UpdateChecker`, checking pinned bytes and mutation rejection without network IO.
+Metadata renewal contracts additionally cover due/no-product/no-op evaluation,
+original source/trust/provenance, copied bootstrap bytes, unchanged app versions
+and stale/failed/concurrent fake GitHub publication. The hosted release bridge
+renews its genuine fixture package with ephemeral signing and uploads named
+renewal evidence, never a production release.
+
+The trust-verifier lifetime regression compiles a minimal public-resource
+assembly, runs both real trust checks, and immediately deletes the fixture tree
+in the same PowerShell process. It reproduces the hosted `Assembly.LoadFile`
+mapping/cleanup denial without WPF or installation. Byte-based inspection retains
+all trust/controlled-effects checks without holding the package DLL mapped.
+Cleanup must finish before the hosted release result can report success; there
+is no retry, swallowed deletion error or connection to the parked note issue.
+
+Both scale fixtures save the app's ordinary startup-update opt-out before launch,
+so a production-trusted historical candidate cannot download a production update
+while being tested. The runner's file-backed regression observes both preferences
+before scenario actions and verifies update/installed-update selections remain
+untouched. No product default, public key, transport effect or scenario assertion
+is replaced. Automatic renewal refuses historical candidates predating this
+isolation instead of modifying their exact-source test checkout.
 
 ## Isolation and remaining blockers
 

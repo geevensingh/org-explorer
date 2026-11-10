@@ -28,4 +28,12 @@ foreach ($required in @('workflow_call:', 'uses: ./.github/workflows/scale-verif
     if (!$verification.Contains($required)) { throw "Fresh hosted verification contract missing: $required" }
 }
 if ($verification -match 'contents: write|secrets\.|Invoke-Release\.ps1 -Mode Publish') { throw 'Candidate verification must not acquire production secrets/publication permissions.' }
+foreach ($required in @('schedule:', "cron: '17 9 * * *'", 'renewal-plan:', 'renewal-scale:', 'renew-metadata:',
+    'revision: ${{ needs.renewal-plan.outputs.product-revision }}', 'needs: [renewal-plan, renewal-scale]',
+    'needs.renewal-scale.result == ''success''', 'Invoke-MetadataRenewal.ps1 -Mode Plan', 'Invoke-MetadataRenewal.ps1 -Mode Publish')) {
+    if (!$release.Contains($required)) { throw "Automatic immutable metadata renewal contract missing: $required" }
+}
+if (!$verification.Contains('.\tests\Release.Renewal.Tests.ps1') -or !$verification.Contains('ephemeral-renewal-manifest.json')) {
+    throw 'Safe hosted candidate proof must include renewal contracts and genuine original-package renewal evidence.'
+}
 Write-Host 'PASS: trusted production wiring and secret-free default-off exact-candidate verification contracts.'

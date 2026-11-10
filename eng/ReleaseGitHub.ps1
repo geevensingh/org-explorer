@@ -4,7 +4,7 @@ function Invoke-ReleaseApi([string]$Endpoint, [string[]]$Arguments = @()) {
     if ($text) { return (($text -join "`n") | ConvertFrom-Json -Depth 30) }
 }
 
-function Assert-TrustedMainCi([string]$Candidate, [long]$CiRunId) {
+function Assert-TrustedCi([string]$Candidate, [long]$CiRunId) {
     if ($Candidate -cnotmatch '^[0-9a-f]{40}$' -or $CiRunId -le 0) { throw 'An exact candidate and successful trusted CI run ID are required.' }
     $run = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId"
     if ($run.id -ne $CiRunId -or $run.event -cne 'push' -or $run.head_branch -cne 'main' -or
@@ -19,28 +19,59 @@ function Assert-TrustedMainCi([string]$Candidate, [long]$CiRunId) {
             throw "Required CI lane did not succeed: $name. Missing/skipped/cancelled/timed-out work is not approval."
         }
     }
+}
+
+function Assert-TrustedMainCi([string]$Candidate, [long]$CiRunId) {
+    Assert-TrustedCi -Candidate $Candidate -CiRunId $CiRunId
     $head = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/heads/main"
     if ($head.object.sha -cne $Candidate) { throw 'Main moved past this candidate. This older build must not publish or replace latest; wait for successful CI of the new main.' }
 }
 
-function Get-LastSuccessfulRelease {
+function Get-ReleasePublicationState {
     $pages = Invoke-ReleaseApi "repos/$ReleaseRepository/releases" @('--paginate', '--slurp')
     $published = @($pages | ForEach-Object { $_ } | Where-Object { !$_.draft -and !$_.prerelease })
     if ($published.Count -eq 0) { return $null }
-    $last = @($published | Sort-Object { [DateTimeOffset]::Parse($_.published_at) } -Descending)[0]
-    if ($last.tag_name -cnotmatch '^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$') {
-        throw 'Latest successful publication is not a recognized app release. Owner must reconcile release provenance; no guessed baseline is allowed.'
+    $ordered = @($published | Sort-Object @{ Expression = { [DateTimeOffset]::Parse($_.published_at) }; Descending = $true },
+        @{ Expression = { $_.id }; Descending = $true })
+    $latest = $ordered[0]
+    $products = @($ordered | Where-Object { $_.tag_name -cmatch '^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\z' })
+    if ($products.Count -eq 0) { throw 'Public metadata has no recognized original app release. Owner must reconcile provenance; no guessed baseline is allowed.' }
+    $productRelease = $products[0]
+    $product = Get-PublishedReleaseProvenance $productRelease
+    if ($product.tag -cne $productRelease.tag_name -or
+        ($product.PSObject.Properties.Name -contains 'kind' -and $product.kind -cne 'product-release')) { throw 'App release has invalid product provenance.' }
+    $publication = $product
+    if ($latest.tag_name -cne $productRelease.tag_name) {
+        $publication = Get-PublishedReleaseProvenance $latest
+        $original = @($productRelease.assets | Where-Object name -CEQ 'release-provenance.json')[0]
+        if ($latest.tag_name -cnotmatch ('^metadata-' + [regex]::Escape($product.tag) + '-' + $publication.verificationRunId + '-[1-9][0-9]*\z') -or
+            $publication.kind -cne 'metadata-renewal' -or $publication.publicationTag -cne $latest.tag_name -or
+            $publication.sourceSha -cne $product.sourceSha -or $publication.version -cne $product.version -or
+            $publication.tag -cne $product.tag -or $publication.ciRunId -ne $product.ciRunId -or
+            $publication.originalReleaseId -ne $productRelease.id -or
+            $publication.originalProvenanceSha256 -cnotmatch '^[0-9a-f]{64}\z' -or
+            "sha256:$($publication.originalProvenanceSha256)" -cne $original.digest -or
+            $publication.controllerSha -cnotmatch '^[0-9a-f]{40}\z' -or $publication.controllerCiRunId -le 0) { throw 'Metadata publication does not reference the exact original app/provenance.' }
     }
-    $assets = @($last.assets | Where-Object { $_.name -ceq 'release-provenance.json' })
+    return @{ product = $product; productRelease = $productRelease; publication = $publication; publicationRelease = $latest }
+}
+
+function Get-PublishedReleaseProvenance($Release) {
+    $assets = @($Release.assets | Where-Object { $_.name -ceq 'release-provenance.json' })
     if ($assets.Count -ne 1) { throw 'Last published release lacks unique release-provenance.json. Owner must reconcile legacy publication before automation proceeds.' }
     $provenance = Invoke-ReleaseApi "repos/$ReleaseRepository/releases/assets/$($assets[0].id)" @('-H', 'Accept: application/octet-stream')
     if ($provenance.schemaVersion -ne 1 -or $provenance.sourceSha -cnotmatch '^[0-9a-f]{40}$' -or
-        $provenance.tag -cne $last.tag_name -or $provenance.tag -cne "v$($provenance.version)" -or
+        $provenance.tag -cne "v$($provenance.version)" -or
         $provenance.ciRunId -le 0 -or $provenance.verificationRunId -le 0) { throw 'Last publication provenance is invalid.' }
     Assert-ReleaseVersion $provenance.version
-    $tag = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/tags/$($last.tag_name)"
+    $tag = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/tags/$($Release.tag_name)"
     if ($tag.object.type -cne 'commit' -or $tag.object.sha -cne $provenance.sourceSha) { throw 'Published tag and recorded exact source disagree.' }
     return $provenance
+}
+
+function Get-LastSuccessfulRelease {
+    $state = Get-ReleasePublicationState
+    if ($null -ne $state) { return $state.product }
 }
 
 function Get-ReservedReleaseVersions {
@@ -72,33 +103,41 @@ function Publish-Release($Plan, [string]$ReleaseDirectory, [long]$CiRunId, [Secu
     Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
     $provenance = Get-Content (Join-Path $ReleaseDirectory 'release-provenance.json') -Raw | ConvertFrom-Json
     if ($provenance.sourceSha -cne $Plan.sourceSha -or $provenance.ciRunId -ne $CiRunId) { throw 'Packaged source/CI provenance does not match the authorized candidate.' }
-    Assert-TrustedMainCi -Candidate $Plan.sourceSha -CiRunId $CiRunId
-    Assert-UnchangedReleaseBaseline $Plan
+    Publish-VerifiedReleaseDraft -PublicationTag $Plan.tag -SourceSha $Plan.sourceSha -Name "Org explorer $($Plan.version)" `
+        -Body "Exact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing." `
+        -ReleaseDirectory $ReleaseDirectory -BeforePromotion {
+            Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
+            Assert-UnchangedReleaseBaseline $Plan
+            Assert-TrustedMainCi -Candidate $Plan.sourceSha -CiRunId $CiRunId
+        }
+}
+
+function Publish-VerifiedReleaseDraft(
+    [string]$PublicationTag, [string]$SourceSha, [string]$Name, [string]$Body, [string]$ReleaseDirectory, [scriptblock]$BeforePromotion
+) {
+    & $BeforePromotion
     # Creation is deliberately non-idempotent: a collision requires owner recovery, never a force update.
-    $null = Invoke-ReleaseWriteApi "repos/$ReleaseRepository/git/refs" POST @{ ref = "refs/tags/$($Plan.tag)"; sha = $Plan.sourceSha }
+    $null = Invoke-ReleaseWriteApi "repos/$ReleaseRepository/git/refs" POST @{ ref = "refs/tags/$PublicationTag"; sha = $SourceSha }
     $release = Invoke-ReleaseWriteApi "repos/$ReleaseRepository/releases" POST @{
-        tag_name = $Plan.tag; target_commitish = $Plan.sourceSha; name = "Org explorer $($Plan.version)"
-        body = "Exact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing."
+        tag_name = $PublicationTag; target_commitish = $SourceSha; name = $Name; body = $Body
         draft = $true; prerelease = $false; make_latest = 'false'
     }
     $inventory = @(Get-ReleaseInventory $ReleaseDirectory)
     $paths = @($inventory | ForEach-Object { Join-Path $ReleaseDirectory $_.fileName })
-    & gh release upload $Plan.tag @paths --repo $ReleaseRepository
+    & gh release upload $PublicationTag @paths --repo $ReleaseRepository
     if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed. The draft stays unpublished. Owner must reconcile the draft/tag; no assets are overwritten automatically.' }
     $uploaded = Invoke-ReleaseApi "repos/$ReleaseRepository/releases/$($release.id)"
-    if (!$uploaded.draft -or $uploaded.tag_name -cne $Plan.tag -or @($uploaded.assets).Count -ne $inventory.Count) { throw 'Draft upload inventory is incomplete or changed.' }
+    if (!$uploaded.draft -or $uploaded.tag_name -cne $PublicationTag -or @($uploaded.assets).Count -ne $inventory.Count) { throw 'Draft upload inventory is incomplete or changed.' }
     foreach ($item in $inventory) {
         $asset = @($uploaded.assets | Where-Object { $_.name -ceq $item.fileName })
         if ($asset.Count -ne 1 -or $asset[0].size -ne $item.size -or $asset[0].digest -cne "sha256:$($item.sha256)") {
             throw 'GitHub uploaded asset length/SHA256 differs or is unavailable. Leave the draft unpublished; do not waive digest verification.'
         }
     }
-    Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
-    Assert-UnchangedReleaseBaseline $Plan
-    Assert-TrustedMainCi -Candidate $Plan.sourceSha -CiRunId $CiRunId
-    $tag = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/tags/$($Plan.tag)"
-    if ($tag.object.type -cne 'commit' -or $tag.object.sha -cne $Plan.sourceSha) { throw 'Candidate tag changed before publication.' }
+    & $BeforePromotion
+    $tag = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/tags/$PublicationTag"
+    if ($tag.object.type -cne 'commit' -or $tag.object.sha -cne $SourceSha) { throw 'Candidate tag changed before publication.' }
     $published = Invoke-ReleaseWriteApi "repos/$ReleaseRepository/releases/$($release.id)" PATCH @{ draft = $false; make_latest = 'true' }
-    if ($published.draft -or $published.prerelease -or $published.tag_name -cne $Plan.tag) { throw 'GitHub did not confirm the requested publication.' }
-    Write-Host "Published $($Plan.tag) from exact source $($Plan.sourceSha)."
+    if ($published.draft -or $published.prerelease -or $published.tag_name -cne $PublicationTag) { throw 'GitHub did not confirm the requested publication.' }
+    Write-Host "Published $PublicationTag from exact source $SourceSha."
 }

@@ -12,6 +12,15 @@ try {
         "/out:$fixture\installer\publish\OrgExplorer.Desktop.dll" "$fixture\Fixture.cs"
     if ($LASTEXITCODE -ne 0) { throw 'Controlled trust resource compilation failed.' }
     Copy-Item "$fixture\installer\publish\OrgExplorer.Desktop.dll" "$fixture\production\OrgExplorer.Desktop.dll"
+    . "$root\eng\Release.ps1"
+    $archive = [IO.Compression.ZipFile]::Open("$fixture\original.nupkg", [IO.Compression.ZipArchiveMode]::Create)
+    try { [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "$fixture\installer\publish\OrgExplorer.Desktop.dll", 'lib/app/OrgExplorer.Desktop.dll') }
+    finally { $archive.Dispose() }
+    Assert-OriginalPackageTrust -PackagePath "$fixture\original.nupkg" -TrustFile "$fixture\public-trust.json"
+    '{"schemaVersion":1,"manifestUrl":"https://different.invalid","keys":[]}' | Set-Content "$fixture\wrong-trust.json"
+    $rejected = $false
+    try { Assert-OriginalPackageTrust -PackagePath "$fixture\original.nupkg" -TrustFile "$fixture\wrong-trust.json" } catch { $rejected = $true }
+    if (!$rejected) { throw 'Original package accepted a different source/public trust configuration.' }
     $start = [Diagnostics.ProcessStartInfo]::new('pwsh')
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true

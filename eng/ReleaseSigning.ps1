@@ -21,6 +21,30 @@ function Assert-ReleaseTrustJson([string]$TrustFile) {
     } finally { $document.Dispose() }
 }
 
+function Open-ReleasePublicKey([string]$TrustFile, [string]$KeyId) {
+    Assert-ReleaseTrustJson $TrustFile
+    $trust = Get-Content -LiteralPath $TrustFile -Raw | ConvertFrom-Json
+    if ($trust.manifestUrl -cne 'https://github.com/geevensingh/org-explorer/releases/latest/download/org-explorer-update.win-x64.json' -or
+        @($trust.keys).Count -lt 1 -or @($trust.keys).Count -gt 8) { throw 'Original embedded production trust is not configured.' }
+    $ids = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($entry in $trust.keys) {
+        if ([string]::IsNullOrWhiteSpace($entry.keyId) -or $entry.keyId.Length -gt 80 -or
+            !$ids.Add($entry.keyId) -or $entry.algorithm -cne 'ES256') { throw 'Original embedded public-key identity is invalid.' }
+        $check = [Security.Cryptography.ECDsa]::Create()
+        try {
+            $bytes = [Convert]::FromBase64String($entry.publicKey)
+            $read = 0
+            $check.ImportSubjectPublicKeyInfo($bytes, [ref]$read)
+            if ($read -ne $bytes.Length -or $check.ExportParameters($false).Curve.Oid.Value -ne '1.2.840.10045.3.1.7') { throw 'Original embedded key is not standard P-256 SPKI.' }
+        } finally { $check.Dispose() }
+    }
+    $active = @($trust.keys | Where-Object { $_.keyId -ceq $KeyId })
+    if ($active.Count -ne 1) { throw 'Metadata signer is not trusted by the original embedded app configuration.' }
+    $key = [Security.Cryptography.ECDsa]::Create()
+    try { $read = 0; $key.ImportSubjectPublicKeyInfo([Convert]::FromBase64String($active[0].publicKey), [ref]$read); return $key }
+    catch { $key.Dispose(); throw }
+}
+
 function Open-ReleaseSigningKey([string]$TrustFile, [string]$KeyId, [string]$PrivateKeyBase64) {
     $key = $null
     $privateBytes = $null

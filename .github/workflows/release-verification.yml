@@ -50,8 +50,10 @@ jobs:
           .\tests\Release.Tests.ps1
           .\tests\Release.Gates.Tests.ps1
           .\tests\Release.Publication.Tests.ps1
+          .\tests\Release.Renewal.Tests.ps1
           .\tests\Release.Workflow.Tests.ps1
           .\tests\Release.Payload.Tests.ps1
+          .\tests\Update.TrustLifetime.Tests.ps1
           .\eng\Test-ReleaseCandidate.ps1 -Candidate $env:CANDIDATE
       - name: Remove any interrupted ephemeral fixture
         if: ${{ always() }}
@@ -66,4 +68,5 @@ jobs:
           path: |
             .artifacts/release-verification/result.json
             .artifacts/release-verification/ephemeral-signed-manifest.json
+            .artifacts/release-verification/ephemeral-renewal-manifest.json
             .artifacts/release-verification/package-metadata.json

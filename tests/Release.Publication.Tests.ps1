@@ -26,6 +26,12 @@ $failUpload = $false
 $moveMainOnUpload = $false
 $badDigest = $false
 $missingRemoteAsset = $false
+$currentTag = 'v0.1.0'
+$uploadDirectory = $null
+$latestRelease = $null
+$manifestResponse = $null
+$renewalProvenanceResponse = $null
+$missingCurrentCi = $false
 $fixture = Join-Path $PSScriptRoot ("..\.test-workspaces\release-publication-" + [guid]::NewGuid().ToString('N'))
 New-Item $fixture -ItemType Directory -Force | Out-Null
 
@@ -37,7 +43,8 @@ function gh {
         if ($script:failUpload) { $global:LASTEXITCODE = 1; return }
         $script:effects.Add('upload')
         if ($script:moveMainOnUpload) { $script:main = 'b' * 40 }
-        $script:remoteAssets = @(Get-ChildItem $fixture -File | ForEach-Object {
+        $directory = if ($script:uploadDirectory) { $script:uploadDirectory } else { $fixture }
+        $script:remoteAssets = @(Get-ChildItem $directory -File | ForEach-Object {
             @{ name = $_.Name; size = $_.Length; digest = 'sha256:' + (Get-FileHash $_.FullName).Hash.ToLowerInvariant() }
         })
         if ($script:badDigest) { $script:remoteAssets[0].digest = $null }
@@ -50,15 +57,22 @@ function gh {
     $method = if ($methodIndex -ge 0) { $arguments[$methodIndex + 1] } else { 'GET' }
     switch -Regex ($endpoint) {
         '/git/matching-refs/tags/v$' { ConvertTo-Json -InputObject @(@($script:reservedRefs)) -Depth 10 -Compress; return }
-        '/actions/runs/42/jobs$' { @{ jobs = $script:jobs } | ConvertTo-Json -Depth 10 -Compress; return }
+        '/actions/runs/(42|44)/jobs$' { @{ jobs = $script:jobs } | ConvertTo-Json -Depth 10 -Compress; return }
         '/actions/runs/42$' { $script:run | ConvertTo-Json -Depth 10 -Compress; return }
+        '/actions/runs/44$' { $newRun = $script:run.Clone(); $newRun.id = 44; $newRun.head_sha = 'd' * 40; $newRun | ConvertTo-Json -Depth 10 -Compress; return }
+        '/actions/workflows/ci.yml/runs\?' {
+            @{ workflow_runs = if ($script:missingCurrentCi) { @() } else { @($script:run) } } | ConvertTo-Json -Depth 10 -Compress; return
+        }
         '/git/ref/heads/main$' { @{ object = @{ sha = $script:main } } | ConvertTo-Json -Compress; return }
-        '/git/ref/tags/v0.1.0$' { @{ object = @{ sha = $candidate; type = 'commit' } } | ConvertTo-Json -Compress; return }
+        '/git/ref/tags/(v0.1.0|metadata-v0.1.0-[0-9]+-[0-9]+)$' { @{ object = @{ sha = $candidate; type = 'commit' } } | ConvertTo-Json -Compress; return }
         '/git/refs$' {
             Assert ($method -eq 'POST') 'Tags must be created, never force-updated.'
             $script:effects.Add('tag'); '{"object":{}}'; return
         }
         '/releases/assets/7$' { $script:assetResponse; return }
+        '/releases/assets/8$' { $script:manifestResponse; return }
+        '/releases/assets/9$' { $script:renewalProvenanceResponse; return }
+        '/releases/latest$' { $script:latestRelease | ConvertTo-Json -Depth 10 -Compress; return }
         '/releases/99$' {
             if ($method -eq 'PATCH') {
                 $inputIndex = [Array]::IndexOf($arguments, '--input')
@@ -66,13 +80,14 @@ function gh {
                 Assert ($body.draft -eq $false -and $body.make_latest -ceq 'true') 'Only fully uploaded verified drafts may become latest.'
                 $script:effects.Add('publish'); $script:draft = $false
             }
-            @{ id = 99; tag_name = 'v0.1.0'; draft = $script:draft; prerelease = $false; assets = $script:remoteAssets } | ConvertTo-Json -Depth 10 -Compress
+            @{ id = 99; tag_name = $script:currentTag; draft = $script:draft; prerelease = $false; assets = $script:remoteAssets } | ConvertTo-Json -Depth 10 -Compress
             return
         }
         '/releases$' {
             if ($method -eq 'POST') {
                 $inputIndex = [Array]::IndexOf($arguments, '--input')
                 $body = Get-Content $arguments[$inputIndex + 1] -Raw | ConvertFrom-Json
+                $script:currentTag = $body.tag_name
                 Assert ($body.target_commitish -ceq $candidate -and $body.draft -eq $true -and $body.make_latest -ceq 'false') 'Public assets must not precede provenance and gates.'
                 $script:effects.Add('draft'); $script:draft = $true
                 '{"id":99}'; return
@@ -110,7 +125,7 @@ try {
     Assert ((@(Get-ReservedReleaseVersions) -join ',') -ceq '0.1.0') 'Only canonical app-version tag reservations count.'
     $releases = @(@{ draft = $true; prerelease = $false }, @{ draft = $false; prerelease = $true })
     Assert ($null -eq (Get-LastSuccessfulRelease)) 'Failed drafts and prereleases must not consume app versions or become comparison baselines.'
-    $release = @{ draft = $false; prerelease = $false; published_at = '2026-11-09T00:00:00Z'; tag_name = 'v0.1.0'; assets = @() }
+    $release = @{ id = 1; draft = $false; prerelease = $false; published_at = '2026-11-09T00:00:00Z'; tag_name = 'v0.1.0'; assets = @() }
     $releases = @($release)
     Rejects { Get-LastSuccessfulRelease } 'a legacy release without exact source provenance'
     $release.assets = @(@{ name = 'release-provenance.json'; id = 7 })
@@ -184,9 +199,93 @@ try {
         $moveMainOnUpload = $false; $main = $candidate; $effects.Clear(); $draft = $false
         Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish') 'Publish only a complete verified draft, with immutable exact-source tag and latest updated last.'
+        Remove-Item "$fixture\org-explorer-update.win-x64.json", "$fixture\release-provenance.json"
+        $null = New-SignedReleaseManifest -ReleaseDirectory $fixture -Version 0.1.0 -Key $key -KeyId test-active -Now ([DateTimeOffset]::UtcNow.AddDays(-8))
+        New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+        $assetResponse = Get-Content "$fixture\release-provenance.json" -Raw
+        $originalRelease = @{ id = 100; draft = $false; prerelease = $false; tag_name = 'v0.1.0'; published_at = [DateTimeOffset]::UtcNow.AddDays(-8).ToString('O')
+            assets = @(Get-ReleaseInventory $fixture | ForEach-Object {
+                @{ id = if ($_.fileName -ceq 'release-provenance.json') { 7 } else { 8 }; name = $_.fileName; size = $_.size; digest = 'sha256:' + $_.sha256 }
+            }) }
+        $releases = @($originalRelease); $latestRelease = $originalRelease
+        $renewalState = Get-ReleasePublicationState
+        $renewalAuthorization = @{ expiresAt = [DateTimeOffset]::UtcNow.AddDays(6).ToString('O') }
+        $renewalPlan = Get-MetadataRenewalPlan -State $renewalState -Authorization $renewalAuthorization -ControllerRevision $candidate -RunId 123 -Attempt 1
+        $renewalDirectory = "$fixture-renewal"
+        $uploadDirectory = $renewalDirectory
+        New-MetadataRenewalArtifacts -OriginalDirectory $fixture -Destination $renewalDirectory -Plan $renewalPlan -Key $key -KeyId test-active -VerificationRunId 123 -ControllerCiRunId 42
+        Assert-RenewalArtifacts -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -Plan $renewalPlan -Key $key -KeyId test-active
+        $renewedEnvelope = Get-Content "$renewalDirectory\org-explorer-update.win-x64.json" -Raw | ConvertFrom-Json
+        $renewedPayload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($renewedEnvelope.payload)) | ConvertFrom-Json
+        Assert ($renewedPayload.version -ceq '0.1.0' -and $renewedPayload.releaseTag -ceq 'v0.1.0' -and
+            $renewedPayload.assets[0].url -ceq 'https://github.com/geevensingh/org-explorer/releases/download/v0.1.0/geevensingh.OrgExplorer-0.1.0-full.nupkg' -and
+            $renewedPayload.assets[0].size -eq 3 -and $renewedPayload.assets[0].sha256 -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'Renewal must pin the original full package URL/filename/version/length/SHA256, not its metadata release tag.'
+        [IO.File]::WriteAllBytes("$renewalDirectory\geevensingh.OrgExplorer-win-Setup.exe", [Text.Encoding]::UTF8.GetBytes('changed bootstrap'))
+        Rejects { Assert-RenewalArtifacts -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -Plan $renewalPlan -Key $key -KeyId test-active } 'changed copied latest-download bootstrap bytes'
+        [IO.File]::WriteAllBytes("$renewalDirectory\geevensingh.OrgExplorer-win-Setup.exe", [Text.Encoding]::UTF8.GetBytes('abc'))
+        $failUpload = $true; $effects.Clear(); $draft = $false
+        Rejects { Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 42 -Key $key -KeyId test-active } 'failed renewal upload'
+        Assert (!$effects.Contains('publish')) 'Failed renewal must leave latest unchanged.'
+        $failUpload = $false; $effects.Clear(); $draft = $false
+        $latestRelease = @{ id = 101 }
+        Rejects { Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 42 -Key $key -KeyId test-active } 'a concurrent product/metadata latest promotion'
+        Assert ($effects.Count -eq 0) 'Superseded latest must reject before any new tag or draft.'
+        $latestRelease = $originalRelease
+        $moveMainOnUpload = $true; $effects.Clear(); $draft = $false
+        Rejects { Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 42 -Key $key -KeyId test-active } 'renewal main advancing during upload'
+        Assert (!$effects.Contains('publish')) 'Stale renewal cannot replace latest.'
+        $moveMainOnUpload = $false; $main = $candidate; $effects.Clear(); $draft = $false
+        $renewalPlan.controllerSha = 'd' * 40; $main = 'd' * 40
+        $renewalProof = Get-Content "$renewalDirectory\release-provenance.json" -Raw | ConvertFrom-Json
+        $renewalProof.controllerSha = 'd' * 40; $renewalProof.controllerCiRunId = 44
+        $renewalProof | ConvertTo-Json -Depth 10 | Set-Content "$renewalDirectory\release-provenance.json"
+        Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 44 -Key $key -KeyId test-active
+        Assert (($effects -join ',') -ceq 'tag,draft,upload,publish' -and $currentTag -ceq 'metadata-v0.1.0-123-1') 'Renewal must publish only an immutable metadata tag while preserving the original app version.'
+        $renewalProvenanceResponse = Get-Content "$renewalDirectory\release-provenance.json" -Raw
+        $renewedRelease = @{ id = 99; tag_name = $currentTag; draft = $false; prerelease = $false; published_at = [DateTimeOffset]::UtcNow.ToString('O')
+            assets = @(Get-ReleaseInventory $renewalDirectory | ForEach-Object {
+                @{ id = if ($_.fileName -ceq 'release-provenance.json') { 9 } else { 10 }; name = $_.fileName; size = $_.size; digest = 'sha256:' + $_.sha256 }
+            }) }
+        $releases = @($originalRelease, $renewedRelease); $latestRelease = $renewedRelease
+        Assert ((Get-LastSuccessfulRelease).sourceSha -ceq $candidate -and
+            (Get-NextReleaseVersion -InitialVersion '0.1.0' -LastVersion (Get-LastSuccessfulRelease).version) -ceq '0.1.1') 'A genuinely generated metadata publication must preserve the original product baseline and next app version.'
+        $releases = @($originalRelease); $latestRelease = $originalRelease
+        Remove-Item $renewalDirectory -Recurse -Force
+        $sourceRoot = "$fixture-source"
+        New-Item "$sourceRoot\src\OrgExplorer.Desktop", "$sourceRoot\tests\OrgExplorer.Desktop.Smoke", "$sourceRoot\tests\OrgExplorer.Core.Tests" -ItemType Directory -Force | Out-Null
+        @{ schemaVersion = 1; manifestUrl = 'https://github.com/geevensingh/org-explorer/releases/latest/download/org-explorer-update.win-x64.json'
+            keys = @(@{ keyId = 'test-active'; algorithm = 'ES256'; publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo()) }) } |
+            ConvertTo-Json -Depth 5 | Set-Content "$sourceRoot\src\OrgExplorer.Desktop\update-trust.json"
+        'checkOnStartup = false' | Set-Content "$sourceRoot\tests\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs"
+        'Scale_fixtures_opt_out_of_production_updates_before_any_application_can_launch' | Set-Content "$sourceRoot\tests\OrgExplorer.Core.Tests\DesktopScenarioRunnerTests.cs"
+        git -C $sourceRoot init --quiet
+        git -C $sourceRoot add --all
+        git -C $sourceRoot -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Controlled original source'
+        if ($LASTEXITCODE -ne 0) { throw 'Controlled original source commit failed.' }
+        $candidate = (git -C $sourceRoot rev-parse HEAD).Trim()
+        $main = $candidate; $run.head_sha = $candidate
+        $original = $assetResponse | ConvertFrom-Json
+        $original.sourceSha = $candidate
+        $original | ConvertTo-Json -Depth 10 | Set-Content "$fixture\release-provenance.json"
+        $assetResponse = Get-Content "$fixture\release-provenance.json" -Raw
+        $manifestResponse = Get-Content "$fixture\org-explorer-update.win-x64.json" -Raw
+        $originalRelease.assets = @(Get-ReleaseInventory $fixture | ForEach-Object {
+            @{ id = if ($_.fileName -ceq 'release-provenance.json') { 7 } else { 8 }; name = $_.fileName; size = $_.size; digest = 'sha256:' + $_.sha256 }
+        })
+        $effects.Clear()
+        $context = Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1
+        Assert ($context.plan.publish -and $context.plan.sourceSha -ceq $candidate -and $context.controllerCiRunId -eq 42 -and $effects.Count -eq 0) 'Scheduled evaluation must authenticate original metadata/trust at its real Git source and authorize no publication effects.'
+        $missingCurrentCi = $true
+        Rejects { Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1 } 'a controller main without successful CI'
+        $missingCurrentCi = $false
+        $releases = @()
+        Assert (!(Get-MetadataRenewalContext -Root $sourceRoot -ControllerRevision $candidate -RunId 123 -Attempt 1).plan.publish) 'First scheduled evaluation without a public product must not require or fabricate an original source/release.'
+        Remove-Item $sourceRoot -Recurse -Force
     } finally { $key.Dispose() }
     Write-Host "PASS: $checks trusted publication checks."
 } finally {
     Remove-Item Function:\gh
     Remove-Item $fixture -Recurse -Force
+    if (Test-Path "$fixture-renewal") { Remove-Item "$fixture-renewal" -Recurse -Force }
+    if (Test-Path "$fixture-source") { Remove-Item "$fixture-source" -Recurse -Force }
 }

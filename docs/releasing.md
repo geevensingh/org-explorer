@@ -107,37 +107,73 @@ Before real publication, the owner must:
 5. Merge the reviewed workflows to main so GitHub registers `workflow_run` and
    the reusable paths; allow Actions read and publication-job contents-write.
    Existing branch protection/required main CI is not bypassed or reconfigured.
-6. Arrange metadata-expiry operations below. Project-key authentication is not
+6. Enable and monitor the daily metadata-renewal schedule below. Project-key authentication is not
    Windows publisher signing or initial-installer reputation. Never disable
    Windows protections, import a self-signed certificate or acquire a paid
    certificate as a hidden prerequisite.
 
 ### Expiry and safe renewal policy
 
-Manifests are valid for **14 days**, within protocol 1's 31-day maximum. There is
-**no automatic renewal scheduler in this change**. Monitor the published signed
-expiry and arrange renewal before it; if that does not happen, installed clients
-correctly report expired/unverified metadata, not "up to date." Local use remains
-available. Do not extend validity past 31 days or fabricate docs-only app releases.
+Manifests are valid for **14 days**, within protocol 1's 31-day maximum.
+`release.yml` evaluates renewal **daily at 09:17 UTC** once registered on main.
+With no published app it does nothing: it cannot invent the first product release.
+With more than seven days of authenticated validity remaining it also does
+nothing. At seven days or less, including recovery after expiry, it renews
+signed metadata without changing the app, Import, Workspace or protocol version.
+Repeat evaluation of a successful renewal is a no-op until its next due window.
 
-Safe no-product renewal must reauthenticate the original full package's
-SHA256/length and immutable `v{appVersion}` URL with the owner-held matching key,
-fresh issuance and bounded expiry. It must not move that app tag, change package
-bytes, introduce downloaded trust, or change the app/data/protocol version.
-Use a separately reviewed **immutable metadata-only publication** with an
-explicit original-app reference and identical original installer/full/portable/
-feed assets if it becomes the GitHub `latest` download surface; never delete and
-replace a public signed asset in place. Serialize it with product publication,
-recheck the latest product and run both fresh exact-product-candidate suites.
-Renewal must not become the product-comparison baseline.
+Renewal creates an immutable `metadata-v{appVersion}-{runId}-{attempt}` release
+and lightweight tag pointing at the **original app source**, never current-main
+binaries. The new signed payload still says `v{appVersion}` and pins the original
+full package's exact versioned URL, filename, length and SHA256. Only issuance,
+expiry and a signer already trusted by that original app may change. The original
+app tag, package and all published assets remain untouched.
 
-That metadata-only promotion/provenance convention is **not implemented or
-enabled here**: the current publisher deliberately rejects non-app public tags
-as ambiguous. Do not manually create such a latest release and assume automation
-will understand it. Until that separate reviewed operational mechanism exists,
-an owner must plan a genuine product release before expiry or accept visible
-fail-closed update unavailability. This is an explicit production-operating
-limitation, not a credential workaround, silent renewal or rotation.
+The latest-download bootstrap remains useful: setup, full package, portable ZIP,
+all three Velopack indexes and `package-metadata.json` are copied byte-for-byte
+from the original `v{appVersion}` release. Only the envelope and
+`release-provenance.json` are new. Renewal provenance explicitly links the
+original release ID/provenance SHA256, app source/version/tag/CI, current trusted
+main controller/CI, preceding publication and fresh verification run.
+Product-effect comparisons and generated app versions always use the last actual
+app release, not intervening metadata releases.
+
+The same non-cancelling production concurrency group covers product publication
+and renewal, including fresh gates. Every due attempt freshly executes **both**
+scale suites at the **original product SHA**; earlier release/nightly artifacts
+cannot approve renewal. The controller must itself be current main with
+successful required push CI. Original successful CI, tag/provenance, all remote
+asset lengths/digests, signed original/current metadata and GitHub latest are
+revalidated. Immediately before promotion it checks the controller and original/
+latest snapshot again. Main moving, a competing product/renewal, missing/failed/
+skipped scale work or partial upload leaves latest unchanged and any draft
+unpublished. New daily runs/whole-run attempts allocate distinct metadata tags;
+no force update, asset replacement or collision recovery overwrites anything.
+
+The signer is checked against the public resource at the **original app commit**,
+not a newer main resource. The downloaded original package's actual embedded
+trust must match that source configuration (ignoring JSON formatting/line endings),
+with no controlled-effects marker. The selected owner secret must derive a public
+SPKI already embedded there. Current-main keys cannot substitute downloaded trust;
+an unknown/new active key fails actionably and requires the ordinary bridge/
+rebootstrap policy, not automatic rotation.
+
+Scale fixtures persist an ordinary isolated `checkOnStartup: false` preference
+before either scale scenario can launch a normal app. This prevents a historical,
+production-trusted app from checking/downloading production updates during CI.
+It changes no product default, runtime trust or test success path. The required
+`update-settings` and installed-update scenarios are unchanged. Historical product
+candidates lacking this runner regression are refused; ship a genuine bridge
+product release rather than patching an historical candidate or weakening
+exact-source verification.
+
+Monitor schedule failures and signed expiry. GitHub schedules can be delayed or
+disabled by repository inactivity/Actions policy; missing keys, unavailable
+original provenance/assets, stale main or failed gates remain visible failures.
+If renewal cannot complete before expiry, clients correctly report unverified
+availability while local use remains available. Do not extend validity past
+31 days, fabricate a docs-only app version, replace a public manifest in place,
+or waive gates to hide that outage.
 Old-key bridge/rebootstrap policy remains [unchanged](update-protocol.md#rotation-and-authenticated-automatic-application).
 
 ## Safe hosted proof before merge
@@ -157,7 +193,9 @@ exact commands. Check `headSha`, all three ordinary CI lanes, both fresh scale
 jobs and the packaging job. `CI` alone still attests only its three lanes.
 The bridge uses no production secrets and has no contents-write permission.
 It packages real runtime-included fixture binaries, signs with an in-memory
-ephemeral key, validates all feeds/manifests, then rebuilds and checks production
+ephemeral key, validates all feeds/manifests and performs a genuine metadata-only
+renewal of that exact package with identical bootstrap bytes and unchanged app
+version. It verifies repeat evaluation is a no-op, then rebuilds and checks production
 trust isolation. It never installs, downloads a production update, or publishes.
 Only named JSON evidence is uploaded; test packages/private material are not.
 This is not owner-key provisioning, public release, Windows publisher trust,
@@ -169,8 +207,10 @@ Local non-UI contract checks:
 .\tests\Release.Tests.ps1
 .\tests\Release.Gates.Tests.ps1
 .\tests\Release.Publication.Tests.ps1
+.\tests\Release.Renewal.Tests.ps1
 .\tests\Release.Payload.Tests.ps1
 .\tests\Release.Workflow.Tests.ps1
+.\tests\Update.TrustLifetime.Tests.ps1
 ```
 
 Publication-effect tests use controlled fake GitHub responses and bytes, not

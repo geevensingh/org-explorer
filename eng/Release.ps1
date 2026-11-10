@@ -4,6 +4,8 @@ $ReleaseManifestName = 'org-explorer-update.win-x64.json'
 . "$PSScriptRoot\ReleaseGates.ps1"
 . "$PSScriptRoot\ReleaseGitHub.ps1"
 . "$PSScriptRoot\ReleaseArtifacts.ps1"
+. "$PSScriptRoot\ReleaseRenewal.ps1"
+. "$PSScriptRoot\MetadataRenewalContext.ps1"
 
 function Assert-ReleaseVersion([string]$Version) {
     if ($Version -cnotmatch '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\z') {
@@ -23,7 +25,7 @@ function Get-NextReleaseVersion([string]$InitialVersion, [string]$LastVersion) {
 function Test-ProductImpact([string[]]$Paths, [string[]]$ShippedResources) {
     foreach ($path in $Paths) {
         if ($path -cin $ShippedResources -or
-            $path -cmatch '^(src/|assets/|schemas/|Directory\.(Build|Packages)\.|NuGet\.Config$|global\.json$|\.config/dotnet-tools\.json$|eng/(Package-Windows|Release[^/]*|Invoke-Release)\.ps1$|\.github/workflows/release\.yml$)') { return $true }
+            $path -cmatch '^(src/|assets/|schemas/|Directory\.(Build|Packages)\.|NuGet\.Config$|global\.json$|\.config/dotnet-tools\.json$|eng/(Package-Windows|Release[^/]*|Invoke-Release|MetadataRenewalContext|Invoke-MetadataRenewal)\.ps1$|\.github/workflows/release\.yml$)') { return $true }
         if ($path -cmatch '^(docs/|tests/|eng/|\.github/)' -or
             $path -cmatch '(^|/)(README|AGENTS|CLAUDE|GLOSSARY|LICENSE)(\.[^/]*)?$' -or
             $path -cin @('.gitignore', '.gitattributes', '.editorconfig')) { continue }
