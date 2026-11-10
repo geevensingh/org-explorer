@@ -54,6 +54,8 @@ An automatic product release additionally includes the authenticated
 `org-explorer-update.win-x64.json` and exact-source `release-provenance.json`.
 Those publication gates and owner prerequisites are described in the repository's
 `docs\releasing.md`; local packaging alone is not public publication.
+No actual production release has been published yet. Neither controlled installer
+verification nor this Windows 11 target is Windows 11 certification.
 
 ## Update checks
 
@@ -62,15 +64,15 @@ blocking local use. Startup checks default to enabled and can be disabled there.
 Offline, rate-limit, invalid-signature and other failures are visible even with
 Settings closed; a failed check never means "up to date."
 
-This build deliberately has no production verification keys provisioned.
-It reports **update verification not configured / availability unknown** and
-does not contact the release host until the owner supplies a trusted app
-bootstrap containing public keys. Private keys never belong in the app.
-The [owner's protocol/provisioning contract](update-protocol.md) specifies that
-separate requirement. Do not trust an arbitrary key downloaded alongside a feed.
+Production builds embed the **owner-provided public verification key**. Private
+signing keys and release credentials are not shipped in the app. This configured
+trust authenticates project updates, not a Windows publisher or the initial
+installer's reputation. The [protocol/provisioning contract](update-protocol.md)
+defines that trust; an arbitrary key downloaded alongside a feed is not trusted.
 
-Once trusted public keys are provisioned, an authorized newer release downloads
-automatically. Signed length/SHA256, fresh authorization expiry and Velopack
+Authenticated automatic download, installation and restart are implemented:
+an authorized newer release downloads automatically. Signed length/SHA256,
+fresh authorization expiry and Velopack
 package integrity must all pass. Pending local saves and Import application
 finish before installation/restart; failed writing is retained and blocks exit.
 Resolve its visible retry/discard guidance, then check again. External folder
@@ -86,8 +88,9 @@ when the app is next opened manually.
 
 Velopack's implicit pending-package apply on startup remains disabled, and no
 cached package alone authorizes installation. Standard Windows protections
-remain in force. Automatic product-impact publication is implemented, but real
-publication still requires owner-provisioned matching signing/trust configuration
-and successful trusted main CI plus fresh exact-candidate scale checks.
-The current public trust list remains empty; this text is not production
-provisioning or successful publication evidence.
+remain in force. Automatic product-impact publication and signed metadata renewal
+are implemented. Renewal refreshes authorization for the unchanged app/package;
+it does not invent a newer app version or replace installed public trust. Real
+publication still requires matching owner-controlled signing credentials,
+successful trusted main CI and fresh exact-candidate scale checks. Public trust
+configuration is not evidence that these production publication gates have run.

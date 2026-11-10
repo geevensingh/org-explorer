@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
@@ -103,12 +104,73 @@ internal static partial class Program
             Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# Pending context");
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
+            AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
+            AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
             Close(process);
-            Console.WriteLine("PASS: real folder events update actual profile, Person/Team Markdown, inherited Team review metadata, same-path photo pixels, stale warnings, and coherent recovery without reload.");
+            Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
         }
         finally
         {
             StopApplication(process);
         }
+    }
+
+    private static void AssertFirstAutosaveDeliveryConflict(
+        AutomationElement window, string kind, string noteFile, string personFile)
+    {
+        AwaitLocalWorkIdle(window);
+        SelectTab(window, $"{kind}NoteEditTab");
+        var editor = (ValuePattern)Find(window, $"{kind}NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
+        var status = Find(window, $"{kind}NoteStatus");
+        var original = File.ReadAllText(noteFile);
+        var local = $"# Local {kind} draft";
+        editor.SetValue(local);
+        if (!status.Current.Name.StartsWith("Pending", StringComparison.Ordinal) || File.ReadAllText(noteFile) != original)
+            throw new InvalidOperationException($"The first {kind} autosave was not still pending before delivery.");
+        var delivered = original + $"\r\n# Delivered {kind} writing\r\n";
+        File.WriteAllText(noteFile, delivered);
+        var bytes = File.ReadAllBytes(noteFile);
+        var marker = $"Delivered while typing {kind}";
+        var profile = JsonNode.Parse(File.ReadAllText(personFile))!;
+        profile["preferredName"] = marker;
+        File.WriteAllText(personFile, profile.ToJsonString());
+
+        var timer = Stopwatch.StartNew();
+        var edits = 0;
+        while (Find(window, "ProfileHeading").Current.Name != marker)
+        {
+            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
+                throw new TimeoutException($"External {kind} delivery was not accepted while typing within 20 seconds.");
+            if (status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) ||
+                !File.ReadAllBytes(noteFile).SequenceEqual(bytes))
+                throw new InvalidOperationException($"The first {kind} save ran before delivery acceptance was observed.");
+            local = $"# Local {kind} draft {++edits}";
+            editor.SetValue(local);
+            Thread.Sleep(10);
+        }
+        Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal));
+        AssertValue(window, $"{kind}NoteMarkdown", local);
+        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
+            throw new InvalidOperationException($"The first {kind} autosave overwrote delivered writing.");
+        Click(window, "NavigateManager");
+        Await(() => status.Current.Name.Contains("before leaving or closing", StringComparison.Ordinal));
+        if (Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
+        Click(window, $"Retry{kind}NoteSave");
+        Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        AssertValue(window, $"{kind}NoteMarkdown", local);
+        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
+            throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
+        Click(window, $"Discard{kind}NoteDraft");
+        var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
+        Await(() => Value(window, $"{kind}NoteMarkdown") == deliveredMarkdown);
+        AwaitLocalWorkIdle(window);
+        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
+            throw new InvalidOperationException($"{kind} discard rewrote the delivered document.");
+        Set(window, $"{kind}NoteMarkdown", $"# Intentional {kind} edit after discard");
+        Await(() => status.Current.Name.Contains("saved locally", StringComparison.Ordinal));
+        if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
+            throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
     }
 }

@@ -18,7 +18,7 @@ public sealed partial class ApplicationWorkflow
     private string? saveErrorSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
-    public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null;
+    public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty;
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
     public void DiscardUnsavedChanges(Guid? noteId = null)
     {
@@ -27,15 +27,14 @@ public sealed partial class ApplicationWorkflow
             if (noteId is { } id)
             {
                 failedSaves.Remove($"note:{id}");
-                failedNoteBases.Remove(id);
+                unsavedNoteBases.TryRemove((NoteScope.Person, id), out _);
                 failedSaves.Remove($"team-note:{id}");
-                failedTeamNoteBases.Remove(id);
+                unsavedNoteBases.TryRemove((NoteScope.Team, id), out _);
             }
             else
             {
                 failedSaves.Clear();
-                failedNoteBases.Clear();
-                failedTeamNoteBases.Clear();
+                unsavedNoteBases.Clear();
             }
             Status = "Unsaved local changes deliberately discarded.";
         }

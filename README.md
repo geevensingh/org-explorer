@@ -70,10 +70,14 @@ a Workspace or after incompatible data/conversion failure. **Retry Workspace
 validation / conversion** retries local loading without enabling invalid edits.
 **Check for updates** verifies project-key signed releases, and startup checks
 default to enabled. Availability and offline/rate-limit/verification errors are
-explicit and do not block local work. Production trust is deliberately
-**not configured** until the owner provisions embedded public keys; no production
-private key or credential is included. See the [protocol/provisioning contract](docs/update-protocol.md).
-Automatic download, installation and restart are **not connected yet** (#18).
+explicit and do not block local work. The owner-provided **public verification
+key is configured** for production builds; no private key or credential is
+included. Authenticated automatic download, safe installation/restart and signed
+metadata renewal are implemented. No actual production release has been
+published yet; configured public trust and controlled verification are not
+publication evidence, Windows publisher signing/reputation, or Windows 11
+certification. See the [protocol/provisioning contract](docs/update-protocol.md)
+and [release operations](docs/releasing.md).
 Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
 before restoring files externally.
@@ -86,8 +90,12 @@ Person, Person/Team Markdown, Team context metadata, and photo changes, includin
 location. Whole-Workspace/graph validation precedes acceptance. Incomplete,
 unsupported, or invalid deliveries visibly mark all retained information
 **STALE / unavailable**, block writes, and never create false roots or repair
-files. Complete valid delivery recovers automatically. Failed drafts remain
-visible until retry succeeds or you deliberately discard them. Images and raw
+files. Complete valid delivery recovers automatically. A draft retains the note
+version shown when editing began, including before its first autosave. External
+changes cannot be overwritten by that draft or its retry: the local writing
+stays visible, while the delivered document stays unchanged until you explicitly
+discard the draft and edit the accepted version. Ordinary I/O failures remain
+retryable. Images and raw
 HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a

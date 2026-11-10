@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . "$root\eng\PerformanceSuite.ps1"
+. "$root\eng\ScaleRunner.ps1"
 
 $results = Join-Path $root ".ci-results\performance-contract-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory $results | Out-Null
@@ -63,6 +64,36 @@ try {
         throw 'Candidate mismatch was not reported as a fresh failure before test execution.'
     }
     Write-Host 'PASS: candidate mismatch fails before execution with identifiable revision and fresh failure results.'
+    $lifecycle = Join-Path $results 'lifecycle'
+    Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $lifecycle -Selection @{} -Verify {
+        param($run, $build)
+        $running = Get-Content (Join-Path $run 'result.json') -Raw | ConvertFrom-Json
+        if ($running.outcome -ne 'running' -or $running.revision -notmatch '^[0-9a-f]{40}$') {
+            throw 'Owned commands did not begin with a fresh identifiable running report.'
+        }
+        New-Item -ItemType Directory $build | Out-Null
+        'owned fixture' | Set-Content (Join-Path $build 'fixture.txt')
+        Invoke-ScaleProcess success pwsh @('-NoProfile', '-Command', 'Write-Output owned-success; exit 0')
+    }
+    $status = Get-Content (Join-Path $lifecycle 'result.json') -Raw | ConvertFrom-Json
+    if ($status.outcome -ne 'success' -or $status.steps.Count -ne 1 -or $status.steps[0].exitCode -ne 0 -or
+        (Test-Path (Join-Path $lifecycle "$($status.runDirectory)\build"))) {
+        throw 'Successful shared execution lost command evidence or fixture/build cleanup.'
+    }
+    $failed = Join-Path $results 'failed-command'
+    Assert-Rejected {
+        Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $failed -Selection @{} -Verify {
+            param($run, $build)
+            New-Item -ItemType Directory $build | Out-Null
+            Invoke-ScaleProcess failure pwsh @('-NoProfile', '-Command', 'exit 7')
+        }
+    } 'an unsuccessful owned command'
+    $status = Get-Content (Join-Path $failed 'result.json') -Raw | ConvertFrom-Json
+    if ($status.outcome -ne 'failure' -or $status.steps.Count -ne 1 -or $status.steps[0].exitCode -ne 7 -or
+        (Test-Path (Join-Path $failed "$($status.runDirectory)\build"))) {
+        throw 'Failed shared execution lost the failing exit code or skipped cleanup.'
+    }
+    Write-Host 'PASS: shared scale execution records fresh running/success/failure evidence and cleans owned build trees.'
     $started = $env:SCALE_STARTED_AT
     try {
         $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddMinutes(-12).ToString('O')
@@ -73,10 +104,31 @@ try {
         if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 0 -or $status.executionSeconds -le 660) {
             throw 'Performance setup did not consume the shared execution budget.'
         }
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-657).ToString('O')
+        $held = Join-Path $results 'held-command'
+        Assert-Rejected {
+            Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $held -Selection @{} -Verify {
+                param($run, $build)
+                New-Item -ItemType Directory $build | Out-Null
+                Invoke-ScaleProcess held pwsh @('-NoProfile', '-Command', '[Console]::WriteLine($PID); Start-Sleep -Seconds 30')
+            }
+        } 'a held owned command'
+        $status = Get-Content (Join-Path $held 'result.json') -Raw | ConvertFrom-Json
+        $run = Join-Path $held $status.runDirectory
+        $childId = [int](Get-Content (Join-Path $run 'held.log') -TotalCount 1)
+        $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
+        if ($null -ne $child) {
+            Stop-Process -Id $childId -Force
+            throw 'Timed-out shared execution left its owned command running.'
+        }
+        if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 1 -or
+            (Test-Path (Join-Path $run 'build'))) {
+            throw 'Held execution did not fail closed, report the command, and clean after termination.'
+        }
     } finally {
         $env:SCALE_STARTED_AT = $started
     }
-    Write-Host 'PASS: an exhausted setup budget fails closed without starting restore or tests.'
+    Write-Host 'PASS: exhausted setup starts no commands; held owned execution is terminated before cleanup and remains timed out.'
     $runner = Get-Content "$root\eng\Run-CiLane.ps1" -Raw
     if ($runner -notmatch "'--filter', 'Category!=Performance'") {
         throw 'Ordinary filesystem execution must exclude only the complete performance category.'

@@ -26,6 +26,14 @@ use in-memory workflow state. Classify dependencies by what a test actually does
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
+`BeginNoteDraft` captures an immutable Person/Team document base (or expected
+absence) at the workflow/view-model seam. Editors display that snapshot and
+`RetainNoteDraft` marks it dirty without waiting behind in-flight Workspace I/O.
+Close/restart stays blocked through first autosave and retries; `SaveNoteDraft`
+returns the next base on success, retained again for newer typing. Real-file tests cover delivery before
+first save, absent → created and deleted documents, retained external bytes,
+discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
+behind that same seam; Team confirmation and migration version checks stay explicit.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -157,7 +165,9 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   production-trust publish; see [the protocol contract](update-protocol.md#controlled-verification).
 - `external-refresh`: actual folder delivery changes the open profile, note
   editors, inherited reading/review and same-path photo pixels; invalid graph
-  delivery becomes visibly stale, retains last good data and recovers.
+  delivery becomes visibly stale, retains last good data and recovers. Person
+  and Team typing across delivery also verifies first-autosave/retry rejection,
+  retained editor/delivered writing and deliberate discard through real WPF.
 
 The filesystem update tests exercise actual cryptography, staged files, HTTP,
 Velopack integrity/explicit launch arguments, real pending Import publication,
@@ -188,8 +198,8 @@ or a single explicit scale scenario name.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
 The full selection and `update-settings` require the prepared update fixture and
-matching public-trust build; a default production build with no keys cannot
-substitute for that evidence. Other focused scenarios may use a normal build.
+matching test-trust build; a production-trust build cannot substitute for that
+controlled evidence. Other focused scenarios may use a normal build.
 
 `scenarios.json` is written before execution with all selected names `NotRun`,
 then `Running`, then `Passed` or `Failed`. It includes times, fixture locations
@@ -264,6 +274,9 @@ Each suite has its own **660-second whole-execution budget** and hosted
 eleven-minute deadline. `SCALE_STARTED_AT` begins before checkout/SDK setup;
 restore, builds, fixture generation, assertions and cleanup all count. These
 are execution bounds, not new latency thresholds or a baseline collection scheme.
+Both standalone commands use `eng\ScaleRunner.ps1` for the budget, owned command
+lifecycle, fresh reports, exact-candidate checks and cleanup. Workload selection
+and complete named-result assertions remain in their separate entry points.
 See [performance validation](performance-validation.md) for fixture detail and
 historical measurements, not current command authority.
 

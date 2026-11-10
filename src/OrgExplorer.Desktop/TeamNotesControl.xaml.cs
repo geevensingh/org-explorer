@@ -15,6 +15,7 @@ public partial class TeamNotesControl : UserControl
     private Guid? selected;
     private bool loading;
     private readonly NoteDraftState draft;
+    private NoteDraft? noteBase;
     public event Action<string, Guid>? OwnerRequested;
 
     public TeamNotesControl()
@@ -45,6 +46,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (!string.Equals(owner, email, StringComparison.OrdinalIgnoreCase))
         {
+            if (!TryLeave()) return;
             owner = email;
             selected = null;
         }
@@ -79,9 +81,10 @@ public partial class TeamNotesControl : UserControl
         draft.Stop();
         loading = true;
         selected = note?.Id;
-        NoteTitle.Text = note?.Title ?? "";
-        MarkdownEditor.Text = note?.Markdown ?? "";
-        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = note is not null && !note.Archived;
+        noteBase = note is null ? null : workflow?.BeginNoteDraft(NoteScope.Team, note.OwnerEmail, note.Id);
+        NoteTitle.Text = noteBase?.Title ?? "";
+        MarkdownEditor.Text = noteBase?.Markdown ?? "";
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore Team note" : "Archive Team note";
         ReviewStatus.Text = note?.ReviewStatus ?? "Select an owned Team note to read, edit, or review.";
@@ -126,6 +129,7 @@ public partial class TeamNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
+        if (!draft.HasUnsavedChanges && noteBase is { } basis) workflow.RetainNoteDraft(basis);
         draft.Edited();
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
     }
@@ -136,12 +140,15 @@ public partial class TeamNotesControl : UserControl
 
     private async Task SaveNoteDraftAsync()
     {
-        if (workflow is null || selected is not { } id) return;
+        if (workflow is null || selected is not { } id || noteBase is not { } basis) return;
         if (!draft.TryBeginSave()) return;
         var title = NoteTitle.Text;
         var markdown = MarkdownEditor.Text;
-        var saved = await RunAsync(() => workflow.EditTeamNote(id, title, markdown), draft: true);
+        var accepted = await RunAsync(() => workflow.SaveNoteDraft(basis, title, markdown), draft: true);
+        var saved = accepted is not null;
+        if (saved) noteBase = accepted;
         draft.CompleteSave(saved, title, markdown, NoteTitle.Text, MarkdownEditor.Text);
+        if (saved && draft.HasUnsavedChanges) workflow.RetainNoteDraft(accepted!);
         RetryButton.IsEnabled = DiscardButton.IsEnabled = draft.HasUnsavedChanges;
         if (!draft.HasUnsavedChanges) RefreshNotes();
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
