@@ -100,7 +100,9 @@ On that authorized desktop, the required command is:
 It builds the real product and harness, runs all selected scenarios **sequentially**
 in one process, verifies complete named results, then publishes a local
 product-check folder to reject leaked fixtures/test assemblies. That publish is
-not installer verification or release publication. The runner's actual invocation:
+not installer verification or release publication. After the lane prepares the
+ephemeral embedded update trust and fixture environment, the runner's invocation
+has this form (the lane uses its isolated artifact paths):
 
 ```powershell
 dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
@@ -130,6 +132,13 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 - `compatibility-settings`: global Settings before open, supported conversion,
   unsupported delivered version/write blocking, recoverable conversion failure
   and validated retry.
+- `update-settings`: actual default-enabled startup and manual checks against a
+  controlled loopback feed with ephemeral embedded public trust, responsive local
+  editing/saving during a pending check, signed availability, persisted opt-out
+  and reopen, unknown signer/tampered signature/unsupported channel/rate-limit/
+  offline rejection, and a visible signature failure on a later startup.
+  The lane prepares this normal-product test build and later verifies a fresh
+  production-trust publish; see [the protocol contract](update-protocol.md#controlled-verification).
 - `external-refresh`: actual folder delivery changes the open profile, note
   editors, inherited reading/review and same-path photo pixels; invalid graph
   delivery becomes visibly stale, retains last good data and recovers.
@@ -141,6 +150,9 @@ For investigation, append one name to the harness command, not the app
 `--person-notes`, `--team-notes`, `--scale` selectors remain aliases.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
+The full selection and `update-settings` require the prepared update fixture and
+matching public-trust build; a default production build with no keys cannot
+substitute for that evidence. Other focused scenarios may use a normal build.
 
 `scenarios.json` is written before execution with all selected names `NotRun`,
 then `Running`, then `Passed` or `Failed`. It includes times, fixture locations

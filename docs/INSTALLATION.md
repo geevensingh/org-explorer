@@ -13,7 +13,7 @@ legal publisher, and Windows SmartScreen, antivirus, Smart App Control, or
 organization policy may warn about or block it. Do not disable/bypass protections,
 install a self-signed trust certificate, or change organization policy to run it.
 If your device requires approved signing, stop and obtain an approved installer.
-Future project-key update authentication is not Windows publisher verification.
+Project-key update authentication is not Windows publisher verification.
 Even a signed installer is not a promise of SmartScreen reputation.
 
 ## Installation and your Workspace
@@ -51,8 +51,22 @@ is `win-x64`; the build version is shared by the app, package and feed.
 These hashes establish integrity against the supplied inventory, **not**
 authorization by a trusted project key.
 
-This installer slice does not publish releases, configure public CD, embed
-credentials/private keys, fetch an update feed, or apply updates unattended.
-Velopack's implicit pending-package apply on startup is disabled. Authenticated
-update manifests and the local-save/restart policy must be completed before any
-unattended apply or production publication is enabled.
+## Update checks
+
+**Settings → Check for updates** verifies signed project release metadata without
+blocking local use. Startup checks default to enabled and can be disabled there.
+Offline, rate-limit, invalid-signature and other failures are visible even with
+Settings closed; a failed check never means "up to date."
+
+This build deliberately has no production verification keys provisioned.
+It reports **update verification not configured / availability unknown** and
+does not contact the release host until the owner supplies a trusted app
+bootstrap containing public keys. Private keys never belong in the app.
+The [owner's protocol/provisioning contract](update-protocol.md) specifies that
+separate requirement. Do not trust an arbitrary key downloaded alongside a feed.
+
+Checks do not download packages, install or restart the app yet. No releases or
+public CD are configured by this change. Velopack's implicit pending-package
+apply on startup remains disabled. The authenticated download/apply and
+local-save/restart policy (#18) and publication gates (#19) must be completed
+before unattended apply or production publication is enabled.
