@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeUpdates();
         profileSaveTimer.Tick += SaveProfileDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];

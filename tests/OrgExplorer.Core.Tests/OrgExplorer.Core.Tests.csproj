@@ -12,6 +12,7 @@
     <Compile Include="..\OrgExplorer.Desktop.Smoke\NavigationRejection.cs" Link="NavigationRejection.cs" />
     <Compile Include="..\OrgExplorer.Installer.Smoke\UninstallProcess.cs" Link="UninstallProcess.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
+    <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
