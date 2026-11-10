@@ -75,12 +75,21 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
 dotnet test tests\OrgExplorer.Core.Tests --filter FullyQualifiedName~DesktopScenarioRunnerTests
+dotnet test tests\OrgExplorer.Core.Tests --filter FullyQualifiedName~UninstallProcessTests
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
 dotnet build src\OrgExplorer.Desktop -c Release
 ```
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
+
+Installer-runner process tests use a separate non-UI .NET fixture, never the
+installed app or setup. Its parent exits with application files already removed
+while a named-event-gated cleanup child still owns the fixture installation.
+Reinstall must remain blocked until that child exits; a held child must consume
+the original remaining deadline, fail, and be terminated with its owned job.
+These process-boundary regressions do not replace hosted installation/Workspace
+preservation verification.
 
 ## Real desktop execution
 
