@@ -340,8 +340,17 @@ It stages a real newer package and verifies that startup does **not** apply it
 without authorization, before explicitly running the newer setup. The manual
 fixture upgrade is not an authenticated automatic-update test.
 
+Uninstall completion includes Velopack's deferred self-delete child, not merely
+`Update.exe` exiting or the WPF executable disappearing. The harness assigns the
+suspended uninstaller to an owned Windows job, waits for the entire job to become
+quiescent, and requires the installation directory to be absent before reinstall.
+The existing 150-second process/seven-minute lifecycle budgets remain unchanged;
+there is no sleep, retry, or discarded failure to conceal overlapping cleanup.
+Non-UI `UninstallProcessTests` exercise real parent/cleanup subprocesses, gated
+cleanup, paths with spaces, and fail-closed timeout without running setup or WPF.
+
 `result.json` records actual OS description/build/product type, runner image,
-source commit, versions and lifecycle results. **`windows-latest` commonly runs
+source commit, versions, uninstall completion barriers and lifecycle results. **`windows-latest` commonly runs
 Windows Server, not Windows 11.** A passing server lifecycle is useful isolated
 Windows x64 evidence, not Windows 11 client/servicing, SmartScreen, or corporate
 policy certification. The product still targets supported Windows 11 x64.

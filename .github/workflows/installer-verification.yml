@@ -9,6 +9,8 @@ on:
       - 'eng/Test-WindowsInstaller.ps1'
       - 'tests/Installer.*.Tests.ps1'
       - 'tests/OrgExplorer.Installer.Smoke/**'
+      - 'tests/OrgExplorer.Installer.ProcessFixture/**'
+      - 'tests/OrgExplorer.Core.Tests/UninstallProcessTests.cs'
       - 'tests/OrgExplorer.Desktop.Smoke/**'
       - 'src/**'
       - 'docs/INSTALLATION.md'
@@ -43,6 +45,10 @@ jobs:
           Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture | Format-List
           Write-Host "Runner environment: $env:RUNNER_ENVIRONMENT; image: $env:ImageOS $env:ImageVersion"
           Write-Host 'A hosted Windows Server run does not certify Windows 11 client or Windows publisher trust.'
+      - name: Verify deferred uninstall cleanup completion without installing
+        run: |
+          dotnet restore tests\OrgExplorer.Core.Tests --locked-mode
+          dotnet test tests\OrgExplorer.Core.Tests -c Release --no-restore --filter FullyQualifiedName~UninstallProcessTests
       - name: Build two real runtime-included fixture installers
         run: |
           .\eng\Package-Windows.ps1 -Version 0.1.0
