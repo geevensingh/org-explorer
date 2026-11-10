@@ -134,3 +134,28 @@ and [shipped installation help](../INSTALLATION.md).
 
 - [Pinned bootstrap source](https://github.com/velopack/velopack/blob/1.2.161/src/lib-csharp/VelopackApp.cs)
 - [Pinned Windows install source](https://github.com/velopack/velopack/blob/1.2.161/src/bins/src/commands/install.rs)
+
+### Deferred uninstall completion
+
+The pinned uninstaller removes application contents, then spawns
+`cmd.exe /C choice ... & rmdir ...` to remove its own installation directory.
+Its successful exit therefore does not prove that cleanup is finished.
+Hosted runs `42767882469` and `42768271748` both started reinstall in the same
+second as this deferred cleanup; setup observed the old directory, then its
+rollback rename failed with `NotFound` as the cleanup removed it. This is a
+teardown/reinstall race, not evidence of an external sharing lock. A console
+`choice` error also demonstrates why its nominal delay cannot be a barrier.
+
+The verification harness starts only the uninstaller suspended, assigns it to
+an owned Windows job before resuming, and observes job accounting until no
+processes remain. Completion-port messages wake that wait; accounting is the
+authoritative condition because message delivery is not guaranteed. It then
+requires the whole installation directory to be absent before reinstall.
+Failure or timeout remains a failure, and closing the owned job terminates its
+remaining teardown processes. No installation retry, fixed pause, deadline
+extension, or weakening of Workspace/file assertions is introduced. This is
+test-harness coordination, not permission to stop an app with unsaved edits.
+
+- [Pinned uninstall source](https://github.com/velopack/velopack/blob/1.2.161/src/bins/src/commands/uninstall.rs)
+- [Pinned deferred self-delete source](https://github.com/velopack/velopack/blob/1.2.161/src/bins/src/windows/self_delete.rs)
+- [Windows job inheritance, accounting and completion-port notifications](https://learn.microsoft.com/windows/win32/procthread/job-objects)
