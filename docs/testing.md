@@ -251,6 +251,13 @@ missing/duplicate/partial results, failed assertions, skipped/cancelled/timed-ou
 work, changed candidates, cleanup errors and exhausted budgets fail closed.
 Interrupted reports remain incomplete, never an old passing result.
 
+The scale tree locates its distant row through the reporting branch's UI
+Automation item provider, requests realization/scrolling once, then observes
+visible geometry and real viewport movement before selecting and checking the
+destination Person. Realized-descendant enumeration alone cannot find a
+virtualized row. A timeout identifies the target and last observed geometry,
+viewport offset and selected email; it retains the existing 180-second bound.
+
 ## Nightly and manual execution
 
 `.github\workflows\scale-verification.yml` owns **both** independent jobs and

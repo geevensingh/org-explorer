@@ -50,18 +50,46 @@ internal static partial class Program
                 var scroll = (ScrollPattern)tree.GetCurrentPattern(ScrollPattern.Pattern);
                 if (!scroll.Current.VerticallyScrollable)
                     throw new InvalidOperationException("Expanded scale tree did not expose actual scrolling.");
-                AutomationElement? lastReport = null;
-                AwaitScale(() =>
+                var targetEmail = ScaleFixture.Email(9811);
+                var items = (ItemContainerPattern)Find(tree, ScaleFixture.Email(11))
+                    .GetCurrentPattern(ItemContainerPattern.Pattern);
+                var initialOffset = scroll.Current.VerticalScrollPercent;
+                var observation = "Target has not been located by the reporting branch's item provider.";
+                AutomationElement lastReport;
+                try
                 {
-                    lastReport = tree.FindFirst(TreeScope.Descendants,
-                        new PropertyCondition(AutomationElement.AutomationIdProperty, ScaleFixture.Email(9811)));
-                    if (lastReport is not null && !lastReport.Current.IsOffscreen &&
-                        !lastReport.Current.BoundingRectangle.IsEmpty) return true;
-                    scroll.Scroll(ScrollAmount.NoAmount, ScrollAmount.LargeIncrement);
-                    return false;
-                });
-                ((SelectionItemPattern)lastReport!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-                AwaitScale(() => Find(window, "Email").Current.Name == ScaleFixture.Email(9811));
+                    lastReport = TreeItemRealization.AwaitVisible(
+                        () =>
+                        {
+                            var item = items.FindItemByProperty(null, AutomationElement.AutomationIdProperty, targetEmail);
+                            observation = item is null ? "Item provider has not returned the target." : "Target found; awaiting realization.";
+                            return item;
+                        },
+                        item =>
+                        {
+                            if (item.TryGetCurrentPattern(VirtualizedItemPattern.Pattern, out var virtualized))
+                                ((VirtualizedItemPattern)virtualized).Realize();
+                            ((ScrollItemPattern)item.GetCurrentPattern(ScrollItemPattern.Pattern)).ScrollIntoView();
+                        },
+                        item =>
+                        {
+                            var identity = item.Current.AutomationId;
+                            var offscreen = item.Current.IsOffscreen;
+                            var bounds = item.Current.BoundingRectangle;
+                            var offset = scroll.Current.VerticalScrollPercent;
+                            observation = $"id={identity}; offscreen={offscreen}; bounds={bounds}; tree offset={offset:F2}; " +
+                                $"selected={Find(window, "Email").Current.Name}";
+                            if (identity != targetEmail)
+                                throw new InvalidOperationException("The realized tree row has the wrong identity: " + observation);
+                            return !offscreen && !bounds.IsEmpty && offset > initialOffset;
+                        }, AwaitScale);
+                }
+                catch (TimeoutException error)
+                {
+                    throw new TimeoutException($"UI-tree realization of {targetEmail} did not complete. Last observation: {observation}", error);
+                }
+                ((SelectionItemPattern)lastReport.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+                AwaitScale(() => Find(window, "Email").Current.Name == targetEmail);
                 scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
                 expand.Collapse();
                 AwaitScale(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
