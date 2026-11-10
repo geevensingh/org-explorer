@@ -7,6 +7,7 @@
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs" Link="SmokeScenarioRunner.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

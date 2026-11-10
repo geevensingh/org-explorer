@@ -48,7 +48,7 @@ internal static partial class Program
         });
     }
 
-    private static void ExercisePhotoImports(AutomationElement window, string root)
+    private static void ExercisePhotoPresentation(AutomationElement window, string root)
     {
         var producer = Path.Combine(root, "photo-updates");
         Directory.CreateDirectory(producer);
@@ -63,27 +63,6 @@ internal static partial class Program
             Click(window, "PreviewImport");
         }
 
-        Preview("", 21);
-        Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-        Click(window, "ApplyImport");
-        AssertPhotoVisible(window);
-        File.WriteAllText(Path.Combine(producer, "corrupt.png"), "This is not an image.");
-        Preview(",\"photoPath\":\"corrupt.png\",\"displayName\":\"Must not apply\"", 22);
-        Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
-        if (Find(window, "ApplyImport").Current.IsEnabled)
-            throw new InvalidOperationException("Invalid supplied photo enabled Apply.");
-        AssertPhotoVisible(window);
-        if (Find(window, "DirectoryName").Current.Name != "Avery Example")
-            throw new InvalidOperationException("Invalid image changed the Person.");
-        Preview(",\"photoPath\":\"https://example.com/photo.png\"", 24);
-        Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
-        if (Find(window, "ApplyImport").Current.IsEnabled)
-            throw new InvalidOperationException("Remote photo URL enabled Apply.");
-        AssertPhotoVisible(window);
-        Preview(",\"photoPath\":null", 23);
-        Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-        Click(window, "ApplyImport");
-        Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
         CreateJpegFixture(Path.Combine(producer, "avery.jpg"));
         Preview(",\"photoPath\":\"avery.jpg\"", 25);
         Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -98,7 +77,7 @@ internal static partial class Program
                     Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
         if (!Find(window, "ProfileTimeline").Current.Name.Contains("Imported"))
             throw new InvalidOperationException("Photo timeline lost imported versus local-edit provenance.");
-        Console.WriteLine("PASS: actual PNG/JPEG pixels → export removal/reopen → omitted photo → corrupt/remote rejection → imported/local clear/placeholder.");
+        Console.WriteLine("PASS: actual copied PNG/JPEG pixels, local clear/placeholder and photo timeline.");
     }
 
     [DllImport("user32.dll")]

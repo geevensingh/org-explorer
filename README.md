@@ -13,6 +13,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
 - [Workspace versions and recovery](docs/workspace-format.md)
+- [Testing strategy and safe execution](docs/testing.md)
 - [10,000-Person validation and reference timings](docs/performance-validation.md)
 - [Machine-readable import schema](schemas/import-v1.schema.json)
 - [Example import files](docs/examples/)
@@ -237,104 +238,34 @@ adapter. File parsing/storage stay behind that seam. See
 
 ## Validation and CI
 
+Read the [testing strategy](docs/testing.md) before placing, migrating or running
+tests. It is the authoritative guide to test categories, commands, scenario
+results, scale scheduling and current versus pending migration.
+Default local verification is non-UI:
+
 ```powershell
-dotnet restore OrgExplorer.slnx --locked-mode
-dotnet build OrgExplorer.slnx -c Release --no-restore
-dotnet test OrgExplorer.slnx -c Release --no-build
-dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
-.\tests\CiGate.Tests.ps1
+.\eng\Run-CiLane.ps1 core
+.\eng\Run-CiLane.ps1 filesystem
 ```
 
-The smoke runner requires an interactive Windows desktop and drives the actual
-WPF controls using Windows UI Automation. It launches the normal app without
-test-only flags, previews/applies a five-Person batch with a second-record report
-to its fifth-record Manager, expands/collapses the tree, navigates between
-Manager/report profiles, rejects an invalid archival batch, edits, closes, and
-reopens to verify durability. A combined reporting move, archive, and profile
-update followed by replay proves that later edits and unrelated fields survive.
-It also edits every textual profile field, checks validation and saved-link
-action state, reopens, reviews/applies an office-only import with an explicit clear, and reopens
-again to prove unrelated attributes survived. A controlled loopback endpoint
-checks that rendering a stored HTTPS link makes no network request; core tests
-control the browser-opening boundary without opening production pages.
-The desktop history flow also verifies a real persisted timeline, field-specific
-dates, observed reporting intervals, identical reconfirmation without a false
-change, local clears, stale evidence before Apply, and close/reopen.
-It creates/edits/reads multiple Person notes, observes an
-external document edit, checks failed-save retry/safe close/conflict recovery and
-blocked tree, Manager/report, and Workspace navigation with an unsaved note,
-archives writing, and verifies no rendering requests reach a local HTTP listener.
-Profile edits and reporting moves/replay retain the selected note and its writing.
-Photo smoke checks actual PNG/JPEG pixels, reopening after producer-folder
-removal, omission/clear behavior, and corrupt/remote rejection. Photo edits,
-reporting moves, and replay preserve private notes and their refresh revisions.
-Team-note smoke exercises explicit opt-in, every ancestor and owner attribution,
-private rendered reading, visible review warnings, confirm/edit/archive, failed
-confirmation and draft-navigation safety, replacement/move scope, and reopen.
-Historical-context smoke drives actual ancestor and direct transfers, separate
-current/frozen Markdown reading, honest evidence dates, later former-owner Team
-edits and renaming, repeated transfers/replay, and close/reopen. Core and real
-filesystem tests also cover immutable versions, same-batch late Manager creation,
-atomic save failures, legacy unknown evidence, invalid/missing historical
-deliveries, and validated watcher refresh without duplicate captures.
-Archival smoke drives actual in-app archive/filter/reopen/reactivate with retained
-photo pixels, Person/owned Team notes, frozen all-ancestor writing and timelines.
-It rejects inconsistent Manager archival/reactivation, explicitly changes a
-Manager relationship, checks failed-save retry/safe close, preserves status on
-ordinary imports, accepts complete report/Manager status batches, and replays
-without duplicate captures. Core and filesystem checks cover null/false/omission,
-all explicit report-resolution choices, archived cycles, root/combined archival,
-immutable capture validation, atomic failed status saves and coherent folder-event
-delivery/reopening.
-Search/favorite smoke queries every textual profile attribute through the actual
-WPF search box, opens Person/owned/inherited Team writing with attribution,
-reads frozen and archived destinations, changes stars, validates import
-omission/false, exercises failed-save navigation/close safety, observes external
-profile/note/star delivery, and reopens persisted results. For only that real
-desktop flow, append `--search-favorites` to the smoke-runner command above
-(never to the app). Core and filesystem tests cover all-ancestor review flags,
-independent frozen note versions, old Profile values, legacy favorite omission,
-nonmutating queries and invalid-delivery stale retention.
-Coupled refresh checks cover externally delivered owned/inherited Team writing
-and review metadata, with whole-Workspace stale retention and recovery.
-Real folder-event tests and the actual UI also observe profile/Markdown changes,
-same-path photo pixels, invalid graph/stale state, and recovery using bounded
-eventual assertions. Own saves cause no recursive refresh/save or batch replay;
-failed saves remain visible to safe-close coordination until retry/discard.
-Core checks include a 10,001-Person reporting chain without a hard import cap.
-Filesystem and default desktop lanes also construct an actual 10,000-Person
-Workspace with 2,500 local photo references, 1,000 Person notes, 111 Team notes,
-200 frozen contexts, typed Profile history, 100 Archived people, and a 42-edge
-Reporting chain. They exercise load/reopen, current and historical search,
-navigation, mutations, validated external delivery, and stale/error retention.
-The actual desktop also checks rendered photo pixels and Settings access during
-loading. Append `--scale` to the smoke-runner command for just that complete
-real scale flow, never to the app. See the [reference measurements](docs/performance-validation.md).
-Tests use fictitious people and isolated folders beneath the checkout, cleaned
-after each run.
-Filesystem regressions also stress a refreshing second client against repeated
-note/favorite autosaves, prove locked uncommitted stages and the recovery pointer do not replace or invalidate
-committed data, and ensure closed workflows cannot reenter refresh. Fixture
-owners dispose all workflows before removing their folders. Reader sharing and
-staging traversal and process-local Workspace I/O lifetimes are corrected at the workflow rather than masked by save
-retries, suppressed I/O failures, or disabled tests.
+Actual WPF verification defaults to hosted Windows or a dedicated isolated
+interactive desktop. **Local desktop automation requires separate explicit
+permission.** On an authorized desktop run `.\eng\Run-CiLane.ps1 desktop`.
+Named scenarios run sequentially with independent fixtures, JSON results and
+failure diagnostics; missing/unexecuted work cannot pass. They retain real
+photo pixels, Markdown rendering, draft protection, navigation, current/Historical
+context and external refresh rather than repeating every business permutation.
+The complete 10,000-Person UI workload remains required until its explicit
+separate execution is implemented. See [performance validation](docs/performance-validation.md)
+for rich fixtures, separate command availability and historical evidence.
 
-Every PR and main commit (without path filters) runs three independent parallel
-jobs: core/view models, real filesystem persistence, and actual Windows desktop
-smoke. `CI` runs even after lane failures and accepts only three `success`
-results. Cancellation/timeout cannot yield a successful required check.
-Dependency lock files support the SDK/package cache. `eng\Run-CiLane.ps1` uses
-separate build artifacts for each lane, so the same meaningful lanes can also
-run in independent local PowerShell processes without shared build-output races.
-Each lane includes restore/build/test/fixture work within one shared timeout:
-five minutes for core, eleven each for filesystem/desktop, and two for the aggregate.
-Thus the execution critical-path bound is thirteen minutes and the summed job budget
-is 29 minutes, both below 30 (runner queues excluded). Five minutes is the target,
-not a claim about unmeasured hosted-runner performance. Hosted lane timing starts
-before checkout/SDK setup, and remaining command deadlines share that budget.
-CI preserves timing JSON, logs and TRX evidence rather than using empty smoke
-commands. Desktop validation publishes a local product-check folder and rejects
-test assemblies/fixtures in it; this is not an installer or CD publication.
+Every PR and main commit, including docs/test-only changes, retains three
+parallel required lanes and a fail-closed aggregate `CI`. Deadlines and the
+five-minute target are unchanged. Core includes file-backed compatibility cases;
+its project name does not make all tests isolated units. Filesystem coverage
+proves durable writes, publication/delivery safety and recovery at the same
+workflow interface. Product-check publication rejects leaked fixtures and test
+assemblies; it is not installer or release verification.
 
 Main is protected by an active GitHub **ruleset**, with no bypass actors,
 requiring PRs and a strict up-to-date `CI` check from GitHub Actions. Only squash

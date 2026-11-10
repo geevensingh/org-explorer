@@ -1,177 +1,100 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
+using System.Text.Json;
 using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static readonly List<Process> Applications = [];
+    private static string diagnostics = "";
+
     [STAThread]
     private static int Main(string[] args)
     {
-        var root = Path.GetFullPath(Path.Combine(".test-workspaces", Guid.NewGuid().ToString("N")));
-        Directory.CreateDirectory(root);
-        Process? process = null;
         try
         {
-            if (args.Length is < 1 or > 2 || args.Length == 2 && args[1] is not ("migration" or "--search-favorites" or "--scale" or "--team-notes" or "--person-notes"))
-                throw new ArgumentException("Supply the actual built WPF executable path; optionally migration, --search-favorites, --scale, --team-notes or --person-notes for a focused real UI flow.");
-            if (args.Length == 2 && args[1] == "--team-notes") { RunTeamNoteFlow(args[0]); return 0; }
-            if (args.Length == 2 && args[1] == "--person-notes") { RunPersonNoteFlow(args[0]); return 0; }
-            if (args.Length == 2 && args[1] == "--scale") { RunScaleFlow(args[0]); return 0; }
-            if (args.Length == 1) RunNavigationFeedbackFlow(args[0], root);
-            if (args.Length == 1 || args[1] == "migration") RunWorkspaceCompatibilityFlow(args[0], root);
-            if (args.Length == 2 && args[1] == "migration")
+            if (args.Length is < 1 or > 2 || !File.Exists(args[0]))
+                throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
+            var executable = Path.GetFullPath(args[0]);
+            var required = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "DesktopScenarios.json")))!;
+            var actions = new Dictionary<string, Action<string>>
             {
-                Console.WriteLine("PASS: actual WPF compatible/incompatible Workspace, migration recovery and global Settings.");
-                return 0;
-            }
-            RunSearchFavoriteFlow(args[0], root);
-            if (args.Length == 2) return 0;
-            RunScaleFlow(args[0]);
-            RunPersonArchivalFlow(args[0], root);
-            RunHistoricalTeamContextFlow(args[0], root);
-            RunExternalRefreshFlow(args[0], root);
-            RunTeamNoteFlow(args[0]);
-            var producer = Path.Combine(root, "producer");
-            Directory.CreateDirectory(producer);
-            CreatePhotoFixture(Path.Combine(producer, "avery.png"));
-            var initialPhoto = File.ReadAllBytes(Path.Combine(producer, "avery.png"));
-            var import = Path.Combine(producer, "import.json");
-            const string initialImport = """
-                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
-                "observedAt":"2026-11-01T17:00:00Z","people":[
-                {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
-                {"email":"avery@example.com","displayName":"Avery Example","alias":"avery",
-                 "jobTitle":"Engineer","department":"Research","officeNumber":"007B","managerEmail":"morgan@example.com","photoPath":"avery.png"},
-                {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
-                {"email":"jordan@example.com","displayName":"Jordan Example","managerEmail":"alex@example.com"},
-                {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
-                """;
-            File.WriteAllText(import, initialImport);
-            var workspace = Path.Combine(root, "workspace");
-            process = Launch(args[0]);
-            var window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
-            Set(window, "ImportPath", import);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
-                throw new InvalidOperationException("Actual UI did not show the import preview.");
-            Click(window, "ApplyImport");
-            OpenPerson(window, "casey@example.com", "morgan@example.com");
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
-            AssertPhotoVisible(window);
-            NavigateToManager(window, "morgan@example.com");
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Morgan Example");
-            var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
-            if (report is null) throw new InvalidOperationException("Imported report navigation missing.");
-            ((SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "JobTitle", "Engineer");
-            AssertValue(window, "OfficeNumber", "007B");
-            File.WriteAllText(import, """
-                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
-                "observedAt":"2026-11-02T17:00:00Z","people":[
-                {"email":"morgan@example.com","archived":true}]}
-                """);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
-            if (Find(window, "ApplyImport").Current.IsEnabled ||
-                !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
-                throw new InvalidOperationException("Invalid graph was not visibly rejected by actual UI.");
-            Set(window, "OfficeNumber", "0009C");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
-            Set(window, "PreferredName", "Ave");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
-            Close(process);
-            Directory.Delete(producer, true);
-            import = Path.Combine(root, "import.json");
-            process = Launch(args[0]);
-            window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            OpenPerson(window, "casey@example.com", "morgan@example.com");
-            AssertPhotoVisible(window);
-            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
-            if (Find(window, "DirectoryName").Current.Name != "Avery Example")
-                throw new InvalidOperationException("Directory name was not retained after reopening.");
-            if (((ValuePattern)Find(window, "PreferredName").GetCurrentPattern(ValuePattern.Pattern)).Current.Value != "Ave")
-                throw new InvalidOperationException("Preferred name did not survive reopening.");
-            AssertValue(window, "OfficeNumber", "0009C");
-            File.WriteAllText(import, """
-                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000003",
-                "observedAt":"2026-11-03T17:00:00Z","people":[
-                {"email":"morgan@example.com","archived":true},
-                {"email":"avery@example.com","managerEmail":"alex@example.com","officeNumber":"0002B","department":null}]}
-                """);
-            Set(window, "ImportPath", import);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            if (!Find(window, "Preview").Current.Name.Contains("Manager") ||
-                !Find(window, "Preview").Current.Name.Contains("0002B"))
-                throw new InvalidOperationException("Combined reporting/profile changes were not reviewed.");
-            AssertValue(window, "OfficeNumber", "0009C");
-            Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("applied"));
-            OpenPerson(window, "casey@example.com", "alex@example.com");
-            AssertValue(window, "OfficeNumber", "0002B");
-            AssertValue(window, "Department", "");
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "JobTitle", "Engineer");
-            AssertPhotoVisible(window);
-            File.WriteAllBytes(Path.Combine(root, "avery.png"), initialPhoto);
-            File.WriteAllText(import, initialImport);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            if (!Find(window, "Preview").Current.Name.Contains("no-op"))
-                throw new InvalidOperationException("Accepted graph/profile replay was not a visible no-op.");
-            Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("no changes"));
-            Close(process);
-            process = Launch(args[0]);
-            window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            OpenPerson(window, "casey@example.com", "alex@example.com");
-            AssertValue(window, "OfficeNumber", "0002B");
-            AssertValue(window, "Department", "");
-            AssertValue(window, "PreferredName", "Ave");
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "JobTitle", "Engineer");
-            AssertPhotoVisible(window);
-            ExercisePhotoImports(window, root);
-            Close(process);
-            process = null;
-            PersonAttributeFlow.Run(args[0], root);
-            ProfileHistoryFlow.Run(args[0], root);
-            RunPersonNoteFlow(args[0]);
-            Console.WriteLine("PASS: actual WPF imports, reporting navigation, textual profiles, PNG/JPEG photo pixels, Profile timeline, private Person notes, and automatic external refresh/stale recovery.");
-            return 0;
+                ["profile-journey"] = root => RunProfileJourney(executable, root),
+                ["draft-navigation"] = root => RunNavigationFeedbackFlow(executable, root),
+                ["person-note-rendering"] = root => RunPersonNoteFlow(executable, root),
+                ["team-context-history"] = root => RunTeamContextFlow(executable, root),
+                ["search-favorites"] = root => RunSearchFavoriteFlow(executable, root),
+                ["archival-navigation"] = root => RunPersonArchivalFlow(executable, root),
+                ["compatibility-settings"] = root => RunWorkspaceCompatibilityFlow(executable, root),
+                ["external-refresh"] = root => RunExternalRefreshFlow(executable, root),
+                ["scale"] = _ => RunScaleFlow(executable)
+            };
+            if (!required.Order().SequenceEqual(actions.Keys.Order()))
+                throw new InvalidOperationException("The required desktop manifest and real scenario implementations differ.");
+            var selected = args.Length == 1 ? required : [args[1] switch
+            {
+                "migration" => "compatibility-settings",
+                "--search-favorites" => "search-favorites",
+                "--scale" => "scale",
+                "--team-notes" => "team-context-history",
+                "--person-notes" => "person-note-rendering",
+                _ => args[1]
+            }];
+            if (selected.Any(name => !actions.ContainsKey(name)))
+                throw new ArgumentException("Unknown desktop scenario. Available: " + string.Join(", ", required));
+            var results = Path.GetFullPath(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ??
+                Path.Combine(".ci-results", "desktop"));
+            Directory.CreateDirectory(results);
+            var fixtures = Path.GetFullPath(Path.Combine(".test-workspaces", "desktop-" + Guid.NewGuid().ToString("N")));
+            var scenarios = selected.Select(name => new SmokeScenario(name, root =>
+            {
+                diagnostics = Path.Combine(results, name + "-ui.log");
+                try { actions[name](root); }
+                finally
+                {
+                    foreach (var process in Applications) { StopApplication(process); process.Dispose(); }
+                    Applications.Clear();
+                }
+            })).ToArray();
+            return new SmokeScenarioRunner(scenarios).Run(fixtures, Path.Combine(results, "scenarios.json")) ? 0 : 1;
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(ex);
-            if (process is not null && !process.HasExited)
-                foreach (AutomationElement control in Window(process).FindAll(TreeScope.Descendants, Condition.TrueCondition))
-                    if (control.Current.AutomationId.Length > 0)
-                        Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
-            return 1;
-        }
-        finally
-        {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
-            Directory.Delete(root, true);
-        }
+        catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
-    internal static Process Launch(string path) => Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
-        ?? throw new InvalidOperationException("WPF application did not launch.");
+    internal static Process Launch(string path)
+    {
+        var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
+            ?? throw new InvalidOperationException("WPF application did not launch.");
+        Applications.Add(process);
+        return process;
+    }
+
+    private static void StopApplication(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return;
+            var text = new StringBuilder($"Abnormal scenario exit; app PID {process.Id}.{Environment.NewLine}");
+            try
+            {
+                var window = AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                    new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
+                if (window is not null)
+                    foreach (AutomationElement control in window.FindAll(TreeScope.Descendants, Condition.TrueCondition))
+                        if (control.Current.AutomationId.Length > 0)
+                            text.AppendLine($"{control.Current.AutomationId}: {control.Current.Name}");
+            }
+            catch (Exception error) { text.AppendLine("UI diagnostic capture failed: " + error.Message); }
+            File.AppendAllText(diagnostics, text.ToString());
+            process.Kill(true);
+            process.WaitForExit(5000);
+        }
+        catch (InvalidOperationException) { /* A using-scoped scenario already disposed this process. */ }
+    }
+
     internal static AutomationElement Window(Process process)
     {
         AutomationElement? window = null;
@@ -207,7 +130,7 @@ internal static partial class Program
         !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
     private static void AssertValue(AutomationElement window, string id, string expected)
     {
-        var actual = ((ValuePattern)Find(window, id).GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
+        var actual = Value(window, id);
         if (actual != expected) throw new InvalidOperationException($"{id}: expected '{expected}', got '{actual}'.");
     }
     internal static void OpenPerson(AutomationElement window, params string[] ancestors)
@@ -225,12 +148,8 @@ internal static partial class Program
             Await(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
             expand.Expand();
         }
-        AutomationElement? item = null;
-        Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"))) is not null);
-        ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        Await(() => Find(window, "Email").Current.Name == "avery@example.com" &&
-            Find(window, "PreferredName").Current.IsEnabled);
+        SelectTreePerson(window, "avery@example.com");
+        Await(() => Find(window, "PreferredName").Current.IsEnabled);
     }
     private static void NavigateToManager(AutomationElement window, string email)
     {

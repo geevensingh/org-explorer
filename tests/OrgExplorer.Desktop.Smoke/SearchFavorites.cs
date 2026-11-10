@@ -3,7 +3,6 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Automation;
-using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -33,12 +32,8 @@ internal static partial class Program
             Click(window, "OpenWorkspace");
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
-            foreach (var query in new[] { "Directory", "Preferred", "avery@example", "avhandle", "Scientist", "Research",
-                "Juniper", "007b", "Ontario", "Canada", "fictitious-avery" })
-            {
-                QueryAndSelect(window, query, "avery@example.com", "Current", "Profile:");
-                Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
-            }
+            QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
             Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>");
@@ -58,12 +53,6 @@ internal static partial class Program
             Set(window, "TeamNoteMarkdown", $"# Cedar\nFormer Team writing\n![remote]({remote}/team.png)");
             QueryAndSelect(window, "cedar", "avery@example.com", "Current", "Inherited Team note", "morgan@example.com");
             AssertSearchReading(window, "Former Team writing");
-            QueryAndSelect(window, "cedar", "morgan@example.com", "Current", "Owned Team note");
-            AssertValue(window, "TeamNoteTitle", "Former team");
-            Click(window, "ArchiveTeamNote");
-            QueryAndSelect(window, "cedar", "morgan@example.com", "Archived note — not current writing", "Owned Team note");
-            AssertSearchReading(window, "Former Team writing");
-            Click(window, "ArchiveTeamNote");
             SelectTreePerson(window, "alex@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Current team");
@@ -87,10 +76,6 @@ internal static partial class Program
             SelectFavorite(window, "alex@example.com");
             SelectFavorite(window, "avery@example.com");
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
-            File.WriteAllText(import, SearchImport("""{"email":"avery@example.com","officeCountry":"Canada"}""", 2));
-            ApplyReviewedHistoryImport(window);
-            if (!Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
-                throw new InvalidOperationException("Omitted favorite erased the star.");
             File.WriteAllText(import, SearchImport("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 3));
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
@@ -101,14 +86,6 @@ internal static partial class Program
                 throw new InvalidOperationException("Historical search omitted frozen ownership/provenance.");
             QueryAndSelect(window, "pine", "avery@example.com", "Current", "Inherited Team note");
             AssertSearchReading(window, "New current Team writing");
-            QueryAndSelect(window, "cedar", "morgan@example.com", "Current", "Owned Team note");
-            Set(window, "TeamNoteMarkdown", "# Willow\nLater Manager writing");
-            QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
-            AssertSearchReading(window, "Former Team writing", "Later Manager writing");
-            Set(window, "OfficeBuilding", "Cypress");
-            QueryAndSelect(window, "juniper", "avery@example.com", "Historical", "Profile history");
-            if (!Find(window, "SearchContext").Current.Name.Contains("Juniper → Cypress"))
-                throw new InvalidOperationException("Old attribute match did not open the appropriate Profile change.");
             Click(window, "ArchivePerson");
             QueryAndSelect(window, "007b", "avery@example.com", "Archived person", "Profile:");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
@@ -125,46 +102,16 @@ internal static partial class Program
             SelectFavorite(window, "avery@example.com");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
-            QueryAndSelect(window, "orchid", "avery@example.com", "Archived person", "Person note");
-            AssertSearchReading(window, "Private Person writing");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Former Team writing");
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Not marked"));
-            File.WriteAllText(import, SearchImport("""{"email":"alex@example.com","isFavorite":false}""", 4));
-            Set(window, "ImportPath", import);
-            ApplyReviewedHistoryImport(window);
-            Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 0");
-
-            using (var external = ApplicationWorkflow.CreateFileBacked())
-            {
-                if (!external.OpenWorkspace(workspace) || !external.EditFavorite("avery@example.com", true) ||
-                    !external.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"))
-                    throw new InvalidOperationException(external.Status);
-                var personNote = external.GetPersonNotes("avery@example.com").Single();
-                if (!external.EditPersonNote(personNote.Id, "External individual", "Azalea externally delivered"))
-                    throw new InvalidOperationException(external.Status);
-                Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 1");
-                QueryAndSelect(window, "azalea", "avery@example.com", "Archived person", "Person note");
-                AssertSearchReading(window, "Azalea externally delivered");
-                QueryAndSelect(window, "0009c", "avery@example.com", "Archived person", "Profile:");
-            }
             Close(process);
-            process = Launch(executable);
-            window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            SelectFavorite(window, "avery@example.com");
-            QueryAndSelect(window, "azalea", "avery@example.com", "Archived person", "Person note");
-            AssertSearchReading(window, "Azalea externally delivered");
-            QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
-            AssertSearchReading(window, "Former Team writing");
-            Close(process);
-            Console.WriteLine("PASS: actual WPF local attribute/note queries, current/frozen/archived destinations, favorites, import omission/false, failed save safety, validated external refresh and durable reopen.");
+            Console.WriteLine("PASS: actual WPF current/frozen/archived search destinations, private reading, favorites, rejected navigation and reopen.");
         }
         finally
         {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+            if (process is not null) StopApplication(process);
         }
     }
 
@@ -193,6 +140,7 @@ internal static partial class Program
 
     private static void SelectFavorite(AutomationElement window, string email)
     {
+        AwaitLocalWorkIdle(window);
         AutomationElement? result = null;
         Await(() => (result = Find(window, "Favorites").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

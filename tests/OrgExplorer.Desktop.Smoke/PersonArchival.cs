@@ -128,77 +128,22 @@ internal static partial class Program
                 HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Reactivation mixed frozen writing into current context.");
 
-            import = Path.Combine(root, "archival-import.json");
-            Set(window, "ImportPath", import);
-            File.WriteAllText(import, ArchivalImport("""
-                {"email":"morgan@example.com","archived":true},
-                {"email":"avery@example.com","archived":true}
-                """, 2));
-            ApplyReviewedHistoryImport(window);
-            Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
-            Click(window, "ReactivatePerson");
-            Await(() => Find(window, "Status").Current.Name.Contains("active reports require an active Manager"));
-            if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
-                throw new InvalidOperationException("Reactivation accepted an Archived Manager.");
-            File.WriteAllText(import, ArchivalImport("""{"email":"avery@example.com","officeCountry":"Canada"}""", 3));
-            ApplyReviewedHistoryImport(window);
-            if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
-                throw new InvalidOperationException("Ordinary update implicitly reactivated a Person.");
-            File.WriteAllText(import, ArchivalImport("""
-                {"email":"avery@example.com","archived":false},
-                {"email":"morgan@example.com","archived":false}
-                """, 4));
-            ApplyReviewedHistoryImport(window);
-            OpenPerson(window, "casey@example.com", "morgan@example.com");
-            AssertValue(window, "OfficeCountry", "Canada");
-            var allFrozen = HistoricalReadingText(window);
-            ApplyReviewedHistoryImport(window);
-            if (HistoricalReadingText(window) != allFrozen)
-                throw new InvalidOperationException("Archival/reactivation replay changed frozen captures.");
-            Close(process);
-            process = Launch(executable);
-            window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            OpenPerson(window, "casey@example.com", "morgan@example.com");
-            AssertPhotoVisible(window);
-            SelectNote(window, "Retained individual");
-            AssertValue(window, "PersonNoteMarkdown", "# Retained individual writing");
-            AssertValue(window, "OfficeCountry", "Canada");
-            if (HistoricalReadingText(window) != allFrozen ||
-                !Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"))
-                throw new InvalidOperationException("Reopening lost durable reactivation/history.");
             SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");
             Click(window, "ApplyManagerChange");
             Await(() => Find(window, "Status").Current.Name.Contains("Manager change saved locally"));
             if (!Find(window, "NavigateManager").Current.Name.Contains("explicit no-Manager"))
                 throw new InvalidOperationException("Explicit in-app Manager clear was not applied.");
-            SelectTreePerson(window, "morgan@example.com");
-            Click(window, "ArchivePerson");
-            Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
-            if (!Find(window, "HistoricalTeamSummary").Current.Name.Contains("Archival closure"))
-                throw new InvalidOperationException("Explicit report changes did not allow consistent Manager archival.");
-            SelectTeamNote(window, "Manager context");
-            AssertValue(window, "TeamNoteMarkdown", "# Later Manager\nLater Manager writing");
-            Click(window, "ReactivatePerson");
-            Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"));
-            SelectTreePerson(window, "avery@example.com");
             if (CurrentReadingText(window).Contains("Later Manager writing"))
                 throw new InvalidOperationException("Cleared Manager relationship retained current inheritance.");
             AssertPhotoVisible(window);
             Close(process);
-            Console.WriteLine("PASS: actual WPF archive/filter/reopen/reactivate, retained photo/notes/history, explicit Manager changes, failed-save retry/safe-close, whole-batch graph validation and replay.");
+            Console.WriteLine("PASS: actual WPF archive/filter/reopen/reactivate, retained context, Manager clear, failed-save retry and safe close.");
         }
         finally
         {
-            if (process is not null && !process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
+            if (process is not null) StopApplication(process);
         }
     }
-
-    private static string ArchivalImport(string people, int id) => $$"""
-        {"schemaVersion":1,"batchId":"12000000-0000-4000-8000-{{id:000000000000}}",
-         "observedAt":"2026-11-06T17:00:00Z","people":[{{people}}]}
-        """;
 
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {
