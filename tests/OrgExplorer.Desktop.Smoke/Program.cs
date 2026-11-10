@@ -111,9 +111,14 @@ internal static partial class Program
         ((WindowPattern)window!.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
         return window!;
     }
-    internal static AutomationElement Find(AutomationElement window, string id) =>
-        window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id))
-        ?? throw new InvalidOperationException("Missing actual UI control: " + id);
+    internal static AutomationElement Find(AutomationElement window, string id, ControlType? controlType = null)
+    {
+        Condition condition = new PropertyCondition(AutomationElement.AutomationIdProperty, id);
+        if (controlType is not null)
+            condition = new AndCondition(condition, new PropertyCondition(AutomationElement.ControlTypeProperty, controlType));
+        return window.FindFirst(TreeScope.Descendants, condition)
+            ?? throw new InvalidOperationException("Missing actual UI control: " + id);
+    }
     internal static void Set(AutomationElement window, string id, string value)
     {
         Await(() => Find(window, id).Current.IsEnabled);
