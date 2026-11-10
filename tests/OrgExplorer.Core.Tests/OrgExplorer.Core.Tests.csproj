@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs" Link="SmokeScenarioRunner.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\NavigationRejection.cs" Link="NavigationRejection.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

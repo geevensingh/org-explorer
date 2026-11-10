@@ -161,6 +161,14 @@ retry/discard. Poll bounded eventual states; keep existing 20-second smoke and
 profiles; loopback listeners and actual pixels/text are evidence, not filenames
 or image dimensions alone.
 
+UI Automation invocation can return before WPF processes the queued button
+handler. A rejection check invokes once, then observes the actual rejection
+message within the existing deadline while requiring the original Person to
+remain selected. A generic pending message or a completed save is not rejection
+evidence. The runner's non-UI ordering regression covers pending → rejected
+observations and refuses missing feedback, wrong feedback or changed destination;
+hosted WPF still supplies the real UI evidence.
+
 ## Scale scheduling and migration status
 
 The approved end state separates complete performance workloads from required
