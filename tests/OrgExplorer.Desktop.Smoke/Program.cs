@@ -16,7 +16,8 @@ internal static partial class Program
     {
         try
         {
-            if (args.Length is < 1 or > 2 || !File.Exists(args[0]))
+            var installer = args.Length == 4 && args[2] is "create" or "reopen";
+            if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
             var required = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "DesktopScenarios.json")))!;
@@ -34,7 +35,8 @@ internal static partial class Program
             };
             if (!required.Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The required desktop manifest and real scenario implementations differ.");
-            var selected = args.Length == 1 ? required : [args[1] switch
+            if (installer) actions.Add("installer-" + args[2], root => RunInstallerFlow(args, root));
+            var selected = installer ? ["installer-" + args[2]] : args.Length == 1 ? required : [args[1] switch
             {
                 "migration" => "compatibility-settings",
                 "--search-favorites" => "search-favorites",
