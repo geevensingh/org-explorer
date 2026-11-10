@@ -17,8 +17,14 @@ internal sealed class ScaleFixture : IDisposable
     internal const int Population = 10000;
     internal const string Target = "person01000@example.com";
     internal const string DeepTarget = "person00150@example.com";
-    internal string Root { get; } = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
-        ".test-workspaces", "scale-" + Guid.NewGuid().ToString("N")));
+    internal string Root { get; }
+    private readonly bool ownsRoot;
+    internal ScaleFixture(string? root = null)
+    {
+        ownsRoot = root is null;
+        Root = root ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+            ".test-workspaces", "scale-" + Guid.NewGuid().ToString("N")));
+    }
     internal string Workspace => Path.Combine(Root, "workspace");
     internal string Producer => Path.Combine(Root, "producer");
     internal static string Email(int index) => $"person{index:00000}@example.com";
@@ -236,7 +242,7 @@ internal sealed class ScaleFixture : IDisposable
     public void Dispose()
     {
         foreach (var app in clients) app.Dispose();
-        if (Directory.Exists(Root))
+        if (ownsRoot && Directory.Exists(Root))
         {
             Parallel.ForEach(Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories),
                 new ParallelOptions { MaxDegreeOfParallelism = 8 }, File.Delete);
