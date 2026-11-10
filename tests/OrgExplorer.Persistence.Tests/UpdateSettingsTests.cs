@@ -120,6 +120,37 @@ public sealed class UpdateSettingsTests : IDisposable
     }
 
     [Fact]
+    public async Task Completed_http_requests_allow_immediate_server_shutdown()
+    {
+        using var http = new HttpClient();
+        for (var iteration = 0; iteration < 128; iteration++)
+        {
+            using var server = new LocalReleaseServer(() => "{}"u8.ToArray());
+            using var response = await http.GetAsync(server.ManifestUrl);
+            Assert.Equal("{}", await response.Content.ReadAsStringAsync());
+            server.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Server_shutdown_does_not_hide_unexpected_response_disposal_faults()
+    {
+        var responseReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var server = new LocalReleaseServer(() =>
+        {
+            responseReached.SetResult();
+            throw new ObjectDisposedException("response-handler");
+        });
+        using var client = new System.Net.Sockets.TcpClient();
+        await client.ConnectAsync(server.ManifestUrl.Host, server.ManifestUrl.Port);
+        await client.GetStream().WriteAsync("GET /manifest HTTP/1.1\r\nHost: localhost\r\n\r\n"u8.ToArray());
+        await responseReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var error = Assert.Throws<ObjectDisposedException>(server.Dispose);
+        Assert.Equal("response-handler", error.ObjectName);
+    }
+
+    [Fact]
     public void Corrupt_or_unwritable_preferences_are_visible_and_do_not_claim_a_successful_change()
     {
         using var fixture = new SignedReleaseFixture();

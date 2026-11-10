@@ -1,126 +1,34 @@
 # 10,000-Person validation
 
-## Current non-UI suite selection
+## Current execution authority
 
-The complete real-filesystem performance workload is explicitly selectable:
+Read [Testing](testing.md#separate-scale-commands-and-results) for the current
+separate commands, selection, revision/results contracts, nightly/manual
+activation, hosted manual bridge and future pre-publication requirements.
+That is the single execution guide; this document preserves fixture detail and
+historical observations. Neither old combined runs nor non-UI passes prove the
+new separated WPF suite. No baseline collection or new latency SLA is implied.
 
-```powershell
-.\eng\Run-Performance.ps1
-```
+## Separation checkpoints (2026-11-10)
 
-This command launches no desktop application. It runs the complete
-`Category=Performance` workload in `OrgExplorer.Persistence.Tests`, including
-the genuine rich 10,000-Person fixture described below, load/reopen,
-current/historical search, durable mutations, a reviewed 10,000-record partial
-Import batch, both latest/original batch replays, validated and invalid external
-delivery, recovery and complete retained-data comparisons. Fixture construction
-and real persistence remain part of the test; no smaller population, truncated
-chain, reduced assertions or import cap replaces them.
+The #22 non-UI performance slice passed hosted
+[run 42767878245, job 129668552430](https://github.com/geevensingh/org-explorer/actions/runs/42767878245/job/129668552430)
+at `e14124f`, reporting **260.8 s**. The #23 independently named desktop-smoke
+slice passed all then-required nine scenarios, all three lanes and the aggregate
+in [run 42768271599](https://github.com/geevensingh/org-explorer/actions/runs/42768271599)
+at `8f241a4fa796b8660f9a80a6026cb12df73c333d`. Its ninth scenario was the old
+combined scale flow. These are dependency evidence, not proof of #24's two
+separate WPF scenarios or its final required lane, which also retains #17's
+authenticated update/settings scenario.
 
-The ordinary `.\eng\Run-CiLane.ps1 filesystem` command excludes only that
-category. All ordinary persistence, errors, migration/recovery,
-publication/concurrent-client and bounded watcher checks remain there. The core
-lane retains its targeted 10,001-Person long-chain/no-import-cap correctness
-test. The three required PR/main lanes, docs/test-only execution, fail-closed
-aggregate and their existing deadlines are unchanged by this split.
+During #22, GitHub rejected direct dispatch of `scale-verification.yml` at
+published integration commit `18dcee007e25f453eff2d6a8840c98def7b31885`
+with HTTP 404 because it was not registered on the default branch. Supplying
+`--ref` did not register it. The already registered CI manual-only bridge solved
+that execution prerequisite without changing main or required PR selection.
+The current guide retains that bridge for both separate suites.
 
-The `Scale verification` workflow (`.github\workflows\scale-verification.yml`)
-runs this **same command** nightly at **10:23 UTC**, and through
-`workflow_dispatch`. Schedules execute the default branch once this workflow is
-present there; adding this file on a PR branch does not activate a schedule.
-Manual input `revision` selects a commit/ref; blank means the selected workflow
-ref. The workflow records the checked-out SHA and passes it to:
-
-```powershell
-.\eng\Run-Performance.ps1 -ExpectedRevision <full-40-character-candidate-SHA>
-```
-
-### Hosted manual verification before default-branch registration
-
-GitHub rejected direct dispatch of `scale-verification.yml` at published
-integration commit `18dcee007e25f453eff2d6a8840c98def7b31885` with HTTP 404:
-the workflow was not found on the default branch. Passing `--ref integration`
-does not register a new dispatchable workflow. This is a genuine GitHub
-prerequisite, not a passing or skipped performance run; no main-branch mutation
-is needed to work around it.
-
-The already registered `ci.yml` provides an **optional manual-only bridge**.
-Push a candidate branch containing both workflow files, then use the
-repository's authorized account:
-
-```powershell
-gh workflow run ci.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f run_scale_verification=true
-gh run list --repo geevensingh/org-explorer --workflow ci.yml --event workflow_dispatch --limit 5
-gh run view YOUR_RUN_ID --repo geevensingh/org-explorer --json headSha,status,conclusion,jobs
-gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
-```
-
-Confirm the run's `headSha` is the intended full candidate SHA. The bridge
-calls the **same local reusable workflow file at that dispatch commit**, passes
-`github.sha` as its required `revision`, and uses the existing checkout,
-bounded command, semantic assertions, revision report and artifacts. No
-performance job steps or commands are duplicated in `ci.yml`.
-
-The input is Boolean and defaults to false. The bridge is guarded by both
-`workflow_dispatch` and that explicit opt-in, so ordinary PR/main execution
-still has exactly the three independent required lanes. The CI aggregate
-still depends only on core, filesystem and desktop. A manual bridge run also
-executes those normal lanes; inspect the called scale job and the overall run
-conclusion, not merely the independent `CI` check, for scale success. Artifacts
-must identify that same SHA and successful complete execution. This is manual
-verification, not a publication gate or permission to reuse prior results.
-
-### Direct scale dispatch and nightly activation
-
-After GitHub registers `scale-verification.yml` on the default branch, direct
-manual dispatch remains available:
-
-```powershell
-gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f revision=YOUR_CANDIDATE_SHA
-gh run list --repo geevensingh/org-explorer --workflow scale-verification.yml --limit 5
-gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
-```
-
-Replace the placeholders with the pushed workflow branch, full candidate SHA
-and selected run ID; inspect/download that run's diagnostic artifact. The
-nightly schedule activates only with the file on the default branch. Until
-then, use the registered-CI bridge for hosted manual verification; adding
-`workflow_call` does not itself activate a schedule. The bridge remains a useful
-explicit opt-in after registration. No hosted success is claimed merely because
-the entry points are wired.
-
-Expected-revision execution refuses a different SHA, tracked modifications or
-non-ignored untracked files,
-and checks the candidate again after testing. Local exploratory execution
-without that argument reports checkout modifications honestly; it is not exact
-release-candidate evidence. Every invocation creates a unique result directory
-under `.ci-results\performance\`, with SHA, selection, outcome, start/end,
-whole-execution timing, step logs, scale-operation timings and TRX. The root
-`result.json` is marked running immediately and points to that invocation, never
-an old passing result. A successful
-process exit with no discovered workload, missing/duplicate TRX, an unexecuted
-test, a failed assertion, candidate changes, cleanup failure or an exhausted
-budget cannot pass. GitHub retains diagnostic artifacts even after failure;
-missing setup/results or a job timeout remains a failed job, not a pass.
-
-There is **one shared 660-second budget**, beginning before checkout/SDK setup
-on the host, including restore/build, fixtures, assertions and cleanup. The job
-also has an eleven-minute hard deadline. Workflows/watchers are disposed before
-fixture cleanup; after the test process exits the runner removes its isolated
-build/fixture tree. Only fictitious local resources are used, and test fixtures
-remain excluded from product output. This suite is not another required PR
-check and does not increase the existing required deadlines or five-minute PR
-target. Correctness within the bound establishes neither a performance baseline
-nor a new latency SLA.
-
-The future release-publication workflow must invoke this command **fresh** in a
-clean checkout of its exact candidate SHA and block on failure, missing results
-or timeout. Saved nightly/manual logs are diagnostic evidence, not release
-authorization. This ticket does not implement a release gate or publication.
-The separate UI-scale work extends the same nightly/manual workflow with actual
-WPF execution; non-UI success is not rendering/responsiveness evidence.
-
-## Latest acceptance checkpoint (2026-11-09)
+## Historical acceptance checkpoint (2026-11-09)
 
 Hosted [CI run 42709147493, attempt 2](https://github.com/geevensingh/org-explorer/actions/runs/42709147493/attempts/2)
 passed all three required lanes and the fail-closed aggregate at
@@ -181,15 +89,12 @@ saves, validated import preview/apply/replay and external delivery. They verify
 counts, copied photos, omitted values, unchanged frozen writing, source identity,
 stale retention and refused mutations, not just elapsed time.
 
-The normal WPF executable is driven with Windows UI Automation. The default
-desktop lane includes scale, not a success-only app flag. It opens the Workspace,
-uses Settings while loading, selects profiles/search destinations, navigates
-Managers/deep branches, checks **actual rendered photo pixels**, edits, reviews
-an actual 10,000-record partial batch, applies it, observes validated external
-writing and reopens durable results. Ordinary smoke retains representative
-WPF journeys and presentation/wiring checks. Exhaustive import, notes,
-historical/archival, migration and failure assertions belong at the workflow
-and real-filesystem seams; see the authoritative [testing strategy](testing.md).
+The normal WPF executable is driven with Windows UI Automation, never a
+success-only app flag. Current explicit UI scale separates navigation/rendering
+from mutation/responsiveness into independently reported rich-fixture scenarios;
+ordinary smoke keeps representative WPF journeys. Earlier measurements below
+used the old combined scale flow inside the then-required desktop lane.
+See the authoritative [testing strategy](testing.md) for what runs now.
 
 Tests poll meaningful eventual UI/file state with bounded deadlines. A missing
 virtualized/not-yet-realized control is retried only until that deadline; wrong

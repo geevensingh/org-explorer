@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Text.Json;
 using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
@@ -20,7 +19,7 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
-            var required = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "DesktopScenarios.json")))!;
+            var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {
                 ["profile-journey"] = root => RunProfileJourney(executable, root),
@@ -32,22 +31,13 @@ internal static partial class Program
                 ["compatibility-settings"] = root => RunWorkspaceCompatibilityFlow(executable, root),
                 ["update-settings"] = root => RunUpdateSettingsFlow(executable, root),
                 ["external-refresh"] = root => RunExternalRefreshFlow(executable, root),
-                ["scale"] = _ => RunScaleFlow(executable)
+                ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
+                ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
             };
-            if (!required.Order().SequenceEqual(actions.Keys.Order()))
-                throw new InvalidOperationException("The required desktop manifest and real scenario implementations differ.");
+            if (!selection.Smoke.Concat(selection.Scale).Order().SequenceEqual(actions.Keys.Order()))
+                throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");
             if (installer) actions.Add("installer-" + args[2], root => RunInstallerFlow(args, root));
-            var selected = installer ? ["installer-" + args[2]] : args.Length == 1 ? required : [args[1] switch
-            {
-                "migration" => "compatibility-settings",
-                "--search-favorites" => "search-favorites",
-                "--scale" => "scale",
-                "--team-notes" => "team-context-history",
-                "--person-notes" => "person-note-rendering",
-                _ => args[1]
-            }];
-            if (selected.Any(name => !actions.ContainsKey(name)))
-                throw new ArgumentException("Unknown desktop scenario. Available: " + string.Join(", ", required));
+            var selected = installer ? ["installer-" + args[2]] : selection.Select(args.Length == 1 ? null : args[1]);
             var results = Path.GetFullPath(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ??
                 Path.Combine(".ci-results", "desktop"));
             Directory.CreateDirectory(results);

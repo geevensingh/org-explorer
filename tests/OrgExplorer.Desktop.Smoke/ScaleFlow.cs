@@ -7,9 +7,9 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunScaleFlow(string executable)
+    private static void RunScaleNavigationFlow(string executable, string root)
     {
-        using var fixture = new ScaleFixture();
+        using var fixture = new ScaleFixture(root);
         Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
         fixture.Build();
         Process? process = null;
@@ -25,15 +25,46 @@ internal static partial class Program
                 Await(() => Find(window, "WorkflowActivity").Current.Name.Contains("Opening"));
                 Click(window, "OpenSettings");
                 Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
+                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Opening"))
+                    throw new InvalidOperationException("Settings was not responsive while the real scale open was pending.");
                 AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
                 Click(window, "OpenSettings");
             });
             ScaleFixture.Measure("UI-tree", () =>
             {
-                var root = Find(window, "People").FindFirst(TreeScope.Descendants,
+                var treeRoot = Find(window, "People").FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, ScaleFixture.Email(0)))
                     ?? throw new InvalidOperationException("The actual 10,000-Person tree root is missing.");
-                var expand = (ExpandCollapsePattern)root.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+                var expand = (ExpandCollapsePattern)treeRoot.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+                expand.Expand();
+                foreach (var email in new[] { ScaleFixture.Email(1), ScaleFixture.Email(11) })
+                {
+                    AutomationElement? branch = null;
+                    AwaitScale(() => (branch = Find(window, "People").FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
+                    var branchExpand = (ExpandCollapsePattern)branch!.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+                    branchExpand.Expand();
+                    AwaitScale(() => branchExpand.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+                }
+                var tree = Find(window, "People");
+                var scroll = (ScrollPattern)tree.GetCurrentPattern(ScrollPattern.Pattern);
+                if (!scroll.Current.VerticallyScrollable)
+                    throw new InvalidOperationException("Expanded scale tree did not expose actual scrolling.");
+                AutomationElement? lastReport = null;
+                AwaitScale(() =>
+                {
+                    lastReport = tree.FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, ScaleFixture.Email(9811)));
+                    if (lastReport is not null && !lastReport.Current.IsOffscreen &&
+                        !lastReport.Current.BoundingRectangle.IsEmpty) return true;
+                    scroll.Scroll(ScrollAmount.NoAmount, ScrollAmount.LargeIncrement);
+                    return false;
+                });
+                ((SelectionItemPattern)lastReport!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+                AwaitScale(() => Find(window, "Email").Current.Name == ScaleFixture.Email(9811));
+                scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+                expand.Collapse();
+                AwaitScale(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
                 expand.Expand();
                 AwaitScale(() => expand.Current.ExpandCollapseState == ExpandCollapseState.Expanded &&
                     Find(window, "People").FindFirst(TreeScope.Descendants,
@@ -65,6 +96,7 @@ internal static partial class Program
                 });
                 ((SelectionItemPattern)result!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Historical"));
+                AssertSearchReading(window, "Cedar former context 100.");
             });
             Set(window, "SearchQuery", "");
             ScaleFixture.Measure("UI-manager-navigation", () =>
@@ -80,15 +112,53 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 00150");
                 if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("person00000@example.com"))
                     throw new InvalidOperationException("The deep Reporting chain lost its root Team context.");
+                AwaitScale(() => CurrentReadingText(window).Contains("Cedar former context 0."));
             });
+            ScaleFixture.Measure("UI-final-person", () =>
+            {
+                Set(window, "SearchQuery", "handle09999");
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                SelectScaleResult(window);
+                AwaitScale(() => Find(window, "Email").Current.Name == ScaleFixture.Email(9999));
+                if (!Find(window, "PersonArchivalStatus").Current.Name.Contains("Archived"))
+                    throw new InvalidOperationException("The full population's final archived Person was not retained.");
+            });
+            Close(process); process = null;
+            Console.WriteLine("PASS: genuine 10,000-Person WPF realization/scrolling, navigation/search, photo pixels and current/frozen Markdown.");
+        }
+        finally
+        {
+            if (process is not null) StopApplication(process);
+        }
+    }
+
+    private static void RunScaleMutationFlow(string executable, string root)
+    {
+        using var fixture = new ScaleFixture(root);
+        Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
+        fixture.Build();
+        Process? process = null;
+        try
+        {
+            process = Launch(executable);
+            var window = Window(process);
+            Set(window, "WorkspacePath", fixture.Workspace);
+            Click(window, "OpenWorkspace");
+            AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
             Set(window, "SearchQuery", "handle01000");
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
+            Click(window, "CloseSearchContext");
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
                 Set(window, "OfficeNumber", "0009U");
                 AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving local profile"));
+                Click(window, "OpenSettings");
+                Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
+                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Saving local profile"))
+                    throw new InvalidOperationException("Settings only rendered after the actual scale mutation completed.");
+                Click(window, "OpenSettings");
                 Click(window, "NavigateManager");
                 Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
                 if (!Find(window, "Status").Current.Name.Contains("in progress") ||
@@ -129,6 +199,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
+                AssertSearchReading(window, "Delivered tulip 1000.");
             });
             Close(process);
             process = Launch(executable);
@@ -147,9 +218,11 @@ internal static partial class Program
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))
                     throw new InvalidOperationException("Durable scale reporting mutation was lost.");
+                if (Find(window, "FavoriteStatus").Current.Name != "Not marked favorite")
+                    throw new InvalidOperationException("Durable scale favorite mutation was lost.");
             });
             Close(process); process = null;
-            Console.WriteLine("PASS: actual 10,000-Person WPF load, responsive Settings, search, tree/profile navigation, mutations, validated refresh and reopen.");
+            Console.WriteLine("PASS: actual 10,000-Person WPF pending mutation responsiveness, rejection, favorite/import/refresh and durable reopen.");
         }
         finally
         {
