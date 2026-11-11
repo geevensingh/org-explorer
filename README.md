@@ -36,11 +36,15 @@ review **Preview import**, and deliberately **Apply reviewed import**.
 **Back to people** returns to reading; file selection, preview and Apply controls
 are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
+If Apply fails, retry from Import or choose **Discard failed Import (not other
+drafts)** to abandon that batch. This does not discard notes, Preferred-name
+changes or a profile draft; any other unsaved writing still blocks close/restart.
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
 Profiles open in **View** mode with populated, readable values; right-click a
-value to copy it. Empty optional rows are omitted. **Edit profile** reveals all
+value to copy it, or Tab to it and use the context-menu key / Shift+F10.
+Empty optional rows are omitted. **Edit profile** reveals all
 ordinary fields and stages text, Manager and photo changes together.
 **Save profile** validates and publishes the complete change; **Cancel**
 discards it without changing saved data or history. Empty editor text explicitly

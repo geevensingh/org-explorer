@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
 
@@ -52,6 +53,19 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                Click(window, "ApplyImport");
+                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                    Find(window, "DiscardImport").Current.IsEnabled);
+                ReturnToPeople(window);
+                Click(window, "DiscardImport");
+                Await(() => Find(window, "Status").Current.Name.Contains("Import discarded") &&
+                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+            }
+            OpenImportView(window);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
             ReturnToPeople(window);
@@ -60,6 +74,12 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
+            Find(window, "DirectoryName").SetFocus();
+            PressCopyKey(0x09);
+            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
+            AssertKeyboardCopy(window, "Email", "avery@example.com");
+            AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
+            AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "Cancelled office");
             Click(window, "ClearPhoto");
@@ -161,6 +181,33 @@ internal static partial class Program
         Click(window, "EditProfile");
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
             !Find(window, "DirectoryNameEditor").Current.IsOffscreen);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte key, byte scan, uint flags, nuint extra);
+
+    private static void PressCopyKey(byte key)
+    {
+        keybd_event(key, 0, 0, 0);
+        keybd_event(key, 0, 2, 0);
+    }
+
+    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected)
+    {
+        var value = Find(window, name);
+        if (!value.Current.IsKeyboardFocusable)
+            throw new InvalidOperationException($"{name} does not accept keyboard focus.");
+        value.SetFocus();
+        Await(() => value.Current.HasKeyboardFocus);
+        System.Windows.Clipboard.SetText("Copy has not been invoked.");
+        PressCopyKey(0x5D);
+        Await(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
+            new PropertyCondition(AutomationElement.NameProperty, "Copy value"))) is not null);
+        PressCopyKey(0x28);
+        PressCopyKey(0x0D);
+        Await(() => System.Windows.Clipboard.GetText() == expected);
     }
 
     private static void SaveProfileEditing(AutomationElement window)

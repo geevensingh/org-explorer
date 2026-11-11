@@ -191,10 +191,12 @@
         <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
                    Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>
-        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName">
+        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"
+                   Focusable="True" KeyboardNavigation.IsTabStop="True">
           <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
         </TextBlock>
-        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable">
+        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"
+                   Focusable="True" KeyboardNavigation.IsTabStop="True">
           <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
         </TextBlock>
         <Button x:Name="EditProfileButton" Content="Edit profile" AutomationProperties.AutomationId="EditProfile"
@@ -207,49 +209,57 @@
         <StackPanel x:Name="ProfileValues">
           <StackPanel x:Name="AliasValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Alias" Foreground="DimGray"/>
-            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue">
+            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="JobTitleValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Job title" Foreground="DimGray"/>
-            <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue">
+            <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="DepartmentValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Department" Foreground="DimGray"/>
-            <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue">
+            <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="OfficeBuildingValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Office building" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue">
+            <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="OfficeNumberValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Office number" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeNumberValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeNumberValue">
+            <TextBlock x:Name="OfficeNumberValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeNumberValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="OfficeStateValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Office state / province" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue">
+            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="OfficeCountryValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="Office country" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue">
+            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
           <StackPanel x:Name="LinkedInProfileUrlValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="LinkedIn profile URL" Foreground="DimGray"/>
-            <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue">
+            <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
@@ -362,6 +372,8 @@
       <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready"/>
       <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
       <WrapPanel>
+        <Button x:Name="DiscardImportButton" Content="Discard failed Import (not other drafts)" Click="DiscardImportChanges"
+                AutomationProperties.AutomationId="DiscardImport" Visibility="Collapsed" IsEnabled="False" Margin="0,0,8,0"/>
         <Button x:Name="RetryProfileButton" Content="Retry unsaved profile / quick action" Click="RetryProfileSave"
                 AutomationProperties.AutomationId="RetryProfileSave" IsEnabled="False"/>
         <Button x:Name="DiscardProfileButton" Content="Discard profile / quick draft (not notes)" Click="DiscardProfileDraft"

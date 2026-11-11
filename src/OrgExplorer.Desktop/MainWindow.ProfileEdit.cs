@@ -25,8 +25,7 @@ public partial class MainWindow
     {
         if (workPending) return false;
         var saved = await RunWorkflowAsync(workflow.SaveProfileEdit, "Saving complete profile…");
-        RefreshPeople();
-        ShowStatus();
+        RefreshExternalWorkspace();
         return saved;
     }
 

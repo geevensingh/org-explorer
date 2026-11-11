@@ -28,6 +28,7 @@ public partial class MainWindow
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
+        DiscardImportButton.IsEnabled = false;
         try { return await Task.Run(operation); }
         finally
         {

@@ -92,6 +92,17 @@ public partial class MainWindow : Window
         PreviewText.ItemsSource = new[] { guidance };
         System.Windows.Automation.AutomationProperties.SetName(PreviewText, guidance);
     }
+    private void DiscardImportChanges(object sender, RoutedEventArgs e)
+    {
+        if (workPending)
+        {
+            ShowNavigationBlocked("Import discard blocked: local work is in progress. Please wait for it to finish.");
+            return;
+        }
+        workflow.DiscardImportChanges();
+        ClearImportPreview();
+        ShowStatus();
+    }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
         => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
 
@@ -338,6 +349,8 @@ public partial class MainWindow : Window
             (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
         DiscardProfileButton.IsEnabled = !workPending &&
             (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+        DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
+        DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
         if (!workflow.IsWorkspaceCurrent)
         {

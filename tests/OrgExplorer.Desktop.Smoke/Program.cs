@@ -21,6 +21,8 @@ internal static partial class Program
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
+            if (args.Length == 2 && args[1] == "--verify-profile-refresh")
+                return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {

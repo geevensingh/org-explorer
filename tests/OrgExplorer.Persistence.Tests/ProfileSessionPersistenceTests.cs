@@ -166,6 +166,77 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("none")]
+    [InlineData("Person")]
+    [InlineData("Team")]
+    [InlineData("preferred")]
+    [InlineData("profile")]
+    public void Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(string independent)
+    {
+        using var app = Open();
+        var personNote = app.CreatePersonNote(Email, "Person context", "# Saved Person")!;
+        var teamNote = app.CreateTeamNote(Email, "Team context", "# Saved Team")!;
+        Assert.True(app.TryOpenImport(), app.Status);
+        var review = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"32000000-0000-4000-8000-000000000003",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","jobTitle":"Abandoned import"}]}
+            """);
+        Assert.True(review.CanApply, app.Status);
+        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        NoteDraft? noteDraft = null;
+        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(app.ApplyImport(review.Id));
+            Assert.True(app.HasFailedImport);
+            Assert.False(app.CanSafelyClose);
+            app.ShowPeople();
+            if (independent is "Person" or "Team")
+            {
+                var scope = independent == "Person" ? NoteScope.Person : NoteScope.Team;
+                noteDraft = app.BeginNoteDraft(scope, Email, scope == NoteScope.Person ? personNote.Id : teamNote.Id)!;
+                Assert.Null(app.SaveNoteDraft(noteDraft, "", "# Retained writing"));
+            }
+            else if (independent == "preferred")
+                Assert.False(app.EditPreferredName(Email, " "));
+            else if (independent == "profile")
+            {
+                Assert.True(app.BeginProfileEdit(Email));
+                Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained profile"));
+            }
+            app.DiscardImportChanges();
+            Assert.False(app.HasFailedImport);
+            Assert.Contains("Import discarded", app.Status);
+            Assert.Equal(independent == "none", app.CanSafelyClose);
+            var restarted = false;
+            Assert.Equal(independent == "none", app.RestartWhenSafe(_ => restarted = true));
+            Assert.Equal(independent == "none", restarted);
+            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            if (independent == "profile")
+                Assert.Equal("Retained profile", app.ProfileEdit!.Draft.JobTitle);
+            if (independent == "preferred") Assert.Contains("preferredName", app.LocalSaveError);
+            if (noteDraft is not null) Assert.Contains(independent + " note", app.LocalSaveError);
+        }
+        Assert.False(app.ApplyImport(review.Id));
+        Assert.Contains("missing or stale", app.Status);
+        if (noteDraft is not null)
+        {
+            Assert.False(app.CanSafelyClose);
+            Assert.NotNull(app.SaveNoteDraft(noteDraft, "Retained title", "# Retained writing"));
+        }
+        else if (independent == "preferred") app.DiscardPersonChanges(Email);
+        else if (independent == "profile") app.CancelProfileEdit();
+        Assert.True(app.CanSafelyClose);
+        using var reopened = Reopen();
+        Assert.Equal("Engineer", reopened.GetRelationships(Email)!.Person.JobTitle);
+        Assert.Empty(reopened.GetProfileTimeline(Email)!.Changes);
+        Assert.Equal(independent == "Person" ? "# Retained writing" : "# Saved Person",
+            Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.Equal(independent == "Team" ? "# Retained writing" : "# Saved Team",
+            Assert.Single(reopened.GetTeamNotes(Email)).Markdown);
+    }
+
+    [Theory]
     [InlineData("jobTitle", false)]
     [InlineData("department", false)]
     [InlineData("preferredName", false)]

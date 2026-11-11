@@ -38,8 +38,10 @@ public partial interface IApplicationWorkflow : IDisposable
     bool IsWorkspaceCurrent { get; }
     bool CanSafelyClose { get; }
     bool CanEnterImport { get; }
+    bool HasFailedImport { get; }
     string? LocalSaveError { get; }
     void DiscardUnsavedChanges(Guid? noteId = null);
+    void DiscardImportChanges();
     bool RefreshWorkspace();
     IReadOnlyList<PersonProfile> People { get; }
     IReadOnlyList<ReportingNode> ReportingRoots { get; }
@@ -137,6 +139,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         private set
         {
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
+            Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
             Volatile.Write(ref saveErrorSnapshot, error);
             Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
                 ? value + "\n" + error : value);

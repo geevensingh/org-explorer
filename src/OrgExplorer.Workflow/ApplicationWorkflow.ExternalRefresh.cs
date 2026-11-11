@@ -16,6 +16,7 @@ public sealed partial class ApplicationWorkflow
     private long refreshNotBefore;
     private volatile string? liveGeneration;
     private string? saveErrorSnapshot;
+    private bool failedImportSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
@@ -30,6 +31,19 @@ public sealed partial class ApplicationWorkflow
         }
     }
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
+    public bool HasFailedImport => Volatile.Read(ref failedImportSnapshot);
+
+    public void DiscardImportChanges()
+    {
+        lock (workspaceGate)
+        {
+            pending = null;
+            importPath = importHash = null;
+            failedSaves.Remove("import");
+            Status = "Import discarded. Independent note, profile and quick-action drafts are retained.";
+        }
+    }
+
     public void DiscardUnsavedChanges(Guid? noteId = null)
     {
         lock (workspaceGate)

@@ -58,6 +58,10 @@ clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds
 the publication lock, rejects Apply, returns to People, releases the lock, reenters
 Import and explicitly previews/applies again before checking durable values.
+The explicit Import-only discard clears the rejected batch and review without
+clearing independent Person/Team-note errors, Preferred-name errors or profile
+drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
+safe-close/restart becoming available only when no other writing remains.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -133,6 +137,17 @@ main-window handle, then closes it. It never calls Show or runs the application
 dispatcher; startup restore/update Loaded handlers and UI Automation are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
+It also checks that all ten profile Copy targets accept focus and Tab navigation.
+
+The separate `--verify-profile-refresh` option runs that load contract and then
+drives the actual compiled controls' open/select/Save events on a bounded STA
+dispatcher with isolated real files, still without showing a window or creating
+its native handle. It observes note content at profile Save completion, before a
+later watcher callback could hide stale same-owner reading, and proves both clean
+delivery refresh and dirty-note retention. It does not run Loaded startup/update
+handlers or UI Automation. The desktop lane runs this additional regression
+within its existing budget. Actual Tab/context-menu Copy and Import-only discard
+remain in the representative hosted profile journey.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
