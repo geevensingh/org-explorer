@@ -16,7 +16,12 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Before publishing ready work, follow
+[Documentation handoff](../../../docs/agents/documentation-handoff.md). Carry the
+verified producer record into the spec, including its no-changes case when
+applicable. This is handoff synthesis, not another design interview.
+
+4. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
 <spec-template>
 
@@ -63,6 +68,12 @@ A list of testing decisions that were made. Include:
 - A description of what makes a good test (only test external behavior, not implementation details)
 - Which modules will be tested
 - Prior art for the tests (i.e. similar types of tests in the codebase)
+
+## Documentation handoff
+
+Insert the record defined by the shared documentation-handoff contract, or its
+verified no-changes case. Exact changed Markdown paths are required here; this
+record is the exception to the implementation-description rule against file paths.
 
 ## Out of Scope
 
