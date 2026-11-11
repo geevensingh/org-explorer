@@ -12,7 +12,8 @@ new format nor authorizes deleting or converting an existing Workspace.
 The version-3 profile tracer is available only through the internal
 `ApplicationWorkflow.CreateIncrementalFileBacked` test factory. The public
 factory, desktop and version-1/2 behavior are unchanged. This is not a supported
-user format or a completed recovery/reclamation implementation.
+user format. Independent recovery and reclamation are implemented internally
+below; shipping activation is still #47.
 
 `ApplicationWorkflow.IncrementalIndex.cs` implements the current selector and
 bounded radix index. A selector contains `schemaVersion: 3`, a `commit` GUID,
@@ -45,13 +46,13 @@ rather than inviting the edit to be repeated as if it were unsaved.
 
 Unreferenced staged/retired objects and transactions do not become current data
 on reopen. Failed attempts are deliberately preserved for later classification;
-this foundation neither selects recovery nor deletes objects. The recovery slice
-below extends this transaction boundary with an independently validated candidate,
+the original foundation neither selected recovery nor deleted objects. The
+recovery slice below extends this transaction boundary with an independently validated candidate,
 post-publication receipt/selection and maintenance-only retry. The delivery
 slice owns complete race/out-of-order coverage; the Import slice owns full
-multi-Person/resource behavior and batching of index updates. Reclamation must
-consume inventories and durable retirement information, not infer ownership
-from paths. Final activation remains blocked on those slices.
+multi-Person/resource behavior and batching of index updates. Reclamation consumes
+inventories and durable retirement information, not ownership inferred from
+paths. Final activation remains blocked on #47.
 
 `WorkspaceFixtures.IndexedDocuments` is the storage-aware inspection helper.
 Functional tests still drive the existing workflow/view-model; no desktop
@@ -105,14 +106,14 @@ discard and blocks safe close/restart until maintenance succeeds.
 
 ### Roots handed to reclamation
 
-The later reclamation implementation must protect the current `workspace.json`
+The reclamation implementation protects the current `workspace.json`
 closure and captured ordinary notes; `workspace.previous.json` during current
 replacement; selected `recovery\current.json` and all its ordinary/extra note
 index closures plus seals; retained history/evidence/photo resources; and every
 unretired transaction. Transaction roots include `selector.next`, `recovery.next`,
 `recovery.previous.json`, receipts and all staged objects. Receipt absence is
-ambiguous, not proof of abortion. This slice writes no retirement/deletion record
-and releases none of those roots.
+ambiguous, not proof of abortion. Recovery selection alone releases none of those
+roots; the #46 retirement protocol below supplies that separate decision.
 
 Current inventories remain `created-<number>.json`. Recovery inventories are
 `created-recovery-<number>.json`, with `path`, `stagingPath`, byte length and digest
@@ -121,6 +122,79 @@ to the Workspace, including the `recovery` prefix. Recovery documents, nodes and
 seal files each have their own record. Selector/receipt stages remain inside
 their owning transaction; payloads stage at unique `recovery\<id>.next` paths
 recorded in those inventories. No population-wide inventory is rewritten.
+
+## Automatic reclamation implementation (#46, internal only)
+
+The internal workflow runs reclamation after a successful current publication,
+committed recovery receipt and validated recovery-selector replacement, while
+still holding the same local gate and writer lease. Profile/Import and atomic
+note saves use this ordering. The shipping factory remains unchanged.
+
+Before any deletion, maintenance validates actual current bytes and selected
+independent recovery, and durably publishes `maintenance\reclamation.json`.
+This fixed-size pending plan identifies the selected transaction, accepted
+revision and recovery-envelope digest. It is not a new current/recovery selector.
+Only the just-completed, still-selected transaction can publish its own
+`transactions\<id>\retired.json`: version 1, transaction identity, accepted
+revision, recovery-envelope digest, and digests of that transaction's creation
+inventories and known intent/selector/candidate/receipt/previous-recovery files.
+The record is proportional to the operation, never the population on an ordinary
+edit. Existing ownership/retirement records are not rewritten on subsequent saves.
+
+Retirement releases that transaction's candidate and recovery-transition roots,
+not any current or selected-recovery objects. Every pass recomputes:
+
+- The complete current six-family closure and ordinary notes, plus the complete
+  `workspace.previous.json` index/document closure.
+- Selected independent recovery's six families, captured Person/Team notes,
+  all seals and its committed receipt.
+- Every unretired transaction's inventories (both final and staging locations),
+  current/recovery candidates, previous recovery closure/seals and required
+  receipts. A missing receipt never classifies an operation as aborted.
+
+An unretired incomplete intent without a recovery candidate can still need
+reused base objects. Preserve all object versions in that case, and report
+reclamation deferred for preserved unretired transactions. Complete ambiguous
+candidates retain their transitive roots. Neither case promotes staging to
+current or recovery, and neither is silently classified from today's selector.
+Malformed, unsupported, missing or changed structural delivery suspends deletion;
+changed retired structural metadata also requires resolution rather than guessing
+that its old retirement still covers a newly delivered candidate.
+
+Current inventories now include `stagingPath` as well as `path`, byte length and
+digest, durably recorded before payload creation. Current objects stage beside
+their unique final locations with `.next`; recovery retains its unique staged
+locations and separately inventoried seals. Only byte-identical, length-matching,
+inventoried files from durably retired transactions, outside all protected roots,
+are deleted. Unknown files, provider conflict copies and changed superseded bytes
+remain untouched, even inside transaction directories. Links are rejected.
+
+Deletion runs in batches of at most 32 individual file deletions. Before each
+batch and after it, maintenance rechecks the accepted actual-byte revision,
+previous/current/recovery selectors, protected bytes/seals and transaction
+membership/structural metadata. Providers do not honor the lease: a selector
+racing a batch cannot be accepted as a smaller valid state. Subsequent refresh
+still requires the complete semantic/resource graph.
+
+Removing an inventory only after processing its payload/stage is incremental
+deletion progress; a missing file is idempotent on restart. Changed payloads are
+preserved as unknown, not repeatedly reclaimed. Inventories for protected files
+remain as ownership evidence. Known transaction metadata is removed only after
+its inventories are exhausted and no protected receipt needs it; an empty
+transaction directory can then be removed nonrecursively. No broad Workspace,
+generation, resource-family or unknown-directory deletion is used.
+
+The pending plan is removed only after the pass revalidates successfully.
+Locks/access errors leave it durable, report **saved locally; storage maintenance
+incomplete**, and block safe close/restart even after reopening or generic draft
+discard. `RetryStorageMaintenance()` uses the existing maintenance-only recovery
+acceptance path, recomputes all roots and resumes idempotently; it never replays
+the committed profile/Import/note mutation. Current bytes and an unchanged Import
+preview remain unchanged by successful maintenance. Ambiguous interrupted work
+may therefore retain additional space, explicitly deferred, while ordinary
+successful local edits retain active data, independent recovery, one previous
+current graph and bounded ownership/transaction bookkeeping. Genuine history
+and its resources remain unbounded user data, not cleanup targets.
 
 ## Delivery validation and cleanup protection (#44)
 

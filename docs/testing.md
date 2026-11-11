@@ -98,6 +98,25 @@ unchanged Import preview. Recovery inventories, seals, staged payloads and
 selector/receipt writes all participate in byte accounting. The 6/258-Person
 comparison also proves zero copies of unrelated recovery documents, not merely
 a smaller surviving directory. There is no cleanup or desktop evidence here.
+With #46's required staging-path inventories and retirement evidence, the
+6/258-Person comparison allows a fixed additional 4 KiB only for measured
+affected-path ownership provenance. That provenance delta is independently
+capped; non-provenance writes retain the original 8-KiB delta allowance.
+Every transient write still counts toward the unchanged 32-KiB total ceiling,
+and zero-unrelated-copy assertions are unchanged.
+
+`IncrementalReclamationTests` drives automatic retirement/deletion through that
+same real-file workflow. Thirty-six edits with unrelated rich profiles count all
+transient writes, bound redundant document/index/bookkeeping retention separately
+from genuine growing history, then reopen and restore independently expected
+evidence, notes and frozen context. Locked deletion proves explicit committed
+maintenance failure, partial progress, durable pending state across restart and
+maintenance-only retry without edit replay or stale Import review. Cleanup-time
+pointer/index/document/photo and invalid/unsupported delivery stays stale until
+complete, while ambiguous intent/candidate/receipt failures, changed superseded
+bytes, unknown/conflict files and historical photos remain protected. These are
+small required filesystem cases, not shipping activation, legacy cleanup,
+desktop or supported-population scale evidence.
 
 The #43 extension counts actual index writes for both creation and update of a
 reviewed 128-Person Import, including shared paths, and checks old graph visibility

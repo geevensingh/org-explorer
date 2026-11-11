@@ -205,8 +205,15 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         var large = MeasureEdit(Path.Combine(folder, "large"), 256);
         var small = MeasureEdit(Path.Combine(folder, "small"), 4);
         output.WriteLine($"Same Preferred-name edit: 6 People = {small} bytes; 258 People = {large} bytes (all payload/metadata writes).");
-        Assert.True(large <= small + 8192, $"Same edit wrote {small} bytes with 6 People and {large} bytes with 258 People.");
-        Assert.True(large < 32768, $"A single profile edit wrote {large} bytes, including all transient metadata.");
+        // #46 adds staging-path inventories and retirement evidence for affected
+        // index paths, not population snapshots. Cap that provenance delta too.
+        Assert.True(large.Provenance <= small.Provenance + 4096,
+            $"Affected-path provenance grew from {small.Provenance} to {large.Provenance} bytes.");
+        Assert.True(large.Total - large.Provenance <= small.Total - small.Provenance + 8192,
+            "Non-provenance writes exceeded the original incremental allowance.");
+        Assert.True(large.Total <= small.Total + 8192 + 4096,
+            $"Same edit wrote {small.Total} bytes with 6 People and {large.Total} bytes with 258 People.");
+        Assert.True(large.Total < 32768, $"A single profile edit wrote {large.Total} bytes, including all transient metadata.");
     }
 
     [Theory]
@@ -352,7 +359,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
     }
 
-    private long MeasureEdit(string root, int unrelatedCount)
+    private (long Total, long Provenance) MeasureEdit(string root, int unrelatedCount)
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
@@ -439,7 +446,9 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.Equal("Unrelated team writing", reopened.GetTeamNotes("morgan@example.com").Single(n => n.Id == team.Id).Markdown);
             Assert.Equal(image, reopened.GetPhoto("morgan@example.com")!.Bytes.ToArray());
             Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(import).Changes));
-            return written.Sum(e => e.Bytes);
+            return (written.Sum(e => e.Bytes), written.Where(e =>
+                Path.GetFileName(e.Path).StartsWith("created-", StringComparison.Ordinal) ||
+                e.Path.EndsWith(".retirement", StringComparison.Ordinal)).Sum(e => e.Bytes));
         }
     }
 

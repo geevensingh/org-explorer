@@ -254,10 +254,19 @@ public sealed partial class ApplicationWorkflow
     private void FinishCommittedRecovery(PreparedRecovery prepared)
     {
         pendingRecovery = prepared;
-        try { CompleteRecovery(prepared); }
+        try
+        {
+            CompleteRecovery(prepared);
+        }
         catch (Exception ex) when (StorageError(ex))
         {
             SaveFailed("storage-maintenance", "Saved locally; recovery maintenance incomplete: " + ex.Message);
+            return;
+        }
+        try { ReclaimIncrementalStorage(prepared); }
+        catch (Exception ex) when (StorageError(ex))
+        {
+            SaveFailed("storage-maintenance", "Saved locally; storage maintenance incomplete: " + ex.Message);
         }
     }
 
@@ -272,6 +281,11 @@ public sealed partial class ApplicationWorkflow
             verifiedRecoveryPath = root;
             if (selected.Metadata.SourceRevision != WorkspaceFingerprint(snapshot: current))
                 throw new IOException("The current validated revision is not yet independently protected.");
+            storageReclamationDeferred = Directory.GetDirectories(Path.Combine(workspace!, "transactions"))
+                .Any(transaction => File.Exists(Path.Combine(transaction, "intent.json")) &&
+                    !File.Exists(Path.Combine(transaction, "retired.json")));
+            if (File.Exists(Path.Combine(workspace!, "maintenance", "reclamation.json")))
+                throw new IOException("Storage reclamation was interrupted. Retry storage maintenance; no edit needs replaying.");
             failedSaves.Remove("storage-maintenance");
         }
         catch (Exception ex) when (StorageError(ex))
@@ -285,6 +299,7 @@ public sealed partial class ApplicationWorkflow
         lock (workspaceGate)
         {
             if (!incrementalStorage || workspace is null) return Fail("No incremental Workspace maintenance is available.");
+            var recoveryCompleted = false;
             try
             {
                 using var access = CoordinateWorkspaceIo(workspace);
@@ -300,14 +315,17 @@ public sealed partial class ApplicationWorkflow
                 if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
                     throw new IOException("Current delivery changed during recovery capture; no recovery selected.");
                 CompleteRecovery(candidate);
+                recoveryCompleted = true;
                 if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
                     throw new IOException("Current delivery changed during recovery selection; protection remains incomplete.");
-                Status = "Recovery maintenance completed; no current mutation was replayed.";
+                ReclaimIncrementalStorage(candidate);
+                Status = "Storage maintenance completed; no current mutation was replayed.";
                 return true;
             }
             catch (Exception ex) when (StorageError(ex))
             {
-                return SaveFailed("storage-maintenance", "Saved locally; recovery maintenance incomplete: " + ex.Message);
+                return SaveFailed("storage-maintenance", "Saved locally; " +
+                    (recoveryCompleted ? "storage" : "recovery") + " maintenance incomplete: " + ex.Message);
             }
         }
     }

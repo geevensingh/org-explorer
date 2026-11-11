@@ -143,6 +143,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
             Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
             Volatile.Write(ref saveErrorSnapshot, error);
+            if (storageReclamationDeferred && !value.Contains("Storage reclamation deferred", StringComparison.Ordinal))
+                value += "\nStorage reclamation deferred for preserved unretired transactions.";
             Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
                 ? value + "\n" + error : value);
         }
@@ -161,6 +163,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         CancelProfileEdit();
         StopWatching();
         workspaceCurrent = false;
+        storageReclamationDeferred = false;
         pending = null;
         workspace = null;
         compatibility = new(WorkspaceCompatibilityState.NotOpened,

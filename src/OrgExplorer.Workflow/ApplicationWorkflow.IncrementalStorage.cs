@@ -41,7 +41,7 @@ public sealed partial class ApplicationWorkflow
         workspaceCurrent = true;
         CheckRecoveryOnOpen(bytes);
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            "Development version-3 Workspace. Reclamation and shipping activation remain unavailable.", workspace, 3,
+            "Development version-3 Workspace. Shipping activation remains unavailable.", workspace, 3,
             verifiedRecoveryPath);
     }
 
@@ -210,13 +210,15 @@ public sealed partial class ApplicationWorkflow
             void WriteObject(string relative, byte[] bytes)
             {
                 var path = Path.Combine(workspace!, relative);
+                var stagingPath = Path.ChangeExtension(relative, ".next");
                 WriteDurablyBytes(Path.Combine(transaction, $"created-{inventory++:D8}.json"), JsonSerializer.SerializeToUtf8Bytes(new
                 {
-                    schemaVersion = 1, path = relative, bytes = bytes.LongLength,
+                    schemaVersion = 1, path = relative, stagingPath, bytes = bytes.LongLength,
                     digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))
                 }, IncrementalJsonOptions));
                 CreateIncrementalDirectory(Path.GetDirectoryName(path)!);
-                WriteDurablyBytes(path, bytes);
+                WriteDurablyBytes(Path.Combine(workspace!, stagingPath), bytes);
+                PublishWorkspaceFile(Path.Combine(workspace!, stagingPath), path, null);
                 available[path] = bytes;
             }
             void SetDocument(string family, string key, byte[] bytes, string extension = ".json")

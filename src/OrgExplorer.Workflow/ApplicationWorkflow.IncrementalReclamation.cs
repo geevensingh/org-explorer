@@ -1,0 +1,326 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+
+namespace OrgExplorer.Workflow;
+
+public sealed partial class ApplicationWorkflow
+{
+    private bool storageReclamationDeferred;
+    private sealed record CreationInventory(
+        [property: JsonRequired] int SchemaVersion,
+        [property: JsonRequired] string Path,
+        [property: JsonRequired] string StagingPath,
+        [property: JsonRequired] long Bytes,
+        [property: JsonRequired] string Digest);
+
+    private sealed record StorageRetirement(
+        [property: JsonRequired] int SchemaVersion,
+        [property: JsonRequired] Guid Transaction,
+        [property: JsonRequired] string Revision,
+        [property: JsonRequired] string RecoveryDigest,
+        [property: JsonRequired] Dictionary<string, string> Files);
+
+    private sealed record ReclamationPlan(
+        [property: JsonRequired] int SchemaVersion,
+        [property: JsonRequired] Guid Transaction,
+        [property: JsonRequired] string Revision,
+        [property: JsonRequired] string RecoveryDigest);
+
+    // Called with the local I/O gate and writer lease, only after recovery selection.
+    private void ReclaimIncrementalStorage(PreparedRecovery prepared)
+    {
+        var current = CaptureWorkspaceBytes();
+        using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true })
+            validation.ReadIncrementalWorkspaceData(current);
+        var accepted = WorkspaceFingerprint(snapshot: current);
+        if (accepted != prepared.Metadata.SourceRevision)
+            throw new IOException("Current delivery changed; storage reclamation is deferred.");
+        var selectedPath = Path.Combine(workspace!, "recovery", "current.json");
+        var selectedBytes = ReadWorkspaceBytesUncached(selectedPath);
+        var selected = ValidateRecovery(prepared.Root, selectedBytes, true);
+        if (selected.Metadata.SourceRevision != accepted || !selectedBytes.AsSpan().SequenceEqual(prepared.Selector))
+            throw new IOException("Recovery selection changed; storage reclamation is deferred.");
+
+        var maintenance = Path.Combine(workspace!, "maintenance");
+        CreateIncrementalDirectory(maintenance);
+        var pending = Path.Combine(maintenance, "reclamation.json");
+        if (!File.Exists(pending))
+        {
+            var stage = Path.Combine(maintenance, Guid.NewGuid().ToString("N") + ".plan");
+            WriteDurablyBytes(stage, JsonSerializer.SerializeToUtf8Bytes(
+                new ReclamationPlan(1, selected.Metadata.Transaction, accepted, ByteDigest(selectedBytes)), IncrementalJsonOptions));
+            PublishWorkspaceFile(stage, pending, null);
+        }
+        RejectStoragePathLinks(pending);
+        var pendingBytes = ReadWorkspaceBytesUncached(pending);
+        using (var json = JsonDocument.Parse(pendingBytes))
+        {
+            CheckProperties(json.RootElement, ["schemaVersion", "transaction", "revision", "recoveryDigest"], "Reclamation plan");
+            var plan = json.RootElement.Deserialize<ReclamationPlan>(JsonOptions);
+            if (plan is null || plan.SchemaVersion != 1 || plan.Transaction == Guid.Empty ||
+                !ValidDigest(plan.Revision) || !ValidDigest(plan.RecoveryDigest))
+                throw new FormatException("Invalid pending reclamation plan; preserved without deletion.");
+        }
+        var retirementPath = Path.Combine(prepared.Transaction, "retired.json");
+        if (!File.Exists(retirementPath))
+        {
+            var files = TransactionFiles(prepared.Transaction)
+                .Where(path => IsCreationInventory(Path.GetFileName(path)) ||
+                    Path.GetFileName(path) is "intent.json" or "committed.json" or "selector.next" or
+                        "recovery.next" or "recovery.previous.json")
+                .ToDictionary(path => Path.GetFileName(path), path => ByteDigest(ReadWorkspaceBytesUncached(path)), StringComparer.Ordinal);
+            var retirement = new StorageRetirement(1, prepared.Metadata.Transaction, accepted, ByteDigest(selectedBytes), files);
+            var stage = Path.Combine(prepared.Transaction, Guid.NewGuid().ToString("N") + ".retirement");
+            WriteDurablyBytes(stage, JsonSerializer.SerializeToUtf8Bytes(retirement, IncrementalJsonOptions));
+            PublishWorkspaceFile(stage, retirementPath, null);
+        }
+
+        var protectedPaths = new HashSet<string>(current.Keys, StringComparer.OrdinalIgnoreCase);
+        var guards = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        void Guard(string path)
+        {
+            RejectStoragePathLinks(path);
+            guards[path] = ByteDigest(ReadWorkspaceBytesUncached(path));
+        }
+        void ProtectGraph(IncrementalGraph graph, bool recovery)
+        {
+            foreach (var path in graph.Paths)
+            {
+                protectedPaths.Add(path);
+                Guard(path);
+                if (recovery)
+                {
+                    protectedPaths.Add(path + ".sha256");
+                    Guard(path + ".sha256");
+                }
+            }
+        }
+        void ProtectRecovery(byte[] bytes)
+        {
+            var recovery = ValidateRecovery(prepared.Root, bytes, true);
+            ProtectGraph(RecoveryDocuments(prepared.Root, recovery.Metadata), true);
+            protectedPaths.Add(Path.Combine(workspace!, "transactions",
+                recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+            Guard(Path.Combine(workspace!, "transactions", recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+        }
+        Guard(pending);
+        Guard(selectedPath);
+        ProtectRecovery(selectedBytes);
+        var previous = Path.Combine(workspace!, "workspace.previous.json");
+        var previousDigest = File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null;
+        if (previousDigest is not null)
+        {
+            Guard(previous);
+            ProtectGraph(ResolveIncrementalGraph(workspace!, ReadWorkspaceBytesUncached(previous)), false);
+        }
+
+        var transactionsRoot = Path.Combine(workspace!, "transactions");
+        RejectStoragePathLinks(transactionsRoot);
+        var transactions = Directory.GetDirectories(transactionsRoot);
+        var knownFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var retired = new List<(string Directory, StorageRetirement Retirement)>();
+        var deferObjects = false;
+        foreach (var transaction in transactions)
+        {
+            RejectStoragePathLinks(transaction);
+            var files = TransactionFiles(transaction);
+            foreach (var file in files) knownFiles.Add(file);
+            var retiredPath = Path.Combine(transaction, "retired.json");
+            if (File.Exists(retiredPath))
+            {
+                var retirement = ReadStorageRetirement(retiredPath);
+                Guard(retiredPath);
+                foreach (var file in files.Where(path => Path.GetFileName(path) is
+                    "intent.json" or "committed.json" or "selector.next" or "recovery.next" or "recovery.previous.json"))
+                {
+                    if (!retirement.Files.TryGetValue(Path.GetFileName(file), out var digest) ||
+                        ByteDigest(ReadWorkspaceBytesUncached(file)) != digest)
+                        throw new IOException("Retired transaction metadata changed; storage reclamation is deferred.");
+                    Guard(file);
+                }
+                retired.Add((transaction, retirement));
+                continue;
+            }
+            foreach (var file in files) Guard(file);
+            // Missing receipts do not prove abortion. Incomplete intents may still
+            // need reused base objects for which no candidate has yet been written.
+            deferObjects |= files.Length != 0 && !File.Exists(Path.Combine(transaction, "recovery.next"));
+            foreach (var file in files.Where(path => IsCreationInventory(Path.GetFileName(path))))
+            {
+                var inventory = ReadCreationInventory(ReadWorkspaceBytesUncached(file));
+                protectedPaths.Add(InventoryObjectPath(inventory.Path));
+                protectedPaths.Add(InventoryStagePath(inventory.StagingPath));
+            }
+            foreach (var file in files)
+            {
+                var name = Path.GetFileName(file);
+                if (name == "selector.next")
+                    ProtectGraph(ResolveIncrementalGraph(workspace!, ReadWorkspaceBytesUncached(file)), false);
+                if (name is "recovery.next" or "recovery.previous.json")
+                {
+                    var bytes = ReadWorkspaceBytesUncached(file);
+                    var recovery = ValidateRecovery(prepared.Root, bytes, requireReceipt: name == "recovery.previous.json");
+                    ProtectGraph(RecoveryDocuments(prepared.Root, recovery.Metadata), true);
+                    protectedPaths.Add(Path.Combine(transactionsRoot, recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+                    if (name == "recovery.previous.json")
+                        Guard(Path.Combine(transactionsRoot, recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+                }
+            }
+        }
+
+        void Recheck()
+        {
+            if (WorkspaceFingerprint() != accepted ||
+                (File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null) != previousDigest ||
+                !Directory.GetDirectories(transactionsRoot).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    .SetEquals(transactions.Where(Directory.Exists)) ||
+                !transactions.Where(Directory.Exists).SelectMany(TransactionFiles)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(knownFiles))
+                throw new IOException("Workspace or transaction delivery changed; storage reclamation is deferred.");
+            foreach (var (path, digest) in guards)
+                if (ByteDigest(ReadWorkspaceBytesUncached(path)) != digest)
+                    throw new IOException("Protected storage changed; storage reclamation is deferred.");
+        }
+        var batchSize = 0;
+        void DeleteRecorded(string path, string digest)
+        {
+            if (!File.Exists(path)) return;
+            RejectStoragePathLinks(path);
+            if (ByteDigest(ReadWorkspaceBytesUncached(path)) != digest) return;
+            if (batchSize == 0) Recheck();
+            DeleteWorkspaceFile(path);
+            knownFiles.Remove(path);
+            guards.Remove(path);
+            if (++batchSize == 32)
+            {
+                Recheck();
+                batchSize = 0;
+            }
+        }
+
+        Recheck();
+        foreach (var (transaction, retirement) in retired)
+        {
+            foreach (var (name, digest) in retirement.Files.Where(e => IsCreationInventory(e.Key)))
+            {
+                var record = Path.Combine(transaction, name);
+                if (!File.Exists(record)) continue;
+                var recordBytes = ReadWorkspaceBytesUncached(record);
+                if (ByteDigest(recordBytes) != digest) continue;
+                var inventory = ReadCreationInventory(recordBytes);
+                var path = InventoryObjectPath(inventory.Path);
+                var staged = InventoryStagePath(inventory.StagingPath);
+                if (deferObjects || protectedPaths.Contains(path) || protectedPaths.Contains(staged)) continue;
+                if (File.Exists(path) && new FileInfo(path).Length == inventory.Bytes)
+                    DeleteRecorded(path, inventory.Digest);
+                if (File.Exists(staged) && new FileInfo(staged).Length == inventory.Bytes)
+                    DeleteRecorded(staged, inventory.Digest);
+                // Changed bytes become unknown files, never cleanup candidates.
+                DeleteRecorded(record, digest);
+            }
+            if (TransactionFiles(transaction).Any(path => IsCreationInventory(Path.GetFileName(path))) ||
+                protectedPaths.Contains(Path.Combine(transaction, "committed.json"))) continue;
+            foreach (var (name, digest) in retirement.Files)
+                if (!IsCreationInventory(name)) DeleteRecorded(Path.Combine(transaction, name), digest);
+            var marker = Path.Combine(transaction, "retired.json");
+            if (Directory.EnumerateFileSystemEntries(transaction).All(path => path == marker))
+            {
+                DeleteRecorded(marker, guards[marker]);
+                Directory.Delete(transaction, recursive: false);
+            }
+        }
+        Recheck();
+        DeleteRecorded(pending, ByteDigest(pendingBytes));
+        if (File.Exists(pending))
+            throw new IOException("Reclamation plan changed before completion; storage maintenance remains incomplete.");
+        storageReclamationDeferred = transactions.Any(transaction => Directory.Exists(transaction) &&
+            File.Exists(Path.Combine(transaction, "intent.json")) && !File.Exists(Path.Combine(transaction, "retired.json")));
+        failedSaves.Remove("storage-maintenance");
+    }
+
+    private string[] TransactionFiles(string directory)
+    {
+        RejectStoragePathLinks(directory);
+        // Unknown subdirectories are neither traversed nor removed.
+        return Directory.GetFiles(directory);
+    }
+
+    private static bool IsCreationInventory(string name) =>
+        Regex.IsMatch(name, @"^created-(recovery-)?[0-9]{8}\.json$");
+
+    private StorageRetirement ReadStorageRetirement(string path)
+    {
+        using var json = JsonDocument.Parse(ReadWorkspaceBytesUncached(path));
+        CheckProperties(json.RootElement, ["schemaVersion", "transaction", "revision", "recoveryDigest", "files"], "Storage retirement");
+        var retirement = json.RootElement.Deserialize<StorageRetirement>(JsonOptions)
+            ?? throw new FormatException("Invalid storage retirement.");
+        if (retirement.SchemaVersion != 1 || retirement.Transaction == Guid.Empty ||
+            retirement.Transaction.ToString("N") != Path.GetFileName(Path.GetDirectoryName(path)) ||
+            retirement.Files is null || !ValidDigest(retirement.Revision) || !ValidDigest(retirement.RecoveryDigest))
+            throw new FormatException("Invalid storage retirement provenance.");
+        foreach (var (name, digest) in retirement.Files)
+            if ((!IsCreationInventory(name) && name is not ("intent.json" or "committed.json" or
+                "selector.next" or "recovery.next" or "recovery.previous.json")) || !ValidDigest(digest))
+                throw new FormatException("Invalid retired file identity.");
+        return retirement;
+    }
+
+    private CreationInventory ReadCreationInventory(byte[] bytes)
+    {
+        using var json = JsonDocument.Parse(bytes);
+        CheckProperties(json.RootElement, ["schemaVersion", "path", "stagingPath", "bytes", "digest"], "Creation inventory");
+        var inventory = json.RootElement.Deserialize<CreationInventory>(JsonOptions)
+            ?? throw new FormatException("Invalid creation inventory.");
+        if (inventory.SchemaVersion != 1 || inventory.Bytes < 0 || !ValidDigest(inventory.Digest))
+            throw new FormatException("Invalid creation inventory provenance.");
+        InventoryObjectPath(inventory.Path);
+        InventoryStagePath(inventory.StagingPath);
+        return inventory;
+    }
+
+    private static bool ValidDigest(string value) => value is not null && Regex.IsMatch(value, "^[A-F0-9]{64}$");
+
+    private string InventoryObjectPath(string relative)
+    {
+        if (relative is null) throw new FormatException("Missing inventoried path.");
+        var normalized = relative.Replace('/', '\\');
+        var recovery = normalized.StartsWith("recovery\\", StringComparison.Ordinal);
+        var root = recovery ? Path.Combine(workspace!, "recovery") : workspace!;
+        var local = recovery ? normalized["recovery\\".Length..] : normalized;
+        var seal = recovery && local.EndsWith(".sha256", StringComparison.Ordinal);
+        if (seal) local = local[..^".sha256".Length];
+        string path;
+        if (local.StartsWith("index\\", StringComparison.Ordinal)) path = IncrementalPath(root, local.Replace('\\', '/'));
+        else
+        {
+            var parts = local.Split('\\');
+            var families = recovery ? IndexedFamilies.Concat(["personNotes", "teamNotes"]) : IndexedFamilies;
+            if (parts.Length != 3 || !families.Contains(parts[1]))
+                throw new FormatException("Invalid inventoried document family.");
+            path = IncrementalPath(root, local.Replace('\\', '/'), parts[1]);
+        }
+        path += seal ? ".sha256" : "";
+        RejectStoragePathLinks(path);
+        return path;
+    }
+
+    private string InventoryStagePath(string relative)
+    {
+        if (relative is null || !Regex.IsMatch(relative,
+                @"^(recovery[/\\][a-f0-9]{32}|index[/\\][a-f0-9]{32}|documents[/\\](" +
+                string.Join("|", IndexedFamilies) + @")[/\\][a-f0-9]{32})\.next$"))
+            throw new FormatException("Invalid inventoried staging path.");
+        var path = Path.Combine(workspace!, relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
+        RejectStoragePathLinks(path);
+        return path;
+    }
+
+    private void RejectStoragePathLinks(string path)
+    {
+        for (var entry = path; !entry.Equals(workspace, StringComparison.OrdinalIgnoreCase);
+             entry = Path.GetDirectoryName(entry)!)
+            if (File.Exists(entry) || Directory.Exists(entry)) RejectWorkspaceLink(entry);
+        RejectWorkspaceLink(workspace!);
+    }
+}
