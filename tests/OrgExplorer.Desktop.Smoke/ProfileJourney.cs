@@ -40,7 +40,15 @@ internal static partial class Program
             Click(window, "ApplyImport");
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
-            AssertValue(window, "OfficeNumber", "007B");
+            AssertProfileValue(window, "OfficeNumber", "007B");
+            if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
+                throw new InvalidOperationException("View mode did not expose a readable profile value.");
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "Cancelled office");
+            Click(window, "ClearPhoto");
+            CancelProfileEditing(window);
+            AssertProfileValue(window, "OfficeNumber", "007B");
+            AssertPhotoVisible(window);
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Stable email identity became editable.");
             NavigateToManager(window, "morgan@example.com");
@@ -70,8 +78,9 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Click(window, "ReadPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
+            BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            SaveProfileEditing(window);
             Await(() => Find(window, "OpenLinkedIn").Current.IsEnabled);
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
@@ -82,7 +91,7 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
-            AssertValue(window, "OfficeNumber", "007B");
+            AssertProfileValue(window, "OfficeNumber", "007B");
             Click(window, "ApplyImport");
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
@@ -98,10 +107,10 @@ internal static partial class Program
             AssertPreferredNameReading(window, "Ave", "Edit");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
                 throw new InvalidOperationException("Preferred name hid the retained Directory name.");
-            AssertValue(window, "OfficeNumber", "0009C");
-            AssertValue(window, "Department", "");
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "LinkedInProfileUrl", link);
+            AssertProfileValue(window, "OfficeNumber", "0009C");
+            AssertProfileValue(window, "Department", "");
+            AssertProfileValue(window, "Alias", "avery");
+            AssertProfileValue(window, "LinkedInProfileUrl", link);
             AssertPhotoVisible(window);
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
@@ -112,6 +121,46 @@ internal static partial class Program
             Close(process);
         }
         finally { if (process is not null) StopApplication(process); }
+    }
+
+    private static void BeginProfileEditing(AutomationElement window)
+    {
+        Click(window, "EditProfile");
+        Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
+            !Find(window, "DirectoryNameEditor").Current.IsOffscreen);
+    }
+
+    private static void SaveProfileEditing(AutomationElement window)
+    {
+        Click(window, "SaveProfile");
+        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
+            Find(window, "Status").Current.Name.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+    }
+
+    private static void CancelProfileEditing(AutomationElement window)
+    {
+        Click(window, "CancelProfile");
+        Await(() => Find(window, "EditProfile").Current.IsEnabled);
+    }
+
+    private static void AssertProfileValue(AutomationElement window, string field, string expected)
+    {
+        Await(() =>
+        {
+            var value = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
+            if (expected.Length == 0) return value is null;
+            return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
+        });
+    }
+
+    private static AutomationElement ProfileLeaveWindow(AutomationElement window)
+    {
+        AutomationElement? decision = null;
+        Await(() => (decision = AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")))) is not null);
+        return decision!;
     }
 
     private static void AssertPreferredNameReading(AutomationElement window, string value, string action)

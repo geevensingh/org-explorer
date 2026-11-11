@@ -70,7 +70,9 @@ internal static partial class Program
         AssertPhotoVisible(window);
         if (!Find(window, "PersonPhoto").Current.Name.Contains("image/jpeg"))
             throw new InvalidOperationException("Actual JPEG did not display on the profile.");
+        BeginProfileEditing(window);
         Click(window, "ClearPhoto");
+        SaveProfileEditing(window);
         Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
         Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("Photo:") &&
                     Find(window, "ProfileTimeline").Current.Name.Contains(".jpg → (clear)") &&

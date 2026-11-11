@@ -34,10 +34,21 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and migration version checks stay explicit.
-Profile text autosave similarly submits the displayed field's immutable Person
+Preferred-name autosave similarly submits the displayed field's immutable Person
 base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
+Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
+and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
+person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
+observes Save / Discard / Stay; only successful Save or explicit Discard permits
+leaving. Profile Cancel clears only that session, never independent note or
+quick-action failures. Unsaved profiles block safe close and updater restart.
+File-backed profile-session cases cover complete publication and reopening,
+Cancel nonmutation, real locks and missing photos, Manager/history consistency,
+independent quick changes, same-record/different-field stale saves and retries,
+previously incorporated delivery and unrelated-person delivery. Save revalidates
+persisted data even without an explicit view refresh.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -46,8 +57,10 @@ workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,
 alternate-folder recovery, intentional manual creation, failed attempts retaining
 the previous default, and visible corrupt/unwritable preference errors. These
-are filesystem/settings assertions, not WPF evidence or a second profile-mode
-policy.
+cases also prove that both manual and existing-only settings opens retain a
+dirty profile, independent quick changes, saved bytes and the successful
+preference until an explicit leave decision. These are filesystem/settings
+assertions, not WPF evidence or a second profile-mode policy.
 
 ## Moving coverage
 
@@ -146,7 +159,8 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline.
-- `draft-navigation`: visibly pending autosave versus failed Person/Team drafts,
+- `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
+  leave-save retention and Import protection versus independent failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
   separately successful navigation.
 - `person-note-rendering`: Read-first existing notes with both editors hidden,
@@ -258,10 +272,10 @@ pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
-The pending-profile scenario keeps real typing active until rejection
-and records actual status-name change events, so the 300 ms debounce cannot
-silently become its observation deadline or erase transient feedback.
-A rejection check invokes once, then observes the actual rejection
+The profile navigation scenario enters Edit, stages a value, and exercises the
+real Save / Discard / Stay decision, including a locked-file leave-save failure.
+The scale mutation scenario retains actual in-progress-work rejection while
+Settings renders. A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to
 remain selected. A generic pending message or a completed save is not rejection
 evidence. The runner's non-UI ordering regression covers pending → rejected

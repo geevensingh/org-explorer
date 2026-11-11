@@ -21,7 +21,8 @@ public partial class MainWindow
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
-        AttributeEditors.IsEnabled = PreferredNameContext.IsEnabled = keepProfileDraft;
+        UpdateProfileMode();
+        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = keepProfileDraft;
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
         TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
         FavoriteButton.IsEnabled = ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = false;
@@ -35,9 +36,7 @@ public partial class MainWindow
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = true;
             PersonNotes.IsEnabled = TeamNotes.IsEnabled = true;
-            AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
-            PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
-            Photo.CanEdit = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+            UpdateProfileMode();
             var person = selectedEmail is null ? null : workflow.GetRelationships(selectedEmail)?.Person;
             FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
             ArchivePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person is { Archived: false };

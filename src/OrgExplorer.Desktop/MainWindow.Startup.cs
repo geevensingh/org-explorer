@@ -75,6 +75,11 @@ public partial class MainWindow
         var opened = await RunWorkflowAsync(() => mode == WorkspaceOpenMode.ExistingOnly
             ? workspaceSettings.RestoreWorkspace(workflow, path)
             : workspaceSettings.OpenWorkspace(workflow, path), "Opening Workspace...");
+        if (!opened && workflow.ProfileEdit is not null)
+        {
+            ShowStatus();
+            return;
+        }
         ShowWorkspaceOpenOutcome(path, mode, opened);
         PresentWorkspaceOpen();
     }

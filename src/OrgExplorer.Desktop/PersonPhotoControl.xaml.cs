@@ -12,7 +12,14 @@ public partial class PersonPhotoControl : UserControl
 {
     public PersonPhotoControl() => InitializeComponent();
     public event Action<string?>? PhotoEdited;
-    public bool CanEdit { set => Actions.IsEnabled = value; }
+    public bool CanEdit
+    {
+        set
+        {
+            Actions.IsEnabled = value;
+            Actions.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
 
     private void ChoosePhoto(object sender, RoutedEventArgs e)
     {

@@ -31,7 +31,7 @@ internal static partial class Program
             Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 3");
             if (!Find(window, "FavoriteStatus").Current.Name.Contains("Marked favorite"))
                 throw new InvalidOperationException("Supported conversion lost favorite state.");
-            AssertValue(window, "OfficeNumber", "0009C");
+            AssertProfileValue(window, "OfficeNumber", "0009C");
             AssertPhotoVisible(window);
             if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
                 throw new InvalidOperationException("Converted profile lost its Directory name.");
@@ -90,7 +90,7 @@ internal static partial class Program
             Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
             Click(window, "OpenSettings");
             OpenPerson(window, "casey@example.com", "alex@example.com");
-            AssertValue(window, "OfficeNumber", "0009C");
+            AssertProfileValue(window, "OfficeNumber", "0009C");
             Close(recovery);
         }
         finally
@@ -117,6 +117,8 @@ internal static partial class Program
                 AwaitRestoredWorkspace(window, workspace);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+                AssertProfileValue(window, "OfficeNumber", "0009C");
+                AssertPreferredNameReading(window, "Ave", "Edit");
                 Close(retry);
             }
             finally { StopApplication(retry); }
@@ -163,6 +165,8 @@ internal static partial class Program
             AwaitRestoredWorkspace(window, alternate);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertProfileValue(window, "OfficeNumber", "0009C");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             Close(reopened);
         }
         finally { StopApplication(reopened); }

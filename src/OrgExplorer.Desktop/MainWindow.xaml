@@ -173,8 +173,37 @@
                   Click="ReactivatePerson" IsEnabled="False" Margin="8,0"/>
         </WrapPanel>
         <local:PersonPhotoControl x:Name="Photo"/>
-        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
-        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"/>
+        <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
+                   Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>
+        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName">
+          <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+        </TextBlock>
+        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable">
+          <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+        </TextBlock>
+        <Button x:Name="EditProfileButton" Content="Edit profile" AutomationProperties.AutomationId="EditProfile"
+                Click="BeginProfileEdit" HorizontalAlignment="Left" IsEnabled="False"/>
+        <WrapPanel x:Name="ProfileSessionActions" Visibility="Collapsed" Margin="0,8">
+          <Button x:Name="SaveProfileButton" Content="Save profile" AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
+          <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile" Click="CancelProfileEdit" Margin="8,0"/>
+          <TextBlock Text="Unsaved until Save. Cancel discards profile text, Manager and photo only." TextWrapping="Wrap" Margin="8,0"/>
+        </WrapPanel>
+        <ItemsControl x:Name="ProfileValues">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Margin="0,6">
+                <TextBlock Text="{Binding Label}" Foreground="DimGray"/>
+                <TextBlock Text="{Binding Value}" TextWrapping="Wrap" AutomationProperties.AutomationId="{Binding AutomationId}">
+                  <TextBlock.ContextMenu>
+                    <ContextMenu><MenuItem Header="Copy value" Tag="{Binding Value}" Click="CopyProfileValue"/></ContextMenu>
+                  </TextBlock.ContextMenu>
+                </TextBlock>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False" Visibility="Collapsed"
+                AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
         <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,8">
           <TextBlock Text="Preferred name" Margin="0,0,0,4"/>
           <WrapPanel x:Name="PreferredNameReadPanel">
@@ -194,11 +223,11 @@
         </StackPanel>
         <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
                 HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
-        <StackPanel x:Name="ManagerEditor" IsEnabled="False" Margin="0,0,0,12">
-          <TextBlock Text="Explicit Manager change (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
+        <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed" Margin="0,0,0,12">
+          <TextBlock Text="Manager in this profile draft (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
           <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                    ScrollViewer.CanContentScroll="True">
+                    ScrollViewer.CanContentScroll="True" SelectionChanged="StagePersonManager">
             <ComboBox.ItemsPanel>
               <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
             </ComboBox.ItemsPanel>
@@ -208,15 +237,14 @@
               </Style>
             </ComboBox.ItemContainerStyle>
           </ComboBox>
-          <Button Content="Apply Manager change" AutomationProperties.AutomationId="ApplyManagerChange"
+          <Button Content="Stage Manager change" AutomationProperties.AutomationId="ApplyManagerChange"
                   Click="ChangePersonManager" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         </StackPanel>
         <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
         <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
                  SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>
-        <TextBlock Text="Saved locally as you type. Empty clears; whitespace alone is invalid."
-                   TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
-        <StackPanel x:Name="AttributeEditors" IsEnabled="False">
+        <StackPanel x:Name="AttributeEditors" IsEnabled="False" Visibility="Collapsed">
+          <TextBlock Text="Staged until Save. Empty clears; whitespace alone is invalid." TextWrapping="Wrap"/>
           <TextBlock Text="Directory name" Margin="0,8,0,4"/>
           <TextBox x:Name="DirectoryNameEditor" Tag="DirectoryName" AutomationProperties.AutomationId="DirectoryNameEditor"
                    AutomationProperties.Name="Directory name" TextChanged="EditPersonAttribute"/>
@@ -244,8 +272,6 @@
           <TextBlock Text="LinkedIn profile URL (HTTPS; never fetched automatically)" TextWrapping="Wrap" Margin="0,8,0,4"/>
           <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
                    AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
-          <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False"
-                  AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
         </StackPanel>
         <GroupBox Header="Structured Profile timeline — most recent recording first" Margin="0,16,0,0">
           <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
@@ -284,9 +310,9 @@
       <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready"/>
       <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
       <WrapPanel>
-        <Button x:Name="RetryProfileButton" Content="Retry unsaved profile edits" Click="RetryProfileSave"
+        <Button x:Name="RetryProfileButton" Content="Retry unsaved profile / quick action" Click="RetryProfileSave"
                 AutomationProperties.AutomationId="RetryProfileSave" IsEnabled="False"/>
-        <Button x:Name="DiscardProfileButton" Content="Discard unsaved local edits" Click="DiscardProfileDraft"
+        <Button x:Name="DiscardProfileButton" Content="Discard profile / quick draft (not notes)" Click="DiscardProfileDraft"
                 AutomationProperties.AutomationId="DiscardProfileDraft" IsEnabled="False" Margin="8,0"/>
       </WrapPanel>
       <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Text="Choose a Workspace."/>

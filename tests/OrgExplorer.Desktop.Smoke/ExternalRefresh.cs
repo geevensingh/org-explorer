@@ -109,7 +109,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
             AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
-            AssertFirstProfileAutosaveDeliveryConflict(window, personFile);
+            AssertExplicitProfileDeliveryConflict(window, personFile);
             Close(process);
             Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
         }
@@ -119,9 +119,10 @@ internal static partial class Program
         }
     }
 
-    private static void AssertFirstProfileAutosaveDeliveryConflict(AutomationElement window, string personFile)
+    private static void AssertExplicitProfileDeliveryConflict(AutomationElement window, string personFile)
     {
         AwaitLocalWorkIdle(window);
+        BeginProfileEditing(window);
         var editor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
         var local = "Local profile draft";
         editor.SetValue(local);
@@ -140,21 +141,23 @@ internal static partial class Program
             editor.SetValue(local);
             Thread.Sleep(10);
         }
-        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
         AssertValue(window, "OfficeNumber", local);
+        Click(window, "SaveProfile");
+        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
         Click(window, "RetryProfileSave");
         Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
             Find(window, "WorkflowActivity").Current.Name == "Ready");
         AssertValue(window, "OfficeNumber", local);
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
-            throw new InvalidOperationException("Profile autosave or retry overwrote the delivered field.");
+            throw new InvalidOperationException("Explicit profile save or retry overwrote the delivered field.");
         Click(window, "DiscardProfileDraft");
-        Await(() => Value(window, "OfficeNumber") == "Delivered office");
+        AssertProfileValue(window, "OfficeNumber", "Delivered office");
         AwaitLocalWorkIdle(window);
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
             throw new InvalidOperationException("Profile discard rewrote delivered bytes.");
+        BeginProfileEditing(window);
         Set(window, "OfficeNumber", "Intentional delivered-version edit");
-        Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+        SaveProfileEditing(window);
     }
 
     private static void AssertFirstAutosaveDeliveryConflict(

@@ -180,11 +180,13 @@ internal static partial class Program
             Click(window, "CloseSearchContext");
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
+                BeginProfileEditing(window);
                 Set(window, "OfficeNumber", "0009U");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving local profile"));
+                Click(window, "SaveProfile");
+                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"));
                 Click(window, "OpenSettings");
                 Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
-                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Saving local profile"))
+                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"))
                     throw new InvalidOperationException("Settings only rendered after the actual scale mutation completed.");
                 Click(window, "OpenSettings");
                 Click(window, "NavigateManager");
@@ -193,7 +195,7 @@ internal static partial class Program
                     !Find(window, "Status").Current.Name.Contains("Please wait") ||
                     Find(window, "Email").Current.Name != ScaleFixture.Target)
                     throw new InvalidOperationException("Navigation during a save did not explain waiting or retain the current Person.");
-                AwaitScale(() => Find(window, "Status").Current.Name == "Saved locally.");
+                AwaitScale(() => Find(window, "Status").Current.Name == "Profile saved locally.");
             });
             ScaleFixture.Measure("UI-favorite-mutation", () =>
             {
@@ -241,7 +243,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-                AssertValue(window, "OfficeNumber", "0009U");
+                AssertProfileValue(window, "OfficeNumber", "0009U");
                 Click(window, "CloseSearchContext");
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))

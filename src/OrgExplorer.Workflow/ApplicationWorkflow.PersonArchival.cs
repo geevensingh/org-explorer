@@ -49,6 +49,7 @@ public sealed partial class ApplicationWorkflow
         catch (FormatException ex) { return Fail("Change rejected; no people changed: " + ex.Message); }
         var history = CaptureLocalHistory(before, after, field);
         if (!Save(proposed, batches, history: history, operation: $"profile:{before.Email.ToLowerInvariant()}:{field}")) return false;
+        if (field == "isFavorite") AcceptIndependentProfileChange(before, after);
         people = proposed;
         profileHistory = history;
         InvalidateProjections();

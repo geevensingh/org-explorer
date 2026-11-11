@@ -35,9 +35,12 @@ Choose a version-1 JSON file, review **Preview import**, and deliberately **Appl
 reviewed import**. Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Edit the profile fields; changes are saved locally as you type. Empty editor text
-explicitly clears a nullable value;
-whitespace-only text is rejected with a field-specific error. Preferred name is
+Profiles open in **View** mode with populated, readable values; right-click a
+value to copy it. Empty optional rows are omitted. **Edit profile** reveals all
+ordinary fields and stages text, Manager and photo changes together.
+**Save profile** validates and publishes the complete change; **Cancel**
+discards it without changing saved data or history. Empty editor text explicitly
+clears a nullable value; whitespace-only text is rejected. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
@@ -59,13 +62,21 @@ the editor with the existing retry/discard protections. **Mark favorite** remain
 an independent one-click saved action.
 
 Loading, validation and local writes run off the desktop dispatcher. Rapid
-profile/Markdown typing is coalesced after a short quiet interval; the visible
+Preferred-name/Markdown typing is coalesced after a short quiet interval; the visible
 draft stays editable while a previous write completes. Pending/newer drafts are
 explicitly **not yet saved**, and navigation/closing cannot discard them. A
-failed write still requires retry or deliberate discard. Tree expansion and
+failed write still requires retry or deliberate discard. Preferred name,
+Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
+profile through navigation, Import, archival, workspace switching or closing
+offers **Save / Discard / Stay**. A failed Save retains its owner and draft.
+A profile changed externally since entering Edit cannot be overwritten by Save
+or retry; discard that draft before editing the delivered version. Changes
+already incorporated before editing and changes only to other people do not
+cause this conflict. Automatic update restarts never save or discard an unsaved
+profile. Tree expansion and
 Settings remain usable while local work is outstanding. Rejected navigation is
 explained in the main status: pending edits or an in-progress save ask you to
-wait; a failed save asks you to retry or discard. Note-specific feedback also
+wait; a failed quick/note save asks you to retry or discard. Note-specific feedback also
 appears beside the affected note. Desktop smoke waits for saves and verifies
 the destination Person before continuing a successful navigation. Search runs
 locally in the background and ignores superseded query responses. None of this changes

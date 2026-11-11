@@ -26,72 +26,60 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             OpenPerson(window, "casey@example.com");
-            var profileEditor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
-            var navigate = (InvokePattern)Find(window, "NavigateManager").GetCurrentPattern(InvokePattern.Pattern);
-            var activity = Find(window, "WorkflowActivity");
-            var mainStatus = Find(window, "Status");
-            var owner = Find(window, "Email");
-            var observedRejection = "";
-            var navigationInvoked = 0;
-            var lastDraft = "";
-            AutomationPropertyChangedEventHandler statusChanged = (_, change) =>
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "0009P");
+            Click(window, "NavigateManager");
+            Click(ProfileLeaveWindow(window), "StayOnProfile");
+            Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
+            AssertValue(window, "OfficeNumber", "0009P");
+            if (Find(window, "Email").Current.Name != "avery@example.com")
+                throw new InvalidOperationException("Stay changed the profile owner.");
+            process.CloseMainWindow();
+            Click(ProfileLeaveWindow(window), "StayOnProfile");
+            Await(() => Find(window, "Status").Current.Name.Contains("Unsaved local changes prevent safe closing"));
+            if (process.HasExited) throw new InvalidOperationException("Stay did not protect the draft on close.");
+            AssertValue(window, "OfficeNumber", "0009P");
+            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
-                if (Volatile.Read(ref navigationInvoked) != 0 && change.NewValue is string status &&
-                    status.StartsWith("Navigation blocked:", StringComparison.Ordinal) &&
-                    status.Contains("Please wait", StringComparison.Ordinal))
-                    Volatile.Write(ref observedRejection, status);
-            };
-            Automation.AddAutomationPropertyChangedEventHandler(mainStatus, TreeScope.Element, statusChanged,
-                AutomationElement.NameProperty);
-            using (var stopTyping = new CancellationTokenSource())
-            {
-                var typing = Task.Run(() =>
-                {
-                    for (var edit = 1; !stopTyping.IsCancellationRequested; edit++)
-                    {
-                        var text = $"0009P-{edit}";
-                        profileEditor.SetValue(text);
-                        Volatile.Write(ref lastDraft, text);
-                        Thread.Sleep(10);
-                    }
-                });
-                try
-                {
-                    Await(() => activity.Current.Name.Contains("Pending"));
-                    NavigationRejection.AssertPending(() =>
-                    {
-                        Volatile.Write(ref navigationInvoked, 1);
-                        navigate.Invoke();
-                    }, () => Volatile.Read(ref observedRejection),
-                        () => owner.Current.Name, "avery@example.com", Await);
-                }
-                finally
-                {
-                    stopTyping.Cancel();
-                    try { typing.GetAwaiter().GetResult(); }
-                    finally
-                    {
-                        Automation.RemoveAutomationPropertyChangedEventHandler(mainStatus, statusChanged);
-                    }
-                }
+                Click(window, "NavigateManager");
+                Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
+                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+                AssertValue(window, "OfficeNumber", "0009P");
+                if (Find(window, "Email").Current.Name != "avery@example.com")
+                    throw new InvalidOperationException("Failed leave-save changed the profile owner.");
             }
-            AssertValue(window, "OfficeNumber", lastDraft);
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
-            NavigateToManager(window, "casey@example.com");
+            Click(window, "NavigateManager");
+            Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
+            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
             OpenPerson(window, "casey@example.com");
+            AssertProfileValue(window, "OfficeNumber", "0009P");
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "Discard me");
+            Click(window, "PreviewImport");
+            Click(ProfileLeaveWindow(window), "StayOnProfile");
+            AssertValue(window, "OfficeNumber", "Discard me");
+            Click(window, "NavigateManager");
+            Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
+            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+            OpenPerson(window, "casey@example.com");
+            AssertProfileValue(window, "OfficeNumber", "0009P");
             foreach (var kind in new[] { "Person", "Team" })
             {
                 Click(window, $"New{kind}Note");
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
+                BeginProfileEditing(window);
+                Set(window, "DirectoryNameEditor", "Discard this profile only");
                 Click(window, "NavigateManager");
+                Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));
                 var status = Find(window, "Status").Current.Name;
                 if (!status.StartsWith("Navigation blocked:") || !status.Contains($"{kind} note") ||
                     !status.Contains("Retry or discard"))
                     throw new InvalidOperationException($"Failed {kind} note navigation lacks a visible, actionable main status: {status}");
                 if (Find(window, "Email").Current.Name != "avery@example.com" ||
-                    Value(window, $"{kind}NoteTitle") != "")
+                    Value(window, $"{kind}NoteTitle") != "" || Find(window, "DirectoryName").Current.Name != "Avery")
                     throw new InvalidOperationException($"Rejected navigation changed the owner or discarded the failed {kind} note draft.");
                 Click(window, $"Discard{kind}NoteDraft");
                 Await(() => Value(window, $"{kind}NoteTitle").Length > 0);

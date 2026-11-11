@@ -194,6 +194,43 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Manual_and_existing_only_settings_opens_retain_dirty_profiles_and_the_successful_default(bool restore)
+    {
+        var first = Path.Combine(root, "first");
+        var alternate = Path.Combine(root, "alternate");
+        WorkspaceFixtures.CopyVersionOne(first);
+        WorkspaceFixtures.CopyVersionOne(alternate);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(settings.OpenWorkspace(app, first), app.Status);
+        Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained on open rejection"), app.Status);
+        Assert.True(app.EditPreferredName("avery@example.com", "Independent quick name"), app.Status);
+        var draft = app.ProfileEdit;
+        var preference = File.ReadAllBytes(Preferences);
+        var saved = WorkspaceFixtures.Bytes(first);
+
+        bool OpenAlternate() => restore ? settings.RestoreWorkspace(app, alternate) : settings.OpenWorkspace(app, alternate);
+        Assert.False(OpenAlternate());
+        Assert.Same(draft, app.ProfileEdit);
+        Assert.Equal("Retained on open rejection", app.ProfileEdit!.Draft.JobTitle);
+        Assert.Equal("Independent quick name", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.Equal(first, app.Compatibility.WorkspacePath);
+        Assert.Contains("Save, Discard or Stay", app.Status);
+        Assert.Equal(preference, File.ReadAllBytes(Preferences));
+        Assert.Equal(first, new WorkspaceSettings(Preferences).LastWorkspacePath);
+        AssertWorkspaceBytes(first, saved);
+
+        Assert.True(app.TryLeaveProfileEdit(ProfileLeaveDecision.Discard), app.Status);
+        Assert.True(OpenAlternate(), app.Status);
+        Assert.Null(app.ProfileEdit);
+        Assert.Equal(alternate, new WorkspaceSettings(Preferences).LastWorkspacePath);
+        Assert.Equal("Ave", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+    }
+
     private static void AssertWorkspaceBytes(string workspace, Dictionary<string, byte[]> expected)
     {
         var actual = WorkspaceFixtures.Bytes(workspace);

@@ -161,7 +161,7 @@ public partial class MainWindow
 
     private async void ChangeFavorite(object sender, RoutedEventArgs e)
     {
-        if (selectedEmail is null || !TryLeaveLocalEdits()) return;
+        if (selectedEmail is null || workPending) return;
         var person = workflow.GetRelationships(selectedEmail)!.Person;
         var favorite = !person.IsFavorite;
         if (await RunWorkflowAsync(() => workflow.EditFavorite(person.Email, favorite), "Saving local favorite…"))
