@@ -11,7 +11,7 @@ change can ship normally; they do not require unrelated application changes.
 ## Handoff record
 
 Include a `## Documentation handoff` section in the spec and every implementation
-ticket. Use this record:
+ticket. For a design with Markdown changes, use this record:
 
 - **Source repository:** repository containing the pushed documentation commit.
 - **Source branch:** pushed branch keeping that commit reachable.
@@ -35,7 +35,8 @@ be committed. Missing or unpublished documentation is an incomplete handoff, not
 
 ## Prepare the handoff
 
-After the user confirms the shared understanding and approves the documentation:
+For Markdown changes, after the user confirms the shared understanding and
+approves the documentation:
 
 1. Inspect the worktree and isolate the approved Markdown changes. Include
    affected design documents, glossary entries, and ADRs, not unrelated work.
@@ -53,21 +54,35 @@ fails, report the unfinished handoff rather than declaring it ready.
 
 ## Carry the handoff into specs and tickets
 
-Read any source issue and its comments, and preserve the source repository,
-branch, SHAs, and Markdown file list exactly. Ownership and the integration target
-can become more specific as implementation is assigned.
+Read any source issue and its comments. Preserve a verified no-changes record
+unchanged. For a committed documentation handoff, preserve the source repository,
+branch, SHAs, and Markdown file list exactly. Ownership and the integration
+target can become more specific as implementation is assigned.
 
 If the context says planning Markdown changed but supplies no verifiable record,
 obtain the producer's handoff before publishing ready work. Do not reconstruct
 the changes from a prose summary or silently substitute a different commit.
 
-For multiple tickets, designate one implementation coordinator as integration
-owner. Every ticket carries the record and the shared integration destination.
+For multiple tickets carrying Markdown changes, designate one implementation
+coordinator as integration owner. Every ticket carries the record and the shared
+integration destination.
 Establishing the documented baseline is a start prerequisite, not a later
 documentation-cleanup ticket. Show this arrangement when seeking approval of the
 ticket breakdown; keep genuine ticket-to-ticket blocking edges explicit.
 
 ## Consume and verify before implementation
+
+First inspect the handoff record. For the verified
+`None (this design produced no Markdown changes).` case, skip the documentation
+checklist below and the joint-delivery gates under Deliver together. No source
+reference, source/base/applied SHAs, incorporation proof, or documentation-specific
+integration owner/branch is required. Continue the ordinary implementation and PR
+workflow, including its genuine ticket dependencies, intended PR target,
+validation, and user approvals; this contract does not require an integration
+branch for that case.
+
+Missing, unpublished, or unverified handoffs do not qualify for this bypass. For
+a committed documentation handoff, complete the following checklist:
 
 1. Read the record and the source Markdown. Fetch the pushed reference into the
    receiving worktree and verify the source/base SHAs and approved Markdown diff.
@@ -94,6 +109,8 @@ ticket breakdown; keep genuine ticket-to-ticket blocking edges explicit.
    publish documentation for the unfinished remainder of the feature.
 
 ## Deliver together
+
+These joint-delivery conditions apply to handoffs carrying Markdown changes.
 
 The implementation owner verifies that the behavior described by the handed-off
 Markdown changes is implemented and that the final implementation/integration PR
