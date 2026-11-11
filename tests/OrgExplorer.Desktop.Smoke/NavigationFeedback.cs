@@ -65,7 +65,9 @@ internal static partial class Program
             AssertValue(window, "OfficeNumber", "Discard me");
             Click(window, "NavigateManager");
             Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
-            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+            Await(() => Find(window, "Email").Current.Name == "casey@example.com" &&
+                Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+                Find(window, "Status").Current.Name.Contains("Profile draft discarded", StringComparison.Ordinal));
             OpenPerson(window, "casey@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009P");
             foreach (var kind in new[] { "Person", "Team" })
@@ -78,6 +80,8 @@ internal static partial class Program
                 Click(window, "NavigateManager");
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));
+                if (!Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Discarding the profile hid the retained failed {kind} note.");
                 var status = Find(window, "Status").Current.Name;
                 if (!status.StartsWith("Navigation blocked:") || !status.Contains($"{kind} note") ||
                     !status.Contains("Retry or discard"))

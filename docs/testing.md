@@ -294,6 +294,10 @@ real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,
 enabled profile Save controls, retained owner/value, and pending unsaved-draft
 activity. It must not require Ready while that rejected draft is still retained.
+Accepted profile Discard refreshes both the displayed values and status/activity
+before successful navigation: Ready only when no independent writing remains.
+Discarding a profile while a Person/Team note failed must retain pending activity
+and that note's owner/editor until its own deliberate discard.
 External-delivery retries use the same distinction for profile and Person/Team
 note drafts: settled main-work controls plus concrete rejection and pending
 writing, followed by unchanged owner/editor and delivered-byte assertions.

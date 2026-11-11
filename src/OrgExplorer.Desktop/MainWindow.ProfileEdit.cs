@@ -93,7 +93,12 @@ public partial class MainWindow
     private bool DecideProfileLeave()
     {
         if (workflow.ProfileEdit is null) return true;
-        if (!workflow.ProfileEdit.IsDirty) return workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Discard);
+        if (!workflow.ProfileEdit.IsDirty)
+        {
+            var left = workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Discard);
+            ShowStatus();
+            return left;
+        }
         var dialog = new Window
         {
             Owner = this, Title = "Unsaved profile", SizeToContent = SizeToContent.WidthAndHeight,
@@ -136,7 +141,11 @@ public partial class MainWindow
         dialog.Content = content;
         var accepted = dialog.ShowDialog() == true;
         if (!accepted) ShowNavigationBlocked("Navigation blocked: " + workflow.Status);
-        else RefreshPeople();
+        else
+        {
+            RefreshPeople();
+            ShowStatus();
+        }
         return accepted;
     }
 }
