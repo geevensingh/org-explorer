@@ -21,20 +21,27 @@
         </Style>
       </ListBox.ItemContainerStyle>
     </ListBox>
-    <TextBlock Text="Title (autosaved)" Margin="0,8,0,4"/>
-    <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="PersonNoteTitle"
-             AutomationProperties.Name="Person note title"
-             IsEnabled="False" TextChanged="EditNote"/>
-    <TabControl x:Name="Views" Margin="0,8,0,0">
-      <TabItem x:Name="EditTab" Header="Edit Markdown" AutomationProperties.AutomationId="PersonNoteEditTab">
-        <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="PersonNoteMarkdown"
-                 AutomationProperties.Name="Person note Markdown"
-                 IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
-                 TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
-      </TabItem>
-      <TabItem Header="Read" AutomationProperties.AutomationId="PersonNoteReadTab">
+    <TextBlock x:Name="EmptyNotes" AutomationProperties.AutomationId="PersonNotesEmpty"
+               Text="No Person notes. New Person note opens directly for writing."
+               TextWrapping="Wrap" Foreground="DimGray" Margin="0,8"/>
+    <TextBlock x:Name="NoteHeading" AutomationProperties.AutomationId="PersonNoteHeading"
+               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,4"/>
+    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed">
+      <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="PersonNoteReadTab">
         <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="PersonNoteReading"
                                   Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+      </TabItem>
+      <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="PersonNoteEditTab">
+        <StackPanel>
+          <TextBlock Text="Title (autosaved)" Margin="0,0,0,4"/>
+          <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="PersonNoteTitle"
+                   AutomationProperties.Name="Person note title" IsEnabled="False" TextChanged="EditNote"/>
+          <TextBlock Text="Markdown (autosaved)" Margin="0,8,0,4"/>
+          <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="PersonNoteMarkdown"
+                   AutomationProperties.Name="Person note Markdown"
+                   IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
+                   TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
+        </StackPanel>
       </TabItem>
     </TabControl>
     <TextBlock Text="Images and raw HTML are never loaded. External links open only when selected."

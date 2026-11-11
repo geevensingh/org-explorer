@@ -22,22 +22,29 @@
         </Style>
       </ListBox.ItemContainerStyle>
     </ListBox>
+    <TextBlock x:Name="EmptyNotes" AutomationProperties.AutomationId="TeamNotesEmpty"
+               Text="No owned Team notes. New Team note opens directly for writing."
+               TextWrapping="Wrap" Foreground="DimGray" Margin="0,8"/>
     <TextBlock x:Name="ReviewStatus" AutomationProperties.AutomationId="TeamNoteReview"
                TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
-    <TextBlock Text="Title (autosaved; editing confirms current applicability)" TextWrapping="Wrap" Margin="0,4"/>
-    <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="TeamNoteTitle"
-             AutomationProperties.Name="Team note title"
-             IsEnabled="False" TextChanged="EditNote"/>
-    <TabControl x:Name="Views" Margin="0,8,0,0">
-      <TabItem x:Name="EditTab" Header="Edit Markdown" AutomationProperties.AutomationId="TeamNoteEditTab">
-        <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="TeamNoteMarkdown"
-                 AutomationProperties.Name="Team note Markdown"
-                 IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
-                 TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
-      </TabItem>
-      <TabItem Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
+    <TextBlock x:Name="NoteHeading" AutomationProperties.AutomationId="TeamNoteHeading"
+               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4"/>
+    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed">
+      <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
         <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
                                   Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+      </TabItem>
+      <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="TeamNoteEditTab">
+        <StackPanel>
+          <TextBlock Text="Title (autosaved; editing confirms current applicability)" TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="TeamNoteTitle"
+                   AutomationProperties.Name="Team note title" IsEnabled="False" TextChanged="EditNote"/>
+          <TextBlock Text="Markdown (autosaved)" Margin="0,8,0,4"/>
+          <TextBox x:Name="MarkdownEditor" AutomationProperties.AutomationId="TeamNoteMarkdown"
+                   AutomationProperties.Name="Team note Markdown"
+                   IsEnabled="False" AcceptsReturn="True" AcceptsTab="True" FontFamily="Consolas"
+                   TextWrapping="Wrap" Height="200" VerticalScrollBarVisibility="Auto" TextChanged="EditNote"/>
+        </StackPanel>
       </TabItem>
     </TabControl>
     <WrapPanel Margin="0,8">

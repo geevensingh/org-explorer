@@ -35,6 +35,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
                 throw new InvalidOperationException("Converted profile lost its Directory name.");
+            Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Migration UI edit");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             var pointer = Path.Combine(workspace, "workspace.json");
@@ -79,7 +80,7 @@ internal static partial class Program
                 Await(() => Find(window, "Status").Current.Name.Contains("conversion failed"));
                 Click(window, "OpenSettings");
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
-                if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+                if (Find(window, "EditPreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
                     throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
                 foreach (var (path, bytes) in originals)
                     if (!bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(recoveryWorkspace, path))))

@@ -73,6 +73,66 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     }
 
     [Fact]
+    public void Preferred_name_autosave_retries_its_displayed_base_without_reverting_other_quick_context()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        var basis = Assert.Single(app.People);
+        Assert.True(app.EditFavorite(basis.Email, true), app.Status);
+        var personNote = Assert.IsType<PersonNote>(app.CreatePersonNote(basis.Email, "Empty Person context", ""));
+        var teamNote = Assert.IsType<TeamNote>(app.CreateTeamNote(basis.Email, "Empty owned Team context", ""));
+
+        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
+        Assert.Contains("NOT saved", app.Status);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Ave", Assert.Single(app.People).Heading);
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
+        Assert.True(app.CanSafelyClose);
+        Assert.Equal("My Avery", accepted.Heading);
+        Assert.Equal("Avery Example", accepted.DirectoryName);
+        Assert.True(accepted.IsFavorite);
+
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(accepted, Assert.Single(reopened.People));
+        Assert.Equal(personNote, Assert.Single(reopened.GetPersonNotes(basis.Email)));
+        Assert.Equal(teamNote, Assert.Single(reopened.GetTeamNotes(basis.Email)));
+        Assert.Equal("", reopened.BeginNoteDraft(NoteScope.Person, basis.Email, personNote.Id)!.Markdown);
+        Assert.Equal("", reopened.BeginNoteDraft(NoteScope.Team, basis.Email, teamNote.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Preferred_name_first_autosave_and_retry_do_not_overwrite_delivered_quick_context(bool emptyBase)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        if (emptyBase) Assert.True(app.EditPreferredName("avery@example.com", null), app.Status);
+        var basis = Assert.Single(app.People);
+        using var provider = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(provider.OpenWorkspace(folder), provider.Status);
+        Assert.True(provider.EditPreferredName(basis.Email, "Delivered preferred name"), provider.Status);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained inline draft"));
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained inline draft"));
+        Assert.Contains("changed externally", app.Status);
+        Assert.False(app.CanSafelyClose);
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal("Delivered preferred name", Assert.Single(reopened.People).Heading);
+            Assert.Equal("Avery Example", Assert.Single(reopened.People).DirectoryName);
+        }
+        app.DiscardUnsavedChanges();
+        Assert.NotNull(app.SavePersonTextDraft(Assert.Single(app.People), PersonTextField.PreferredName, null));
+        Assert.Equal("Avery Example", Assert.Single(app.People).Heading);
+    }
+
+    [Fact]
     public void Explicit_null_clears_all_nullable_text_attributes_durably_without_changing_identity()
     {
         using var app = ApplicationWorkflow.CreateFileBacked();

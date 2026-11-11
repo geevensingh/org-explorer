@@ -143,15 +143,19 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
 The required names live in `tests\DesktopScenarios.json`. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
-  binding, representative partial change/clear, save/reopen, actual copied PNG
+  binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline.
 - `draft-navigation`: visibly pending autosave versus failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
   separately successful navigation.
-- `person-note-rendering`: editing/read tabs, actual Markdown text, loopback
+- `person-note-rendering`: Read-first existing notes with both editors hidden,
+  one-click editing, empty-section actions, direct New-note editing and empty-body
+  accessibility, actual Markdown text, loopback
   no-fetch assertion, failed filesystem save, restored tree selection,
   Workspace/close rejection, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
+  Read-first owned notes, direct New-note editing and empty-body accessibility,
   review navigation/confirmation and archive/restore, actual current/frozen reading and honest
   historical dates through a representative ancestor move and reopen.
 - `search-favorites`: representative profile/note queries, real current,

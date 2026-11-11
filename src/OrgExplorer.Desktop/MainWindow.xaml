@@ -175,6 +175,23 @@
         <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"/>
         <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"/>
+        <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,8">
+          <TextBlock Text="Preferred name" Margin="0,0,0,4"/>
+          <WrapPanel x:Name="PreferredNameReadPanel">
+            <TextBlock x:Name="PreferredNameValue" AutomationProperties.AutomationId="PreferredNameValue"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <Button x:Name="EditPreferredNameButton" Content="Add preferred name"
+                    AutomationProperties.AutomationId="EditPreferredName" Click="EditPreferredName"/>
+          </WrapPanel>
+          <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed">
+            <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
+                     AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
+            <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
+                       Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
+            <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
+                    Click="ReadPreferredName" HorizontalAlignment="Left"/>
+          </StackPanel>
+        </StackPanel>
         <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
                 HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
         <StackPanel x:Name="ManagerEditor" IsEnabled="False" Margin="0,0,0,12">
@@ -203,9 +220,6 @@
           <TextBlock Text="Directory name" Margin="0,8,0,4"/>
           <TextBox x:Name="DirectoryNameEditor" Tag="DirectoryName" AutomationProperties.AutomationId="DirectoryNameEditor"
                    AutomationProperties.Name="Directory name" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Preferred name" Margin="0,8,0,4"/>
-          <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
-                   AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
           <TextBlock Text="Alias (short company handle)" Margin="0,8,0,4"/>
           <TextBox x:Name="Alias" Tag="Alias" AutomationProperties.AutomationId="Alias"
                    AutomationProperties.Name="Alias" TextChanged="EditPersonAttribute"/>

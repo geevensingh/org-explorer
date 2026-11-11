@@ -63,27 +63,35 @@ public partial class TeamNotesControl : UserControl
         selected = id;
         IncludeArchived.IsChecked = workflow is not null && owner is not null &&
             workflow.GetTeamNotes(owner, true).Any(n => n.Id == id && n.Archived);
-        RefreshNotes();
+        RefreshNotes(preserveEditing: false);
     }
 
-    private void RefreshNotes()
+    private void RefreshNotes(bool preserveEditing = true)
     {
         loading = true;
         var notes = workflow is null || owner is null ? [] : workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true);
         NotesList.ItemsSource = notes;
         NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == selected);
+        EmptyNotes.Visibility = notes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyNotes.Text = IncludeArchived.IsChecked == true
+            ? "No owned Team notes, including archived notes. New Team note opens directly for writing."
+            : "No active owned Team notes. New Team note opens directly for writing; Show archived Team notes to find retained writing.";
         loading = false;
-        LoadNote(NotesList.SelectedItem as TeamNote);
+        LoadNote(NotesList.SelectedItem as TeamNote, preserveEditing);
     }
 
-    private void LoadNote(TeamNote? note)
+    private void LoadNote(TeamNote? note, bool preserveEditing = false)
     {
+        var editing = preserveEditing && selected == note?.Id && Views.SelectedItem == EditTab;
         draft.Stop();
         loading = true;
         selected = note?.Id;
         noteBase = note is null ? null : workflow?.BeginNoteDraft(NoteScope.Team, note.OwnerEmail, note.Id);
         NoteTitle.Text = noteBase?.Title ?? "";
         MarkdownEditor.Text = noteBase?.Markdown ?? "";
+        NoteHeading.Text = noteBase?.Title ?? "";
+        Views.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
+        Views.SelectedItem = editing ? EditTab : ReadTab;
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore Team note" : "Archive Team note";
@@ -131,6 +139,7 @@ public partial class TeamNotesControl : UserControl
         if (loading || workflow is null || selected is not { } id) return;
         if (!draft.HasUnsavedChanges && noteBase is { } basis) workflow.RetainNoteDraft(basis);
         draft.Edited();
+        NoteHeading.Text = NoteTitle.Text;
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
     }
 
@@ -169,7 +178,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
         var note = workflow.GetTeamNotes(owner!, true).Single(n => n.Id == id);
-        if (await RunAsync(() => workflow.ArchiveTeamNote(id, !note.Archived))) RefreshNotes();
+        if (await RunAsync(() => workflow.ArchiveTeamNote(id, !note.Archived))) RefreshNotes(preserveEditing: false);
         RefreshContext();
         ShowStatus();
     }
@@ -183,7 +192,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (!draft.HasUnsavedChanges || workflow is null) return;
         await draft.DiscardAsync(() => RunAsync(workflow.RefreshTeamNotes),
-            () => workflow.DiscardUnsavedChanges(selected), () => { RefreshNotes(); RefreshContext(); }, () => workflow.Status);
+            () => workflow.DiscardUnsavedChanges(selected), () => { RefreshNotes(preserveEditing: false); RefreshContext(); }, () => workflow.Status);
         changed?.Invoke();
     }
 
