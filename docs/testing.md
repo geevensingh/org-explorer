@@ -321,6 +321,11 @@ hosted WPF still supplies the real UI evidence.
 Headless draft-discard coverage compiles the actual note coordinator with only
 its timer substituted. Busy retries must refuse discard before any refresh or
 draft mutation; idle explicit discard remains available.
+Person-selection assertions always require the current tree and also require
+the Archived people list when its filter is on. A collapsed Archived list is not
+a missing-control failure. Headless replay of the shared assertion covers that
+absence and still rejects wrong selections or missing required visible lists;
+hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 

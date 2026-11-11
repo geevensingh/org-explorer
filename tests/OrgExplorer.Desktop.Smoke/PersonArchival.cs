@@ -283,10 +283,12 @@ internal static partial class Program
     private static void AssertSelectionMatchesProfile(AutomationElement window)
     {
         var email = Find(window, "Email").Current.Name;
-        foreach (var list in new[] { "People", "ArchivedPeople" })
-            foreach (AutomationElement element in Find(window, list).FindAll(TreeScope.Descendants, Condition.TrueCondition))
-                if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
-                    ((SelectionItemPattern)selected).Current.IsSelected && element.Current.AutomationId != email)
-                    throw new InvalidOperationException("Navigation left a different Person selected while showing the retained profile.");
+        var showArchivedPeople = ((TogglePattern)Find(window, "ShowArchivedPeople")
+            .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
+        PersonSelection.AssertMatchesProfile(email, showArchivedPeople, list =>
+            Find(window, list).FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
+                .Where(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
+                    ((SelectionItemPattern)selected).Current.IsSelected)
+                .Select(element => element.Current.AutomationId));
     }
 }
