@@ -48,24 +48,27 @@ public sealed partial class ApplicationWorkflow
         var root = Path.Combine(workspace!, "recovery");
         CreateIncrementalDirectory(root);
         RecoverySelector? previous = null;
+        IReadOnlyDictionary<string, byte[]>? previousBytes = null;
         var selected = Path.Combine(root, "current.json");
         if (File.Exists(selected))
         {
             var old = ReadWorkspaceBytesUncached(selected);
-            previous = ValidateRecovery(root, old, requireReceipt: true).Metadata;
+            var validated = ValidateRecovery(root, old, requireReceipt: true);
+            previous = validated.Metadata;
+            previousBytes = validated.Bytes;
         }
         var sourceGraph = ResolveIncrementalGraph(workspace!, current[Path.Combine(workspace!, "workspace.json")], current);
         var roots = previous is null ? IndexedFamilies.ToDictionary(f => f, _ => (string?)null) :
             new Dictionary<string, string?>(previous.Workspace.Roots);
         var noteRoots = previous is null ? new Dictionary<string, string?> { ["personNotes"] = null, ["teamNotes"] = null } :
             new Dictionary<string, string?>(previous.NoteRoots);
-        var oldDocuments = previous is null ? new Dictionary<string, Dictionary<string, string>>() :
-            RecoveryDocuments(root, previous).Documents;
+        var oldGraph = previous is null ? null : RecoveryDocuments(root, previous, previousBytes);
+        var oldDocuments = oldGraph?.Documents ?? new Dictionary<string, Dictionary<string, string>>();
         var available = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var inventory = 0;
-        if (previous is not null)
-            foreach (var path in RecoveryDocuments(root, previous).Paths)
-                available[path] = ReadWorkspaceBytesUncached(path);
+        if (oldGraph is not null)
+            foreach (var path in oldGraph.Paths)
+                available[path] = previousBytes![path];
 
         void Write(string relative, byte[] bytes)
         {
@@ -201,16 +204,17 @@ public sealed partial class ApplicationWorkflow
                 throw new FormatException("Recovery does not match its committed receipt.");
         }
         var graph = RecoveryDocuments(root, metadata);
-        var bytes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in graph.Paths)
+        var captured = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        RunBoundedFileIo(graph.Paths, path =>
         {
             var data = ReadWorkspaceBytesUncached(path);
             var seal = path + ".sha256";
             RejectWorkspaceLink(seal);
             if (Encoding.ASCII.GetString(ReadWorkspaceBytesUncached(seal)) != ByteDigest(data))
                 throw new IOException("Recovery seal does not match its protected bytes.");
-            bytes[path] = data;
-        }
+            captured[path] = data;
+        });
+        var bytes = new Dictionary<string, byte[]>(captured, StringComparer.OrdinalIgnoreCase);
         graph = RecoveryDocuments(root, metadata, bytes);
         foreach (var (family, directory) in new[] { ("personNotes", "notes"), ("teamNotes", "team-notes") })
             foreach (var (key, relative) in graph.Documents[family])

@@ -184,9 +184,11 @@ public sealed partial class ApplicationWorkflow
                 !transactions.Where(Directory.Exists).SelectMany(TransactionFiles)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(knownFiles))
                 throw new IOException("Workspace or transaction delivery changed; storage reclamation is deferred.");
-            foreach (var (path, digest) in guards)
-                if (ByteDigest(ReadWorkspaceBytesUncached(path)) != digest)
+            RunBoundedFileIo(guards, guard =>
+            {
+                if (ByteDigest(ReadWorkspaceBytesUncached(guard.Key)) != guard.Value)
                     throw new IOException("Protected storage changed; storage reclamation is deferred.");
+            });
         }
         var batchSize = 0;
         void DeleteRecorded(string path, string digest)
@@ -208,11 +210,16 @@ public sealed partial class ApplicationWorkflow
         Recheck();
         foreach (var (transaction, retirement) in retired)
         {
+            var inventories = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>();
+            RunBoundedFileIo(retirement.Files.Keys.Where(IsCreationInventory), name =>
+            {
+                var record = Path.Combine(transaction, name);
+                if (File.Exists(record)) inventories[name] = ReadWorkspaceBytesUncached(record);
+            });
             foreach (var (name, digest) in retirement.Files.Where(e => IsCreationInventory(e.Key)))
             {
                 var record = Path.Combine(transaction, name);
-                if (!File.Exists(record)) continue;
-                var recordBytes = ReadWorkspaceBytesUncached(record);
+                if (!inventories.TryGetValue(name, out var recordBytes)) continue;
                 if (ByteDigest(recordBytes) != digest) continue;
                 var inventory = ReadCreationInventory(recordBytes);
                 var path = InventoryObjectPath(inventory.Path);

@@ -80,7 +80,7 @@ internal sealed class ScaleFixture : IDisposable
             Apply(app, archival);
             acceptedSources.Add(archival);
             Check(app.EditTeamNote(app.GetTeamNotes(Email(100))[0].Id, "Current Team 100", "# Pine current context 100."), app.Status);
-            Export(app);
+            Measure("fixture-export", () => Export(app), Log);
         }, Log);
     }
 
