@@ -12,7 +12,7 @@ on:
         default: false
         type: boolean
       run_release_verification:
-        description: Verify exact candidate scale and release packaging with ephemeral keys, never publish
+        description: Rehearse a product release with test keys; never publish
         required: false
         default: false
         type: boolean
@@ -114,7 +114,7 @@ jobs:
       revision: ${{ github.sha }}
 
   release-verification:
-    name: Optional secret-free release verification
+    name: Optional product release rehearsal
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
     permissions:
       contents: read

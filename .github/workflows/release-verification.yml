@@ -1,4 +1,4 @@
-name: Secret-free release candidate verification
+name: Product release rehearsal
 
 on:
   workflow_call:
