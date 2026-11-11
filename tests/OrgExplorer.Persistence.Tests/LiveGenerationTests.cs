@@ -5,13 +5,16 @@ namespace OrgExplorer.Persistence.Tests;
 
 public sealed class LiveGenerationTests
 {
-    [Fact]
-    public void Recovery_generations_do_not_invalidate_review_of_unchanged_current_People_and_notes()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Recovery_generations_do_not_invalidate_review_of_unchanged_current_People_and_notes(bool incremental)
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".test-workspaces", Guid.NewGuid().ToString("N")));
         try
         {
-            using var app = ApplicationWorkflow.CreateFileBacked();
+            using var app = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() :
+                ApplicationWorkflow.CreateFileBacked();
             Assert.True(app.OpenWorkspace(root));
             var initial = app.PreviewImport("""
                 {"schemaVersion":1,"batchId":"15000000-0000-4000-8000-000000000090","observedAt":"2026-11-01T17:00:00Z",
@@ -22,7 +25,7 @@ public sealed class LiveGenerationTests
                 {"schemaVersion":1,"batchId":"15000000-0000-4000-8000-000000000091","observedAt":"2026-11-02T17:00:00Z",
                 "people":[{"email":"avery@example.com","preferredName":"Ave"}]}
                 """);
-            var recovery = Path.Combine(root, "generations", "15000000000040008000000000000099");
+            var recovery = Path.Combine(root, incremental ? "recovery" : "generations", "15000000000040008000000000000099");
             Directory.CreateDirectory(recovery);
             File.WriteAllText(Path.Combine(recovery, "original.json"), "Recovery-only bytes, not current Person data.");
             Assert.True(app.ApplyImport(preview.Id), app.Status);

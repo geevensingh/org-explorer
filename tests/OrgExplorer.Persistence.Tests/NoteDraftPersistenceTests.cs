@@ -54,20 +54,24 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             reopened.BeginNoteDraft(scope, Owner, id)!.Markdown);
     }
 
-    private WorkspaceViewModel Open(IWorkspaceFilePublisher? publisher = null)
+    private WorkspaceViewModel Open(IWorkspaceFilePublisher? publisher = null, bool incremental = false)
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
+        var app = new WorkspaceViewModel(incremental
+            ? ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher)
+            : ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
     }
 
     [Theory]
-    [InlineData(NoteScope.Person)]
-    [InlineData(NoteScope.Team)]
-    public void New_note_draft_requires_absence_until_publication_and_discard_accepts_external_creation(NoteScope scope)
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    public void New_note_draft_requires_absence_until_publication_and_discard_accepts_external_creation(NoteScope scope, bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental: incremental);
         var draft = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, Owner));
         var directory = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes");
         Directory.CreateDirectory(directory);
@@ -93,7 +97,8 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         Assert.NotNull(app.SaveNoteDraft(accepted, accepted.Title, "Deliberate edit of delivered creation"));
         var separate = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, Owner));
         Assert.NotNull(app.SaveNoteDraft(separate, "Intentional new note", "Independent writing"));
-        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var reopened = new WorkspaceViewModel(incremental
+            ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked());
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Independent writing", reopened.BeginNoteDraft(scope, Owner, separate.Id)!.Markdown);
         Assert.Equal("Deliberate edit of delivered creation", reopened.BeginNoteDraft(scope, Owner, draft.Id)!.Markdown);
@@ -124,11 +129,13 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(NoteScope.Person)]
-    [InlineData(NoteScope.Team)]
-    public void Delivered_deletion_before_first_autosave_is_not_recreated_by_the_retained_draft(NoteScope scope)
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    public void Delivered_deletion_before_first_autosave_is_not_recreated_by_the_retained_draft(NoteScope scope, bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental: incremental);
         var empty = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, Owner));
         var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(empty, "Context", "Original"));
         var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", original.Id + ".md");

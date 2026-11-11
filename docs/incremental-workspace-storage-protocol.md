@@ -57,6 +57,42 @@ from paths. Final activation remains blocked on those slices.
 Functional tests still drive the existing workflow/view-model; no desktop
 caller or public per-Person repository interprets these paths.
 
+## Delivery validation and cleanup protection (#44)
+
+The internal reader accepts direct edits to the currently indexed documents,
+not only app-produced replacement selectors. Person/history consistency, accepted
+Import provenance and decoded photo resources are validated together before the
+open view changes. Required photos include initial observations, old/new change
+values and evidence, and captured former Reporting-chain profiles, even after
+the current photo is cleared. `RequiredIncrementalPhotos` defines that logical
+resource closure; physical reachability still follows the validated photo index.
+Imported evidence in current history and captured transitions requires its
+accepted-batch document. An explicit empty family root cannot erase resources
+or accepted evidence that other families still require.
+
+The delivery tests exercise pointer/index/document/history/photo arrival in
+different orders. Until all declared and semantically required bytes validate,
+retain the last accepted view, mark it stale, refuse writes, and leave the
+delivered bytes untouched. Unknown/provider-conflict files are preserved, not
+selected as substitutes for missing indexed documents. Same-path photo changes
+are detected from bytes even with the original timestamp. Publication callbacks
+deliver notes, Person/history pairs and photos before or after actual selector
+replacement: the accepted revision remains the validated base plus local writes,
+so refresh must still validate the intervening delivery.
+
+For the reclamation slice, suspend deletion when a newly observed selector is
+unvalidated, an index or document is missing/unsupported/malformed, a Person and
+history pair is inconsistent, required accepted evidence is absent, or a required
+image is missing/invalid. Revalidate actual bytes even when index references and
+timestamps are unchanged. Objects arriving before their selector are not current
+data, but that does not prove they are owned, retired or deletable. Likewise,
+staged/retired/unknown objects and provider conflict copies need the separate
+provenance and retirement checks below. A last-good in-memory view or an ignored
+recovery-only event is not permission to reclaim a competing in-flight graph.
+Recovery-only changes remain outside the canonical current revision and must
+not invalidate an otherwise unchanged Import preview. These tests do not
+implement or activate reclamation, recovery selection or the shipping format.
+
 ## Roots and physical independence
 
 The proposed version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:

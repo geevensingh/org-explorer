@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
 using Xunit;
 
@@ -237,16 +238,20 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("jobTitle", false)]
-    [InlineData("department", false)]
-    [InlineData("preferredName", false)]
-    [InlineData("department", true)]
-    public void Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(string field, bool refresh)
+    [InlineData("jobTitle", false, false)]
+    [InlineData("department", false, false)]
+    [InlineData("preferredName", false, false)]
+    [InlineData("department", true, false)]
+    [InlineData("jobTitle", false, true)]
+    [InlineData("department", false, true)]
+    [InlineData("preferredName", false, true)]
+    [InlineData("department", true, true)]
+    public void Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(string field, bool refresh, bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental);
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Local draft"));
-        using (var provider = Reopen())
+        using (var provider = Reopen(incremental))
             Assert.True(provider.EditPersonText(Email, field switch
             {
                 "jobTitle" => PersonTextField.JobTitle,
@@ -270,21 +275,23 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "007"));
         Assert.True(app.SaveProfileEdit(), app.Status);
-        using var reopened = Reopen();
+        using var reopened = Reopen(incremental);
         Assert.Equal("007", reopened.GetRelationships(Email)!.Person.OfficeNumber);
     }
 
-    [Fact]
-    public void Incorporated_delivery_and_unrelated_person_delivery_do_not_block_or_get_reverted()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Incorporated_delivery_and_unrelated_person_delivery_do_not_block_or_get_reverted(bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental);
         Deliver(Email, "department", "Already incorporated");
         Assert.True(app.RefreshWorkspace(), app.Status);
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Local draft"));
         Deliver("riley@example.com", "officeNumber", "Delivered elsewhere");
         Assert.True(app.SaveProfileEdit(), app.Status);
-        using var reopened = Reopen();
+        using var reopened = Reopen(incremental);
         Assert.Equal("Already incorporated", reopened.GetRelationships(Email)!.Person.Department);
         Assert.Equal("Local draft", reopened.GetRelationships(Email)!.Person.JobTitle);
         Assert.Equal("Delivered elsewhere", reopened.GetRelationships("riley@example.com")!.Person.OfficeNumber);
@@ -316,10 +323,12 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Empty(reopened.GetHistoricalTeamContexts(Email));
     }
 
-    [Fact]
-    public void Local_quick_change_does_not_authorize_an_existing_external_conflict_and_cancel_keeps_both()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Local_quick_change_does_not_authorize_an_existing_external_conflict_and_cancel_keeps_both(bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental);
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Local draft"));
         Deliver(Email, "department", "Delivered department");
@@ -330,7 +339,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Contains("changed externally", app.Status);
         Assert.Equal("Local draft", app.ProfileEdit!.Draft.JobTitle);
         app.CancelProfileEdit();
-        using var reopened = Reopen();
+        using var reopened = Reopen(incremental);
         var saved = reopened.GetRelationships(Email)!.Person;
         Assert.Equal("My Avery", saved.PreferredName);
         Assert.True(saved.IsFavorite);
@@ -338,24 +347,28 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Equal("Engineer", saved.JobTitle);
     }
 
-    private WorkspaceViewModel Open()
+    private WorkspaceViewModel Open(bool incremental = false)
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        var app = new WorkspaceViewModel(incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() :
+            ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(Folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         return app;
     }
 
-    private IApplicationWorkflow Reopen()
+    private IApplicationWorkflow Reopen(bool incremental = false)
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        var app = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Folder), app.Status);
         return app;
     }
 
     private string CurrentPersonFile(string email)
     {
-        var generation = JsonNode.Parse(File.ReadAllText(Path.Combine(Folder, "workspace.json")))!["generation"]!.GetValue<string>();
+        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(Folder, "workspace.json")))!;
+        if (pointer["schemaVersion"]!.GetValue<int>() == 3)
+            return WorkspaceFixtures.IndexedDocuments(Folder)["people:" + email];
+        var generation = pointer["generation"]!.GetValue<string>();
         return Directory.GetFiles(Path.Combine(Folder, "generations", generation, "people"), "*.json")
             .Single(path => JsonNode.Parse(File.ReadAllText(path))!["email"]!.GetValue<string>() == email);
     }
