@@ -10,9 +10,9 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         ".test-workspaces", Guid.NewGuid().ToString("N")));
     private readonly List<IApplicationWorkflow> workflows = [];
 
-    private IApplicationWorkflow Open()
+    private IApplicationWorkflow Open(bool incremental = false)
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        var app = new WorkspaceViewModel(incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked());
         workflows.Add(app);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         return app;
@@ -28,9 +28,9 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(app.ApplyImport(preview.Id), app.Status);
     }
 
-    private IApplicationWorkflow Seed()
+    private IApplicationWorkflow Seed(bool incremental = false)
     {
-        var app = Open();
+        var app = Open(incremental);
         Apply(app, """
             {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
              "jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper","officeNumber":"007B",
@@ -42,10 +42,12 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         return app;
     }
 
-    [Fact]
-    public void Reopening_rebuilds_local_queries_favorites_and_attributed_current_archived_and_frozen_context()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reopening_rebuilds_local_queries_favorites_and_attributed_current_archived_and_frozen_context(bool incremental)
     {
-        var app = Seed();
+        var app = Seed(incremental);
         var direct = app.CreatePersonNote("avery@example.com", "Meeting", "Orchid private Person writing")!;
         var team = app.CreateTeamNote("morgan@example.com", "Former team", "Cedar former Team writing")!;
         app.CreateTeamNote("alex@example.com", "Current team", "Pine current Team writing");
@@ -57,7 +59,7 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(app.EditPersonArchived("avery@example.com", true));
         app.Dispose();
 
-        var reopened = Open();
+        var reopened = Open(incremental);
         Assert.Equal(new[] { "alex@example.com", "avery@example.com" }, reopened.FavoritePeople.Select(p => p.Email).Order());
         foreach (var query in new[] { "Directory", "Preferred", "avery@example", "avhandle", "Scientist", "Research",
             "Juniper", "007B", "Ontario", "Canada", "fictitious-avery", "alex@example" })
@@ -75,9 +77,9 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(reopened.EditPersonArchived("avery@example.com", false));
         Assert.Contains(reopened.Search("pine"), r => r.Source == SearchSource.InheritedTeamNote && r.Context == SearchContext.Current);
         Apply(reopened, """{"email":"avery@example.com","isFavorite":false}""", 3);
-        Assert.Equal("alex@example.com", Assert.Single(Open().FavoritePeople).Email);
+        Assert.Equal("alex@example.com", Assert.Single(Open(incremental).FavoritePeople).Email);
         Assert.True(reopened.EditFavorite("alex@example.com", false));
-        Assert.Empty(Open().FavoritePeople);
+        Assert.Empty(Open(incremental).FavoritePeople);
     }
 
     [Fact]

@@ -57,6 +57,52 @@ from paths. Final activation remains blocked on those slices.
 Functional tests still drive the existing workflow/view-model; no desktop
 caller or public per-Person repository interprets these paths.
 
+## Mutation semantics and resource roots (#43)
+
+The internal writer collects changed document locations by family before
+updating the index. A reviewed multi-Person Import writes each affected index
+path once for that publication, including when many updates share an existing
+branch. Unchanged branches and documents remain referenced in place. All
+proposed People, relationships, evidence, contexts and decoded resources are
+validated together before the single current-selector replacement. Rejected
+publication leaves the old graph authoritative; staged documents and images
+are not an accepted Import and explicit retry requires a fresh review.
+
+Accepted-batch documents retain the original source envelope, fingerprint and
+application time individually. Later profile saves do not rewrite that
+collection. An exact accepted replay writes nothing and records no additional
+Observations or changes. Omitted fields preserve their values and evidence;
+explicit null/false retain their existing field-specific meanings. Unknown
+prior evidence remains unknown rather than being reconstructed from envelopes.
+Reporting changes freeze the old all-ancestor chain, attributed Team notes
+and transition evidence once per affected Person, not intermediate Import
+record order. Later profile/note edits cannot rewrite those captures.
+
+Cleanup and recovery must preserve this complete resource closure:
+
+| Root | Required resources |
+|---|---|
+| Current selector | All six family indexes and every indexed document, including all indexed photo bytes, not just images displayed by active People. |
+| Current People and Profile history | Current photo references; every photo Observation; each change's old/new values and current/previous evidence values. Initial Import photo evidence remains a root after replacing or clearing the photo. |
+| Historical team context | Every captured chain profile's photo reference, plus the immutable captured note text, ownership, dates, version and causal evidence in the context document itself. Current note files are not substitutes for frozen text. |
+| Accepted Imports | Each retained original envelope and application record, with logical imported photo resources retained through typed Profile-history Observations. Producer-relative source paths are evidence, not paths to reopen in the Workspace or cleanup candidates. |
+| Independent recovery | Its own complete selected indexes/documents and captured Markdown/images, never physical aliases of current files; recovery receipt and transition roots remain governed by the recovery slice. |
+| Transactions and maintenance | Every inventoried staged object/candidate until publication/abort classification and durable retirement permit release under the reclamation protocol. |
+
+Replacing or clearing a photo does not remove its entry from the current photo
+family. Resources needed only by history remain readable and indexed after
+reopen; the complete reader must reject a graph missing a required historical
+resource. This slice does not prune even apparently unused images or authorize
+deletion of old physical versions. Reachability is necessary but not sufficient
+for reclamation: provenance, recovery publication and retirement are still
+required.
+
+Current Person/Team Markdown remains independently atomic at its existing path,
+with stable ownership and dates, archival and draft-base conflict protection.
+Profile/Import saves do not copy current Markdown or create note edit-version
+history. Independent recovery captures those bytes under its separate protocol.
+The internal factory remains opt-in; shipping activation is still #47.
+
 ## Roots and physical independence
 
 The proposed version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:

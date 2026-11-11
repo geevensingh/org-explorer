@@ -15,9 +15,9 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
          "observedAt":"{{observed}}","people":[{{records}}]}
         """;
 
-    private IApplicationWorkflow Open()
+    private IApplicationWorkflow Open(bool incremental = false)
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        var app = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
         workflows.Add(app);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         return app;
@@ -30,9 +30,9 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         Assert.True(app.ApplyImport(preview.Id), app.Status);
     }
 
-    private IApplicationWorkflow Seed()
+    private IApplicationWorkflow Seed(bool incremental = false)
     {
-        var app = Open();
+        var app = Open(incremental);
         Apply(app, Batch("""
             {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":"casey@example.com"},
@@ -42,23 +42,25 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         return app;
     }
 
-    [Fact]
-    public void Frozen_context_reopens_after_ancestor_move_later_note_edits_and_replay()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Frozen_context_reopens_after_ancestor_move_later_note_edits_and_replay(bool incremental)
     {
-        var app = Seed();
+        var app = Seed(incremental);
         var note = app.CreateTeamNote("casey@example.com", "Former root", "# Original")!;
         var direct = app.CreatePersonNote("avery@example.com", "Individual", "Direct writing")!;
         var move = Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2, "2026-11-06T17:00:00Z");
         Apply(app, move);
         var before = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        Assert.True(app.EditTeamNote(note.Id, "New title", "# Changed later"));
-        Assert.True(app.ArchiveTeamNote(note.Id));
-        Assert.True(app.EditPreferredName("casey@example.com", "Later name"));
+        Assert.True(app.EditTeamNote(note.Id, "New title", "# Changed later"), app.Status);
+        Assert.True(app.ArchiveTeamNote(note.Id), app.Status);
+        Assert.True(app.EditPreferredName("casey@example.com", "Later name"), app.Status);
         Apply(app, move);
         foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
             File.SetLastWriteTimeUtc(file, new DateTime(2000, 1, 1));
 
-        var reopened = Open();
+        var reopened = Open(incremental);
         var capture = Assert.Single(reopened.GetHistoricalTeamContexts("avery@example.com"));
         Assert.Equal(before.Id, capture.Id);
         Assert.Equal(before.CapturedAt, capture.CapturedAt);
@@ -120,10 +122,12 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         app.DiscardUnsavedChanges();
     }
 
-    [Fact]
-    public void Failed_atomic_transfer_publishes_neither_capture_nor_new_context_revision_and_retry_captures_once()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Failed_atomic_transfer_publishes_neither_capture_nor_new_context_revision_and_retry_captures_once(bool incremental)
     {
-        var app = Seed();
+        var app = Seed(incremental);
         app.CreateTeamNote("morgan@example.com", "Context", "Original");
         var move = Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2);
         var preview = app.PreviewImport(move);
@@ -132,12 +136,12 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
             Assert.False(app.ApplyImport(preview.Id));
             Assert.Empty(app.GetHistoricalTeamContexts("avery@example.com"));
             Assert.False(Assert.Single(app.GetTeamNotes("morgan@example.com")).NeedsReview);
-            var reopened = Open();
+            var reopened = Open(incremental);
             Assert.Equal("casey@example.com", reopened.GetRelationships("morgan@example.com")!.Person.ManagerEmail);
             Assert.Empty(reopened.GetHistoricalTeamContexts("avery@example.com"));
         }
         Apply(app, move);
-        Assert.Single(Open().GetHistoricalTeamContexts("avery@example.com"));
+        Assert.Single(Open(incremental).GetHistoricalTeamContexts("avery@example.com"));
         Assert.True(Assert.Single(app.GetTeamNotes("morgan@example.com")).NeedsReview);
         Assert.True(app.CanSafelyClose);
     }

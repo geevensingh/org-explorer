@@ -86,6 +86,18 @@ edit from incomplete transaction maintenance. This internal test factory does
 not activate version 3 in the application or claim independent recovery,
 reclamation, desktop coverage or 10,000-Person evidence.
 
+The #43 extension counts actual index writes for both creation and update of a
+reviewed 128-Person Import, including shared paths, and checks old graph visibility
+at the real publication boundary. Small relationship, archival/reactivation and
+favorite cases assert unchanged document bytes/references and durable context.
+The existing photo suite also rejects an actual selector replacement with a
+multi-Person graph/image update, explicitly retries it, then clears the images
+and reopens retained historical resources. Existing reporting/replay, typed
+evidence, unknown prior evidence, frozen context, photo, archival, inherited
+reading/search/favorite, Team-note review and note-draft assertions run against
+both factories where applicable. These remain ordinary small filesystem tests,
+not independent recovery/reclamation or supported-population scale evidence.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,
