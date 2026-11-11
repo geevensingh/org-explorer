@@ -40,6 +40,7 @@ internal static partial class Program
                 Click(window, "OpenWorkspace");
                 Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
                 OpenPerson(window, "casey@example.com", "alex@example.com");
+                Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Editable during update check");
                 Await(() => Find(window, "Status").Current.Name == "Saved locally.");
                 if (!Find(window, "UpdateGuidance").Current.Name.Contains("Checking"))
@@ -94,7 +95,8 @@ internal static partial class Program
             Click(window, "OpenWorkspace");
             Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
             OpenPerson(window, "casey@example.com", "alex@example.com");
-            AssertValue(window, "PreferredName", "Editable during update check");
+            AssertPreferredNameReading(window, "Editable during update check", "Edit");
+            Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Editable after update failure");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);

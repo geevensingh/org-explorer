@@ -30,14 +30,18 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
+public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly }
 
 public partial interface IApplicationWorkflow : IDisposable
 {
     event EventHandler? WorkspaceChanged;
     bool IsWorkspaceCurrent { get; }
     bool CanSafelyClose { get; }
+    bool CanEnterImport { get; }
+    bool HasFailedImport { get; }
     string? LocalSaveError { get; }
     void DiscardUnsavedChanges(Guid? noteId = null);
+    void DiscardImportChanges();
     bool RefreshWorkspace();
     IReadOnlyList<PersonProfile> People { get; }
     IReadOnlyList<ReportingNode> ReportingRoots { get; }
@@ -45,6 +49,7 @@ public partial interface IApplicationWorkflow : IDisposable
     ProfileTimeline? GetProfileTimeline(string email);
     string Status { get; }
     bool OpenWorkspace(string path);
+    bool OpenWorkspace(string path, WorkspaceOpenMode mode);
     ImportPreview PreviewImport(string json);
     ImportPreview PreviewImportFile(string path);
     bool ApplyImport(Guid previewId);
@@ -134,18 +139,24 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         private set
         {
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
+            Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
             Volatile.Write(ref saveErrorSnapshot, error);
             Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
                 ? value + "\n" + error : value);
         }
     }
 
-    public bool OpenWorkspace(string path)
-    { lock (workspaceGate) return OpenWorkspaceCore(path); }
+    public bool OpenWorkspace(string path) => OpenWorkspace(path, WorkspaceOpenMode.OpenOrCreate);
 
-    private bool OpenWorkspaceCore(string path)
+    public bool OpenWorkspace(string path, WorkspaceOpenMode mode)
+    { lock (workspaceGate) return OpenWorkspaceCore(path, mode); }
+
+    private bool OpenWorkspaceCore(string path, WorkspaceOpenMode mode)
     {
         if (disposed) return Fail("The Workspace workflow is closed.");
+        if (profileEdit is { IsDirty: true })
+            return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
+        CancelProfileEdit();
         StopWatching();
         workspaceCurrent = false;
         pending = null;
@@ -159,7 +170,15 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 throw new IOException("Choose an ordinary local Workspace, not a network share.");
             if (!memory && fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
                 throw new IOException("Choose a Workspace outside the application installation.");
-            if (!memory) Directory.CreateDirectory(fullPath);
+            if (!memory)
+            {
+                if (mode == WorkspaceOpenMode.ExistingOnly)
+                {
+                    if ((File.GetAttributes(fullPath) & FileAttributes.Directory) == 0)
+                        throw new IOException("The remembered Workspace location is not a folder.");
+                }
+                else Directory.CreateDirectory(fullPath);
+            }
             workspace = fullPath;
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
@@ -179,7 +198,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             teamContextRevisions.Clear();
             photos.Clear();
             InvalidateProjections();
-            if (!memory && workspace is not null && Directory.Exists(workspace)) StartWatching();
+            if (!memory && mode != WorkspaceOpenMode.ExistingOnly && workspace is not null && Directory.Exists(workspace)) StartWatching();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }

@@ -32,10 +32,12 @@ internal static partial class Program
                     {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
                     {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
                     """);
+                OpenImportView(window);
                 Set(window, "ImportPath", import);
                 ApplyReviewedHistoryImport(window);
                 OpenPerson(window, "casey@example.com", "morgan@example.com");
                 AssertPhotoVisible(window);
+                Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Ave");
                 AwaitLocalWorkIdle(window);
                 Click(window, "NewPersonNote");
@@ -114,11 +116,11 @@ internal static partial class Program
     private static void AssertInstallerWorkspace(AutomationElement window)
     {
         Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
-        AssertValue(window, "OfficeNumber", "0002B");
-        AssertValue(window, "Department", "");
-        AssertValue(window, "PreferredName", "Ave");
-        AssertValue(window, "Alias", "avery");
-        AssertValue(window, "JobTitle", "Engineer");
+        AssertProfileValue(window, "OfficeNumber", "0002B");
+        AssertProfileValue(window, "Department", "");
+        AssertPreferredNameReading(window, "Ave", "Edit");
+        AssertProfileValue(window, "Alias", "avery");
+        AssertProfileValue(window, "JobTitle", "Engineer");
         AssertPhotoVisible(window);
         SelectNote(window, "Installer lifecycle note");
         SelectTab(window, "PersonNoteEditTab");

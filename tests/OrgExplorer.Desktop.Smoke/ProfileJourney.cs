@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Windows.Automation;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -32,15 +34,59 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            AwaitLocalWorkIdle(window);
+            AssertImportHidden(window);
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            using (var saved = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!saved.OpenWorkspace(workspace) || saved.People.Count != 0)
+                    throw new InvalidOperationException("Choosing or previewing an Import changed the saved population.");
+            }
+            Set(window, "ImportPath", import + ".missing");
+            Await(() => !Find(window, "ApplyImport").Current.IsEnabled &&
+                Find(window, "Status").Current.Name.Contains("Preview again"));
+            Set(window, "ImportPath", import);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                Click(window, "ApplyImport");
+                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                    Find(window, "DiscardImport").Current.IsEnabled);
+                ReturnToPeople(window);
+                Click(window, "DiscardImport");
+                Await(() => Find(window, "Status").Current.Name.Contains("Import discarded") &&
+                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+            }
+            OpenImportView(window);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
-            AssertValue(window, "OfficeNumber", "007B");
+            AssertProfileValue(window, "OfficeNumber", "007B");
+            if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
+                throw new InvalidOperationException("View mode did not expose a readable profile value.");
+            Find(window, "DirectoryName").SetFocus();
+            PressCopyKey(0x09);
+            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
+            AssertKeyboardCopy(window, "Email", "avery@example.com");
+            AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
+            AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "Cancelled office");
+            Click(window, "ClearPhoto");
+            CancelProfileEditing(window);
+            AwaitLocalWorkIdle(window);
+            AssertProfileValue(window, "OfficeNumber", "007B");
+            AssertPhotoVisible(window);
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Stable email identity became editable.");
             NavigateToManager(window, "morgan@example.com");
@@ -53,51 +99,170 @@ internal static partial class Program
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000003",
                  "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"morgan@example.com","archived":true}]}
                 """);
+            OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
             if (Find(window, "ApplyImport").Current.IsEnabled ||
                 !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
+            ReturnToPeople(window);
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            Click(window, "EditPreferredName");
+            Set(window, "PreferredName", " ");
+            Await(() => Find(window, "Status").Current.Name.Contains("preferredName"));
+            AssertValue(window, "PreferredName", " ");
+            Click(window, "ReadPreferredName");
+            AssertValue(window, "PreferredName", " ");
             Set(window, "PreferredName", "Ave");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            Click(window, "ReadPreferredName");
+            AssertPreferredNameReading(window, "Ave", "Edit");
+            BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            SaveProfileEditing(window);
             Await(() => Find(window, "OpenLinkedIn").Current.IsEnabled);
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-03T17:00:00Z","people":[
                  {"email":"avery@example.com","officeNumber":"0009C","department":null}]}
                 """);
+            OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
-            AssertValue(window, "OfficeNumber", "007B");
+            ReturnToPeople(window);
+            AssertProfileValue(window, "OfficeNumber", "007B");
+            OpenImportView(window);
+            if (Find(window, "ApplyImport").Current.IsEnabled)
+                throw new InvalidOperationException("Returning to people retained an applicable unreviewed Import.");
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
-            Close(process);
+            OpenImportView(window);
+            process.CloseMainWindow();
+            if (!process.WaitForExit(10000))
+                throw new TimeoutException("App did not close normally from Import.");
             Directory.Delete(producer, true);
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitRestoredWorkspace(window, workspace);
+            AssertImportHidden(window);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
                 throw new InvalidOperationException("Preferred name hid the retained Directory name.");
-            AssertValue(window, "OfficeNumber", "0009C");
-            AssertValue(window, "Department", "");
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "LinkedInProfileUrl", link);
+            AssertProfileValue(window, "OfficeNumber", "0009C");
+            AssertProfileValue(window, "Department", "");
+            AssertProfileValue(window, "Alias", "avery");
+            AssertProfileValue(window, "LinkedInProfileUrl", link);
             AssertPhotoVisible(window);
             ExercisePhotoPresentation(window, root);
+            Click(window, "EditPreferredName");
+            Await(() => Value(window, "PreferredName") == "Ave");
+            Click(window, "ReadPreferredName");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             if (listener.Pending()) throw new InvalidOperationException("Profile presentation fetched a remote link.");
             Close(process);
         }
         finally { if (process is not null) StopApplication(process); }
+    }
+
+    private static void BeginProfileEditing(AutomationElement window)
+    {
+        Click(window, "EditProfile");
+        Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
+            !Find(window, "DirectoryNameEditor").Current.IsOffscreen);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte key, byte scan, uint flags, nuint extra);
+
+    private static void PressCopyKey(byte key)
+    {
+        keybd_event(key, 0, 0, 0);
+        keybd_event(key, 0, 2, 0);
+    }
+
+    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected)
+    {
+        var value = Find(window, name);
+        if (!value.Current.IsKeyboardFocusable)
+            throw new InvalidOperationException($"{name} does not accept keyboard focus.");
+        value.SetFocus();
+        Await(() => value.Current.HasKeyboardFocus);
+        System.Windows.Clipboard.SetText("Copy has not been invoked.");
+        PressCopyKey(0x5D);
+        Await(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
+            new PropertyCondition(AutomationElement.NameProperty, "Copy value"))) is not null);
+        PressCopyKey(0x28);
+        PressCopyKey(0x0D);
+        Await(() => System.Windows.Clipboard.GetText() == expected);
+    }
+
+    private static void SaveProfileEditing(AutomationElement window)
+    {
+        Click(window, "SaveProfile");
+        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
+            Find(window, "Status").Current.Name.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+    }
+
+    private static void CancelProfileEditing(AutomationElement window)
+    {
+        Click(window, "CancelProfile");
+        Await(() => Find(window, "EditProfile").Current.IsEnabled);
+    }
+
+    private static void AssertProfileValue(AutomationElement window, string field, string expected)
+    {
+        var observed = "not yet observed";
+        try
+        {
+            Await(() =>
+            {
+                var value = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
+                observed = value is null ? "missing" :
+                    $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
+                if (expected.Length == 0) return value is null;
+                return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
+            });
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException($"{field} reading expected '{expected}'; last UI observation: {observed}.", error);
+        }
+    }
+
+    private static AutomationElement ProfileLeaveWindow(AutomationElement window)
+    {
+        AutomationElement? decision = null;
+        Await(() => (decision = window.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window),
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")))) is not null);
+        return decision!;
+    }
+
+    private static void AssertPreferredNameReading(AutomationElement window, string value, string action)
+    {
+        Await(() =>
+        {
+            if (Find(window, "PreferredNameValue").Current.Name != value ||
+                Find(window, "EditPreferredName").Current.Name != action) return false;
+            var editor = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "PreferredName"));
+            return editor is null || editor.Current.IsOffscreen;
+        });
     }
 }

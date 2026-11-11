@@ -34,12 +34,46 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and migration version checks stay explicit.
-Profile text autosave similarly submits the displayed field's immutable Person
+Preferred-name autosave similarly submits the displayed field's immutable Person
 base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
+Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
+and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
+person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
+observes Save / Discard / Stay; only successful Save or explicit Discard permits
+leaving. Profile Cancel clears only that session, never independent note or
+quick-action failures. Unsaved profiles block safe close and updater restart.
+Person More actions require confirmation before the same profile leave decision
+and apply archival/reactivation immediately through `EditPersonArchived`, not as
+profile-draft fields. Cancellation preserves the draft and saved history; Stay
+and rejected leave-save retain the owner. Profile Discard never clears note drafts.
+File-backed profile-session cases cover complete publication and reopening,
+Cancel nonmutation, real locks and missing photos, Manager/history consistency,
+independent quick changes, same-record/different-field stale saves and retries,
+previously incorporated delivery and unrelated-person delivery. Save revalidates
+persisted data even without an explicit view refresh.
+Import navigation permits returning to its own failed Apply recovery view without
+clearing the retained Import error or claiming safe close. Independent note,
+quick-action and dirty-profile writing still block entry. A real-folder case holds
+the publication lock, rejects Apply, returns to People, releases the lock, reenters
+Import and explicitly previews/applies again before checking durable values.
+The explicit Import-only discard clears the rejected batch and review without
+clearing independent Person/Team-note errors, Preferred-name errors or profile
+drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
+safe-close/restart becoming available only when no other writing remains.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
+
+`WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
+workflow/view-model with isolated folders. It covers first run, preference/app
+reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,
+alternate-folder recovery, intentional manual creation, failed attempts retaining
+the previous default, and visible corrupt/unwritable preference errors. These
+cases also prove that both manual and existing-only settings opens retain a
+dirty profile, independent quick changes, saved bytes and the successful
+preference until an explicit leave decision. These are filesystem/settings
+assertions, not WPF evidence or a second profile-mode policy.
 
 ## Moving coverage
 
@@ -92,7 +126,28 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests|FullyQualifiedName~ControlReadinessTests|FullyQualifiedName~UninstallProcessTests'
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
 dotnet build src\OrgExplorer.Desktop -c Release
+dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
+  src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
+
+`--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
+It constructs the actual compiled MainWindow BAML and event connectors on STA
+with isolated settings, requires the window to remain invisible with no native
+main-window handle, then closes it. It never calls Show or runs the application
+dispatcher; startup restore/update Loaded handlers and UI Automation are not run.
+This catches XAML connection failures that compilation alone misses. It does not
+prove rendered controls, navigation, dialog discovery or any smoke/scale result.
+It also checks that all ten profile Copy targets accept focus and Tab navigation.
+
+The separate `--verify-profile-refresh` option runs that load contract and then
+drives the actual compiled controls' open/select/Save events on a bounded STA
+dispatcher with isolated real files, still without showing a window or creating
+its native handle. It observes note content at profile Save completion, before a
+later watcher callback could hide stale same-owner reading, and proves both clean
+delivery refresh and dirty-note retention. It does not run Loaded startup/update
+handlers or UI Automation. The desktop lane runs this additional regression
+within its existing budget. Actual Tab/context-menu Copy and Import-only discard
+remain in the representative hosted profile journey.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
@@ -135,26 +190,41 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
 The required names live in `tests\DesktopScenarios.json`. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
-  binding, representative partial change/clear, save/reopen, actual copied PNG
-  and JPEG pixels, photo clear/placeholder and Profile timeline.
-- `draft-navigation`: visibly pending autosave versus failed Person/Team drafts,
+  binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  readable ordinary values and idle state after profile Cancel,
+  representative partial change/clear, save/reopen, actual copied PNG
+  and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
+  explicitly, replaces the people view, and returns to reading with Import
+  controls absent. Choosing/previewing retains the saved population; changing the
+  path invalidates Apply until reviewed again.
+- `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
+  leave-save retention and Import protection versus independent failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
-  separately successful navigation.
-- `person-note-rendering`: editing/read tabs, actual Markdown text, loopback
+  separately successful navigation. Opening the dedicated Import view exercises
+  all three profile decisions and a locked-file leave-save rejection, then checks
+  reading values after returning; independent failed notes still block Import.
+- `person-note-rendering`: Read-first existing notes with both editors hidden,
+  one-click editing, empty-section actions, direct New-note editing and empty-body
+  accessibility, actual Markdown text, loopback
   no-fetch assertion, failed filesystem save, restored tree selection,
   Workspace/close rejection, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
+  Read-first owned notes, direct New-note editing and empty-body accessibility,
   review navigation/confirmation and archive/restore, actual current/frozen reading and honest
   historical dates through a representative ancestor move and reopen.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.
-- `archival-navigation`: rejected Manager archival, failed local save and retry,
+- `archival-navigation`: Person More/confirmation cancellation, dirty-profile
+  Save/Discard/Stay and independent-note protection, rejected Manager archival, failed local save and retry,
   current-tree filtering, retained archived profile, selection protection,
   reactivation and explicit no-Manager UI.
 - `compatibility-settings`: global Settings before open, supported conversion,
   unsupported delivered version/write blocking, recoverable conversion failure
-  and validated retry.
+  and validated retry. Startup coverage also checks first-run controls, automatic
+  same-Workspace reopening without a selected Person, an honest empty recovery
+  state with Retry/Choose actions and no replacement creation, successful Retry,
+  failed manual attempts retaining the old default, and alternate-folder reopen.
 - `update-settings`: actual default-enabled startup and manual checks against a
   controlled loopback feed with ephemeral embedded public trust, responsive local
   editing/saving during a pending check, signed availability, persisted opt-out
@@ -199,6 +269,11 @@ Every scenario opts out of startup update checks before launching the app,
 except the controlled `update-settings` and `installer-update` scenarios.
 This includes ordinary smoke, manual normal-build execution and installed
 create/reopen flows; they must never fetch or apply a production release.
+Every scenario also supplies its own `ORG_EXPLORER_SETTINGS_DIRECTORY`, initially
+without a remembered Workspace. Launch fails closed without an explicit absolute
+settings directory, so no fixture falls back to the workstation owner's actual
+preferences or Workspace. Repeated launches within one scenario deliberately
+share only that scenario's settings to exercise durable reopening.
 
 For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,
@@ -238,10 +313,31 @@ pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
-The pending-profile scenario keeps real typing active until rejection
-and records actual status-name change events, so the 300 ms debounce cannot
-silently become its observation deadline or erase transient feedback.
-A rejection check invokes once, then observes the actual rejection
+Startup restore observation likewise accepts an absent/offscreen recovery label
+only after the requested folder, Ready activity and current validation agree;
+no selected Person or visible recovery error is accepted. Its headless replay
+covers the collapsed-label hosted failure and rejects wrong-folder, pending and
+stale observations without retrying Open. Failed-startup smoke still requires
+the actual visible error and enabled Retry/Choose recovery controls.
+The profile navigation scenario enters Edit, stages a value, and exercises the
+real Save / Discard / Stay decision, including a locked-file leave-save failure.
+Completed rejection requires concrete failure feedback, a closed leave dialog,
+enabled profile Save controls, retained owner/value, and pending unsaved-draft
+activity. It must not require Ready while that rejected draft is still retained.
+Accepted profile Discard refreshes both the displayed values and status/activity
+before successful navigation: Ready only when no independent writing remains.
+Discarding a profile while a Person/Team note failed must retain pending activity
+and that note's owner/editor until its own deliberate discard.
+External-delivery retries use the same distinction for profile and Person/Team
+note drafts: settled main-work controls plus concrete rejection and pending
+writing, followed by unchanged owner/editor and delivered-byte assertions.
+Before invoking Retry once, subscribe to actual activity changes and require that
+retry's saving activity followed by retained-writing Pending completion. The
+preceding rejection or an intermediate Ready alone cannot satisfy observation;
+headless runner replay covers queued and fast retries and missing transitions
+within the existing observation budget.
+The scale mutation scenario retains actual in-progress-work rejection while
+Settings renders. A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to
 remain selected. A generic pending message or a completed save is not rejection
 evidence. The runner's non-UI ordering regression covers pending → rejected
@@ -250,6 +346,11 @@ hosted WPF still supplies the real UI evidence.
 Headless draft-discard coverage compiles the actual note coordinator with only
 its timer substituted. Busy retries must refuse discard before any refresh or
 draft mutation; idle explicit discard remains available.
+Person-selection assertions always require the current tree and also require
+the Archived people list when its filter is on. A collapsed Archived list is not
+a missing-control failure. Headless replay of the shared assertion covers that
+absence and still rejects wrong selections or missing required visible lists;
+hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 

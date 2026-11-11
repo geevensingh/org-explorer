@@ -80,6 +80,7 @@ public sealed partial class ApplicationWorkflow
             { [person.Email] = WithText(person, field, validated) };
             var history = CaptureLocalHistory(person, proposed[person.Email], property);
             if (!Save(proposed, batches, history: history, operation: $"profile:{email.ToLowerInvariant()}:{field}")) return false;
+            if (field == PersonTextField.PreferredName) AcceptIndependentProfileChange(person, proposed[person.Email]);
             people = proposed;
             profileHistory = history;
             InvalidateProjections();

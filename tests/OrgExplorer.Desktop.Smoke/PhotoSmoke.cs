@@ -59,6 +59,7 @@ internal static partial class Program
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-{{batch:D12}}",
                 "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"avery@example.com"{{payload}}}]}
                 """);
+            OpenImportView(window);
             Set(window, "ImportPath", path);
             Click(window, "PreviewImport");
         }
@@ -67,10 +68,14 @@ internal static partial class Program
         Preview(",\"photoPath\":\"avery.jpg\"", 25);
         Await(() => Find(window, "ApplyImport").Current.IsEnabled);
         Click(window, "ApplyImport");
+        Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+        ReturnToPeople(window);
         AssertPhotoVisible(window);
         if (!Find(window, "PersonPhoto").Current.Name.Contains("image/jpeg"))
             throw new InvalidOperationException("Actual JPEG did not display on the profile.");
+        BeginProfileEditing(window);
         Click(window, "ClearPhoto");
+        SaveProfileEditing(window);
         Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
         Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("Photo:") &&
                     Find(window, "ProfileTimeline").Current.Name.Contains(".jpg → (clear)") &&

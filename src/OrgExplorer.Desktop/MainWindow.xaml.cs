@@ -9,7 +9,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow : Window
 {
-    private readonly IApplicationWorkflow workflow = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
+    private readonly WorkspaceViewModel workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeUpdates();
-        profileSaveTimer.Tick += SaveProfileDraft;
+        preferredNameSaveTimer.Tick += SavePreferredNameDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
         Title = $"Org explorer {version} (Windows x64 / win)";
@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         });
         Closing += (_, e) =>
         {
-            if (updateHandoffPending || workPending || unsavedAttributes.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose)
+            if (updateHandoffPending || !TryLeaveLocalEdits() || !workflow.CanSafelyClose)
             {
                 e.Cancel = true;
                 StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
                     workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
             }
         };
-        Closed += (_, _) => { profileSaveTimer.Stop(); workflow.Dispose(); };
+        Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -56,24 +56,61 @@ public partial class MainWindow : Window
     }
     private void ChooseImport(object sender, RoutedEventArgs e)
     {
+        if (!TryLeaveLocalEdits()) return;
         var dialog = new OpenFileDialog { Filter = "Import JSON|*.json", Title = "Choose a version-1 Import batch" };
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
-    private async void OpenWorkspace(object sender, RoutedEventArgs e)
+    private void OpenImportView(object sender, RoutedEventArgs e)
     {
-        try { WorkspaceLocation.RequireIndependent(WorkspacePath.Text); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        if (workflow.IsImportOpen || !TryLeaveLocalEdits()) return;
+        if (!workflow.TryOpenImport())
         {
-            StatusText.Text = ex.Message;
+            ShowNavigationBlocked("Navigation blocked: " + workflow.Status);
             return;
         }
+        ShowStatus();
+    }
+    private void ShowPeopleView(object sender, RoutedEventArgs e)
+    {
         if (!TryLeaveLocalEdits()) return;
-        var path = WorkspacePath.Text;
-        await RunWorkflowAsync(() => workflow.OpenWorkspace(path), "Opening Workspace…");
-        PersonNotes.OpenPerson(null);
-        TeamNotes.OpenPerson(null);
+        workflow.ShowPeople();
+        ClearImportPreview();
+        RefreshPeople();
+        ShowStatus();
+    }
+    private void ChangeImportPath(object sender, TextChangedEventArgs e)
+    {
+        if (!IsInitialized) return;
+        ClearImportPreview();
+        StatusText.Text = "Import file selection changed. Preview again before Apply. No data changes until Apply.";
+    }
+    private void ClearImportPreview()
+    {
         preview = null;
         ApplyButton.IsEnabled = false;
+        const string guidance = "Choose a version-1 Import batch and preview again. No data changes until Apply.";
+        PreviewText.ItemsSource = new[] { guidance };
+        System.Windows.Automation.AutomationProperties.SetName(PreviewText, guidance);
+    }
+    private void DiscardImportChanges(object sender, RoutedEventArgs e)
+    {
+        if (workPending)
+        {
+            ShowNavigationBlocked("Import discard blocked: local work is in progress. Please wait for it to finish.");
+            return;
+        }
+        workflow.DiscardImportChanges();
+        ClearImportPreview();
+        ShowStatus();
+    }
+    private async void OpenWorkspace(object sender, RoutedEventArgs e)
+        => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+
+    private void PresentWorkspaceOpen()
+    {
+        PersonNotes.OpenPerson(null);
+        TeamNotes.OpenPerson(null);
+        ClearImportPreview();
         selectedEmail = null;
         ClearSearchContext();
         FavoriteButton.IsEnabled = false;
@@ -95,6 +132,7 @@ public partial class MainWindow : Window
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
     {
+        if (!TryLeaveLocalEdits()) return;
         preview = null;
         ApplyButton.IsEnabled = false;
         try
@@ -115,6 +153,7 @@ public partial class MainWindow : Window
     }
     private async void ApplyImport(object sender, RoutedEventArgs e)
     {
+        if (!TryLeaveLocalEdits()) return;
         if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…");
         ApplyButton.IsEnabled = false;
         preview = null;
@@ -158,7 +197,7 @@ public partial class MainWindow : Window
         selectedEmail = person.Email;
         if (selectedMatch is not null && !string.Equals(selectedMatch.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
             ClearSearchContext();
-        if (unsavedAttributes.Count == 0) LoadPersonEditors(person);
+        LoadPersonEditors(person);
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
@@ -202,7 +241,7 @@ public partial class MainWindow : Window
         ShowFavorite(person);
         ShowPersonArchival(person);
         Photo.Show(workflow.GetPhoto(person.Email));
-        Photo.CanEdit = true;
+        UpdateProfileMode();
         var context = workflow.GetRelationships(person.Email)!;
         Manager.Content = (person.Archived ? "Last stored Manager: " : "Manager: ") +
             (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "(explicit no-Manager)");
@@ -270,12 +309,11 @@ public partial class MainWindow : Window
     {
         if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
     }
-    private async void EditPersonPhoto(string? localPath)
+    private void EditPersonPhoto(string? localPath)
     {
-        if (selectedEmail is null) return;
-        var email = selectedEmail;
-        if (await RunWorkflowAsync(() => workflow.EditPhoto(email, localPath), "Saving local photo…"))
-            ShowPerson(workflow.People.Single(p => p.Email == selectedEmail));
+        if (workPending || selectedEmail is null || workflow.ProfileEdit is null) return;
+        workflow.StageProfilePhoto(localPath);
+        MarkDraftPending();
         ApplyButton.IsEnabled = false;
         preview = null;
         ShowStatus();
@@ -286,8 +324,7 @@ public partial class MainWindow : Window
         if (workflow.IsWorkspaceCurrent) RefreshPeople();
         ApplyButton.IsEnabled = false;
         preview = null;
-        AttributeEditors.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
-        Photo.CanEdit = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+        UpdateProfileMode();
         PersonNotes.RefreshExternalWorkspace();
         TeamNotes.RefreshExternalWorkspace();
         ShowStatus();
@@ -295,18 +332,31 @@ public partial class MainWindow : Window
 
     private void ShowStatus()
     {
+        ImportPanel.Visibility = workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerPanel.Visibility = workflow.IsImportOpen ? Visibility.Collapsed : Visibility.Visible;
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
+        if (!workPending)
+            WorkflowActivity.Text = unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+                ? "Pending local edits — not yet saved" : "Ready";
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
-            : "STALE / unavailable — displayed information is the last valid local state, not current data.";
-        RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0 || HasUnsavedRelationship;
-        DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
+            : workflow.Compatibility.State == WorkspaceCompatibilityState.NotOpened || startupRestorePath is not null
+                ? "No Workspace is open. Choose a folder or retry the previous Workspace."
+                : "STALE / unavailable — displayed information is the last valid local state, not current data.";
+        RetryProfileButton.IsEnabled = !workPending &&
+            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+        DiscardProfileButton.IsEnabled = !workPending &&
+            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+        DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
+        DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
+        UpdateProfileMode();
         if (!workflow.IsWorkspaceCurrent)
         {
-            ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+            PersonMoreMenu.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
+            PreferredNameContext.IsEnabled = false;
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }
@@ -319,8 +369,13 @@ public partial class MainWindow : Window
             ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");
             return false;
         }
+        if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
         if (!TryLeaveNotes()) return false;
-        if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship) return true;
+        if (unsavedPreferredNameEdits.Count == 0 && !HasUnsavedRelationship)
+        {
+            if (!DecideProfileLeave()) return false;
+            return true;
+        }
         ShowNavigationBlocked(workflow.LocalSaveError is null
             ? "Navigation blocked: profile edits are pending. Please wait for saving to finish before leaving."
             : "Navigation blocked: profile edits were NOT saved. Retry or discard unsaved profile edits before leaving.");

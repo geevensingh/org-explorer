@@ -91,6 +91,9 @@ try {
                 "-p:UpdateEffectsFile=$(Join-Path $root 'tests\ControlledUpdateEffects.cs')")
             Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
                 '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
+            Invoke-BudgetedDotnet profile-note-refresh @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                '--no-build', '--no-restore', '--',
+                (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-profile-refresh')
             . "$root\eng\DesktopResults.ps1"
             Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\DesktopScenarios.json" -Raw | ConvertFrom-Json)
             Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',

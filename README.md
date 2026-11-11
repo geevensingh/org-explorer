@@ -31,25 +31,60 @@ dotnet run --project src\OrgExplorer.Desktop
 ```
 
 Choose an empty local folder outside the installation, then **Open Workspace**.
-Choose a version-1 JSON file, review **Preview import**, and deliberately **Apply
-reviewed import**. Expand/collapse the **Imported reporting population**, select
+Open **Import...** without entering Edit profile, choose a version-1 JSON file,
+review **Preview import**, and deliberately **Apply reviewed import**.
+**Back to people** returns to reading; file selection, preview and Apply controls
+are shown only in the dedicated Import view. Changing the file path or returning
+to people requires a fresh preview before Apply.
+If Apply fails, retry from Import or choose **Discard failed Import (not other
+drafts)** to abandon that batch. This does not discard notes, Preferred-name
+changes or a profile draft; any other unsaved writing still blocks close/restart.
+Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Edit the profile fields; changes are saved locally as you type. Empty editor text
-explicitly clears a nullable value;
-whitespace-only text is rejected with a field-specific error. Preferred name is
+Profiles open in **View** mode with populated, readable values; right-click a
+value to copy it, or Tab to it and use the context-menu key / Shift+F10.
+Empty optional rows are omitted. **Edit profile** reveals all
+ordinary fields and stages text, Manager and photo changes together.
+**Save profile** validates and publishes the complete change; **Cancel**
+discards it without changing saved data or history. Empty editor text explicitly
+clears a nullable value; whitespace-only text is rejected. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
 
+After a successful open, the app remembers that Workspace in app-local settings
+and reopens it on the next launch through the same validation/conversion flow.
+First launch stays empty with folder-opening controls. If the previous folder
+cannot be reopened, the app stays empty, explains the failure, and offers
+**Retry previous Workspace** or **Choose another folder**. Automatic reopening
+never creates a missing replacement folder; intentional manual open/create
+remains available. Failed opens never replace the remembered successful folder.
+Preference read/save errors are visible, and the startup-update preference is
+independent. No selected Person or unsaved draft is restored.
+
+Preferred name normally appears as readable text. **Edit** (or **Add preferred
+name** when unset) reveals its independent autosaving inline editor; **Done**
+returns to reading after the save succeeds. Pending or failed writing stays in
+the editor with the existing retry/discard protections. **Mark favorite** remains
+an independent one-click saved action.
+
 Loading, validation and local writes run off the desktop dispatcher. Rapid
-profile/Markdown typing is coalesced after a short quiet interval; the visible
+Preferred-name/Markdown typing is coalesced after a short quiet interval; the visible
 draft stays editable while a previous write completes. Pending/newer drafts are
 explicitly **not yet saved**, and navigation/closing cannot discard them. A
-failed write still requires retry or deliberate discard. Tree expansion and
+failed write still requires retry or deliberate discard. Preferred name,
+Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
+profile through navigation, Import, archival, workspace switching or closing
+offers **Save / Discard / Stay**. A failed Save retains its owner and draft.
+A profile changed externally since entering Edit cannot be overwritten by Save
+or retry; discard that draft before editing the delivered version. Changes
+already incorporated before editing and changes only to other people do not
+cause this conflict. Automatic update restarts never save or discard an unsaved
+profile. Tree expansion and
 Settings remain usable while local work is outstanding. Rejected navigation is
 explained in the main status: pending edits or an in-progress save ask you to
-wait; a failed save asks you to retry or discard. Note-specific feedback also
+wait; a failed quick/note save asks you to retry or discard. Note-specific feedback also
 appears beside the affected note. Desktop smoke waits for saves and verifies
 the destination Person before continuing a successful navigation. Search runs
 locally in the background and ignores superseded query responses. None of this changes
@@ -82,8 +117,11 @@ Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
 before restoring files externally.
 
-Profiles also offer multiple private **Person notes**, an autosaved Markdown
-editor, and a native rendered **Read** view. Notes show their Person owner and
+Profiles also offer multiple private **Person notes**. Existing notes open in
+native rendered **Read** mode; one-click **Edit** reveals their autosaved title
+and Markdown editors, and **Read** hides both editors again. **New Person note**
+opens directly for writing. Empty note sections retain a message and New action,
+and notes with empty bodies remain readable and editable. Notes show their Person owner and
 never inherit to reports. **Archive note** preserves writing; **Show archived
 notes** allows reading and restoring it. The app watches local folder events and automatically reflects valid external
 Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
@@ -100,7 +138,7 @@ HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a
 **Person note** about a Manager never opts into inheritance. The profile separates
-owned Team notes from **Current inherited Team context**, which includes notes
+owned Team notes (with the same Read/Edit behavior) from **Current inherited Team context**, which includes notes
 from every formal management ancestor and identifies each owning Person by name
 and email. Informal leads/project membership are not reporting relationships.
 Team scope is still private to the Workspace owner, not sharing.

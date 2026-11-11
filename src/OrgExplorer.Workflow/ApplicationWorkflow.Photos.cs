@@ -39,10 +39,7 @@ public sealed partial class ApplicationWorkflow
             string? name = null;
             if (localPath is not null)
             {
-                if (!Path.IsPathFullyQualified(localPath) || localPath.StartsWith(@"\\"))
-                    throw new FormatException($"{email}.photoPath: choose a local JPEG/PNG file, not a remote path or URL.");
-                var fullPath = Path.GetFullPath(localPath);
-                var resource = ReadPhotoResource(Path.GetDirectoryName(fullPath)!, Path.GetFileName(fullPath), $"{email}.photoPath");
+                var resource = ReadLocalPhoto(localPath, email);
                 name = resource.Hash.ToLowerInvariant() + resource.Extension;
                 proposedPhotos[name] = resource.Bytes;
             }
@@ -62,6 +59,14 @@ public sealed partial class ApplicationWorkflow
         {
             return Fail("Photo edit rejected; existing photo retained: " + ex.Message);
         }
+    }
+
+    private static PhotoResource ReadLocalPhoto(string localPath, string email)
+    {
+        if (!Path.IsPathFullyQualified(localPath) || localPath.StartsWith(@"\\"))
+            throw new FormatException($"{email}.photoPath: choose a local JPEG/PNG file, not a remote path or URL.");
+        var fullPath = Path.GetFullPath(localPath);
+        return ReadPhotoResource(Path.GetDirectoryName(fullPath)!, Path.GetFileName(fullPath), $"{email}.photoPath");
     }
 
     private static Dictionary<string, byte[]> LoadPhotos(string directory, Dictionary<string, PersonProfile> loaded)
