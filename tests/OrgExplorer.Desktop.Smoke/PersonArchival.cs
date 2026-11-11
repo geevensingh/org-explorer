@@ -74,11 +74,15 @@ internal static partial class Program
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
             AssertPhotoVisible(window);
-            AssertValue(window, "PreferredName", "Ave");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             AssertProfileValue(window, "OfficeNumber", "007B");
-            AssertValue(window, "PersonNoteMarkdown", "# Retained individual writing");
+            AssertNoteView(window, "Person", editing: false);
+            if (!ReadingText(window).Contains("Retained individual writing"))
+                throw new InvalidOperationException("Archival lost retained Person-note reading.");
             SelectTeamNote(window, "Retained owned Team note");
-            AssertValue(window, "TeamNoteMarkdown", "Owned Team writing");
+            AssertNoteView(window, "Team", editing: false);
+            if (!TeamReadingText(window).Contains("Owned Team writing"))
+                throw new InvalidOperationException("Archival lost owned Team-note reading.");
             if (!Find(window, "TeamNoteReview").Current.Name.Contains("Needs review") ||
                 !Find(window, "HistoricalTeamSummary").Current.Name.Contains("Archival closure") ||
                 CurrentReadingText(window).Contains("Original Manager writing"))
@@ -100,8 +104,10 @@ internal static partial class Program
             AssertProfileValue(window, "Alias", "avery");
             AssertProfileValue(window, "OfficeNumber", "007B");
             SelectNote(window, "Retained individual");
+            SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteMarkdown", "# Retained individual writing");
             SelectTeamNote(window, "Retained owned Team note");
+            SelectTab(window, "TeamNoteEditTab");
             AssertValue(window, "TeamNoteMarkdown", "Owned Team writing");
             if (HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Archived-profile reopening lost frozen context.");
@@ -112,9 +118,11 @@ internal static partial class Program
                 throw new InvalidOperationException("Archived-profile navigation discarded an unsaved retained-note draft.");
             AssertSelectionMatchesProfile(window);
             Click(window, "DiscardPersonNoteDraft");
-            Await(() => Value(window, "PersonNoteTitle") == "Retained individual");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Retained individual");
+            AssertNoteView(window, "Person", editing: false);
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Manager context");
+            SelectTab(window, "TeamNoteEditTab");
             Set(window, "TeamNoteMarkdown", "# Later Manager\nLater Manager writing");
             SelectArchivedPerson(window, "avery@example.com");
             AssertSelectionMatchesProfile(window);

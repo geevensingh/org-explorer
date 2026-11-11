@@ -38,13 +38,20 @@ internal static partial class Program
             Set(window, "PersonNoteMarkdown", "Never inherited");
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
+            AssertNoteView(window, "Team", editing: true);
             if (Find(window, "TeamNotes", ControlType.List).Current.Name != "Owned Team notes" ||
                 Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
                 Find(window, "TeamNoteMarkdown").Current.Name != "Team note Markdown")
                 throw new InvalidOperationException("Team note title and writing lack distinct accessible names.");
             Set(window, "TeamNoteTitle", "Casey context");
+            AwaitLocalWorkIdle(window);
+            SelectTab(window, "TeamNoteReadTab");
+            AssertNoteView(window, "Team", editing: false);
+            SelectTab(window, "TeamNoteEditTab");
+            AssertValue(window, "TeamNoteMarkdown", "");
             Set(window, "TeamNoteMarkdown", $"# Frozen ancestor\nOriginal **ancestor** R&amp;D\n![Remote image]({image})");
             SelectTab(window, "TeamNoteReadTab");
+            AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("Original ancestor"));
             if (!TeamReadingText(window).Contains("R&D"))
                 throw new InvalidOperationException("Owned Team reading lost decoded Markdown entities.");
@@ -69,12 +76,14 @@ internal static partial class Program
                 throw new InvalidOperationException("Inherited context lost ancestor attribution, review feedback or private scope.");
             Click(window, "ReviewTeamNote-morgan@example.com");
             Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
+            AssertNoteView(window, "Team", editing: false);
             Click(window, "ConfirmTeamNote");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Confirmed"));
             Click(window, "ArchiveTeamNote");
             Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("archived locally"));
             ((TogglePattern)Find(window, "ShowArchivedTeamNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectTeamNote(window, "Morgan context");
+            SelectTab(window, "TeamNoteEditTab");
             AssertValue(window, "TeamNoteMarkdown", "# Frozen direct\nOriginal direct");
             Click(window, "ArchiveTeamNote");
             AwaitLocalWorkIdle(window);
@@ -105,6 +114,8 @@ internal static partial class Program
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
+            AssertNoteView(window, "Team", editing: false);
+            SelectTab(window, "TeamNoteEditTab");
             Set(window, "TeamNoteMarkdown", "# Later direct\nLater writing");
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
@@ -139,7 +150,7 @@ internal static partial class Program
             new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
                 new PropertyCondition(AutomationElement.NameProperty, title)))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        Await(() => Value(window, "TeamNoteTitle") == title);
+        Await(() => Find(window, "TeamNoteHeading").Current.Name == title);
     }
     private static string TeamReadingText(AutomationElement window) =>
         ((TextPattern)Find(window, "TeamNoteReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);

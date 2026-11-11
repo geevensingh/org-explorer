@@ -311,6 +311,7 @@ public partial class MainWindow : Window
         {
             ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
+            PreferredNameContext.IsEnabled = false;
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }

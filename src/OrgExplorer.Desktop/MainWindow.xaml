@@ -194,6 +194,23 @@
         </ItemsControl>
         <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False" Visibility="Collapsed"
                 AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
+        <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,8">
+          <TextBlock Text="Preferred name" Margin="0,0,0,4"/>
+          <WrapPanel x:Name="PreferredNameReadPanel">
+            <TextBlock x:Name="PreferredNameValue" AutomationProperties.AutomationId="PreferredNameValue"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <Button x:Name="EditPreferredNameButton" Content="Add preferred name"
+                    AutomationProperties.AutomationId="EditPreferredName" Click="EditPreferredName"/>
+          </WrapPanel>
+          <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed">
+            <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
+                     AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
+            <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
+                       Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
+            <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
+                    Click="ReadPreferredName" HorizontalAlignment="Left"/>
+          </StackPanel>
+        </StackPanel>
         <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
                 HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
         <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed" Margin="0,0,0,12">
@@ -216,11 +233,6 @@
         <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
         <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
                  SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>
-        <StackPanel x:Name="PreferredNameQuickContext">
-          <TextBlock Text="Preferred name — saved independently as you type" Margin="0,8,0,4"/>
-          <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
-                   AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
-        </StackPanel>
         <StackPanel x:Name="AttributeEditors" IsEnabled="False" Visibility="Collapsed">
           <TextBlock Text="Staged until Save. Empty clears; whitespace alone is invalid." TextWrapping="Wrap"/>
           <TextBlock Text="Directory name" Margin="0,8,0,4"/>

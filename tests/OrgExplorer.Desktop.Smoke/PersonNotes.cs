@@ -41,16 +41,28 @@ internal static partial class Program
             Click(window, "ApplyImport");
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
+            AssertEmptyNotes(window, "Person");
+            AssertEmptyNotes(window, "Team");
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
+            AssertNoteView(window, "Person", editing: true);
             if (Find(window, "PersonNotes", ControlType.List).Current.Name != "Person notes" ||
                 Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
                 Find(window, "PersonNoteMarkdown").Current.Name != "Person note Markdown")
                 throw new InvalidOperationException("Person note title and writing lack distinct accessible names.");
             Set(window, "PersonNoteTitle", "Private meeting");
+            AwaitLocalWorkIdle(window);
+            NavigateToManager(window, "casey@example.com");
+            OpenPerson(window, "casey@example.com");
+            SelectNote(window, "Private meeting");
+            AssertNoteView(window, "Person", editing: false);
+            SelectTab(window, "PersonNoteEditTab");
+            AssertNoteView(window, "Person", editing: true);
+            AssertValue(window, "PersonNoteMarkdown", "");
             Set(window, "PersonNoteMarkdown", markdown);
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
             SelectTab(window, "PersonNoteReadTab");
+            AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Private context") && ReadingText(window).Contains("Meeting with Avery."));
             if (!ReadingText(window).Contains("R&D \u00a9 \U0001F680 <script>"))
                 throw new InvalidOperationException("Markdown entities were lost or interpreted as HTML instead of readable text.");
@@ -95,6 +107,8 @@ internal static partial class Program
             ((SelectionItemPattern)ownerReport.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
             SelectNote(window, "Private meeting");
+            AssertNoteView(window, "Person", editing: false);
+            SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteMarkdown", markdown);
             Close(process);
             process = Launch(executable);
@@ -103,9 +117,7 @@ internal static partial class Program
             Click(window, "OpenWorkspace");
             OpenPerson(window, "casey@example.com");
             SelectNote(window, "Private meeting");
-            if (Value(window, "PersonNoteMarkdown") != markdown)
-                throw new InvalidOperationException("Markdown did not survive the actual app restart.");
-            SelectTab(window, "PersonNoteReadTab");
+            AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Meeting with Avery."));
             Click(window, "ArchivePersonNote");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("archived locally"));
@@ -137,7 +149,7 @@ internal static partial class Program
             return item is not null;
         });
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        Await(() => Value(window, "PersonNoteTitle") == title);
+        Await(() => Find(window, "PersonNoteHeading").Current.Name == title);
     }
 
     private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
@@ -166,4 +178,28 @@ internal static partial class Program
         ((TextPattern)Find(window, "PersonNoteReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
     private static void SelectTab(AutomationElement window, string id) =>
         ((SelectionItemPattern)Find(window, id).GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+
+    private static void AssertNoteView(AutomationElement window, string kind, bool editing)
+    {
+        Await(() =>
+        {
+            var tab = Find(window, $"{kind}Note{(editing ? "Edit" : "Read")}Tab");
+            if (!((SelectionItemPattern)tab.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) return false;
+            foreach (var suffix in new[] { "Title", "Markdown" })
+            {
+                var editor = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Note{suffix}"));
+                if (editing ? editor is null || !editor.Current.IsEnabled : editor is not null && !editor.Current.IsOffscreen)
+                    return false;
+            }
+            return true;
+        });
+    }
+
+    private static void AssertEmptyNotes(AutomationElement window, string kind)
+    {
+        if (!Find(window, $"{kind}NotesEmpty").Current.Name.StartsWith("No ", StringComparison.Ordinal) ||
+            !Find(window, $"New{kind}Note").Current.IsEnabled)
+            throw new InvalidOperationException($"Empty {kind} notes lost their message or New note action.");
+    }
 }

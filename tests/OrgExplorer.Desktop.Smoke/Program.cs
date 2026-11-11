@@ -155,7 +155,7 @@ internal static partial class Program
             expand.Expand();
         }
         SelectTreePerson(window, "avery@example.com");
-        Await(() => Find(window, "PreferredName").Current.IsEnabled);
+        Await(() => Find(window, "EditPreferredName").Current.IsEnabled);
     }
     private static void NavigateToManager(AutomationElement window, string email)
     {

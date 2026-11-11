@@ -66,9 +66,18 @@ internal static partial class Program
             if (Find(window, "ApplyImport").Current.IsEnabled ||
                 !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            Click(window, "EditPreferredName");
+            Set(window, "PreferredName", " ");
+            Await(() => Find(window, "Status").Current.Name.Contains("preferredName"));
+            AssertValue(window, "PreferredName", " ");
+            Click(window, "ReadPreferredName");
+            AssertValue(window, "PreferredName", " ");
             Set(window, "PreferredName", "Ave");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            Click(window, "ReadPreferredName");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
             SaveProfileEditing(window);
@@ -96,6 +105,7 @@ internal static partial class Program
             Click(window, "OpenWorkspace");
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
                 throw new InvalidOperationException("Preferred name hid the retained Directory name.");
             AssertProfileValue(window, "OfficeNumber", "0009C");
@@ -104,6 +114,10 @@ internal static partial class Program
             AssertProfileValue(window, "LinkedInProfileUrl", link);
             AssertPhotoVisible(window);
             ExercisePhotoPresentation(window, root);
+            Click(window, "EditPreferredName");
+            Await(() => Value(window, "PreferredName") == "Ave");
+            Click(window, "ReadPreferredName");
+            AssertPreferredNameReading(window, "Ave", "Edit");
             if (listener.Pending()) throw new InvalidOperationException("Profile presentation fetched a remote link.");
             Close(process);
         }
@@ -148,5 +162,17 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
             new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")))) is not null);
         return decision!;
+    }
+
+    private static void AssertPreferredNameReading(AutomationElement window, string value, string action)
+    {
+        Await(() =>
+        {
+            if (Find(window, "PreferredNameValue").Current.Name != value ||
+                Find(window, "EditPreferredName").Current.Name != action) return false;
+            var editor = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "PreferredName"));
+            return editor is null || editor.Current.IsOffscreen;
+        });
     }
 }

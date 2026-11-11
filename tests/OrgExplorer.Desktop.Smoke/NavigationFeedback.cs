@@ -34,6 +34,11 @@ internal static partial class Program
             AssertValue(window, "OfficeNumber", "0009P");
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Stay changed the profile owner.");
+            process.CloseMainWindow();
+            Click(ProfileLeaveWindow(window), "StayOnProfile");
+            Await(() => Find(window, "Status").Current.Name.Contains("Unsaved local changes prevent safe closing"));
+            if (process.HasExited) throw new InvalidOperationException("Stay did not protect the draft on close.");
+            AssertValue(window, "OfficeNumber", "0009P");
             using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 Click(window, "NavigateManager");

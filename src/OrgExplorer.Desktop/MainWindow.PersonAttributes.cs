@@ -23,6 +23,11 @@ public partial class MainWindow
         displayedAttributeBases.Clear();
         profileDraftBases.Clear();
         foreach (var editor in PersonEditors) editor.Clear();
+        preferredNameOwner = null;
+        PreferredNameValue.Text = "";
+        EditPreferredNameButton.Content = "Add preferred name";
+        SetPreferredNameEditing(false);
+        PreferredNameContext.IsEnabled = false;
         AttributeEditors.IsEnabled = false;
         OpenLinkedInButton.IsEnabled = false;
         loading = false;
@@ -33,7 +38,7 @@ public partial class MainWindow
         loading = true;
         var draft = workflow.ProfileEdit?.Draft ?? person;
         DirectoryNameEditor.Text = draft.DirectoryName ?? "";
-        if (!unsavedAttributes.ContainsKey(PersonTextField.PreferredName)) PreferredName.Text = person.PreferredName ?? "";
+        LoadPreferredName(person);
         Alias.Text = draft.Alias ?? "";
         JobTitle.Text = draft.JobTitle ?? "";
         Department.Text = draft.Department ?? "";

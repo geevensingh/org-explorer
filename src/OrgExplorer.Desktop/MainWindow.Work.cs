@@ -22,7 +22,7 @@ public partial class MainWindow
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
-        PreferredName.IsEnabled = keepProfileDraft;
+        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = keepProfileDraft;
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
         TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
         FavoriteButton.IsEnabled = ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = false;

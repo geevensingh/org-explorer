@@ -61,9 +61,11 @@ internal static partial class Program
             File.WriteAllText(inheritedTeamFile, File.ReadAllText(inheritedTeamFile).Replace("# Saved inherited Team context", "# External inherited Team context"));
             File.WriteAllText(teamMetadataFile, new JsonObject { ["casey@example.com"] = Guid.NewGuid() }.ToJsonString());
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
-            Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# External context");
+            AssertNoteView(window, "Person", editing: false);
+            Await(() => ReadingText(window).Contains("External context"));
             SelectTeamNote(window, "New Team note");
-            Await(() => Value(window, "TeamNoteMarkdown") == "# External owned Team context");
+            AssertNoteView(window, "Team", editing: false);
+            Await(() => TeamReadingText(window).Contains("External owned Team context"));
             Await(() => Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"));
             Await(() => ((TextPattern)Find(window, "InheritedTeamReading")
                 .GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1).Contains("External inherited Team context"));
@@ -96,12 +98,13 @@ internal static partial class Program
             if (Find(window, "ProfileHeading").Current.Name != "External Avery" ||
                 !Find(window, "NavigateManager").Current.Name.Contains("Casey Example"))
                 throw new InvalidOperationException("Invalid Workspace fabricated a new Person or reporting root.");
-            AssertValue(window, "PersonNoteMarkdown", "# External context");
-            if (Find(window, "PreferredName").Current.IsEnabled)
+            if (!ReadingText(window).Contains("External context") || ReadingText(window).Contains("Pending context"))
+                throw new InvalidOperationException("Invalid delivery changed the retained Person-note reading.");
+            if (Find(window, "EditPreferredName").Current.IsEnabled)
                 throw new InvalidOperationException("Stale Workspace still claims writable current Person state.");
             File.WriteAllText(personFile, valid);
             Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("Current validated"));
-            Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# Pending context");
+            Await(() => ReadingText(window).Contains("Pending context"));
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
@@ -206,6 +209,10 @@ internal static partial class Program
             throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
         Click(window, $"Discard{kind}NoteDraft");
         var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
+        Await(() => Find(window, $"{kind}NoteHeading").Current.Name.Length > 0 &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        AssertNoteView(window, kind, editing: false);
+        SelectTab(window, $"{kind}NoteEditTab");
         Await(() => Value(window, $"{kind}NoteMarkdown") == deliveredMarkdown);
         AwaitLocalWorkIdle(window);
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
