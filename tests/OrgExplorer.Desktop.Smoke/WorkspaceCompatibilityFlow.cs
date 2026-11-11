@@ -174,12 +174,14 @@ internal static partial class Program
 
     private static void AwaitRestoredWorkspace(AutomationElement window, string workspace)
     {
-        Await(() => Value(window, "WorkspacePath") == Path.GetFullPath(workspace) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-            Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace.");
-        if (Find(window, "Email").Current.Name.Length != 0 ||
-            !Find(window, "WorkspaceStartupStatus").Current.IsOffscreen)
-            throw new InvalidOperationException("Opening restored a selected Person or retained a false startup failure.");
+        WorkspaceRestoration.AssertRestored(() =>
+        {
+            var recovery = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
+            return new(Value(window, "WorkspacePath"), Find(window, "WorkflowActivity").Current.Name,
+                Find(window, "WorkspaceFreshness").Current.Name, Find(window, "Email").Current.Name,
+                recovery?.Current.IsOffscreen);
+        }, Path.GetFullPath(workspace), Await);
     }
 
     private static void AwaitStartupRecovery(AutomationElement window, string workspace)

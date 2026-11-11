@@ -283,6 +283,12 @@ pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
+Startup restore observation likewise accepts an absent/offscreen recovery label
+only after the requested folder, Ready activity and current validation agree;
+no selected Person or visible recovery error is accepted. Its headless replay
+covers the collapsed-label hosted failure and rejects wrong-folder, pending and
+stale observations without retrying Open. Failed-startup smoke still requires
+the actual visible error and enabled Retry/Choose recovery controls.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
 The scale mutation scenario retains actual in-progress-work rejection while
