@@ -39,7 +39,9 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
     public string Status => workflow.Status;
-    public bool OpenWorkspace(string path) => Observe(() => workflow.OpenWorkspace(path));
+    public bool OpenWorkspace(string path) => OpenWorkspace(path, WorkspaceOpenMode.OpenOrCreate);
+    public bool OpenWorkspace(string path, WorkspaceOpenMode mode) =>
+        Observe(() => workflow.OpenWorkspace(path, mode));
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));

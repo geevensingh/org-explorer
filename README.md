@@ -42,6 +42,16 @@ the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
 
+After a successful open, the app remembers that Workspace in app-local settings
+and reopens it on the next launch through the same validation/conversion flow.
+First launch stays empty with folder-opening controls. If the previous folder
+cannot be reopened, the app stays empty, explains the failure, and offers
+**Retry previous Workspace** or **Choose another folder**. Automatic reopening
+never creates a missing replacement folder; intentional manual open/create
+remains available. Failed opens never replace the remembered successful folder.
+Preference read/save errors are visible, and the startup-update preference is
+independent. No selected Person or unsaved draft is restored.
+
 Loading, validation and local writes run off the desktop dispatcher. Rapid
 profile/Markdown typing is coalesced after a short quiet interval; the visible
 draft stays editable while a previous write completes. Pending/newer drafts are

@@ -83,8 +83,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitRestoredWorkspace(window, workspace);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")

@@ -60,16 +60,10 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
+        => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+
+    private void PresentWorkspaceOpen()
     {
-        try { WorkspaceLocation.RequireIndependent(WorkspacePath.Text); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            StatusText.Text = ex.Message;
-            return;
-        }
-        if (!TryLeaveLocalEdits()) return;
-        var path = WorkspacePath.Text;
-        await RunWorkflowAsync(() => workflow.OpenWorkspace(path), "Opening Workspace…");
         PersonNotes.OpenPerson(null);
         TeamNotes.OpenPerson(null);
         preview = null;
@@ -300,7 +294,9 @@ public partial class MainWindow : Window
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
-            : "STALE / unavailable — displayed information is the last valid local state, not current data.";
+            : workflow.Compatibility.State == WorkspaceCompatibilityState.NotOpened || startupRestorePath is not null
+                ? "No Workspace is open. Choose a folder or retry the previous Workspace."
+                : "STALE / unavailable — displayed information is the last valid local state, not current data.";
         RetryProfileButton.IsEnabled = unsavedAttributes.Count > 0 || HasUnsavedRelationship;
         DiscardProfileButton.IsEnabled = workflow.LocalSaveError is not null;
         if (!workflow.IsWorkspaceCurrent)

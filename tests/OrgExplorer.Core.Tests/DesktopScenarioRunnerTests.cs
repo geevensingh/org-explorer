@@ -58,6 +58,7 @@ public sealed class DesktopScenarioRunnerTests : IDisposable
             "update-settings", "installer-update" };
         var runner = new SmokeScenarioRunner(names.Select(name => new SmokeScenario(name, fixture =>
         {
+            Assert.False(File.Exists(Path.Combine(fixture, "app-settings", "workspace-settings.json")));
             var preference = Path.Combine(fixture, "app-settings", "update-settings.json");
             if (name is not ("update-settings" or "installer-update"))
             {
