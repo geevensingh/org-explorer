@@ -33,8 +33,7 @@ public partial class MainWindow
             var trust = UpdateTrust.Parse(reader.ReadToEnd());
             var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
                 .InformationalVersion.Split('+')[0];
-            var directory = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY") ??
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OrgExplorer");
+            var directory = SettingsDirectory;
             installedVersion = Version.Parse(version);
             updateJournal = new(Path.Combine(directory, "update-attempt.json"));
             updateInstaller = new(UpdateEffects.Transport(updateHttp), UpdateEffects.Restart(updateJournal),
@@ -59,33 +58,8 @@ public partial class MainWindow
         ShowUpdates();
         Loaded += async (_, _) =>
         {
-            if (updateJournal is not null && installedVersion is not null)
-            {
-                var previousWorkspace = updateJournal.PendingWorkspace;
-                try
-                {
-                    await RunWorkflowAsync(() =>
-                    {
-                        updateJournal.Recover(installedVersion, path =>
-                        {
-                            WorkspaceLocation.RequireIndependent(path);
-                            return workflow.OpenWorkspace(path);
-                        }, () => workflow.Status);
-                        return true;
-                    }, "Reopening Workspace after update…");
-                    if (previousWorkspace is not null)
-                    {
-                        WorkspacePath.Text = previousWorkspace;
-                        RefreshPeople();
-                        ShowStatus();
-                    }
-                }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
-                {
-                    updateRecoveryError = "Update restart/Workspace recovery failed: " + error.Message + " No successful recovery is claimed. Settings remain available.";
-                }
-                ShowUpdates();
-            }
+            await RestoreStartupWorkspaceAsync();
+            ShowUpdates();
             if (updates is null || !updates.CheckOnStartup) return;
             await RunUpdateCheck(manual: false);
         };
@@ -123,9 +97,9 @@ public partial class MainWindow
             try
             {
                 await WaitForLocalWork();
-                if (workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
-                await FlushProfileDraft();
-                if (unsavedAttributes.Count != 0 ||
+                if (workflow.ProfileEdit is { IsDirty: true } || workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
+                await FlushPreferredNameDraft();
+                if (unsavedPreferredNameEdits.Count != 0 ||
                     !await PersonNotes.FlushPendingDraftAsync() || !await TeamNotes.FlushPendingDraftAsync()) return false;
                 if (!TryLeaveLocalEdits()) return false;
                 accepted = await Task.Run(() => workflow.RestartWhenSafe(restart));
@@ -142,7 +116,8 @@ public partial class MainWindow
 
     private void SetUpdateWorkEnabled(bool enabled)
     {
-        ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = ImportControls.IsEnabled = ImportPreviewPanel.IsEnabled = enabled;
+        ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = WorkspaceStartupPanel.IsEnabled =
+            ImportControls.IsEnabled = ImportPreviewPanel.IsEnabled = enabled;
     }
 
     private void ChangeStartupUpdateChecks(object sender, RoutedEventArgs e)

@@ -5,7 +5,8 @@ namespace OrgExplorer.Workflow;
 public partial interface IApplicationWorkflow
 {
     IReadOnlyList<PersonProfile> ArchivedPeople { get; }
-    bool EditPersonArchived(string email, bool archived);
+    bool EditPersonArchived(string email, bool archived, bool confirmed = true,
+        ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay);
     bool EditPersonManager(string email, string? managerEmail);
 }
 
@@ -15,10 +16,14 @@ public sealed partial class ApplicationWorkflow
     { get { if (queryView is { } view) return view.ArchivedPeople;
         lock (workspaceGate) return People.Where(p => p.Archived).ToArray(); } }
 
-    public bool EditPersonArchived(string email, bool archived)
+    public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
+        ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay)
     {
         lock (workspaceGate)
         {
+            if (!confirmed) return Fail("Person archival action canceled. Saved data and profile draft are unchanged.");
+            if (workspace is null || !people.ContainsKey(email)) return Fail("Open a Person first.");
+            if (!TryLeaveProfileEdit(profileDecision)) return false;
             if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
             return SavePersonRelationship(person, person with { Archived = archived }, "archived",
                 archived ? "Person archived locally; profile, photos, notes and history retained." :
@@ -49,6 +54,7 @@ public sealed partial class ApplicationWorkflow
         catch (FormatException ex) { return Fail("Change rejected; no people changed: " + ex.Message); }
         var history = CaptureLocalHistory(before, after, field);
         if (!Save(proposed, batches, history: history, operation: $"profile:{before.Email.ToLowerInvariant()}:{field}")) return false;
+        if (field == "isFavorite") AcceptIndependentProfileChange(before, after);
         people = proposed;
         profileHistory = history;
         InvalidateProjections();

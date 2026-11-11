@@ -44,18 +44,54 @@ try {
     $first = Commit-Fixture 'First product'
     $plan = Get-ReleasePlan -Root $fixture -Candidate $first
     Assert ($plan.publish -and $plan.version -ceq '0.1.0' -and $plan.tag -ceq 'v0.1.0' -and !$plan.lastSourceSha) 'First publication must be explicit.'
+    $summaryPath = Join-Path $fixture 'summary.md'
+    Write-ReleasePlanSummary -Plan $plan -Path $summaryPath
+    $summary = Get-Content -LiteralPath $summaryPath -Raw
+    Assert ($summary.Contains('Release planned - publication pending') -and
+        $summary.Contains('v0.1.0') -and $summary.Contains('None (first product release)') -and
+        $summary.Contains('not confirmation of a published release')) 'A first-release summary must distinguish planning from successful publication.'
+    Remove-Item -LiteralPath $summaryPath
     $retryPlan = Get-ReleasePlan -Root $fixture -Candidate $first -ReservedVersions @('0.1.0', '0.1.1')
     Assert ($retryPlan.publish -and $retryPlan.version -ceq '0.1.2' -and !$retryPlan.lastSourceSha) 'Failed reserved tags must be skipped without becoming the successful comparison baseline or being overwritten.'
     $last = @{ sourceSha = $first; version = '0.1.0'; tag = 'v0.1.0' }
     'repository only' | Set-Content "$fixture\README.md"
     $docs = Commit-Fixture 'Docs alone'
-    Assert (!(Get-ReleasePlan -Root $fixture -Candidate $docs -LastRelease $last).publish) 'Released product plus docs alone must not publish.'
+    $docsPlan = Get-ReleasePlan -Root $fixture -Candidate $docs -LastRelease $last
+    Assert (!$docsPlan.publish) 'Released product plus docs alone must not publish.'
+    'Existing summary' | Set-Content -LiteralPath $summaryPath
+    Write-ReleasePlanSummary -Plan $docsPlan -Path $summaryPath
+    $summary = Get-Content -LiteralPath $summaryPath -Raw
+    Assert ($summary.StartsWith('Existing summary') -and
+        $summary.Contains('No release published - expected no-op') -and
+        $summary.Contains('This is a successful no-op, not a publication failure.') -and
+        $summary.Contains('No unpublished product effect.') -and
+        $summary.Contains('**v0.1.0 remains the current app release.**') -and
+        $summary.Contains('Scale verification and publication were intentionally skipped.') -and
+        $summary.Contains("/releases/tag/v0.1.0") -and $summary.Contains($first) -and
+        $summary.Contains($docs) -and $summary.Contains('<code>README.md</code>') -and
+        !$summary.Contains('0.1.1')) 'A no-op summary must explain intentional skips and the actual baseline/candidate, without implying a new version was published.'
+    Remove-Item -LiteralPath $summaryPath
+    $docsPlan.changedPaths = @('docs/<img src=x onerror=alert(1)>`[help].md', 'docs/[guide](help).md', 'docs/`guide`.md')
+    Write-ReleasePlanSummary -Plan $docsPlan -Path $summaryPath
+    $summary = Get-Content -LiteralPath $summaryPath -Raw
+    Assert ($summary.Contains('<pre><code>docs/&lt;img src=x onerror=alert(1)&gt;`[help].md</code></pre>') -and
+        $summary.Contains('<pre><code>docs/[guide](help).md</code></pre>') -and
+        $summary.Contains('<pre><code>docs/`guide`.md</code></pre>') -and
+        !$summary.Contains('<img')) 'Changed paths must render as text, not injected Markdown or HTML.'
+    Remove-Item -LiteralPath $summaryPath
     'pending product' | Set-Content "$fixture\src\product.txt"
     $null = Commit-Fixture 'Product whose publication failed'
     'more docs' | Set-Content "$fixture\README.md"
     $candidate = Commit-Fixture 'Docs after failed product publication'
     $plan = Get-ReleasePlan -Root $fixture -Candidate $candidate -LastRelease $last
     Assert ($plan.publish -and $plan.version -ceq '0.1.1' -and $plan.sourceSha -ceq $candidate -and $plan.lastSourceSha -ceq $first) 'Pending product changes must survive a later docs-only commit.'
+    Write-ReleasePlanSummary -Plan $plan -Path $summaryPath
+    $summary = Get-Content -LiteralPath $summaryPath -Raw
+    Assert ($summary.Contains('Release planned - publication pending') -and
+        $summary.Contains('**v0.1.1**') -and $summary.Contains('not confirmation of a published release') -and
+        $summary.Contains('<code>src/product.txt</code>') -and
+        !$summary.Contains('expected no-op') -and !$summary.Contains('intentionally skipped')) 'Pending product effects must not be presented as a no-op or a successful publication.'
+    Remove-Item -LiteralPath $summaryPath
     $last = @{ sourceSha = $candidate; version = '0.1.1'; tag = 'v0.1.1' }
     'changed shipped Markdown' | Set-Content "$fixture\docs\help.md"
     $candidate = Commit-Fixture 'In-app help'

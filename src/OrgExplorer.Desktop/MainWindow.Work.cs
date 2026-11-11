@@ -14,19 +14,21 @@ public partial class MainWindow
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        bool keepProfileDraft = false, System.Windows.Controls.UserControl? noteDraft = null)
+        bool keepPreferredNameDraft = false, System.Windows.Controls.UserControl? noteDraft = null)
     {
         workPending = true;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
-        AttributeEditors.IsEnabled = keepProfileDraft;
+        UpdateProfileMode();
+        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = keepPreferredNameDraft;
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
         TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
-        FavoriteButton.IsEnabled = ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = false;
+        FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
+        DiscardImportButton.IsEnabled = false;
         try { return await Task.Run(operation); }
         finally
         {
@@ -35,12 +37,10 @@ public partial class MainWindow
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = true;
             PersonNotes.IsEnabled = TeamNotes.IsEnabled = true;
-            AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
-            Photo.CanEdit = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+            UpdateProfileMode();
             var person = selectedEmail is null ? null : workflow.GetRelationships(selectedEmail)?.Person;
             FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
-            ArchivePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person is { Archived: false };
-            ReactivatePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person is { Archived: true };
+            PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
             queryDirty = true;
             if (externalRefreshPending)
             {

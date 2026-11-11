@@ -20,6 +20,9 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
+            if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
+            if (args.Length == 2 && args[1] == "--verify-profile-refresh")
+                return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {
@@ -67,6 +70,9 @@ internal static partial class Program
 
     internal static Process Launch(string path)
     {
+        var settings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(settings) || !Path.IsPathFullyQualified(settings))
+            throw new InvalidOperationException("Desktop fixtures require an explicit isolated app-settings directory before launching.");
         var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
             ?? throw new InvalidOperationException("WPF application did not launch.");
         Applications.Add(process);
@@ -155,7 +161,7 @@ internal static partial class Program
             expand.Expand();
         }
         SelectTreePerson(window, "avery@example.com");
-        Await(() => Find(window, "PreferredName").Current.IsEnabled);
+        Await(() => Find(window, "EditPreferredName").Current.IsEnabled);
     }
     private static void NavigateToManager(AutomationElement window, string email)
     {

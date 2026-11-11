@@ -27,10 +27,13 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", folder);
             Click(window, "OpenWorkspace");
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
             Click(window, "NewPersonNote");
@@ -61,9 +64,11 @@ internal static partial class Program
             File.WriteAllText(inheritedTeamFile, File.ReadAllText(inheritedTeamFile).Replace("# Saved inherited Team context", "# External inherited Team context"));
             File.WriteAllText(teamMetadataFile, new JsonObject { ["casey@example.com"] = Guid.NewGuid() }.ToJsonString());
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
-            Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# External context");
+            AssertNoteView(window, "Person", editing: false);
+            Await(() => ReadingText(window).Contains("External context"));
             SelectTeamNote(window, "New Team note");
-            Await(() => Value(window, "TeamNoteMarkdown") == "# External owned Team context");
+            AssertNoteView(window, "Team", editing: false);
+            Await(() => TeamReadingText(window).Contains("External owned Team context"));
             Await(() => Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"));
             Await(() => ((TextPattern)Find(window, "InheritedTeamReading")
                 .GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1).Contains("External inherited Team context"));
@@ -96,17 +101,18 @@ internal static partial class Program
             if (Find(window, "ProfileHeading").Current.Name != "External Avery" ||
                 !Find(window, "NavigateManager").Current.Name.Contains("Casey Example"))
                 throw new InvalidOperationException("Invalid Workspace fabricated a new Person or reporting root.");
-            AssertValue(window, "PersonNoteMarkdown", "# External context");
-            if (Find(window, "PreferredName").Current.IsEnabled)
+            if (!ReadingText(window).Contains("External context") || ReadingText(window).Contains("Pending context"))
+                throw new InvalidOperationException("Invalid delivery changed the retained Person-note reading.");
+            if (Find(window, "EditPreferredName").Current.IsEnabled)
                 throw new InvalidOperationException("Stale Workspace still claims writable current Person state.");
             File.WriteAllText(personFile, valid);
             Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("Current validated"));
-            Await(() => ((ValuePattern)Find(window, "PersonNoteMarkdown").GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "# Pending context");
+            Await(() => ReadingText(window).Contains("Pending context"));
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
             AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
-            AssertFirstProfileAutosaveDeliveryConflict(window, personFile);
+            AssertExplicitProfileDeliveryConflict(window, personFile);
             Close(process);
             Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
         }
@@ -116,9 +122,10 @@ internal static partial class Program
         }
     }
 
-    private static void AssertFirstProfileAutosaveDeliveryConflict(AutomationElement window, string personFile)
+    private static void AssertExplicitProfileDeliveryConflict(AutomationElement window, string personFile)
     {
         AwaitLocalWorkIdle(window);
+        BeginProfileEditing(window);
         var editor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
         var local = "Local profile draft";
         editor.SetValue(local);
@@ -137,21 +144,29 @@ internal static partial class Program
             editor.SetValue(local);
             Thread.Sleep(10);
         }
+        AssertValue(window, "OfficeNumber", local);
+        Click(window, "SaveProfile");
         Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
+        AssertRejectedRetry(window, "RetryProfileSave", "Saving complete profile…",
+            () => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+            Find(window, "Status").Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            Find(window, "SaveProfile").Current.IsEnabled && Find(window, "RetryProfileSave").Current.IsEnabled &&
+            window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
         AssertValue(window, "OfficeNumber", local);
-        Click(window, "RetryProfileSave");
-        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
-        AssertValue(window, "OfficeNumber", local);
+        if (Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException("Rejected profile retry changed its owner.");
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
-            throw new InvalidOperationException("Profile autosave or retry overwrote the delivered field.");
+            throw new InvalidOperationException("Explicit profile save or retry overwrote the delivered field.");
         Click(window, "DiscardProfileDraft");
-        Await(() => Value(window, "OfficeNumber") == "Delivered office");
+        AssertProfileValue(window, "OfficeNumber", "Delivered office");
         AwaitLocalWorkIdle(window);
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
             throw new InvalidOperationException("Profile discard rewrote delivered bytes.");
+        BeginProfileEditing(window);
         Set(window, "OfficeNumber", "Intentional delivered-version edit");
-        Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+        SaveProfileEditing(window);
     }
 
     private static void AssertFirstAutosaveDeliveryConflict(
@@ -195,14 +210,24 @@ internal static partial class Program
         Await(() => status.Current.Name.Contains("before leaving or closing", StringComparison.Ordinal));
         if (Find(window, "Email").Current.Name != "avery@example.com")
             throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
-        Click(window, $"Retry{kind}NoteSave");
-        Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        AssertRejectedRetry(window, $"Retry{kind}NoteSave", $"Saving private {kind} note…",
+            () => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+            status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
+            window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
         AssertValue(window, $"{kind}NoteMarkdown", local);
+        if (Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException($"Rejected {kind} retry changed its owner.");
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
             throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
         Click(window, $"Discard{kind}NoteDraft");
         var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
+        Await(() => Find(window, $"{kind}NoteHeading").Current.Name.Length > 0 &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        AssertNoteView(window, kind, editing: false);
+        SelectTab(window, $"{kind}NoteEditTab");
         Await(() => Value(window, $"{kind}NoteMarkdown") == deliveredMarkdown);
         AwaitLocalWorkIdle(window);
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
@@ -211,5 +236,34 @@ internal static partial class Program
         Await(() => status.Current.Name.Contains("saved locally", StringComparison.Ordinal));
         if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
+    }
+
+    private static void AssertRejectedRetry(AutomationElement window, string button, string savingActivity,
+        Func<bool> isRejected)
+    {
+        var retry = ControlReadiness.AwaitPattern(() => Find(window, button), control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
+        RetryRejection.AssertCompleted(
+            changed => new ActivitySubscription(Find(window, "WorkflowActivity"), changed),
+            retry.Invoke, savingActivity, isRejected, Await);
+    }
+
+    private sealed class ActivitySubscription : IDisposable
+    {
+        private readonly AutomationElement activity;
+        private readonly AutomationPropertyChangedEventHandler handler;
+
+        internal ActivitySubscription(AutomationElement activity, Action<string> changed)
+        {
+            this.activity = activity;
+            handler = (_, e) =>
+            {
+                if (e.NewValue is string name) changed(name);
+            };
+            Automation.AddAutomationPropertyChangedEventHandler(activity, TreeScope.Element, handler,
+                AutomationElement.NameProperty);
+        }
+
+        public void Dispose() => Automation.RemoveAutomationPropertyChangedEventHandler(activity, handler);
     }
 }

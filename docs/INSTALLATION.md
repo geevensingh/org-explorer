@@ -29,9 +29,20 @@ Choose your private **Workspace** folder separately, for example a folder under
 your externally synchronized documents. The app rejects a Workspace inside the
 installation, the installation root itself, or a folder containing it (including
 resolved folder links). People, notes, photos, and history are never packaging
-inputs. Reopen the same chosen folder after reinstalling or replacing the app.
+inputs. The app remembers the last successfully opened folder and tries to
+reopen it on startup. If app-local preferences are unavailable after reinstalling
+or replacing the app, choose that same folder manually.
 The installer does not select/move that folder and uninstall does not delete it.
 The optional portable bundle follows the same independent-Workspace rule.
+
+The remembered path lives in `%LocalAppData%\OrgExplorer\workspace-settings.json`,
+not in portable Workspace data or the installation. It is separate from the
+startup-update setting. An unavailable or invalid previous Workspace leaves the
+app empty with the actual error, **Retry previous Workspace**, and **Choose
+another folder**. Automatic reopen only opens an existing folder; it does not
+recreate a missing one. Manual folder open/create is still intentional. Only a
+successful open changes the remembered folder; corrupt or unwritable
+preferences are reported rather than silently treated as a saved choice.
 
 Close the app normally and resolve any failed saves before manual repair,
 replacement, or uninstall. Installer hooks do not flush another running app's
