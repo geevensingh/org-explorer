@@ -111,6 +111,17 @@ reading/search/favorite, Team-note review and note-draft assertions run against
 both factories where applicable. These remain ordinary small filesystem tests,
 not independent recovery/reclamation or supported-population scale evidence.
 
+`IncrementalDeliveryTests` covers valid direct Person/history/note edits, stale
+Import previews, selector/index/document/history/photo arrival permutations,
+invalid and unsupported index graphs, and preservation of provider conflict
+copies. Missing accepted evidence or photos retained only by history/captured
+profiles prevents acceptance. Real publication callbacks deliver Person/history
+or same-path photo bytes immediately before/after replacement; refresh must
+detect them rather than bless an unvalidated post-save scan. Existing external
+refresh, local-publication, live-generation, profile-session, text-draft and
+note-draft cases also run selected scenarios through the incremental factory.
+These are real-folder/workflow assertions, not desktop or cleanup evidence.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,

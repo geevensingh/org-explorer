@@ -104,16 +104,18 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Preferred_name_first_autosave_and_retry_do_not_overwrite_delivered_quick_context(bool emptyBase)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Preferred_name_first_autosave_and_retry_do_not_overwrite_delivered_quick_context(bool emptyBase, bool incremental)
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var app = new WorkspaceViewModel(CreateWorkflow(incremental));
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         if (emptyBase) Assert.True(app.EditPreferredName("avery@example.com", null), app.Status);
         var basis = Assert.Single(app.People);
-        using var provider = ApplicationWorkflow.CreateFileBacked();
+        using var provider = CreateWorkflow(incremental);
         Assert.True(provider.OpenWorkspace(folder), provider.Status);
         Assert.True(provider.EditPreferredName(basis.Email, "Delivered preferred name"), provider.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -121,7 +123,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained inline draft"));
         Assert.Contains("changed externally", app.Status);
         Assert.False(app.CanSafelyClose);
-        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        using (var reopened = CreateWorkflow(incremental))
         {
             Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
             Assert.Equal("Delivered preferred name", Assert.Single(reopened.People).Heading);
@@ -156,16 +158,18 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void First_profile_autosave_and_retry_preserve_a_changed_delivered_field_until_explicit_discard(bool emptyBase)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void First_profile_autosave_and_retry_preserve_a_changed_delivered_field_until_explicit_discard(bool emptyBase, bool incremental)
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var app = new WorkspaceViewModel(CreateWorkflow(incremental));
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         if (emptyBase) Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, null), app.Status);
         var basis = Assert.Single(app.People);
-        using var provider = ApplicationWorkflow.CreateFileBacked();
+        using var provider = CreateWorkflow(incremental);
         Assert.True(provider.OpenWorkspace(folder), provider.Status);
         Assert.True(provider.EditPersonText(basis.Email, PersonTextField.OfficeNumber, "Delivered"), provider.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -175,7 +179,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.False(app.CanSafelyClose);
         Assert.Equal("Delivered", Assert.Single(app.People).OfficeNumber);
         Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "Local draft"));
-        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        using (var reopened = CreateWorkflow(incremental))
         {
             Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
             Assert.Equal("Delivered", Assert.Single(reopened.People).OfficeNumber);
@@ -186,14 +190,16 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(app.CanSafelyClose);
     }
 
-    [Fact]
-    public void Profile_draft_accepts_other_field_delivery_and_returns_the_exact_saved_base_for_newer_typing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Profile_draft_accepts_other_field_delivery_and_returns_the_exact_saved_base_for_newer_typing(bool incremental)
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var app = new WorkspaceViewModel(CreateWorkflow(incremental));
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var basis = Assert.Single(app.People);
-        using var provider = ApplicationWorkflow.CreateFileBacked();
+        using var provider = CreateWorkflow(incremental);
         Assert.True(provider.OpenWorkspace(folder), provider.Status);
         Assert.True(provider.EditPersonText(basis.Email, PersonTextField.Department, "Delivered department"), provider.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -204,10 +210,13 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.Equal("First", saved.OfficeNumber);
         var newer = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(saved, PersonTextField.OfficeNumber, "Newer"));
         Assert.Equal("Newer", newer.OfficeNumber);
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = CreateWorkflow(incremental);
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(newer, Assert.Single(reopened.People));
     }
+
+    private static IApplicationWorkflow CreateWorkflow(bool incremental) => incremental
+        ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
 
     [Fact]
     public void Rejected_batch_and_local_save_failure_retain_the_last_durable_complete_profile()

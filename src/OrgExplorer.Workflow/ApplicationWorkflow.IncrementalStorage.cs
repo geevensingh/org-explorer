@@ -98,6 +98,13 @@ public sealed partial class ApplicationWorkflow
             if (Required(json.RootElement, "email", "Historical team context").GetString()!.ToLowerInvariant() != key)
                 throw new FormatException("Historical team context index identity does not match the document.");
         }
+        foreach (var person in history.Values)
+        {
+            foreach (var evidence in person.Observations) RequireAcceptedBatch(evidence);
+            foreach (var change in person.Changes) RequireChangeBatches(change);
+        }
+        foreach (var capture in historical.Values.SelectMany(contexts => contexts))
+            foreach (var transition in capture.Transitions) RequireChangeBatches(transition.Change);
         var loadedPhotos = new Dictionary<string, byte[]>();
         foreach (var (key, relative) in graph.Documents["photos"])
         {
@@ -108,9 +115,12 @@ public sealed partial class ApplicationWorkflow
                 throw new FormatException("Workspace photo extension does not match its decoded type.");
             loadedPhotos.Add(key, photoBytes);
         }
-        foreach (var person in loaded.Values)
-            if (person.PhotoPath is { } photo && !loadedPhotos.ContainsKey(photo))
-                throw new IOException("Required Person photo is unavailable.");
+        foreach (var reference in RequiredIncrementalPhotos(loaded, history, historical))
+        {
+            ValidateHistoryValue("photoPath", JsonSerializer.SerializeToElement(reference));
+            if (!loadedPhotos.ContainsKey(reference))
+                throw new IOException("Required current or retained Profile photo is unavailable.");
+        }
         var notes = LoadPersonNotes(workspace!, loaded);
         var team = LoadTeamNotes(workspace!, loaded);
         people = loaded;
@@ -126,6 +136,42 @@ public sealed partial class ApplicationWorkflow
 
         IEnumerable<string> DocumentPaths(string family) =>
             graph.Documents[family].Values.Select(relative => IncrementalPath(workspace!, relative, family));
+
+        void RequireAcceptedBatch(FieldEvidence evidence)
+        {
+            if (evidence.Source == ProfileChangeSource.Import &&
+                !accepted.ContainsKey(evidence.BatchId!.Value.ToString()))
+                throw new IOException("Required accepted Import evidence is unavailable.");
+        }
+
+        void RequireChangeBatches(ProfileChange change)
+        {
+            RequireAcceptedBatch(change.Evidence);
+            if (change.PreviousEvidence is { } previous) RequireAcceptedBatch(previous);
+        }
+    }
+
+    private static IEnumerable<string> RequiredIncrementalPhotos(Dictionary<string, PersonProfile> population,
+        Dictionary<string, PersonHistory> history, Dictionary<string, List<HistoricalTeamContext>> contexts)
+    {
+        return population.Values.Select(person => person.PhotoPath)
+            .Concat(history.Values.SelectMany(person => person.Observations)
+                .Where(evidence => evidence.Field == "photoPath").Select(evidence => evidence.Value.GetString()))
+            .Concat(history.Values.SelectMany(person => person.Changes).SelectMany(ChangePhotos))
+            .Concat(contexts.Values.SelectMany(captures => captures).SelectMany(capture => capture.ReportingChain)
+                .Select(person => person.PhotoPath))
+            .OfType<string>().Distinct(StringComparer.Ordinal);
+
+        static IEnumerable<string?> ChangePhotos(ProfileChange change)
+        {
+            if (change.Field == "photoPath")
+            {
+                yield return change.OldValue.GetString();
+                yield return change.NewValue.GetString();
+            }
+            if (change.Evidence.Field == "photoPath") yield return change.Evidence.Value.GetString();
+            if (change.PreviousEvidence is { Field: "photoPath" } previous) yield return previous.Value.GetString();
+        }
     }
 
     private bool SaveIncrementally(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
