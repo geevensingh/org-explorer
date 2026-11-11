@@ -168,7 +168,7 @@ public sealed partial class ApplicationWorkflow
                 {
                     schemaVersion = 1, path = relative, bytes = bytes.LongLength,
                     digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))
-                }, JsonOptions));
+                }, IncrementalJsonOptions));
                 CreateIncrementalDirectory(Path.GetDirectoryName(path)!);
                 WriteDurablyBytes(path, bytes);
                 available[path] = bytes;

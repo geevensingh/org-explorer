@@ -10,6 +10,7 @@ public sealed partial class ApplicationWorkflow
 {
     private static readonly string[] IndexedFamilies =
         ["people", "profileHistory", "acceptedBatches", "photos", "teamContext", "historicalTeamContext"];
+    private static readonly JsonSerializerOptions IncrementalJsonOptions = new(JsonOptions) { WriteIndented = false };
 
     private sealed record IncrementalMetadata(
         [property: JsonRequired] int SchemaVersion,
@@ -195,7 +196,7 @@ public sealed partial class ApplicationWorkflow
         string WriteNode(IndexNode value)
         {
             var relative = Path.Combine("index", Guid.NewGuid().ToString("N") + ".json");
-            write(relative, JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions));
+            write(relative, JsonSerializer.SerializeToUtf8Bytes(value, IncrementalJsonOptions));
             return relative;
         }
     }

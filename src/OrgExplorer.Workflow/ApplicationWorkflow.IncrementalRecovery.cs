@@ -39,7 +39,6 @@ public sealed partial class ApplicationWorkflow
     private sealed record PreparedRecovery(string Root, string Transaction, byte[] Selector, RecoverySelector Metadata);
     private PreparedRecovery? pendingRecovery;
     private string? verifiedRecoveryPath;
-    private static readonly JsonSerializerOptions RecoveryJsonOptions = new(JsonOptions) { WriteIndented = false };
 
     private static string ByteDigest(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
@@ -70,11 +69,6 @@ public sealed partial class ApplicationWorkflow
 
         void Write(string relative, byte[] bytes)
         {
-            if (relative.StartsWith("index" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            {
-                using var node = JsonDocument.Parse(bytes);
-                bytes = JsonSerializer.SerializeToUtf8Bytes(node.RootElement, RecoveryJsonOptions);
-            }
             WriteRecoveryObject(transaction, ref inventory, Path.Combine("recovery", relative), bytes);
             WriteRecoveryObject(transaction, ref inventory, Path.Combine("recovery", relative + ".sha256"),
                 Encoding.ASCII.GetBytes(ByteDigest(bytes)));
@@ -142,7 +136,7 @@ public sealed partial class ApplicationWorkflow
             replacement = new(1, family, null, children);
         }
         var relative = Path.Combine("index", Guid.NewGuid().ToString("N") + ".json");
-        write(relative, JsonSerializer.SerializeToUtf8Bytes(replacement, JsonOptions));
+        write(relative, JsonSerializer.SerializeToUtf8Bytes(replacement, IncrementalJsonOptions));
         return relative;
     }
 
@@ -297,18 +291,17 @@ public sealed partial class ApplicationWorkflow
                 EnsureWorkspaceWritable();
                 using var lease = new FileStream(Path.Combine(workspace, ".workspace.lock"),
                     FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-                if (pendingRecovery is { } prepared) CompleteRecovery(prepared);
-                else
-                {
-                    var current = CaptureWorkspaceBytes();
-                    using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true };
-                    validation.ReadIncrementalWorkspaceData(current);
-                    var transaction = BeginRecoveryTransaction("accepted-current", WorkspaceFingerprint(snapshot: current));
-                    var candidate = PrepareRecovery(current, transaction);
-                    if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
-                        throw new IOException("Current delivery changed during recovery capture; no recovery selected.");
-                    CompleteRecovery(candidate);
-                }
+                var current = CaptureWorkspaceBytes();
+                using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true };
+                validation.ReadIncrementalWorkspaceData(current);
+                var currentRevision = WorkspaceFingerprint(snapshot: current);
+                var candidate = pendingRecovery is { } prepared && prepared.Metadata.SourceRevision == currentRevision
+                    ? prepared : PrepareRecovery(current, BeginRecoveryTransaction("accepted-current", currentRevision));
+                if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
+                    throw new IOException("Current delivery changed during recovery capture; no recovery selected.");
+                CompleteRecovery(candidate);
+                if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
+                    throw new IOException("Current delivery changed during recovery selection; protection remains incomplete.");
                 Status = "Recovery maintenance completed; no current mutation was replayed.";
                 return true;
             }
@@ -331,12 +324,12 @@ public sealed partial class ApplicationWorkflow
 
     private void WriteRecoveryObject(string transaction, ref int inventory, string relative, byte[] bytes)
     {
-        var staged = relative + ".next";
+        var staged = Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next");
         WriteDurablyBytes(Path.Combine(transaction, $"created-recovery-{inventory++:D8}.json"),
             JsonSerializer.SerializeToUtf8Bytes(new
             {
                 schemaVersion = 1, path = relative, stagingPath = staged, bytes = bytes.LongLength, digest = ByteDigest(bytes)
-            }, RecoveryJsonOptions));
+            }, IncrementalJsonOptions));
         var path = Path.Combine(workspace!, relative);
         CreateIncrementalDirectory(Path.GetDirectoryName(path)!);
         WriteDurablyBytes(Path.Combine(workspace!, staged), bytes);
@@ -352,13 +345,13 @@ public sealed partial class ApplicationWorkflow
             try
             {
                 using var access = CoordinateWorkspaceIo(workspace);
-                var source = workspace;
+                var source = Path.TrimEndingDirectorySeparator(workspace);
                 var root = Path.Combine(source, "recovery");
                 var path = Path.Combine(root, "current.json");
                 RejectWorkspaceLink(path);
                 var selector = ReadWorkspaceBytesUncached(path);
                 var recovery = ValidateRecovery(root, selector, true);
-                var destination = Path.GetFullPath(destinationPath);
+                var destination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationPath));
                 if (destination.Equals(source, StringComparison.OrdinalIgnoreCase) ||
                     destination.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
                     source.StartsWith(destination + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||

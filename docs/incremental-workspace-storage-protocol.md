@@ -77,7 +77,8 @@ files. Every immutable recovery object has an adjacent ASCII SHA-256 `.sha256`
 seal. Current document bytes are copied exactly, not reserialized. Changed
 documents and affected index paths get new physical files; unchanged recovery
 references are reused. Recovery metadata and ownership records may be compact
-JSON; document readability and externally supplied formatting are preserved.
+JSON, as are current index nodes and their inventories; document readability
+and externally supplied formatting are preserved.
 
 The candidate envelope is durable at `transactions\<id>\recovery.next`. After
 current publication succeeds, `committed.json` records version 1, the transaction
@@ -92,7 +93,8 @@ not the highest GUID or newest file, identifies the protected committed state.
 Reopening never selects an orphan candidate, including one matching current.
 
 `RetryStorageMaintenance()` is separate from edit/Import/note retry. In the same
-session it completes the already prepared committed candidate. After reopening
+session it completes the already prepared committed candidate only if current
+still matches its accepted fingerprint. After reopening or newer valid delivery
 it independently captures the completely validated current state in a new
 acceptance transaction; it does not reinterpret an unreceipted orphan as a commit.
 Accepted external note edits/deletions and other valid current changes therefore
@@ -117,7 +119,8 @@ Current inventories remain `created-<number>.json`. Recovery inventories are
 written before the corresponding staged payload. Both locations are relative
 to the Workspace, including the `recovery` prefix. Recovery documents, nodes and
 seal files each have their own record. Selector/receipt stages remain inside
-their owning transaction; no population-wide inventory is rewritten.
+their owning transaction; payloads stage at unique `recovery\<id>.next` paths
+recorded in those inventories. No population-wide inventory is rewritten.
 
 ## Mutation semantics and resource roots (#43)
 

@@ -32,13 +32,16 @@ public sealed class IncrementalRecoveryTests : IDisposable
         File.WriteAllText(documents["profileHistory:avery@example.com"], "damaged current history");
         Assert.False(app.RefreshWorkspace());
         var restored = Path.Combine(folder, "restored");
-        Assert.True(app.RecoverWorkspace(restored), app.Status);
+        Assert.True(app.RecoverWorkspace(restored + Path.DirectorySeparatorChar), app.Status);
         Assert.Equal(commit, Commit(restored));
         Assert.Equal("Ave", app.GetRelationships("avery@example.com")!.Person.PreferredName);
         Assert.Equal("morgan@example.com", app.GetRelationships("avery@example.com")!.Manager!.Email);
         Assert.Equal("Ave", Assert.Single(app.GetProfileTimeline("avery@example.com")!.Changes).NewValue.GetString());
         Assert.Contains("no-op", Assert.Single(app.PreviewImport(Import).Changes));
         Assert.Equal("damaged current Person", File.ReadAllText(documents["people:avery@example.com"]));
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
+        Assert.True(app.CanSafelyClose);
         using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
         Assert.True(reopened.OpenWorkspace(restored), reopened.Status);
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
@@ -48,6 +51,29 @@ public sealed class IncrementalRecoveryTests : IDisposable
     {
         using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "workspace.json")));
         return json.RootElement.GetProperty("commit").GetGuid();
+    }
+
+    [Fact]
+    public void Recovery_rejects_nonempty_destinations_and_preserves_owned_profile_writing()
+    {
+        var current = Path.Combine(folder, "current");
+        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        var before = WorkspaceFixtures.Bytes(current);
+        var destination = Path.Combine(folder, "restored");
+        Directory.CreateDirectory(destination);
+        File.WriteAllText(Path.Combine(destination, "keep.txt"), "Existing destination content");
+        Assert.False(app.RecoverWorkspace(destination));
+        Assert.Equal("Existing destination content", File.ReadAllText(Path.Combine(destination, "keep.txt")));
+        Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained writing"), app.Status);
+        var empty = Path.Combine(folder, "empty");
+        Assert.False(app.RecoverWorkspace(empty));
+        Assert.False(Directory.Exists(empty));
+        Assert.Equal("Retained writing", app.ProfileEdit!.Draft.JobTitle);
+        Assert.False(app.CanSafelyClose);
+        foreach (var (path, data) in before) Assert.Equal(data, File.ReadAllBytes(Path.Combine(current, path)));
     }
 
     [Theory]
@@ -170,6 +196,29 @@ public sealed class IncrementalRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void Maintenance_retry_protects_new_validated_delivery_instead_of_selecting_an_older_pending_candidate()
+    {
+        var current = Path.Combine(folder, "current");
+        var publisher = new InspectingPublisher();
+        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (Path.GetFileName(destination) == "committed.json") throw new IOException("Receipt interrupted.");
+        };
+        var note = app.CreatePersonNote("avery@example.com", "Private", "Locally saved writing")!;
+        publisher.BeforePublish = null;
+        var notePath = Path.Combine(current, "notes", note.Id + ".md");
+        var delivered = File.ReadAllText(notePath).Replace("Locally saved writing", "New external writing");
+        File.WriteAllText(notePath, delivered);
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
+        Assert.Equal(delivered, File.ReadAllText(notePath));
+        Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
+        Assert.Equal("New external writing", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
+    }
+
+    [Fact]
     public void Accepted_external_note_bytes_and_removal_are_protected_without_inventing_profile_changes()
     {
         var current = Path.Combine(folder, "current");
@@ -182,6 +231,13 @@ public sealed class IncrementalRecoveryTests : IDisposable
         var delivered = File.ReadAllText(notePath).Replace("Original writing", "Delivered exact writing\r\nwith CRLF");
         File.WriteAllText(notePath, delivered);
         File.Delete(Path.Combine(current, "team-notes", removed.Id + ".md"));
+        var documents = WorkspaceFixtures.IndexedDocuments(current);
+        var deliveredDocuments = new Dictionary<string, byte[]>();
+        foreach (var identity in new[] { "people:morgan@example.com", "profileHistory:morgan@example.com" })
+        {
+            File.WriteAllText(documents[identity], "\r\n " + File.ReadAllText(documents[identity]) + "\r\n");
+            deliveredDocuments[identity] = File.ReadAllBytes(documents[identity]);
+        }
         Assert.True(app.RefreshWorkspace(), app.Status);
         var commit = Commit(current);
         Assert.True(app.RetryStorageMaintenance(), app.Status);
@@ -194,6 +250,9 @@ public sealed class IncrementalRecoveryTests : IDisposable
         Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
         Assert.Equal(protectedCommit, Commit(Path.Combine(folder, "restored")));
         Assert.Equal(delivered, File.ReadAllText(Path.Combine(folder, "restored", "notes", note.Id + ".md")));
+        var restoredDocuments = WorkspaceFixtures.IndexedDocuments(Path.Combine(folder, "restored"));
+        foreach (var (identity, bytes) in deliveredDocuments)
+            Assert.Equal(bytes, File.ReadAllBytes(restoredDocuments[identity]));
         Assert.Equal("Delivered exact writing\r\nwith CRLF", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
         Assert.Empty(app.GetTeamNotes("morgan@example.com"));
         Assert.Equal("isFavorite", Assert.Single(app.GetProfileTimeline("avery@example.com")!.Changes).Field);

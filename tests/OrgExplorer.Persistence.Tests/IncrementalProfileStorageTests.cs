@@ -352,7 +352,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
     }
 
-    private static long MeasureEdit(string root, int unrelatedCount)
+    private long MeasureEdit(string root, int unrelatedCount)
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
@@ -395,6 +395,8 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
             publisher.BeforePublish = null;
             var written = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
+            foreach (var group in written.GroupBy(e => Path.GetRelativePath(root, e.Path).Split(Path.DirectorySeparatorChar)[0]))
+                output.WriteLine($"{unrelatedCount + 2} People: {group.Key} = {group.Sum(e => e.Bytes)} bytes.");
             var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
                 .ToDictionary(e => e.Path, e => e.Destination!);
             bool Copied(WorkspaceFileEffect write, string path)
