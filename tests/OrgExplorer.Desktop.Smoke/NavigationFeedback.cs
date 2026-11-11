@@ -82,7 +82,11 @@ internal static partial class Program
                     Value(window, $"{kind}NoteTitle") != "" || Find(window, "DirectoryName").Current.Name != "Avery")
                     throw new InvalidOperationException($"Rejected navigation changed the owner or discarded the failed {kind} note draft.");
                 Click(window, $"Discard{kind}NoteDraft");
-                Await(() => Value(window, $"{kind}NoteTitle").Length > 0);
+                Await(() => Find(window, $"{kind}NoteHeading").Current.Name == $"New {kind} note");
+                AssertNoteView(window, kind, editing: false);
+                SelectTab(window, $"{kind}NoteEditTab");
+                AssertNoteView(window, kind, editing: true);
+                AssertValue(window, $"{kind}NoteTitle", $"New {kind} note");
                 AwaitLocalWorkIdle(window);
             }
             Close(process);
