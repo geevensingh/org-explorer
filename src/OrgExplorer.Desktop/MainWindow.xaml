@@ -165,6 +165,15 @@
                   Click="ChangeFavorite" IsEnabled="False"/>
           <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
                      Text="Select a Person." Margin="8,0" VerticalAlignment="Center"/>
+          <Menu VerticalAlignment="Center" Margin="8,0" Background="Transparent">
+            <MenuItem x:Name="PersonMoreMenu" Header="More" AutomationProperties.AutomationId="PersonMore"
+                      IsEnabled="False">
+              <MenuItem x:Name="ArchivePersonMenuItem" Header="Archive Person…" AutomationProperties.AutomationId="ArchivePerson"
+                        Click="ArchivePerson"/>
+              <MenuItem x:Name="ReactivatePersonMenuItem" Header="Reactivate Person…" AutomationProperties.AutomationId="ReactivatePerson"
+                        Click="ReactivatePerson" Visibility="Collapsed"/>
+            </MenuItem>
+          </Menu>
         </WrapPanel>
         <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
           <StackPanel Margin="8">
@@ -179,12 +188,6 @@
         </GroupBox>
         <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
                    Text="Select a Person." TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
-        <WrapPanel>
-          <Button x:Name="ArchivePersonButton" Content="Archive Person" AutomationProperties.AutomationId="ArchivePerson"
-                  Click="ArchivePerson" IsEnabled="False"/>
-          <Button x:Name="ReactivatePersonButton" Content="Reactivate Person" AutomationProperties.AutomationId="ReactivatePerson"
-                  Click="ReactivatePerson" IsEnabled="False" Margin="8,0"/>
-        </WrapPanel>
         <local:PersonPhotoControl x:Name="Photo"/>
         <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
                    Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>

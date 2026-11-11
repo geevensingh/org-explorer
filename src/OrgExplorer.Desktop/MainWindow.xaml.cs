@@ -336,7 +336,7 @@ public partial class MainWindow : Window
         UpdateProfileMode();
         if (!workflow.IsWorkspaceCurrent)
         {
-            ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+            PersonMoreMenu.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
             PreferredNameContext.IsEnabled = false;
             Photo.CanEdit = false;

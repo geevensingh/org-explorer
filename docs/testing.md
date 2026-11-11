@@ -44,6 +44,10 @@ person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
 observes Save / Discard / Stay; only successful Save or explicit Discard permits
 leaving. Profile Cancel clears only that session, never independent note or
 quick-action failures. Unsaved profiles block safe close and updater restart.
+Person More actions require confirmation before the same profile leave decision
+and apply archival/reactivation immediately through `EditPersonArchived`, not as
+profile-draft fields. Cancellation preserves the draft and saved history; Stay
+and rejected leave-save retain the owner. Profile Discard never clears note drafts.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
@@ -191,7 +195,8 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.
-- `archival-navigation`: rejected Manager archival, failed local save and retry,
+- `archival-navigation`: Person More/confirmation cancellation, dirty-profile
+  Save/Discard/Stay and independent-note protection, rejected Manager archival, failed local save and retry,
   current-tree filtering, retained archived profile, selection protection,
   reactivation and explicit no-Manager UI.
 - `compatibility-settings`: global Settings before open, supported conversion,

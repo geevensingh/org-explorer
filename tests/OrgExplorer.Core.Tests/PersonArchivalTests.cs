@@ -36,6 +36,104 @@ public sealed class PersonArchivalTests
         return app;
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Declined_archival_confirmation_preserves_the_profile_draft_saved_data_and_history(bool archived)
+    {
+        using var app = Open();
+        const string email = "avery@example.com";
+        if (!archived) Assert.True(app.EditPersonArchived(email, true));
+        var saved = app.GetRelationships(email)!.Person;
+        var timeline = app.GetProfileTimeline(email)!;
+        var historical = app.GetHistoricalTeamContexts(email).Select(c => c.Id).ToArray();
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained draft"));
+        var draft = app.ProfileEdit;
+
+        Assert.False(app.EditPersonArchived(email, archived, confirmed: false, ProfileLeaveDecision.Save));
+
+        Assert.Contains("canceled", app.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(draft, app.ProfileEdit);
+        Assert.Equal(saved, app.GetRelationships(email)!.Person);
+        Assert.Equal(timeline.Observations, app.GetProfileTimeline(email)!.Observations);
+        Assert.Equal(timeline.Changes, app.GetProfileTimeline(email)!.Changes);
+        Assert.Equal(historical, app.GetHistoricalTeamContexts(email).Select(c => c.Id));
+    }
+
+    [Fact]
+    public void Confirmed_archival_cannot_bypass_a_dirty_profile_without_a_leave_decision()
+    {
+        using var app = Open();
+        const string email = "avery@example.com";
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained draft"));
+
+        Assert.False(app.EditPersonArchived(email, true, confirmed: true));
+
+        Assert.Equal(email, app.ProfileEdit!.Basis.Email);
+        Assert.Equal("Retained draft", app.ProfileEdit.Draft.JobTitle);
+        Assert.False(app.GetRelationships(email)!.Person.Archived);
+        Assert.Empty(app.GetHistoricalTeamContexts(email));
+        Assert.Contains("Stayed", app.Status);
+    }
+
+    [Fact]
+    public void Failed_leave_save_cannot_archive_and_profile_discard_retains_independent_failed_note_writing()
+    {
+        using var app = Open();
+        const string email = "avery@example.com";
+        var note = app.CreatePersonNote(email, "Independent writing", "Saved note")!;
+        var noteDraft = app.BeginNoteDraft(NoteScope.Person, email, note.Id)!;
+        Assert.Null(app.SaveNoteDraft(noteDraft, "", "Retained note writing"));
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained draft"));
+        Assert.True(app.StageProfileManager(email));
+        Assert.False(app.EditPersonArchived(email, true, confirmed: true, ProfileLeaveDecision.Save));
+        Assert.Equal("Retained draft", app.ProfileEdit!.Draft.JobTitle);
+        Assert.False(app.GetRelationships(email)!.Person.Archived);
+        Assert.Contains("cycle", app.Status, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(app.EditPersonArchived(email, true, confirmed: true, ProfileLeaveDecision.Discard), app.Status);
+
+        Assert.Null(app.ProfileEdit);
+        Assert.Equal("Engineer", app.GetRelationships(email)!.Person.JobTitle);
+        Assert.True(app.GetRelationships(email)!.Person.Archived);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("Person note", app.LocalSaveError);
+        Assert.Equal(note, Assert.Single(app.GetPersonNotes(email)));
+        Assert.NotNull(app.SaveNoteDraft(noteDraft, "Independent writing", "Retained note writing"));
+        Assert.Equal("Retained note writing", Assert.Single(app.GetPersonNotes(email)).Markdown);
+    }
+
+    [Theory]
+    [InlineData(true, ProfileLeaveDecision.Save, "Principal")]
+    [InlineData(true, ProfileLeaveDecision.Discard, "Engineer")]
+    [InlineData(false, ProfileLeaveDecision.Save, "Principal")]
+    [InlineData(false, ProfileLeaveDecision.Discard, "Engineer")]
+    public void Confirmed_action_applies_after_the_shared_decision_and_preserves_independent_quick_changes(
+        bool archived, ProfileLeaveDecision decision, string savedTitle)
+    {
+        using var app = Open();
+        const string email = "avery@example.com";
+        if (!archived) Assert.True(app.EditPersonArchived(email, true));
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
+        Assert.True(app.EditPreferredName(email, "My Avery"));
+        Assert.True(app.EditFavorite(email, true));
+
+        Assert.True(app.EditPersonArchived(email, archived, confirmed: true, decision), app.Status);
+
+        Assert.Null(app.ProfileEdit);
+        var person = app.GetRelationships(email)!.Person;
+        Assert.Equal(archived, person.Archived);
+        Assert.Equal(savedTitle, person.JobTitle);
+        Assert.Equal("My Avery", person.PreferredName);
+        Assert.True(person.IsFavorite);
+        Assert.True(app.CanSafelyClose);
+        Assert.Single(app.GetHistoricalTeamContexts(email));
+    }
+
     [Fact]
     public void Imported_archival_closes_current_context_and_freezes_retained_writing_without_a_reporting_move()
     {

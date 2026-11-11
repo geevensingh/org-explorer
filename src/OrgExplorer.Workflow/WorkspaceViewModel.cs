@@ -70,7 +70,9 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
     public bool EditPreferredName(string email, string? preferredName) => Observe(() => workflow.EditPreferredName(email, preferredName));
-    public bool EditPersonArchived(string email, bool archived) => Observe(() => workflow.EditPersonArchived(email, archived));
+    public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
+        ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay) =>
+        Observe(() => workflow.EditPersonArchived(email, archived, confirmed, profileDecision));
     public bool EditPersonManager(string email, string? managerEmail) => Observe(() => workflow.EditPersonManager(email, managerEmail));
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
     public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
