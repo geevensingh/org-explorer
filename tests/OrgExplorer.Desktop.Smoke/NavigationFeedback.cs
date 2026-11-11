@@ -43,8 +43,12 @@ internal static partial class Program
             {
                 Click(window, "NavigateManager");
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
-                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) &&
+                    Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                    Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+                    Find(window, "SaveProfile").Current.IsEnabled &&
+                    window.FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
                 AssertValue(window, "OfficeNumber", "0009P");
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed leave-save changed the profile owner.");
