@@ -33,6 +33,9 @@ if ($Mode -eq 'Plan') {
         "version=$($plan.version)" >> $env:GITHUB_OUTPUT
     }
     Write-Host "$($plan.reason) Candidate $Candidate; next unreserved version $($plan.version)."
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Write-ReleasePlanSummary -Plan $plan -Path $env:GITHUB_STEP_SUMMARY
+    }
     return
 }
 if (!$plan.publish -or $ExpectedVersion -cne $plan.version) { throw 'The publication plan/version changed; obtain fresh verification for the current plan.' }
