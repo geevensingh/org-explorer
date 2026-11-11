@@ -14,9 +14,9 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
          "observedAt":"{{observed}}","people":[{{records}}]}
         """;
 
-    private IApplicationWorkflow Open()
+    private IApplicationWorkflow Open(bool incremental = false)
     {
-        var app = ApplicationWorkflow.CreateFileBacked();
+        var app = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
         workflows.Add(app);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         return app;
@@ -29,10 +29,12 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         Assert.True(app.ApplyImport(preview.Id), app.Status);
     }
 
-    [Fact]
-    public void Structured_changes_confirmations_and_separate_dates_survive_reopen_and_failed_save_without_mtime_inference()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Structured_changes_confirmations_and_separate_dates_survive_reopen_and_failed_save_without_mtime_inference(bool incremental)
     {
-        var app = Open();
+        var app = Open(incremental);
         Apply(app, Batch("""
             {"email":"avery@example.com","displayName":"Avery","officeNumber":"007B","managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
@@ -45,7 +47,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         var before = app.GetProfileTimeline("avery@example.com")!;
         foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
             File.SetLastWriteTimeUtc(file, new DateTime(2000, 1, 1));
-        var reopened = Open();
+        var reopened = Open(incremental);
         var timeline = reopened.GetProfileTimeline("AVERY@example.com")!;
         Assert.Equal(3, timeline.Changes.Count);
         Assert.Equal(ProfileChangeSource.LocalEdit, timeline.Changes[0].Evidence.Source);
@@ -65,9 +67,9 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
             Assert.False(reopened.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Unsaved"));
             Assert.Equal(3, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
         }
-        Assert.Equal("0009C", Open().GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        Assert.Equal("0009C", Open(incremental).GetRelationships("avery@example.com")!.Person.OfficeNumber);
         Apply(reopened, Batch("""{"email":"avery@example.com","officeNumber":null}""", 6, "2026-11-08T17:00:00Z"));
-        var cleared = Open().GetProfileTimeline("avery@example.com")!;
+        var cleared = Open(incremental).GetProfileTimeline("avery@example.com")!;
         Assert.Equal(System.Text.Json.JsonValueKind.Null, cleared.Changes.Last().NewValue.ValueKind);
         Assert.Equal(4, cleared.Changes.Count);
     }
@@ -95,10 +97,12 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         Assert.False(reopened.EditPreferredName("avery@example.com", "Unsaved"));
     }
 
-    [Fact]
-    public void Person_notes_stay_separate_and_Profile_timeline_survives_note_edits_import_replay_and_reopen()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Person_notes_stay_separate_and_Profile_timeline_survives_note_edits_import_replay_and_reopen(bool incremental)
     {
-        var app = Open();
+        var app = Open(incremental);
         var initial = Batch("""{"email":"avery@example.com","displayName":"Avery","managerEmail":null}""",
             1, "2026-11-01T17:00:00Z");
         Apply(app, initial);
@@ -107,32 +111,47 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         var timeline = app.GetProfileTimeline("avery@example.com")!.DisplayChanges;
         Assert.True(app.EditPersonNote(note.Id, "Private context", "After"));
         Apply(app, initial);
-        var reopened = Open();
+        var reopened = Open(incremental);
         Assert.Equal(timeline, reopened.GetProfileTimeline("avery@example.com")!.DisplayChanges);
         Assert.Equal("After", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
         Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
         Assert.DoesNotContain(reopened.GetProfileTimeline("avery@example.com")!.Observations, o => o.Field.Contains("note"));
     }
 
-    [Fact]
-    public void Legacy_generation_without_field_history_keeps_prior_evidence_unknown_instead_of_reconstructing_from_envelopes()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Legacy_generation_without_field_history_keeps_prior_evidence_unknown_instead_of_reconstructing_from_envelopes(bool incremental)
     {
-        var app = Open();
+        var app = Open(incremental);
         Apply(app, Batch("""
             {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null}
             """, 1, "2026-11-01T17:00:00Z"));
-        var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
-        OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
-        var legacy = Open();
+        if (incremental)
+        {
+            foreach (var file in OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)
+                .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value))
+            {
+                var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+                history["observations"] = new System.Text.Json.Nodes.JsonArray();
+                File.WriteAllText(file, history.ToJsonString());
+            }
+        }
+        else
+        {
+            var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
+            Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
+            OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
+        }
+        var legacy = Open(incremental);
         Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));
-        var change = Assert.Single(Open().GetProfileTimeline("avery@example.com")!.Changes);
+        var change = Assert.Single(Open(incremental).GetProfileTimeline("avery@example.com")!.Changes);
         Assert.Equal("morgan@example.com", change.OldValue.GetString());
         Assert.Null(change.PreviousEvidence);
         Assert.Null(change.ReportingInterval);
-        Assert.Contains("effective date unknown", Open().GetProfileTimeline("avery@example.com")!.DisplayChanges);
+        Assert.Contains("effective date unknown", Open(incremental).GetProfileTimeline("avery@example.com")!.DisplayChanges);
     }
 
     public void Dispose()
