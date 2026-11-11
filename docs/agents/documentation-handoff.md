@@ -112,14 +112,21 @@ a committed documentation handoff, complete the following checklist:
 
 These joint-delivery conditions apply to handoffs carrying Markdown changes.
 
+An implementation PR, or the coordinator's integration PR for multiple tickets,
+may be opened as a draft while the handed-off Markdown still describes behavior
+under construction. It may target the default branch and include that Markdown
+before the behavior is complete, including the ordinary early-draft step after
+the first child merge. Child PRs still target the integration branch.
+
 The implementation owner verifies that the behavior described by the handed-off
 Markdown changes is implemented and that the final implementation/integration PR
 includes both. For multiple tickets, child results integrate first; the completed
 feature and its documentation then reach the default branch together.
 
-Check this delivery condition before opening a PR to the default branch. A branch
-containing only planning Markdown remains a handoff awaiting implementation, not
-an independently ready default-branch PR.
+Check this delivery condition before marking the PR ready and before merging to
+the default branch, not before opening a draft. Keep the PR in draft while the
+documented behavior is incomplete; planning Markdown must not land in the default
+branch ahead of its implementation.
 
 Follow ordinary validation and user approval requirements. A successful handoff
 is not permission to merge, and a documentation-only planning PR is not delivery
