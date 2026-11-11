@@ -16,6 +16,11 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Work from whatever is already in the conversation context. If the user passes a reference (a spec path, an issue number or URL) as an argument, fetch it and read its full body and comments.
 
+Resolve the source's documentation handoff using
+[Documentation handoff](../../../docs/agents/documentation-handoff.md), including
+its verified no-changes case when applicable. Carry the record into each ticket
+rather than replacing the source Markdown changes with a summary.
+
 ### 2. Explore the codebase (optional)
 
 If you have not already explored the codebase, do so to understand the current state of the code. Ticket titles and descriptions should use the project's domain glossary vocabulary, and respect ADRs in the area you're touching.
@@ -53,6 +58,10 @@ Ask the user:
 - Are the blocking edges correct: does each ticket only depend on tickets that genuinely gate it?
 - Should any tickets be merged or split further?
 
+When documentation is being handed off, also show the shared contract's
+integration owner/destination and documentation-baseline start prerequisite so
+the user approves the delivery arrangement along with the ticket breakdown.
+
 Iterate until the user approves the breakdown.
 
 ### 5. Publish the tickets to the configured tracker
@@ -79,6 +88,11 @@ Do NOT close or modify any parent issue.
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
 
+## Documentation handoff
+
+The record required by the shared documentation-handoff contract, or its verified
+no-changes case.
+
 </local-ticket-template>
 
 <issue-template>
@@ -96,10 +110,21 @@ The end-to-end behaviour this ticket makes work, from the user's perspective, no
 - [ ] Criterion 1
 - [ ] Criterion 2
 
+## Documentation handoff
+
+The record required by the shared documentation-handoff contract, or its verified
+no-changes case.
+
 ## Blocked by
 
 - A reference to each blocking ticket, or "None (can start immediately)". Omit this section when blockers were set as native edges.
 
 </issue-template>
 
-In either form, avoid specific file paths or code snippets: they go stale fast. Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
+In either form, avoid specific file paths or code snippets: they go stale fast.
+The Documentation handoff record is an exception: include the exact changed
+Markdown paths needed to verify incorporation.
+If a prototype produced a snippet that encodes a decision more precisely than
+prose can (state machine, reducer, schema, type shape), inline it and note briefly
+that it came from a prototype. Trim to the decision-rich parts, not a working
+demo, just the important bits.
