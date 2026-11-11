@@ -25,7 +25,7 @@ public partial class MainWindow
         PreferredNameContext.IsEnabled = PreferredName.IsEnabled = keepProfileDraft;
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
         TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
-        FavoriteButton.IsEnabled = ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = false;
+        FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
         try { return await Task.Run(operation); }
@@ -39,8 +39,7 @@ public partial class MainWindow
             UpdateProfileMode();
             var person = selectedEmail is null ? null : workflow.GetRelationships(selectedEmail)?.Person;
             FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
-            ArchivePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person is { Archived: false };
-            ReactivatePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person is { Archived: true };
+            PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
             queryDirty = true;
             if (externalRefreshPending)
             {

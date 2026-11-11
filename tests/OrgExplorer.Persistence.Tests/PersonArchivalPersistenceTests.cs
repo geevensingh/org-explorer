@@ -50,6 +50,73 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
     }
 
     [Fact]
+    public void Confirmed_archive_and_reactivation_save_the_profile_first_and_reopen_retained_context()
+    {
+        using var app = new WorkspaceViewModel(Seed());
+        const string email = "avery@example.com";
+        var note = app.CreatePersonNote(email, "Retained", "Independent writing")!;
+        app.CreateTeamNote("morgan@example.com", "Manager", "Frozen writing");
+        foreach (var archived in new[] { true, false })
+        {
+            Assert.True(app.BeginProfileEdit(email));
+            Assert.True(app.StageProfileText(PersonTextField.OfficeCountry, archived ? "Canada" : "France"));
+            var draft = app.ProfileEdit;
+            var pointer = File.ReadAllBytes(Path.Combine(Workspace, "workspace.json"));
+            Assert.False(app.EditPersonArchived(email, archived, confirmed: false, ProfileLeaveDecision.Save));
+            Assert.Equal(draft, app.ProfileEdit);
+            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
+            using (File.Open(Path.Combine(Workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.False(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save));
+                Assert.Equal(draft, app.ProfileEdit);
+                Assert.Contains("NOT saved", app.LocalSaveError);
+                Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
+                Assert.Equal(!archived, Open().GetRelationships(email)!.Person.Archived);
+            }
+            Assert.True(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save), app.Status);
+            Assert.Null(app.ProfileEdit);
+            Assert.True(app.CanSafelyClose);
+            var reopened = Open();
+            Assert.Equal(archived, reopened.GetRelationships(email)!.Person.Archived);
+            Assert.Equal(archived ? "Canada" : "France", reopened.GetRelationships(email)!.Person.OfficeCountry);
+            Assert.Equal(Png, reopened.GetPhoto(email)!.Bytes.ToArray());
+            Assert.Equal(note, Assert.Single(reopened.GetPersonNotes(email)));
+            Assert.Equal("Frozen writing", Assert.Single(Assert.Single(reopened.GetHistoricalTeamContexts(email)).TeamNotes).Markdown);
+            Assert.Equal(archived ? 0 : 1, reopened.GetInheritedTeamNotes(email).Count);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Stale_leave_save_and_retry_cannot_apply_archival_or_overwrite_delivered_profile(bool archived)
+    {
+        using var app = new WorkspaceViewModel(Seed());
+        const string email = "avery@example.com";
+        if (!archived) Assert.True(app.EditPersonArchived(email, true));
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained local draft"));
+        using (var provider = Open())
+            Assert.True(provider.EditPersonText(email, PersonTextField.Department, "Delivered department"));
+        var pointer = File.ReadAllBytes(Path.Combine(Workspace, "workspace.json"));
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            Assert.False(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save));
+            Assert.Contains("changed externally", app.Status);
+            Assert.Equal(email, app.ProfileEdit!.Basis.Email);
+            Assert.Equal("Retained local draft", app.ProfileEdit.Draft.JobTitle);
+            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
+            Assert.Equal(!archived, Open().GetRelationships(email)!.Person.Archived);
+        }
+        Assert.True(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Discard), app.Status);
+        var reopened = Open();
+        Assert.Equal(archived, reopened.GetRelationships(email)!.Person.Archived);
+        Assert.Equal("Engineer", reopened.GetRelationships(email)!.Person.JobTitle);
+        Assert.Equal("Delivered department", reopened.GetRelationships(email)!.Person.Department);
+        Assert.Equal(Png, reopened.GetPhoto(email)!.Bytes.ToArray());
+    }
+
+    [Fact]
     public void Archived_profile_photo_notes_and_frozen_context_reopen_without_the_producer_and_later_edits_cannot_rewrite_history()
     {
         var app = Seed();

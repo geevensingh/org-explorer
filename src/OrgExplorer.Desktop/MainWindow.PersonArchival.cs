@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using OrgExplorer.Workflow;
 
@@ -41,8 +42,9 @@ public partial class MainWindow
         PersonArchivalStatus.Text = person.Archived
             ? "Archived — profile, photos, notes and history retained. No current inherited context."
             : "Active — included in the current imported org.";
-        ArchivePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && !person.Archived;
-        ReactivatePersonButton.IsEnabled = workflow.IsWorkspaceCurrent && person.Archived;
+        PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && !workPending;
+        ArchivePersonMenuItem.Visibility = person.Archived ? Visibility.Collapsed : Visibility.Visible;
+        ReactivatePersonMenuItem.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;
         ManagerEditor.IsEnabled = workflow.IsWorkspaceCurrent;
         var choices = new List<ManagerChoice> { new(null, "(explicit no-Manager — clear relationship)") };
         choices.AddRange(workflow.People.Where(p => !string.Equals(p.Email, person.Email, StringComparison.OrdinalIgnoreCase))
@@ -59,7 +61,7 @@ public partial class MainWindow
     private void ClearPersonArchival()
     {
         PersonArchivalStatus.Text = "Select a Person.";
-        ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
+        PersonMoreMenu.IsEnabled = ManagerEditor.IsEnabled = false;
         ManagerChoices.ItemsSource = null;
     }
 
@@ -68,15 +70,55 @@ public partial class MainWindow
 
     private async void ChangePersonArchival(bool archived)
     {
-        if (selectedEmail is null || !TryLeaveLocalEdits()) return;
-        var email = selectedEmail;
-        if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived), "Saving Person archival state…"))
+        if (workPending || selectedEmail is not { } email || workflow.GetRelationships(email) is not { } context) return;
+        if (!ConfirmPersonArchival(context.Person, archived))
+        {
+            workflow.EditPersonArchived(email, archived, confirmed: false);
+            ShowStatus();
+            return;
+        }
+        if (!TryLeaveLocalEdits()) return;
+        if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived, confirmed: true), "Saving Person archival state…"))
         {
             unsavedArchived = null;
             RefreshPeople();
         }
         else if (!workflow.CanSafelyClose) unsavedArchived = archived;
         InvalidateRelationshipPreview();
+    }
+
+    private bool ConfirmPersonArchival(PersonProfile person, bool archived)
+    {
+        var action = archived ? "Archive" : "Reactivate";
+        var dialog = new Window
+        {
+            Owner = this, Title = $"{action} Person?", SizeToContent = SizeToContent.WidthAndHeight,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize
+        };
+        AutomationProperties.SetAutomationId(dialog, "PersonArchivalConfirmation");
+        var content = new StackPanel { Margin = new Thickness(20), MaxWidth = 480 };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{action} {person.Heading} ({person.Email})?\n\n" + (archived
+                ? "Remove this Person from the current org while retaining their profile, photos, notes and history. " +
+                  "Active reports must be explicitly reassigned or archived first; no subtree is archived automatically."
+                : "Return this Person to the current org only if their stored reporting relationships are valid. " +
+                  "Retained notes, photos and history are preserved.") +
+                "\n\nThis action applies immediately after confirmation and any required draft decision, not with profile Save/Cancel.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
+        });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        var confirm = new Button { Content = action, MinWidth = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = "Cancel", MinWidth = 90, IsCancel = true, IsDefault = true };
+        AutomationProperties.SetAutomationId(confirm, "ConfirmPersonArchival");
+        AutomationProperties.SetAutomationId(cancel, "CancelPersonArchival");
+        confirm.Click += (_, _) => dialog.DialogResult = true;
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        buttons.Children.Add(confirm);
+        buttons.Children.Add(cancel);
+        content.Children.Add(buttons);
+        dialog.Content = content;
+        return dialog.ShowDialog() == true;
     }
 
     private void StagePersonManager(object sender, SelectionChangedEventArgs e)

@@ -90,7 +90,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Historical search omitted frozen ownership/provenance.");
             QueryAndSelect(window, "pine", "avery@example.com", "Current", "Inherited Team note");
             AssertSearchReading(window, "New current Team writing");
-            Click(window, "ArchivePerson");
+            RequestPersonArchival(window, archived: true);
             QueryAndSelect(window, "007b", "avery@example.com", "Archived person", "Profile:");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Archived match opened a current profile.");
