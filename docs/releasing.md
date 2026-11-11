@@ -29,6 +29,14 @@ Repository-only docs, tests, skills and unrelated test tooling normally do not.
 Mixed changes count. A failed product attempt followed by a docs-only commit
 still includes that pending product effect and gets a new attempt.
 
+The Actions run's job summary explains the planning decision, with links to the
+last published app and candidate source, plus the changed files. **No release
+published - expected no-op** means the current app release remains unchanged;
+scale verification and publication were intentionally skipped. This is a
+successful outcome, not a publication failure. **Release planned - publication
+pending** means product changes were detected, but does not claim that later
+verification or publication succeeded; inspect those jobs for their outcome.
+
 App assembly/package/feed versions are generated together. Import schema,
 Workspace format and signed-update protocol versions remain independent,
 deliberate compatibility contracts; a patch release changes none of them.
