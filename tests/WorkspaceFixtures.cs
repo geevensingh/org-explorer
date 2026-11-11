@@ -34,8 +34,22 @@ internal static class WorkspaceFixtures
     internal static Dictionary<string, string> IndexedDocuments(string root)
     {
         var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "workspace.json")))!;
+        return IndexedDocuments(root, pointer["roots"]!.AsObject());
+    }
+
+    internal static Dictionary<string, string> RecoveryDocuments(string root)
+    {
+        var recovery = Path.Combine(root, "recovery");
+        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(recovery, "current.json")))!;
+        var roots = pointer["workspace"]!["roots"]!.AsObject().DeepClone().AsObject();
+        foreach (var family in pointer["noteRoots"]!.AsObject()) roots.Add(family.Key, family.Value?.DeepClone());
+        return IndexedDocuments(recovery, roots);
+    }
+
+    private static Dictionary<string, string> IndexedDocuments(string root, JsonObject roots)
+    {
         var result = new Dictionary<string, string>();
-        foreach (var family in pointer["roots"]!.AsObject())
+        foreach (var family in roots)
             if (family.Value is not null) Visit(family.Key, family.Value.GetValue<string>());
         return result;
 

@@ -45,8 +45,8 @@ rather than inviting the edit to be repeated as if it were unsaved.
 
 Unreferenced staged/retired objects and transactions do not become current data
 on reopen. Failed attempts are deliberately preserved for later classification;
-this slice neither selects recovery nor deletes objects. The recovery slice
-must extend this transaction boundary with an independently validated candidate,
+this foundation neither selects recovery nor deletes objects. The recovery slice
+below extends this transaction boundary with an independently validated candidate,
 post-publication receipt/selection and maintenance-only retry. The delivery
 slice owns complete race/out-of-order coverage; the Import slice owns full
 multi-Person/resource behavior and batching of index updates. Reclamation must
@@ -56,6 +56,68 @@ from paths. Final activation remains blocked on those slices.
 `WorkspaceFixtures.IndexedDocuments` is the storage-aware inspection helper.
 Functional tests still drive the existing workflow/view-model; no desktop
 caller or public per-Person repository interprets these paths.
+
+## Independent recovery implementation (#45, internal only)
+
+The internal version-3 workflow now prepares independent recovery before each
+profile/Import or independently atomic note publication. The shipping factory
+still uses version 2; no migration, recovery UI, deletion or shipping activation
+is introduced here.
+
+`recovery\current.json` is a version-1 recovery envelope containing the originating
+transaction GUID, exact accepted current-byte fingerprint (`sourceRevision`),
+the ordinary version-3 selector (`workspace`), and two additional bounded index
+roots (`noteRoots.personNotes` and `noteRoots.teamNotes`). Captured notes are
+uniquely named Markdown documents inside those recovery families; materialization
+places the selected bytes at their ordinary GUID-named note locations. This is
+one selected note state, not user-visible note edit-version history.
+
+Recovery index and document paths resolve only below `recovery`, never to current
+files. Every immutable recovery object has an adjacent ASCII SHA-256 `.sha256`
+seal. Current document bytes are copied exactly, not reserialized. Changed
+documents and affected index paths get new physical files; unchanged recovery
+references are reused. Recovery metadata and ownership records may be compact
+JSON; document readability and externally supplied formatting are preserved.
+
+The candidate envelope is durable at `transactions\<id>\recovery.next`. After
+current publication succeeds, `committed.json` records version 1, the transaction
+GUID (`commit`), accepted fingerprint (`revision`), and envelope digest
+(`recoveryDigest`). Local publications also bind a `publication` record in the
+envelope and receipt: the selector/note relative path and before/after byte
+digests (a null before digest means creation). Acceptance-only maintenance has
+no local publication. Only a matching receipt and complete sealed, semantically
+validated closure permit recovery selector replacement. The previous selector
+is retained at that transaction's `recovery.previous.json`. The recovery selector,
+not the highest GUID or newest file, identifies the protected committed state.
+Reopening never selects an orphan candidate, including one matching current.
+
+`RetryStorageMaintenance()` is separate from edit/Import/note retry. In the same
+session it completes the already prepared committed candidate. After reopening
+it independently captures the completely validated current state in a new
+acceptance transaction; it does not reinterpret an unreceipted orphan as a commit.
+Accepted external note edits/deletions and other valid current changes therefore
+reach recovery without invented Profile changes, Import replay or new note dates.
+Recovery-only writes never replace current files or change a pending preview's
+current fingerprint. A committed maintenance error survives generic draft
+discard and blocks safe close/restart until maintenance succeeds.
+
+### Roots handed to reclamation
+
+The later reclamation implementation must protect the current `workspace.json`
+closure and captured ordinary notes; `workspace.previous.json` during current
+replacement; selected `recovery\current.json` and all its ordinary/extra note
+index closures plus seals; retained history/evidence/photo resources; and every
+unretired transaction. Transaction roots include `selector.next`, `recovery.next`,
+`recovery.previous.json`, receipts and all staged objects. Receipt absence is
+ambiguous, not proof of abortion. This slice writes no retirement/deletion record
+and releases none of those roots.
+
+Current inventories remain `created-<number>.json`. Recovery inventories are
+`created-recovery-<number>.json`, with `path`, `stagingPath`, byte length and digest
+written before the corresponding staged payload. Both locations are relative
+to the Workspace, including the `recovery` prefix. Recovery documents, nodes and
+seal files each have their own record. Selector/receipt stages remain inside
+their owning transaction; no population-wide inventory is rewritten.
 
 ## Roots and physical independence
 
@@ -249,6 +311,33 @@ independently expected committed People, history, evidence, notes, relationships
 and decoded images, not merely a "recovery ready" flag. This procedure must not
 require an uncommitted transaction to finish or a missing current document to be
 reconstructed. Installer rollback is not Workspace restoration.
+
+The development workflow exposes `RecoverWorkspace(destinationPath)` for this
+procedure. It deliberately reuses receipt/seal validation and the normal semantic
+reader instead of introducing a second format-aware export script:
+
+1. Close other clients and preserve the original folder. Use a fresh internal
+   version-3 workflow to open the source. An unavailable current selector does
+   not prevent the explicit recovery operation from validating its independent
+   recovery roots. Never point a writer directly at the protected recovery tree.
+2. Resolve genuinely unsaved drafts first. For an open valid current state with
+   incomplete maintenance, explicitly retry maintenance; generic Discard cannot
+   claim that already committed writing was never saved.
+3. Call `RecoverWorkspace` with an empty isolated destination outside the source
+   tree. It rejects nonempty destinations and links, verifies selected provenance
+   and bytes before and after copying, materializes captured notes, and opens the
+   result through the normal workflow. Rejection never edits source/current or
+   selected recovery. A failed copy can leave a partial destination; preserve or
+   remove that separately rather than retrying into it.
+4. Inspect independently expected committed People, relationships, history,
+   evidence, notes and images in the opened destination. Its selector retains the
+   protected commit identity. The source remains untouched, including damaged
+   current files. The destination initially contains restored current data only;
+   call `RetryStorageMaintenance()` there to establish its own independent
+   recovery before safe close/restart. This does not manufacture another edit.
+
+These are internal development operations until final activation; they are not
+instructions to convert a shipping version-1/2 Workspace.
 
 ## Deterministic scenarios for the later slices
 

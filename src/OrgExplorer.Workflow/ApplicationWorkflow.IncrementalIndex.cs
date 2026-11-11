@@ -48,7 +48,7 @@ public sealed partial class ApplicationWorkflow
     {
         var pattern = family is null ? @"^index[/\\][a-f0-9]{32}\.json$" :
             @"^documents[/\\]" + Regex.Escape(family) + @"[/\\][a-f0-9]{32}\." +
-            (family == "photos" ? "(png|jpg)$" : "json$");
+            (family == "photos" ? "(png|jpg)$" : family is "personNotes" or "teamNotes" ? "md$" : "json$");
         if (relative is null || !Regex.IsMatch(relative, pattern))
             throw new FormatException("Invalid incremental Workspace file reference.");
         var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
@@ -160,10 +160,11 @@ public sealed partial class ApplicationWorkflow
     }
 
     private string UpdateIndex(string? reference, string family, string key, string document, string prefix,
-        IReadOnlyDictionary<string, byte[]> source, Action<string, byte[]> write)
+        IReadOnlyDictionary<string, byte[]> source, Action<string, byte[]> write, string? indexRoot = null)
     {
+        var root = indexRoot ?? workspace!;
         var node = reference is null ? new IndexNode(1, family, [], null) :
-            ReadIndexNode(workspace!, reference, family, prefix, source);
+            ReadIndexNode(root, reference, family, prefix, source);
         if (node.Entries is { } existing)
         {
             var entries = new Dictionary<string, string>(existing) { [key] = document };
@@ -171,7 +172,7 @@ public sealed partial class ApplicationWorkflow
         }
         var edge = IndexKeyHash(key)[prefix.Length].ToString();
         var children = new Dictionary<string, string>(node.Children!);
-        children[edge] = UpdateIndex(children.GetValueOrDefault(edge), family, key, document, prefix + edge, source, write);
+        children[edge] = UpdateIndex(children.GetValueOrDefault(edge), family, key, document, prefix + edge, source, write, root);
         return WriteNode(new(1, family, null, children));
 
         string Build(Dictionary<string, string> entries, string partition)

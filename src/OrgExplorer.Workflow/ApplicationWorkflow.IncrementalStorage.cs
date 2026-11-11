@@ -39,8 +39,10 @@ public sealed partial class ApplicationWorkflow
         InvalidateProjections();
         revision = WorkspaceFingerprint(snapshot: bytes);
         workspaceCurrent = true;
+        CheckRecoveryOnOpen(bytes);
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            "Development version-3 Workspace. Recovery and reclamation are not activated.", workspace, 3);
+            "Development version-3 Workspace. Reclamation and shipping activation remain unavailable.", workspace, 3,
+            verifiedRecoveryPath);
     }
 
     private void ReadIncrementalWorkspaceData(IReadOnlyDictionary<string, byte[]> bytes)
@@ -215,6 +217,8 @@ public sealed partial class ApplicationWorkflow
                     throw new IOException("Workspace candidate changed while validating staged data.");
             using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true })
                 validation.ReadIncrementalWorkspaceData(expected);
+            var recovery = PrepareRecovery(expected, transaction,
+                new("workspace.json", selector is null ? null : ByteDigest(selector), ByteDigest(candidate)));
             if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Workspace or supplied resources changed during staging. No changes published.");
             PublishWorkspaceFile(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
@@ -222,15 +226,7 @@ public sealed partial class ApplicationWorkflow
             teamContextRevisions = nextTeamContexts;
             historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
-            try
-            {
-                WriteDurablyBytes(Path.Combine(transaction, "committed.json"),
-                    JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, commit, revision }, JsonOptions));
-            }
-            catch (Exception ex) when (StorageError(ex))
-            {
-                SaveFailed("storage-maintenance", "Saved locally; transaction receipt maintenance incomplete: " + ex.Message);
-            }
+            FinishCommittedRecovery(recovery);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))

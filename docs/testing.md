@@ -83,8 +83,21 @@ document bytes as well as a bounded byte increase; final directory size alone
 cannot pass it. Real pointer replacement failures prove retained drafts,
 retry/discard and no staging adoption. Receipt failure distinguishes a committed
 edit from incomplete transaction maintenance. This internal test factory does
-not activate version 3 in the application or claim independent recovery,
-reclamation, desktop coverage or 10,000-Person evidence.
+not activate version 3 in the application or claim reclamation, desktop coverage
+or 10,000-Person evidence.
+
+`IncrementalRecoveryTests` and the extended rich profile-write regression drive
+the same file-backed workflow with independent sealed recovery. They restore
+through `RecoverWorkspace` and the normal reader after current Person/history,
+photo and note corruption, checking commit identity and independently expected
+relationships, evidence and writing. Real publisher/lock failures cover recovery
+object/candidate staging, current replacement, committed receipt and recovery
+selector replacement. Interrupted candidates are never adopted on reopen;
+maintenance-only retry preserves current bytes/history/note dates and an
+unchanged Import preview. Recovery inventories, seals, staged payloads and
+selector/receipt writes all participate in byte accounting. The 6/258-Person
+comparison also proves zero copies of unrelated recovery documents, not merely
+a smaller surviving directory. There is no cleanup or desktop evidence here.
 
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app

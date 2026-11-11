@@ -16,13 +16,13 @@ public sealed partial class ApplicationWorkflow
     {
         var result = new TeamNoteDocuments([], []);
         var directory = Path.Combine(path, "team-notes");
-        if (!Directory.Exists(directory))
+        if (workspaceReadSnapshot.Value is null && !Directory.Exists(directory))
         {
             if (File.Exists(directory)) throw new IOException("Team notes folder is not a directory.");
             return result;
         }
         RejectNoteLink(directory);
-        foreach (var file in Directory.GetFiles(directory, "*.md"))
+        foreach (var file in NoteDocumentPaths(directory))
         {
             RejectNoteLink(file);
             var (metadata, markdown) = ReadNoteDocument<TeamNoteMetadata>(file, NoteScope.Team, owners);

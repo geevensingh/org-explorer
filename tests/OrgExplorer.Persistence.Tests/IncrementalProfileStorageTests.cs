@@ -88,7 +88,10 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained draft"), app.Status);
         FileStream? held = null;
         publisher.BeforePublish = (_, destination) =>
-            held = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read);
+        {
+            if (destination == Path.Combine(folder, "workspace.json"))
+                held = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read);
+        };
         observer.Effects.Clear();
         try { Assert.False(app.SaveProfileEdit()); }
         finally { held?.Dispose(); }
@@ -99,7 +102,8 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(folder, "workspace.json")));
         foreach (var (path, bytes) in documents) Assert.Equal(bytes, File.ReadAllBytes(path));
         Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write);
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish);
+        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
+            e.Destination == Path.Combine(folder, "workspace.json"));
         using (var prior = ApplicationWorkflow.CreateIncrementalFileBacked())
         {
             Assert.True(prior.OpenWorkspace(folder), prior.Status);
@@ -195,8 +199,11 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
-        publisher.BeforePublish = (staged, _) =>
-            Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(staged)!, "committed.json"));
+        publisher.BeforePublish = (staged, destination) =>
+        {
+            if (destination == Path.Combine(folder, "workspace.json"))
+                Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(staged)!, "committed.json"));
+        };
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
         Assert.Contains("Saved locally", app.Status);
         Assert.Contains("maintenance incomplete", app.LocalSaveError);
@@ -237,6 +244,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.True(app.RefreshWorkspace(), app.Status);
             Assert.True(app.EditPhoto("morgan@example.com", sourcePhoto), app.Status);
             var before = WorkspaceFixtures.Bytes(root);
+            var recoveryBefore = WorkspaceFixtures.RecoveryDocuments(root);
             observer.Effects.Clear();
             publisher.BeforePublish = (staged, _) =>
             {
@@ -250,12 +258,27 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
             publisher.BeforePublish = null;
             var written = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
+            var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
+                .ToDictionary(e => e.Path, e => e.Destination!);
+            bool Copied(WorkspaceFileEffect write, string path)
+            {
+                var location = File.Exists(write.Path) ? write.Path : publications.GetValueOrDefault(write.Path);
+                return write.Path == path || location is not null && File.Exists(location) &&
+                    File.ReadAllBytes(location).AsSpan().SequenceEqual(File.ReadAllBytes(path));
+            }
             var current = WorkspaceFixtures.IndexedDocuments(root);
             foreach (var (identity, path) in current.Where(e => e.Key is not "people:avery@example.com" and not "profileHistory:avery@example.com"))
             {
                 Assert.Equal(before[Path.GetRelativePath(root, path)], File.ReadAllBytes(path));
-                Assert.DoesNotContain(written, e => e.Path == path ||
-                    File.Exists(e.Path) && File.ReadAllBytes(e.Path).AsSpan().SequenceEqual(File.ReadAllBytes(path)));
+                Assert.DoesNotContain(written, e => Copied(e, path));
+            }
+            var recoveryAfter = WorkspaceFixtures.RecoveryDocuments(root);
+            foreach (var (identity, path) in recoveryBefore.Where(e =>
+                e.Key is not "people:avery@example.com" and not "profileHistory:avery@example.com"))
+            {
+                Assert.Equal(path, recoveryAfter[identity]);
+                Assert.Equal(before[Path.GetRelativePath(root, path)], File.ReadAllBytes(path));
+                Assert.DoesNotContain(written, e => Copied(e, path));
             }
             app.Dispose();
             using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
@@ -268,6 +291,13 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.Equal("Unrelated team writing", reopened.GetTeamNotes("morgan@example.com").Single(n => n.Id == team.Id).Markdown);
             Assert.Equal(image, reopened.GetPhoto("morgan@example.com")!.Bytes.ToArray());
             Assert.Equal("Research", Assert.Single(reopened.GetProfileTimeline("morgan@example.com")!.Changes, c => c.Field == "department").NewValue.GetString());
+            Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(import).Changes));
+            Assert.True(reopened.RecoverWorkspace(root + "-restored"), reopened.Status);
+            Assert.Equal(unrelatedCount + 2, reopened.People.Count);
+            Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.Heading);
+            Assert.Equal("Unrelated personal writing", reopened.GetPersonNotes("morgan@example.com").Single(n => n.Id == note.Id).Markdown);
+            Assert.Equal("Unrelated team writing", reopened.GetTeamNotes("morgan@example.com").Single(n => n.Id == team.Id).Markdown);
+            Assert.Equal(image, reopened.GetPhoto("morgan@example.com")!.Bytes.ToArray());
             Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(import).Changes));
             return written.Sum(e => e.Bytes);
         }

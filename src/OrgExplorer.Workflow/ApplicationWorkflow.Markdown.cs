@@ -24,11 +24,23 @@ public sealed partial class ApplicationWorkflow
             if (File.Exists(destination)) RejectNoteLink(destination);
             staged = Path.Combine(directory, id.ToString("D") + ".next");
             var bytes = new UTF8Encoding(false, true).GetBytes(content);
+            PreparedRecovery? recovery = null;
+            if (incrementalStorage)
+            {
+                var transaction = BeginRecoveryTransaction("note", revision);
+                var candidate = new Dictionary<string, byte[]>(expected, StringComparer.OrdinalIgnoreCase) { [destination] = bytes };
+                recovery = PrepareRecovery(candidate, transaction,
+                    new(Path.GetRelativePath(workspace!, destination),
+                        expected.TryGetValue(destination, out var before) ? ByteDigest(before) : null, ByteDigest(bytes)));
+                if (WorkspaceFingerprint() != revision)
+                    throw new IOException("Workspace changed during recovery staging; no note changes saved.");
+            }
             WriteDurablyBytes(staged, bytes);
             PublishWorkspaceFile(staged, destination, null);
             staged = null;
             expected[destination] = bytes;
             AcceptWorkspaceRevision(expected);
+            if (recovery is not null) FinishCommittedRecovery(recovery);
         }
         finally
         {

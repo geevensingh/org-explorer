@@ -2,6 +2,12 @@ namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
+    private static IEnumerable<string> NoteDocumentPaths(string directory) =>
+        workspaceReadSnapshot.Value is { } snapshot
+            ? snapshot.Keys.Where(path => Path.GetDirectoryName(path)!.Equals(directory, StringComparison.OrdinalIgnoreCase) &&
+                Path.GetExtension(path).Equals(".md", StringComparison.OrdinalIgnoreCase))
+            : Directory.GetFiles(directory, "*.md");
+
     private static readonly AsyncLocal<IReadOnlyDictionary<string, byte[]>?> workspaceReadSnapshot = new();
 
     private sealed class WorkspaceReadScope(IReadOnlyDictionary<string, byte[]> bytes) : IDisposable

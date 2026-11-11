@@ -57,7 +57,8 @@ public sealed partial class ApplicationWorkflow
             }
             else
             {
-                failedSaves.Clear();
+                foreach (var key in failedSaves.Keys.Where(key => key != "storage-maintenance").ToArray())
+                    failedSaves.Remove(key);
                 unsavedNoteBases.Clear();
             }
             Status = "Unsaved local changes deliberately discarded.";
