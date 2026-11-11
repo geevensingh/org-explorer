@@ -113,7 +113,17 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 dotnet test tests\OrgExplorer.Core.Tests --filter 'FullyQualifiedName~DesktopScenario|FullyQualifiedName~NavigationRejectionTests|FullyQualifiedName~ControlReadinessTests|FullyQualifiedName~UninstallProcessTests'
 dotnet build tests\OrgExplorer.Desktop.Smoke -c Release
 dotnet build src\OrgExplorer.Desktop -c Release
+dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
+  src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
+
+`--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
+It constructs the actual compiled MainWindow BAML and event connectors on STA
+with isolated settings, requires the window to remain invisible with no native
+main-window handle, then closes it. It never calls Show or runs the application
+dispatcher; startup restore/update Loaded handlers and UI Automation are not run.
+This catches XAML connection failures that compilation alone misses. It does not
+prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
