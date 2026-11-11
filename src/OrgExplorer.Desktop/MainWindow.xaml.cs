@@ -324,6 +324,7 @@ public partial class MainWindow : Window
             ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");
             return false;
         }
+        if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
         if (!TryLeaveNotes()) return false;
         if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship)
         {

@@ -69,14 +69,17 @@ internal static partial class Program
                 Click(window, $"New{kind}Note");
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
+                BeginProfileEditing(window);
+                Set(window, "DirectoryNameEditor", "Discard this profile only");
                 Click(window, "NavigateManager");
+                Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));
                 var status = Find(window, "Status").Current.Name;
                 if (!status.StartsWith("Navigation blocked:") || !status.Contains($"{kind} note") ||
                     !status.Contains("Retry or discard"))
                     throw new InvalidOperationException($"Failed {kind} note navigation lacks a visible, actionable main status: {status}");
                 if (Find(window, "Email").Current.Name != "avery@example.com" ||
-                    Value(window, $"{kind}NoteTitle") != "")
+                    Value(window, $"{kind}NoteTitle") != "" || Find(window, "DirectoryName").Current.Name != "Avery")
                     throw new InvalidOperationException($"Rejected navigation changed the owner or discarded the failed {kind} note draft.");
                 Click(window, $"Discard{kind}NoteDraft");
                 Await(() => Value(window, $"{kind}NoteTitle").Length > 0);
