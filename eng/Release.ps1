@@ -108,3 +108,48 @@ function Get-ReleasePlan([string]$Root, [string]$Candidate, $LastRelease = $null
         reason = if ($publish) { 'Unpublished product effect since the last successful publication.' } else { 'No unpublished product effect.' }
     }
 }
+
+function Write-ReleasePlanSummary([System.Collections.IDictionary]$Plan, [string]$Path) {
+    $repositoryUrl = "https://github.com/$ReleaseRepository"
+    $summary = @(
+        if ($Plan.publish) {
+            '## Release planned - publication pending'
+            ''
+            "Release **$($Plan.tag)** still requires successful scale verification and publication. This plan is not confirmation of a published release."
+        } else {
+            '## No release published - expected no-op'
+            ''
+            'This is a successful no-op, not a publication failure.'
+            ''
+            "**$($Plan.lastTag) remains the current app release.** No shipped product inputs changed since that release."
+            ''
+            '**Scale verification and publication were intentionally skipped.**'
+        }
+        ''
+        [System.Net.WebUtility]::HtmlEncode($Plan.reason)
+        ''
+        '| Comparison | Source |'
+        '| --- | --- |'
+        if ($Plan.lastTag) {
+            "| Last published app | [$($Plan.lastTag)]($repositoryUrl/releases/tag/$($Plan.lastTag)) - [$($Plan.lastSourceSha)]($repositoryUrl/commit/$($Plan.lastSourceSha)) |"
+        } else {
+            '| Last published app | None (first product release) |'
+        }
+        "| Candidate | [$($Plan.sourceSha)]($repositoryUrl/commit/$($Plan.sourceSha)) |"
+        ''
+        '<details>'
+        '<summary>Changed files since the last published app (all files for a first release)</summary>'
+        ''
+        if (@($Plan.changedPaths).Count -eq 0) {
+            'None.'
+        } else {
+            foreach ($changedPath in $Plan.changedPaths) {
+                "- <code>$([System.Net.WebUtility]::HtmlEncode($changedPath))</code>"
+            }
+        }
+        ''
+        '</details>'
+        ''
+    )
+    $summary -join "`n" | Add-Content -LiteralPath $Path -Encoding utf8
+}
