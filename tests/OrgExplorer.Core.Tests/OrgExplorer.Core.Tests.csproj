@@ -13,6 +13,7 @@
     <Compile Include="..\OrgExplorer.Desktop.Smoke\DesktopScenarioSelection.cs" Link="DesktopScenarioSelection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\TreeItemRealization.cs" Link="TreeItemRealization.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\ControlReadiness.cs" Link="ControlReadiness.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\WorkspaceRestoration.cs" Link="WorkspaceRestoration.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs" Link="SmokeScenarioRunner.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\NavigationRejection.cs" Link="NavigationRejection.cs" />
     <Compile Include="..\OrgExplorer.Installer.Smoke\UninstallProcess.cs" Link="UninstallProcess.cs" />
