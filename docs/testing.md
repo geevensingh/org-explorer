@@ -65,6 +65,14 @@ safe-close/restart becoming available only when no other writing remains.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
+`WorkspaceWriteObservationTests` drives the real file-backed workflow with an
+optional `IWorkspaceFileObserver`; payload writes and durable flushes stay real.
+It accounts for transient and repeated writes, failed publication/cleanup, and
+existing conversion recovery copies, not just surviving file sizes. The
+[proposed incremental storage protocol](incremental-workspace-storage-protocol.md)
+defines later recovery/reclamation cases; neither that format nor cleanup is
+activated by this observation prefactor.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,

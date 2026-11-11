@@ -142,7 +142,7 @@ public sealed partial class ApplicationWorkflow
                     "Review before Apply; this does not establish an exact effective date.");
     }
 
-    private static void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history,
+    private void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history,
         Dictionary<string, PersonHistory> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
         System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {

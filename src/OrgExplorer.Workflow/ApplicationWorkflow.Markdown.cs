@@ -25,7 +25,7 @@ public sealed partial class ApplicationWorkflow
             staged = Path.Combine(directory, id.ToString("D") + ".next");
             var bytes = new UTF8Encoding(false, true).GetBytes(content);
             WriteDurablyBytes(staged, bytes);
-            filePublisher.Publish(staged, destination, null);
+            PublishWorkspaceFile(staged, destination, null);
             staged = null;
             expected[destination] = bytes;
             AcceptWorkspaceRevision(expected);
@@ -34,7 +34,7 @@ public sealed partial class ApplicationWorkflow
         {
             if (staged is not null)
             {
-                try { File.Delete(staged); }
+                try { DeleteWorkspaceFile(staged); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
         }

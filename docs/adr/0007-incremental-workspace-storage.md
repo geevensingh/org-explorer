@@ -11,6 +11,10 @@ readable-file and provider-owned synchronization contract of
 [Workspace format](../workspace-format.md) still documents the current
 full-generation implementation.
 
+The proposed combined [storage safety protocol](../incremental-workspace-storage-protocol.md)
+defines incremental roots, current/recovery publication, interruption states and
+reclamation safeguards before the rewrite. It is not active format documentation.
+
 ## Consequences
 
 - A Preferred-name save writes only affected documents and incremental commit/index

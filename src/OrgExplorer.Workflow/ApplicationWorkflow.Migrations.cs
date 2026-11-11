@@ -161,7 +161,7 @@ public sealed partial class ApplicationWorkflow
         return record.Deserialize<T>(JsonOptions);
     }
 
-    private static void WriteVersionedRecord<T>(string path, T value,
+    private void WriteVersionedRecord<T>(string path, T value,
         System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>? published = null)
     {
         var record = JsonSerializer.SerializeToNode(value, JsonOptions)!.AsObject();
@@ -240,6 +240,9 @@ public sealed partial class ApplicationWorkflow
             WriteDurably(stagedPointer, pointer);
             File.Replace(stagedPointer, Path.Combine(originalRoot, "workspace.json"),
                 Path.Combine(originalRoot, "workspace.previous.json"));
+            fileObserver?.Observe(new(WorkspaceFileEffectKind.Publish, stagedPointer,
+                Destination: Path.Combine(originalRoot, "workspace.json"),
+                Backup: Path.Combine(originalRoot, "workspace.previous.json")));
             conversionMessage = "Workspace automatically converted from version 1 to 2. Recoverable originals: " + originals;
         }
         catch (UnsupportedWorkspaceVersion) { throw; }
@@ -251,7 +254,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private static void CopyWorkspace(string source, string destination, bool includeRecovery = false)
+    private void CopyWorkspace(string source, string destination, bool includeRecovery = false)
     {
         Directory.CreateDirectory(destination);
         var directories = new Stack<string>();
@@ -273,8 +276,11 @@ public sealed partial class ApplicationWorkflow
                 else
                 {
                     using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                    output.Write(ReadWorkspaceBytes(entry));
+                    var bytes = ReadWorkspaceBytes(entry);
+                    output.Write(bytes);
+                    fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, target, bytes.LongLength));
                     output.Flush(true);
+                    fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, target));
                 }
             }
         }

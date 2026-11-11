@@ -86,7 +86,7 @@ public sealed partial class ApplicationWorkflow
         return loadedPhotos;
     }
 
-    private static void SavePhotos(string generation, Dictionary<string, PersonProfile> proposed,
+    private void SavePhotos(string generation, Dictionary<string, PersonProfile> proposed,
         Dictionary<string, byte[]> proposedPhotos, System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {
         var names = proposed.Values.Select(p => p.PhotoPath).OfType<string>().Distinct().ToArray();

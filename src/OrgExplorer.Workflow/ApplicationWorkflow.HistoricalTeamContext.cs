@@ -92,7 +92,7 @@ public sealed partial class ApplicationWorkflow
 
     private sealed record HistoricalContextDocument(int SchemaVersion, string Email, List<HistoricalTeamContext> Contexts);
 
-    private static void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts,
+    private void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts,
         Dictionary<string, List<HistoricalTeamContext>> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
         System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
     {
