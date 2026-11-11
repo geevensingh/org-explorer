@@ -71,10 +71,12 @@ try {
         $summary.Contains($docs) -and $summary.Contains('<code>README.md</code>') -and
         !$summary.Contains('0.1.1')) 'A no-op summary must explain intentional skips and the actual baseline/candidate, without implying a new version was published.'
     Remove-Item -LiteralPath $summaryPath
-    $docsPlan.changedPaths = @('docs/<img src=x onerror=alert(1)>`[help].md')
+    $docsPlan.changedPaths = @('docs/<img src=x onerror=alert(1)>`[help].md', 'docs/[guide](help).md', 'docs/`guide`.md')
     Write-ReleasePlanSummary -Plan $docsPlan -Path $summaryPath
     $summary = Get-Content -LiteralPath $summaryPath -Raw
-    Assert ($summary.Contains('<code>docs/&lt;img src=x onerror=alert(1)&gt;`[help].md</code>') -and
+    Assert ($summary.Contains('<pre><code>docs/&lt;img src=x onerror=alert(1)&gt;`[help].md</code></pre>') -and
+        $summary.Contains('<pre><code>docs/[guide](help).md</code></pre>') -and
+        $summary.Contains('<pre><code>docs/`guide`.md</code></pre>') -and
         !$summary.Contains('<img')) 'Changed paths must render as text, not injected Markdown or HTML.'
     Remove-Item -LiteralPath $summaryPath
     'pending product' | Set-Content "$fixture\src\product.txt"

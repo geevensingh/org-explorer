@@ -144,7 +144,7 @@ function Write-ReleasePlanSummary([System.Collections.IDictionary]$Plan, [string
             'None.'
         } else {
             foreach ($changedPath in $Plan.changedPaths) {
-                "- <code>$([System.Net.WebUtility]::HtmlEncode($changedPath))</code>"
+                "<pre><code>$([System.Net.WebUtility]::HtmlEncode($changedPath))</code></pre>"
             }
         }
         ''
