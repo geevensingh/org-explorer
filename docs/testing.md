@@ -294,6 +294,9 @@ real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,
 enabled profile Save controls, retained owner/value, and pending unsaved-draft
 activity. It must not require Ready while that rejected draft is still retained.
+External-delivery retries use the same distinction for profile and Person/Team
+note drafts: settled main-work controls plus concrete rejection and pending
+writing, followed by unchanged owner/editor and delivered-byte assertions.
 The scale mutation scenario retains actual in-progress-work rejection while
 Settings renders. A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to
