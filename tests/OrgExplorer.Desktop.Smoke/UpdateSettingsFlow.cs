@@ -23,7 +23,7 @@ internal static partial class Program
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = held.Task;
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         using (var process = Launch(executable))
         {
             try
@@ -38,7 +38,7 @@ internal static partial class Program
                     throw new InvalidOperationException("A duplicate manual check was enabled during the in-flight startup request.");
                 Set(window, "WorkspacePath", workspace);
                 Click(window, "OpenWorkspace");
-                Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
+                Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Editable during update check");

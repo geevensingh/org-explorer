@@ -22,7 +22,9 @@ public partial class MainWindow
             await OpenWorkspaceAtPathAsync(failed.Path, failed.Mode);
             return;
         }
-        await RunWorkflowAsync(workflow.RefreshWorkspace, "Validating Workspace / conversion…");
+        await RunWorkflowAsync(workflow.RefreshWorkspace, "Validating Workspace…");
+        if (workflow.IsWorkspaceCurrent)
+            await RunWorkflowAsync(workflow.RetryStorageMaintenance, "Completing storage maintenance…");
         RefreshExternalWorkspace();
     }
 }

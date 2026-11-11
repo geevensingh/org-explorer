@@ -7,13 +7,13 @@ the new state rather than copying the population on every edit. Preserve the
 readable-file and provider-owned synchronization contract of
 [ADR 0001](0001-readable-files-external-sync.md).
 
-**Status:** Accepted design, not yet implemented. The
-[Workspace format](../workspace-format.md) still documents the current
-full-generation implementation.
+**Status:** Implemented in Workspace version 3 (#41-#47). The normal shipping
+workflow creates and opens this format; no opt-in factory or old-generation
+writer remains. See the [Workspace format](../workspace-format.md).
 
-The proposed combined [storage safety protocol](../incremental-workspace-storage-protocol.md)
+The combined [storage safety protocol](../incremental-workspace-storage-protocol.md)
 defines incremental roots, current/recovery publication, interruption states and
-reclamation safeguards before the rewrite. It is not active format documentation.
+reclamation safeguards used by the shipping implementation.
 
 ## Consequences
 
@@ -43,8 +43,9 @@ reclamation safeguards before the rewrite. It is not active format documentation
 - Automatically reclaim redundant app-owned versions only when current data,
   recovery, retained history, and interrupted operations no longer need them.
   Do not delete unknown files or provider conflict copies. Publication, recovery
-  selection, and reclamation ordering remain implementation design work and must
-  be verified against interrupted saves and partial/out-of-order synchronization;
+  selection, and reclamation ordering are guarded by durable receipts,
+  exact validated roots and inventoried byte digests, including interrupted saves
+  and partial/out-of-order synchronization;
   local unreachability alone does not justify immediate deletion.
 - Use an explicitly new Workspace format. For this change, reject older formats
   with clear guidance rather than silently converting or overwriting them.

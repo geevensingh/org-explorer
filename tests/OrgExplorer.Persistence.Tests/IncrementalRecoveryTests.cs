@@ -21,7 +21,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     [Fact]
     public void Recovery_opens_the_latest_protected_commit_after_current_documents_are_overwritten()
     {
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         var current = Path.Combine(folder, "current");
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -42,7 +42,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
         Assert.False(app.CanSafelyClose);
         Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose);
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(restored), reopened.Status);
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
     }
@@ -57,7 +57,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     public void Recovery_rejects_nonempty_destinations_and_preserves_owned_profile_writing()
     {
         var current = Path.Combine(folder, "current");
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var before = WorkspaceFixtures.Bytes(current);
@@ -85,7 +85,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
         var publisher = new InspectingPublisher();
         var observer = new RecordingObserver();
         Guid commit;
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher, fileObserver: observer))
+        using (var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer))
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -113,7 +113,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
             Assert.False(app.CanSafelyClose);
             if (blockedReceipt is not null) Directory.Delete(blockedReceipt);
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer);
+        using var reopened = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
         Assert.False(reopened.CanSafelyClose);
         var bytes = WorkspaceFixtures.IndexedDocuments(current).ToDictionary(e => e.Value, e => File.ReadAllBytes(e.Value));
@@ -135,7 +135,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     public void Note_only_commit_protects_actual_notes_and_photo_bytes_without_a_profile_commit_or_note_history()
     {
         var current = Path.Combine(folder, "current");
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var photo = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
@@ -165,7 +165,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     {
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         publisher.BeforePublish = (_, destination) =>
@@ -200,7 +200,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     {
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         publisher.BeforePublish = (_, destination) =>
@@ -222,7 +222,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     public void Accepted_external_note_bytes_and_removal_are_protected_without_inventing_profile_changes()
     {
         var current = Path.Combine(folder, "current");
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var note = app.CreatePersonNote("avery@example.com", "Private", "Original writing")!;
@@ -264,7 +264,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
     public void Unreceipted_or_damaged_recovery_is_rejected_without_writing_the_destination_or_source(bool damaged)
     {
         var current = Path.Combine(folder, "current");
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var app = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -279,7 +279,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
         else File.Delete(receipt);
         File.WriteAllText(Path.Combine(current, "workspace.json"), "damaged current selector");
         var before = WorkspaceFixtures.Bytes(current);
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(current));
         var destination = Path.Combine(folder, "restored");
         Assert.False(reopened.RecoverWorkspace(destination));
@@ -314,7 +314,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
         var observer = new RecordingObserver();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer, filePublisher: publisher))
+        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher))
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -339,7 +339,7 @@ public sealed class IncrementalRecoveryTests : IDisposable
             Assert.Equal(selected, File.ReadAllBytes(Path.Combine(current, "recovery", "current.json")));
             foreach (var (path, bytes) in protectedBytes) Assert.Equal(bytes, File.ReadAllBytes(path));
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
         Assert.True(reopened.CanSafelyClose);
         Assert.Null(reopened.GetRelationships("avery@example.com")!.Person.PreferredName);

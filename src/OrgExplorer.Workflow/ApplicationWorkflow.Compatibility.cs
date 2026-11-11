@@ -5,7 +5,7 @@ public enum WorkspaceCompatibilityState { NotOpened, Compatible, Unsupported, Re
 public sealed record WorkspaceCompatibility(WorkspaceCompatibilityState State, string Guidance,
     string? WorkspacePath = null, int? DataVersion = null, string? RecoveryPath = null)
 {
-    public int SupportedWorkspaceVersion => 2;
+    public int SupportedWorkspaceVersion => 3;
 }
 
 public partial interface IApplicationWorkflow

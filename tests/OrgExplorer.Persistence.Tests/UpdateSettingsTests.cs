@@ -35,6 +35,8 @@ public sealed class UpdateSettingsTests : IDisposable
     public async Task Slow_actual_feed_does_not_block_local_work_and_bad_checks_do_not_erase_the_workspace()
     {
         using var fixture = new SignedReleaseFixture();
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
         using var server = new LocalReleaseServer(() => fixture.Sign());
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = held.Task;
@@ -46,8 +48,6 @@ public sealed class UpdateSettingsTests : IDisposable
         await server.RequestArrived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(check.IsCompleted);
         Assert.Equal(ReleaseCheckStatus.Checking, settings.Result.Status);
-        var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
         using (var app = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(app.OpenWorkspace(workspace), app.Status);

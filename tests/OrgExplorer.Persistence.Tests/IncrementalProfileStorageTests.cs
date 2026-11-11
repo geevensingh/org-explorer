@@ -16,7 +16,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     public void New_workspace_saves_profile_text_and_favorite_and_reopens_evidence_and_relationships()
     {
         var observer = new RecordingObserver();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer))
+        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer))
         {
             Assert.True(app.OpenWorkspace(folder), app.Status);
             Assert.Empty(app.People);
@@ -46,7 +46,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             Assert.All(observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write),
                 write => Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var relationships = reopened.GetRelationships("avery@example.com")!;
         Assert.Equal("Ave", relationships.Person.Heading);
@@ -81,7 +81,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
         var import = JsonSerializer.Serialize(new
@@ -102,7 +102,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         {
             if (destination != Path.Combine(folder, "workspace.json")) return;
             publications++;
-            using var before = ApplicationWorkflow.CreateIncrementalFileBacked();
+            using var before = ApplicationWorkflow.CreateFileBacked();
             Assert.True(before.OpenWorkspace(folder), before.Status);
             Assert.Equal(2, before.People.Count);
             Assert.DoesNotContain(before.GetRelationships("morgan@example.com")!.ImportedReports, p => p.Email.StartsWith("report"));
@@ -114,7 +114,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             e.Path.StartsWith(Path.Combine(folder, "index") + Path.DirectorySeparatorChar)).Sum(e => e.Bytes);
         output.WriteLine($"128-Person Import index writes: {indexBytes} bytes.");
         Assert.True(indexBytes < 128 * 700, $"Import repeatedly rewrote shared index paths: {indexBytes} bytes.");
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(130, reopened.People.Count);
         Assert.Equal(127, reopened.GetRelationships("report000@example.com")!.ImportedReports.Count);
@@ -132,7 +132,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         var updateBytes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write &&
             e.Path.StartsWith(Path.Combine(folder, "index") + Path.DirectorySeparatorChar)).Sum(e => e.Bytes);
         Assert.True(updateBytes < 128 * 700, $"Updating indexed People rewrote shared paths: {updateBytes} bytes.");
-        using var updated = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var updated = ApplicationWorkflow.CreateFileBacked();
         Assert.True(updated.OpenWorkspace(folder), updated.Status);
         Assert.Equal(127, updated.GetRelationships("report000@example.com")!.ImportedReports.Count);
         Assert.All(updated.People.Where(p => p.Email.StartsWith("report")), p => Assert.Equal("007B", p.OfficeNumber));
@@ -148,7 +148,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     public void Relationship_archival_and_favorite_writes_reuse_unaffected_documents_and_reopen_expected_context(string mutation)
     {
         var observer = new RecordingObserver();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer);
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
         const string extra = """
@@ -186,7 +186,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
                 File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
         }
         Assert.DoesNotContain(writes, e => e.Path.EndsWith(".md"));
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = reopened.GetRelationships("avery@example.com")!.Person;
         Assert.Equal(mutation == "manager" ? "alex@example.com" : "morgan@example.com", person.ManagerEmail);
@@ -227,7 +227,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
         var pointer = File.ReadAllBytes(Path.Combine(folder, "workspace.json"));
@@ -252,7 +252,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write);
         Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
             e.Destination == Path.Combine(folder, "workspace.json"));
-        using (var prior = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var prior = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(prior.OpenWorkspace(folder), prior.Status);
             Assert.Equal("Engineer", prior.GetRelationships("avery@example.com")!.Person.JobTitle);
@@ -262,7 +262,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         else Assert.True(app.SaveProfileEdit(), app.Status);
         Assert.Null(app.ProfileEdit);
         Assert.True(app.CanSafelyClose);
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(discard ? "Engineer" : "Retained draft", reopened.GetRelationships("avery@example.com")!.Person.JobTitle);
         Assert.Equal(discard ? 0 : 1, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
@@ -271,7 +271,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     [Fact]
     public void Text_draft_retry_and_complete_profile_text_save_use_the_existing_view_model_seam()
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateIncrementalFileBacked());
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
         var basis = app.GetRelationships("avery@example.com")!.Person;
@@ -298,7 +298,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.True(app.SaveProfileEdit(), app.Status);
         Assert.True(app.CanSafelyClose);
         app.Dispose();
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = reopened.GetRelationships("avery@example.com")!.Person;
         Assert.Equal("Ave", person.PreferredName);
@@ -314,37 +314,36 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Equal(10, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
     }
 
-    [Fact]
-    public void Shipping_factory_still_creates_version_two_and_does_not_activate_the_tracer_format()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(99)]
+    public void Unsupported_Workspace_versions_are_rejected_without_creating_or_changing_any_files_or_directories(int version)
     {
-        var legacyFolder = Path.Combine(folder, "shipping");
-        using (var shipping = ApplicationWorkflow.CreateFileBacked())
-        {
-            Assert.True(shipping.OpenWorkspace(legacyFolder), shipping.Status);
-            Seed(shipping);
-        }
-        using var pointer = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(legacyFolder, "workspace.json")));
-        Assert.Equal(2, pointer.RootElement.GetProperty("schemaVersion").GetInt32());
-        var newFolder = Path.Combine(folder, "development");
-        using (var development = ApplicationWorkflow.CreateIncrementalFileBacked())
-        {
-            Assert.True(development.OpenWorkspace(newFolder), development.Status);
-            Seed(development);
-        }
-        var before = WorkspaceFixtures.Bytes(newFolder);
+        WorkspaceFixtures.CopyVersion(version, folder);
+        var before = WorkspaceFixtures.Bytes(folder);
+        var directories = Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).Order().ToArray();
         using var ordinary = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(ordinary.OpenWorkspace(newFolder));
+        Assert.False(ordinary.OpenWorkspace(folder));
         Assert.Equal(WorkspaceCompatibilityState.Unsupported, ordinary.Compatibility.State);
-        var after = WorkspaceFixtures.Bytes(newFolder);
+        Assert.Equal(version, ordinary.Compatibility.DataVersion);
+        Assert.Equal(3, ordinary.Compatibility.SupportedWorkspaceVersion);
+        Assert.Contains(version < 3 ? "does not migrate" : "Upgrade", ordinary.Compatibility.Guidance);
+        Assert.False(ordinary.RefreshWorkspace());
+        Assert.False(ordinary.EditPreferredName("avery@example.com", "Never saved"));
+        Assert.False(ordinary.RetryStorageMaintenance());
+        Assert.False(File.Exists(Path.Combine(folder, ".workspace.lock")));
+        var after = WorkspaceFixtures.Bytes(folder);
         Assert.Equal(before.Keys.Order(), after.Keys.Order());
         foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
+        Assert.Equal(directories, Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).Order());
     }
 
     [Fact]
     public void Receipt_failure_reports_committed_profile_separately_and_blocks_safe_close()
     {
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Seed(app);
         publisher.BeforePublish = (staged, destination) =>
@@ -357,7 +356,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Contains("maintenance incomplete", app.LocalSaveError);
         Assert.DoesNotContain("NOT saved", app.Status);
         Assert.False(app.CanSafelyClose);
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
         Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
@@ -367,7 +366,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer, filePublisher: publisher))
+        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher))
         {
             Assert.True(app.OpenWorkspace(root), app.Status);
             Seed(app);
@@ -432,7 +431,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
                 Assert.DoesNotContain(written, e => Copied(e, path));
             }
             app.Dispose();
-            using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
             Assert.True(reopened.OpenWorkspace(root), reopened.Status);
             Assert.Equal(unrelatedCount + 2, reopened.People.Count);
             Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.Heading);

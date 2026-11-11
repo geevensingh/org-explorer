@@ -16,9 +16,9 @@ public sealed class TeamNotePersistenceTests : IDisposable
         {"email":"replacement@example.com","displayName":"Replacement Example","managerEmail":null}]}
         """;
 
-    private IApplicationWorkflow Open(bool incremental = false)
+    private IApplicationWorkflow Open()
     {
-        var app = new WorkspaceViewModel(incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked());
+        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
@@ -33,7 +33,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
     {
         using var app = Open();
         app.CreateTeamNote("manager@example.com", "Team", "Retained writing");
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         var invalid = File.ReadAllText(file).Replace(original, replacement);
         File.WriteAllText(file, invalid);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -64,7 +64,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         using var other = ApplicationWorkflow.CreateFileBacked();
         Assert.True(other.OpenWorkspace(folder));
         Assert.True(other.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         File.WriteAllText(file, File.ReadAllText(file).Replace("Saved writing", "Synced writing"));
         Assert.True(app.RefreshTeamNotes(), app.Status);
         Assert.Equal("Director", app.GetRelationships("manager@example.com")!.Person.JobTitle);
@@ -83,7 +83,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         using var app = Open();
         var note = app.CreateTeamNote("manager@example.com", "Team", "Saved writing")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         var saved = File.ReadAllText(file);
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -114,15 +114,13 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.False(Assert.Single(reopened.GetTeamNotes("manager@example.com")).NeedsReview);
         Assert.Equal("Confirmed writing", Assert.Single(reopened.GetTeamNotes("manager@example.com")).Markdown);
-        Assert.Empty(Directory.GetFiles(folder, "*.next", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.next"));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership(bool incremental)
+    [Fact]
+    public void Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership()
     {
-        using var app = Open(incremental);
+        using var app = Open();
         var direct = app.CreatePersonNote("avery@example.com", "Direct", "Private Avery")!;
         app.CreatePersonNote("manager@example.com", "About Manager", "Must not inherit");
         var root = app.CreateTeamNote("root@example.com", "Organization", "# Root")!;
@@ -130,7 +128,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         var replacement = app.CreateTeamNote("replacement@example.com", "New context", "Replacement")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, null));
-        using var reopened = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var inherited = reopened.GetInheritedTeamNotes("avery@example.com");
         Assert.Equal(new[] { manager.Id, root.Id }, inherited.Select(n => n.Note.Id));

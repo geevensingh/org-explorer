@@ -74,7 +74,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     {
         using var app = Open();
         var original = app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!;
-        var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(folder, "notes"), "*.md"));
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Assert.False(app.EditPersonNote(original.Id, "Unsaved title", "Unsaved writing"));
@@ -90,7 +90,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
         Assert.True(app.EditPersonNote(original.Id, "Recovered title", "Recovered writing"), app.Status);
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Recovered writing", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
-        Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
+        Assert.Single(Directory.GetFiles(Path.Combine(folder, "notes"), "*.md"));
     }
 
     [Fact]
@@ -114,6 +114,8 @@ public sealed class PersonNotePersistenceTests : IDisposable
             Assert.Equal("Delivered writing", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
         }
         app.DiscardUnsavedChanges(note.Id);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose);
         Assert.True(app.EditPersonNote(note.Id, note.Title, "Deliberate delivered-version edit"), app.Status);
         using var edited = ApplicationWorkflow.CreateFileBacked();
@@ -129,7 +131,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
         using var second = ApplicationWorkflow.CreateFileBacked();
         Assert.True(second.OpenWorkspace(folder), second.Status);
         Assert.True(second.EditPreferredName("avery@example.com", "Ave"), second.Status);
-        var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(folder, "notes"), "*.md"));
         File.WriteAllText(file, File.ReadAllText(file).Replace("Original writing", "Externally edited writing"));
         Assert.True(first.RefreshPersonNotes(), first.Status);
         Assert.Equal("Ave", Assert.Single(first.People).PreferredName);
@@ -149,7 +151,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     {
         using var app = Open();
         app.CreatePersonNote("avery@example.com", "Context", "Preserved writing");
-        var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(folder, "notes"), "*.md"));
         var invalid = File.ReadAllText(file).Replace(oldValue, newValue);
         File.WriteAllText(file, invalid);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -163,7 +165,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
     {
         using var app = Open();
         var note = app.CreatePersonNote("avery@example.com", "Context", "Original writing")!;
-        var file = Assert.Single(Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories));
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(folder, "notes"), "*.md"));
         var original = File.ReadAllText(file);
         File.WriteAllText(file, original.Replace("Original writing", "Externally edited writing"));
         Assert.True(app.RefreshPersonNotes(), app.Status);
@@ -212,7 +214,7 @@ public sealed class PersonNotePersistenceTests : IDisposable
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(first, reopened.GetPersonNotes("avery@example.com").Single(n => n.Id == first.Id));
         Assert.Equal(second, reopened.GetPersonNotes("avery@example.com").Single(n => n.Id == second.Id));
-        var documents = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories);
+        var documents = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md");
         Assert.Equal(2, documents.Length);
         Assert.Contains(documents, p => File.ReadAllText(p).Contains("# Meeting\nPrivate **writing**."));
         Assert.Contains(documents, p => File.ReadAllText(p).Contains("avery@example.com"));

@@ -92,24 +92,6 @@ public sealed partial class ApplicationWorkflow
 
     private sealed record HistoricalContextDocument(int SchemaVersion, string Email, List<HistoricalTeamContext> Contexts);
 
-    private void WriteHistoricalTeamContexts(string generation, Dictionary<string, List<HistoricalTeamContext>> contexts,
-        Dictionary<string, List<HistoricalTeamContext>> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
-    {
-        var directory = Path.Combine(generation, "historical-team-context");
-        Directory.CreateDirectory(directory);
-        RunBoundedFileIo(contexts, entry =>
-        {
-            var name = HistoricalContextKey(entry.Key) + ".json";
-            var target = Path.Combine(directory, name);
-            var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "historical-team-context", name);
-            if (ReferenceEquals(previous.GetValueOrDefault(entry.Key), entry.Value) &&
-                source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                WriteDurablyBytes(target, bytes, published);
-            else WriteDurably(target, new HistoricalContextDocument(1, entry.Key, entry.Value), published);
-        });
-    }
-
     private static string HistoricalContextKey(string email) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
 

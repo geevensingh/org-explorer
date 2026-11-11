@@ -144,7 +144,7 @@ public sealed class IncrementalDeliveryTests : IDisposable
         using var app = Open();
         var producerFolder = Path.Combine(root, "producer");
         WorkspaceFixtures.Copy(Folder, producerFolder);
-        using (var producer = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var producer = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(producer.OpenWorkspace(producerFolder), producer.Status);
             Assert.True(producer.ApplyImport(producer.PreviewImport("""
@@ -375,7 +375,7 @@ public sealed class IncrementalDeliveryTests : IDisposable
     {
         var producerFolder = Path.Combine(root, Guid.NewGuid().ToString("N"));
         WorkspaceFixtures.Copy(Folder, producerFolder);
-        using var producer = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var producer = ApplicationWorkflow.CreateFileBacked();
         Assert.True(producer.OpenWorkspace(producerFolder), producer.Status);
         Assert.True(producer.EditPersonText(email, field, value), producer.Status);
         var before = WorkspaceFixtures.IndexedDocuments(Folder);
@@ -391,7 +391,7 @@ public sealed class IncrementalDeliveryTests : IDisposable
 
     private IApplicationWorkflow Open(IWorkspaceFilePublisher? publisher = null)
     {
-        var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher);
+        var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
         Assert.True(app.OpenWorkspace(Folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
@@ -399,7 +399,7 @@ public sealed class IncrementalDeliveryTests : IDisposable
 
     private IApplicationWorkflow Reopen()
     {
-        var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Folder), app.Status);
         return app;
     }

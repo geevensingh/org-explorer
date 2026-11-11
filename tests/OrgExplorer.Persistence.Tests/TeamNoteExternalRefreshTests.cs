@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -28,11 +29,13 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
     public async Task Folder_events_refresh_Team_writing_and_review_metadata_without_saves_or_confirmation()
     {
         using var app = Open();
+        Assert.True(app.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Original role"), app.Status);
+        var timeline = app.GetProfileTimeline("casey@example.com")!.Changes.ToArray();
         var team = app.CreateTeamNote("casey@example.com", "Team", "Saved Team writing")!;
         var direct = app.CreatePersonNote("avery@example.com", "Private", "Saved Person writing")!;
         var file = Path.Combine(folder, "team-notes", team.Id + ".md");
         var directFile = Path.Combine(folder, "notes", direct.Id + ".md");
-        var metadata = Path.Combine(Generation(folder), "team-context.json");
+        var metadata = WorkspaceFixtures.IndexedDocuments(folder)["teamContext:casey@example.com"];
         var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         app.WorkspaceChanged += (_, _) =>
         {
@@ -49,7 +52,8 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         Assert.True(app.IsWorkspaceCurrent);
         Assert.True(Assert.Single(app.GetTeamNotes("casey@example.com")).NeedsReview);
         Assert.Equal("Casey Example", Assert.Single(app.GetInheritedTeamNotes("avery@example.com")).Owner.Heading);
-        Assert.Empty(app.GetProfileTimeline("casey@example.com")!.Changes);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(timeline),
+            System.Text.Json.JsonSerializer.Serialize(app.GetProfileTimeline("casey@example.com")!.Changes));
         foreach (var (path, content) in bytes) Assert.Equal(content, File.ReadAllBytes(path));
         Assert.Equal(bytes.Keys.Order(), Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order());
     }
@@ -72,7 +76,8 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         Assert.True(app.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Director"), app.Status);
         var teamFile = Path.Combine(folder, "team-notes", team.Id + ".md");
         var directFile = Path.Combine(folder, "notes", direct.Id + ".md");
-        var file = invalidity.StartsWith("team-context") ? Path.Combine(Generation(folder), "team-context.json") : teamFile;
+        var file = invalidity.StartsWith("team-context") ?
+            WorkspaceFixtures.IndexedDocuments(folder)["teamContext:casey@example.com"] : teamFile;
         var original = File.ReadAllText(file);
         var invalid = invalidity switch
         {
@@ -121,7 +126,7 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
     }
 
     [Fact]
-    public async Task Generation_delivery_waits_for_declared_Team_context_before_publishing_profile_history_and_review()
+    public async Task Commit_delivery_waits_for_indexed_Team_context_before_publishing_profile_history_and_review()
     {
         using var app = Open();
         using var producer = ApplicationWorkflow.CreateFileBacked();
@@ -132,12 +137,11 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
             Assert.True(producer.OpenWorkspace(producerFolder), producer.Status);
             Assert.True(producer.ApplyImport(producer.PreviewImport(Batch).Id), producer.Status);
             Assert.True(producer.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Director"), producer.Status);
-            var source = Generation(producerFolder);
-            var target = Path.Combine(folder, "generations", Path.GetFileName(source));
-            foreach (var path in Directory.GetFiles(source, "*", SearchOption.AllDirectories)
-                .Where(p => Path.GetFileName(p) != "team-context.json"))
+            var deferred = WorkspaceFixtures.IndexedDocuments(producerFolder)["teamContext:casey@example.com"];
+            foreach (var path in Directory.GetFiles(Path.Combine(producerFolder, "documents"), "*", SearchOption.AllDirectories)
+                .Concat(Directory.GetFiles(Path.Combine(producerFolder, "index"))).Where(p => p != deferred))
             {
-                var destination = Path.Combine(target, Path.GetRelativePath(source, path));
+                var destination = Path.Combine(folder, Path.GetRelativePath(producerFolder, path));
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(path, destination);
             }
@@ -148,7 +152,9 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
             Assert.False(Assert.Single(app.GetTeamNotes("casey@example.com")).NeedsReview);
             Assert.Empty(app.GetProfileTimeline("casey@example.com")!.Changes);
             Assert.Equal(pointer, File.ReadAllText(Path.Combine(folder, "workspace.json")));
-            File.Copy(Path.Combine(source, "team-context.json"), Path.Combine(target, "team-context.json"));
+            var target = Path.Combine(folder, Path.GetRelativePath(producerFolder, deferred));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(deferred, target);
             await Eventually(() => app.IsWorkspaceCurrent &&
                 app.GetRelationships("casey@example.com")!.Person.JobTitle == "Director");
             Assert.True(Assert.Single(app.GetInheritedTeamNotes("avery@example.com")).Note.NeedsReview);
@@ -173,8 +179,7 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
             Assert.False(app.EditTeamNote(note.Id, note.Title, "Unsaved draft"));
         Assert.False(app.CanSafelyClose);
-        var personFile = Directory.GetFiles(Path.Combine(Generation(folder), "people"), "*.json")
-            .Single(p => JsonNode.Parse(File.ReadAllText(p))!["email"]!.GetValue<string>() == "casey@example.com");
+        var personFile = WorkspaceFixtures.IndexedDocuments(folder)["people:casey@example.com"];
         var person = JsonNode.Parse(File.ReadAllText(personFile))!;
         person["preferredName"] = "External Casey";
         File.WriteAllText(personFile, person.ToJsonString());
@@ -192,13 +197,12 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         Assert.Contains("changed externally", app.Status);
         Assert.Contains("Delivered writing", File.ReadAllText(file));
         app.DiscardUnsavedChanges(note.Id);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose);
         Assert.True(app.EditTeamNote(note.Id, note.Title, "Deliberate delivered-version edit"), app.Status);
         Assert.True(app.CanSafelyClose);
     }
-
-    private static string Generation(string path) => Path.Combine(path, "generations",
-        JsonNode.Parse(File.ReadAllText(Path.Combine(path, "workspace.json")))!["generation"]!.GetValue<string>());
 
     private static async Task Eventually(Func<bool> condition)
     {

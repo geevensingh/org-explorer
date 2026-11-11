@@ -10,7 +10,7 @@ name. A desktop click alone does not establish a successful navigation or save.
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
-| Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, migration originals/recovery and retained context. A projection does not prove rendered pixels. |
+| Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, version refusal/recovery and retained context. A projection does not prove rendered pixels. |
 | Desktop smoke | Normal WPF executable and actual UI Automation | Representative import/edit/save/reopen journeys; selection/bindings, Manager/report navigation, draft rejection feedback, local photo pixels, Markdown reading, current/Historical attribution, archive/filter/reactivation, Settings and refresh reaching an open client. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
@@ -18,7 +18,7 @@ name. A desktop click alone does not establish a successful navigation or save.
 
 `OrgExplorer.Core.Tests` is **not synonymous with isolated unit tests**. Its two
 file-backed `WorkspaceCompatibilityTests` carry `Category=Filesystem` and still
-run in the core lane; they observe unsupported-version nonmutation and conversion
+run in the core lane; they observe unsupported-version nonmutation and validation
 retry through the view model. `DesktopScenarioRunnerTests` also write real result
 and fixture files (`Category=Runner`) without opening WPF. Most other core cases
 use in-memory workflow state. Classify dependencies by what a test actually does.
@@ -33,7 +33,7 @@ Close/restart stays blocked through first autosave and retries; `SaveNoteDraft`
 returns the next base on success, retained again for newer typing. Real-file tests cover delivery before
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
-behind that same seam; Team confirmation and migration version checks stay explicit.
+behind that same seam; Team confirmation and record-version checks stay explicit.
 Preferred-name autosave similarly submits the displayed field's immutable Person
 base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
@@ -68,12 +68,12 @@ do not mock away the business behavior being asserted.
 `WorkspaceWriteObservationTests` drives the real file-backed workflow with an
 optional `IWorkspaceFileObserver`; payload writes and durable flushes stay real.
 It accounts for transient and repeated writes, failed publication/cleanup, and
-existing conversion recovery copies, not just surviving file sizes. The
-[proposed incremental storage protocol](incremental-workspace-storage-protocol.md)
-defines later recovery/reclamation cases; neither that format nor cleanup is
-activated by this observation prefactor.
+current/recovery/transaction/index writes, not just surviving file sizes.
+Older-version rejection has zero observed writes. The
+[incremental storage protocol](incremental-workspace-storage-protocol.md)
+defines the shipping publication, recovery and guarded reclamation contract.
 
-`IncrementalProfileStorageTests` exercises the internal version-3 tracer through
+`IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
 an empty Workspace, seeds accepted Import evidence, and reopens profile text,
 favorites, relationships, notes, images and history. The rich small regression
@@ -82,8 +82,8 @@ and metadata write, including transient stages. It checks reused unrelated
 document bytes as well as a bounded byte increase; final directory size alone
 cannot pass it. Real pointer replacement failures prove retained drafts,
 retry/discard and no staging adoption. Receipt failure distinguishes a committed
-edit from incomplete transaction maintenance. This internal test factory does
-not activate version 3 in the application or claim reclamation, desktop coverage
+edit from incomplete transaction maintenance. All tests use the public factory;
+there is no activation bypass. Small regressions do not claim desktop coverage
 or 10,000-Person evidence.
 
 `IncrementalRecoveryTests` and the extended rich profile-write regression drive
@@ -115,7 +115,7 @@ maintenance-only retry without edit replay or stale Import review. Cleanup-time
 pointer/index/document/photo and invalid/unsupported delivery stays stale until
 complete, while ambiguous intent/candidate/receipt failures, changed superseded
 bytes, unknown/conflict files and historical photos remain protected. These are
-small required filesystem cases, not shipping activation, legacy cleanup,
+small required filesystem cases, not legacy cleanup,
 desktop or supported-population scale evidence.
 Recovery-selector-only delivery after validation also suspends cleanup without
 deleting the previously selected independent graph; retry protects the committed
@@ -130,8 +130,9 @@ multi-Person graph/image update, explicitly retries it, then clears the images
 and reopens retained historical resources. Existing reporting/replay, typed
 evidence, unknown prior evidence, frozen context, photo, archival, inherited
 reading/search/favorite, Team-note review and note-draft assertions run against
-both factories where applicable. These remain ordinary small filesystem tests,
-not independent recovery/reclamation or supported-population scale evidence.
+the shipping factory. Current-format fixtures retain all rich record families;
+older archives serve only explicit nonmutation/refusal cases. These remain
+ordinary small filesystem tests, not supported-population scale evidence.
 
 `IncrementalDeliveryTests` covers valid direct Person/history/note edits, stale
 Import previews, selector/index/document/history/photo arrival permutations,
@@ -141,7 +142,7 @@ profiles prevents acceptance. Real publication callbacks deliver Person/history
 or same-path photo bytes immediately before/after replacement; refresh must
 detect them rather than bless an unvalidated post-save scan. Existing external
 refresh, local-publication, live-generation, profile-session, text-draft and
-note-draft cases also run selected scenarios through the incremental factory.
+note-draft cases run through the same shipping factory.
 These are real-folder/workflow assertions, not desktop or cleanup evidence.
 
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
@@ -163,7 +164,7 @@ assertions, not WPF evidence or a second profile-mode policy.
    discard accepts that version, and a subsequent intentional edit reopens.
 3. Retain the representative journey and any unique WPF behavior. Exhaustive
    field, query, note-scope, inheritance, graph, transfer, replay, archival,
-   migration and delivery permutations belong below WPF; file safety stays
+   compatibility and delivery permutations belong below WPF; file safety stays
    file-backed. One rendered profile is not proof of every field's business rules.
 4. Validate the migrated runner contract locally without UI, then run the real
    scenarios hosted. Keep missing/unexecuted work red. There is no separate
@@ -298,9 +299,9 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   Save/Discard/Stay and independent-note protection, rejected Manager archival, failed local save and retry,
   current-tree filtering, retained archived profile, selection protection,
   reactivation and explicit no-Manager UI.
-- `compatibility-settings`: global Settings before open, supported conversion,
-  unsupported delivered version/write blocking, recoverable conversion failure
-  and validated retry. Startup coverage also checks first-run controls, automatic
+- `compatibility-settings`: global Settings before open, current-format reopening,
+  older/future-version nonmutation and write blocking, validation retry and an
+  explicitly chosen supported alternative. Startup coverage also checks first-run controls, automatic
   same-Workspace reopening without a selected Person, an honest empty recovery
   state with Retry/Choose actions and no replacement creation, successful Retry,
   failed manual attempts retaining the old default, and alternate-folder reopen.
@@ -326,7 +327,7 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 
 The filesystem update tests exercise actual cryptography, staged files, HTTP,
 Velopack integrity/explicit launch arguments, real pending Import publication,
-failed Person/Team saves, supported conversion originals, unsupported-data
+failed Person/Team saves, current-format restart, unsupported-data
 nonmutation and durable unconfirmed-restart recovery. Only actual external
 transport/process effects and clock are controlled. Neither a success flag nor
 a per-record repository is an update safety seam.

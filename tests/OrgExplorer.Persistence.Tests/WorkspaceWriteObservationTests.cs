@@ -34,22 +34,21 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         var note = app.CreatePersonNote("avery@example.com", "Private", "Keep this writing")!;
         var team = app.CreateTeamNote("morgan@example.com", "Team", "Keep team context")!;
         observer.Effects.Clear();
-        publisher.BeforePublish = (staged, _) =>
+        publisher.BeforePublish = (staged, destination) =>
         {
+            if (destination != Path.Combine(folder, "workspace.json")) return;
             var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
             Assert.NotEmpty(writes);
             foreach (var write in writes)
             {
-                Assert.Equal(new FileInfo(write.Path).Length, write.Bytes);
                 Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path);
             }
-            Assert.Contains(writes, e => e.Path == staged);
+            Assert.Equal(new FileInfo(staged).Length, Assert.Single(writes, e => e.Path == staged).Bytes);
             using var pointer = JsonDocument.Parse(File.ReadAllBytes(staged));
-            var generationFiles = Directory.GetFiles(Path.Combine(folder, "generations",
-                pointer.RootElement.GetProperty("generation").GetString()!), "*", SearchOption.AllDirectories);
-            Assert.Equal(generationFiles.Append(staged).Order(), writes.Select(e => e.Path).Order());
-            Assert.Equal(generationFiles.Sum(path => new FileInfo(path).Length) + new FileInfo(staged).Length,
-                writes.Sum(e => e.Bytes));
+            Assert.Equal(3, pointer.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.True(writes.Sum(e => e.Bytes) < 32768);
+            Assert.Contains(writes, e => e.Path.StartsWith(Path.Combine(folder, "recovery")));
+            Assert.Contains(writes, e => e.Path.StartsWith(Path.Combine(folder, "transactions")));
         };
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
@@ -78,7 +77,7 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
     }
 
     [Fact]
-    public void Full_copy_then_delete_cannot_hide_rejected_generation_write_activity()
+    public void Deleting_transient_objects_cannot_hide_repeated_rejected_commit_write_activity()
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
@@ -92,15 +91,15 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
             """).Id), app.Status);
         var before = WorkspaceFixtures.Bytes(folder);
         observer.Effects.Clear();
-        var copied = new List<(string Path, long Bytes)>();
-        publisher.BeforePublish = (staged, _) =>
+        long transientBytes = 0;
+        publisher.BeforePublish = (_, destination) =>
         {
-            using var pointer = JsonDocument.Parse(File.ReadAllBytes(staged));
-            var generation = Path.Combine(folder, "generations", pointer.RootElement.GetProperty("generation").GetString()!);
-            copied.AddRange(Directory.GetFiles(generation, "*", SearchOption.AllDirectories)
-                .Append(staged).Select(path => (path, new FileInfo(path).Length)));
-            Directory.Delete(generation, true);
-            File.Delete(staged);
+            if (destination != Path.Combine(folder, "workspace.json")) return;
+            transientBytes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).Sum(e => e.Bytes);
+            foreach (var path in Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(path) != ".workspace.lock" &&
+                    !before.ContainsKey(Path.GetRelativePath(folder, path))))
+                File.Delete(path);
             throw new IOException("Controlled failure after deleting all staged payloads.");
         };
         Assert.False(app.EditPreferredName("avery@example.com", "Not committed"));
@@ -109,11 +108,11 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         Assert.Equal(before.Keys.Order(), WorkspaceFixtures.Bytes(folder).Keys.Order());
         foreach (var (path, bytes) in before) Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(folder, path)));
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        Assert.Equal(copied.OrderBy(e => e.Path).ToArray(),
-            writes.Select(e => (e.Path, e.Bytes)).OrderBy(e => e.Path).ToArray());
+        Assert.Equal(transientBytes, writes.Sum(e => e.Bytes));
         Assert.True(writes.Sum(e => e.Bytes) > 0);
         Assert.All(writes, e => Assert.False(File.Exists(e.Path)));
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish);
+        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
+            e.Destination == Path.Combine(folder, "workspace.json"));
         app.DiscardUnsavedChanges();
         Assert.True(app.CanSafelyClose);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -123,32 +122,20 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
     }
 
     [Fact]
-    public void Existing_conversion_observes_independent_recovery_copies_and_repeated_overwrites()
+    public void Older_Workspace_rejection_never_writes_copies_or_publishes_any_payload()
     {
         WorkspaceFixtures.CopyVersionOne(folder);
         var originals = WorkspaceFixtures.Bytes(folder);
         var observer = new RecordingObserver();
         using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
-        Assert.True(app.OpenWorkspace(folder), app.Status);
-        var recovery = app.Compatibility.RecoveryPath!;
-        Assert.NotNull(recovery);
-        var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        foreach (var (relative, bytes) in originals)
-        {
-            var path = Path.Combine(recovery, relative);
-            Assert.Equal(bytes, File.ReadAllBytes(path));
-            Assert.Equal(bytes.LongLength, Assert.Single(writes, e => e.Path == path).Bytes);
-        }
-        Assert.Contains(writes.GroupBy(e => e.Path), group => group.Count() > 1);
-        Assert.True(writes.Sum(e => e.Bytes) >
-            writes.Select(e => e.Path).Distinct().Where(File.Exists).Sum(path => new FileInfo(path).Length));
-        Assert.Equal(writes.Length, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Flush));
-        Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
-            e.Destination == Path.Combine(folder, "workspace.json"));
-        Assert.Equal("Ave", app.GetRelationships("avery@example.com")!.Person.PreferredName);
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
-        Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.False(app.OpenWorkspace(folder));
+        Assert.False(app.RefreshWorkspace());
+        Assert.Contains("does not migrate", app.Status);
+        Assert.DoesNotContain(observer.Effects, e => e.Kind is WorkspaceFileEffectKind.Write or
+            WorkspaceFileEffectKind.Flush or WorkspaceFileEffectKind.Publish or WorkspaceFileEffectKind.Delete);
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(originals.Keys.Order(), after.Keys.Order());
+        foreach (var (relative, bytes) in originals) Assert.Equal(bytes, after[relative]);
     }
 
     [Theory]
@@ -170,8 +157,9 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         observer.Effects.Clear();
         var stagedPath = Path.Combine(folder, team ? "team-notes" : "notes", id + ".next");
         long stagedBytes = 0;
-        publisher.BeforePublish = (staged, _) =>
+        publisher.BeforePublish = (staged, destination) =>
         {
+            if (destination != Path.Combine(folder, team ? "team-notes" : "notes", id + ".md")) return;
             Assert.Equal(stagedPath, staged);
             stagedBytes += File.ReadAllBytes(staged).LongLength;
             throw new IOException("Controlled publication failure after the real write and flush.");
@@ -183,12 +171,13 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         Assert.Contains("Controlled publication failure", app.LocalSaveError);
         Assert.False(File.Exists(stagedPath));
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        Assert.Equal(2, writes.Length);
-        Assert.All(writes, e => Assert.Equal(stagedPath, e.Path));
-        Assert.Equal(stagedBytes, writes.Sum(e => e.Bytes));
-        Assert.Equal(2, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Flush));
+        var noteWrites = writes.Where(e => e.Path == stagedPath).ToArray();
+        Assert.Equal(2, noteWrites.Length);
+        Assert.True(writes.Length > noteWrites.Length);
+        Assert.Equal(stagedBytes, noteWrites.Sum(e => e.Bytes));
+        Assert.Equal(writes.Length, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Flush));
         Assert.Equal(2, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Delete && e.Path == stagedPath));
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish);
+        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish && e.Path == stagedPath);
         using (var reopened = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(reopened.OpenWorkspace(folder), reopened.Status);

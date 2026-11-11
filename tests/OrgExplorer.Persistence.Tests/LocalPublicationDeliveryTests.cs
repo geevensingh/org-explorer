@@ -36,32 +36,22 @@ public sealed class LocalPublicationDeliveryTests
     }
 
     [Theory]
-    [InlineData("person", false, false, false)]
-    [InlineData("person", true, false, false)]
-    [InlineData("team", false, false, false)]
-    [InlineData("team", true, false, false)]
-    [InlineData("generation", false, false, false)]
-    [InlineData("generation", true, false, false)]
-    [InlineData("person", false, true, false)]
-    [InlineData("team", true, true, false)]
-    [InlineData("generation", false, true, false)]
-    [InlineData("person", false, false, true)]
-    [InlineData("person", true, false, true)]
-    [InlineData("team", false, false, true)]
-    [InlineData("team", true, false, true)]
-    [InlineData("generation", false, false, true)]
-    [InlineData("generation", true, false, true)]
-    [InlineData("person", false, true, true)]
-    [InlineData("team", true, true, true)]
-    [InlineData("generation", false, true, true)]
+    [InlineData("person", false, false)]
+    [InlineData("person", true, false)]
+    [InlineData("team", false, false)]
+    [InlineData("team", true, false)]
+    [InlineData("generation", false, false)]
+    [InlineData("generation", true, false)]
+    [InlineData("person", false, true)]
+    [InlineData("team", true, true)]
+    [InlineData("generation", false, true)]
     public void A_local_publication_accepts_only_its_validated_base_and_own_changes(
-        string localChange, bool deliveredTeamNote, bool invalidDelivery, bool incremental)
+        string localChange, bool deliveredTeamNote, bool invalidDelivery)
     {
         var folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
             ".test-workspaces", Guid.NewGuid().ToString("N")));
         var publisher = new DeliveringPublisher();
-        using var app = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher) :
-            ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
         try
         {
             Assert.True(app.OpenWorkspace(folder), app.Status);
@@ -111,8 +101,7 @@ public sealed class LocalPublicationDeliveryTests
             Assert.False(EditDelivered("A retained draft cannot overwrite the refreshed version"));
             app.DiscardUnsavedChanges(second);
             Assert.True(EditDelivered("Edited delivered version"), app.Status);
-            using var reopened = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() :
-                ApplicationWorkflow.CreateFileBacked();
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
             Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
             Assert.Equal("Edited delivered version", deliveredTeamNote
                 ? reopened.GetTeamNotes("avery@example.com").Single(n => n.Id == second).Markdown

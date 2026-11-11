@@ -21,12 +21,10 @@ public sealed class ExternalRefreshTests : IDisposable
     private static readonly byte[] OtherPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=");
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Same_path_photo_replacement_is_validated_and_invalid_bytes_never_become_a_placeholder(bool incremental)
+    [Fact]
+    public async Task Same_path_photo_replacement_is_validated_and_invalid_bytes_never_become_a_placeholder()
     {
-        using var app = CreateWorkflow(incremental);
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var producer = Path.Combine(folder, "producer.png");
@@ -34,8 +32,7 @@ public sealed class ExternalRefreshTests : IDisposable
         Assert.True(app.RefreshWorkspace(), app.Status);
         Assert.True(app.EditPhoto("avery@example.com", producer), app.Status);
         var reference = app.GetRelationships("avery@example.com")!.Person.PhotoPath!;
-        var image = incremental ? WorkspaceFixtures.IndexedDocuments(folder)["photos:" + reference] :
-            Directory.GetFiles(folder, reference, SearchOption.AllDirectories).Single();
+        var image = WorkspaceFixtures.IndexedDocuments(folder)["photos:" + reference];
         var timestamp = File.GetLastWriteTimeUtc(image);
         File.WriteAllBytes(image, OtherPng);
         File.SetLastWriteTimeUtc(image, timestamp);
@@ -48,17 +45,15 @@ public sealed class ExternalRefreshTests : IDisposable
         File.WriteAllBytes(image, OtherPng);
         await Eventually(() => !app.Status.Contains("STALE"));
         Assert.Equal(OtherPng, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(OtherPng, reopened.GetPhoto("avery@example.com")!.Bytes.ToArray());
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task External_Person_bytes_refresh_the_open_workflow_without_reload(bool incremental)
+    [Fact]
+    public async Task External_Person_bytes_refresh_the_open_workflow_without_reload()
     {
-        using var app = CreateWorkflow(incremental);
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var file = PersonFile("avery@example.com");
@@ -97,12 +92,10 @@ public sealed class ExternalRefreshTests : IDisposable
         Assert.Equal("Retried draft", Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Folder_events_publish_observable_view_model_state_but_own_saves_do_not_loop_or_duplicate_batches(bool incremental)
+    [Fact]
+    public async Task Folder_events_publish_observable_view_model_state_but_own_saves_do_not_loop_or_duplicate_batches()
     {
-        using var app = new WorkspaceViewModel(CreateWorkflow(incremental));
+        using var app = new WorkspaceViewModel(CreateWorkflow());
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
         var notifications = 0;
@@ -137,7 +130,7 @@ public sealed class ExternalRefreshTests : IDisposable
     }
 
     [Fact]
-    public async Task A_new_generation_waits_for_all_declared_Profile_history_files_before_acceptance()
+    public async Task A_new_commit_waits_for_all_indexed_Profile_history_files_before_acceptance()
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
         using var producer = ApplicationWorkflow.CreateFileBacked();
@@ -150,13 +143,12 @@ public sealed class ExternalRefreshTests : IDisposable
             Assert.True(producer.ApplyImport(producer.PreviewImport(Batch).Id), producer.Status);
             Assert.True(producer.EditPersonText("avery@example.com", PersonTextField.DirectoryName, "Delivered Avery"), producer.Status);
             var pointer = File.ReadAllText(Path.Combine(producerFolder, "workspace.json"));
-            var generation = JsonNode.Parse(pointer)!["generation"]!.GetValue<string>();
-            var source = Path.Combine(producerFolder, "generations", generation);
-            var target = Path.Combine(folder, "generations", generation);
-            var deferred = Directory.GetFiles(Path.Combine(source, "profile-history"), "*.json");
-            foreach (var path in Directory.GetFiles(source, "*", SearchOption.AllDirectories).Except(deferred))
+            var deferred = WorkspaceFixtures.IndexedDocuments(producerFolder)
+                .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value).ToArray();
+            foreach (var path in Directory.GetFiles(Path.Combine(producerFolder, "documents"), "*", SearchOption.AllDirectories)
+                .Concat(Directory.GetFiles(Path.Combine(producerFolder, "index"))).Except(deferred))
             {
-                var destination = Path.Combine(target, Path.GetRelativePath(source, path));
+                var destination = Path.Combine(folder, Path.GetRelativePath(producerFolder, path));
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(path, destination);
             }
@@ -167,7 +159,7 @@ public sealed class ExternalRefreshTests : IDisposable
             Assert.Equal(pointer, File.ReadAllText(Path.Combine(folder, "workspace.json")));
             foreach (var path in deferred)
             {
-                var destination = Path.Combine(target, Path.GetRelativePath(source, path));
+                var destination = Path.Combine(folder, Path.GetRelativePath(producerFolder, path));
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(path, destination);
             }
@@ -238,7 +230,7 @@ public sealed class ExternalRefreshTests : IDisposable
         var file = invalidity switch
         {
             "unsupported-version" => Path.Combine(folder, "workspace.json"),
-            "batch-source" => Directory.GetFiles(folder, "batches.json", SearchOption.AllDirectories).Single(),
+            "batch-source" => WorkspaceFixtures.IndexedDocuments(folder)["acceptedBatches:80000000-0000-4000-8000-000000000001"],
             _ => PersonFile("casey@example.com")
         };
         var original = File.ReadAllText(file);
@@ -269,17 +261,11 @@ public sealed class ExternalRefreshTests : IDisposable
         Assert.False(app.CanSafelyClose);
     }
 
-    private static IApplicationWorkflow CreateWorkflow(bool incremental) => incremental
-        ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
+    private static IApplicationWorkflow CreateWorkflow() => ApplicationWorkflow.CreateFileBacked();
 
     private string PersonFile(string email)
     {
-        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        if (pointer["schemaVersion"]!.GetValue<int>() == 3)
-            return WorkspaceFixtures.IndexedDocuments(folder)["people:" + email];
-        return Directory.GetFiles(folder, "*.json", SearchOption.AllDirectories)
-            .Single(p => p.Contains(Path.DirectorySeparatorChar + "people" + Path.DirectorySeparatorChar)
-                && JsonNode.Parse(File.ReadAllText(p))?["email"]?.GetValue<string>() == email);
+        return WorkspaceFixtures.IndexedDocuments(folder)["people:" + email];
     }
 
     private static async Task Eventually(Func<bool> condition)

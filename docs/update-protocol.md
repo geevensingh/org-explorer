@@ -198,8 +198,8 @@ only after a successful handoff; `ApplyUpdatesAndRestart`'s immediate process
 exit is not used.
 
 On restart, the receipt reopens the same independent Workspace through the
-ordinary workflow, including supported automatic conversions and their validated
-recovery originals. Unsupported data is not repaired or written, and Settings/
+ordinary version-3 workflow, including independent committed recovery. Older
+Workspace versions are rejected without migration or mutation. Unsupported data is not repaired or written, and Settings/
 updates remain available. Running the target (or a newer) app version confirms
 installation, separately from whether Workspace recovery succeeded. If the
 updater restarts the old version, the receipt reports an unconfirmed failed

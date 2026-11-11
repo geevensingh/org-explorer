@@ -25,7 +25,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     {
         var current = Path.Combine(folder, "current");
         var observer = new RecordingObserver();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer))
+        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer))
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -78,7 +78,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
                 .Count(path => Path.GetFileName(Path.GetDirectoryName(path)) == "index");
             Assert.True(retainedIndexes <= 2 * liveIndexes, $"Retained {retainedIndexes} nodes for {liveIndexes} live index nodes.");
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
         Assert.True(reopened.CanSafelyClose, reopened.LocalSaveError);
         Verify(reopened);
@@ -116,7 +116,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
         var observer = new RecordingObserver();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher, fileObserver: observer))
+        using (var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer))
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -149,7 +149,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
             Assert.NotNull(obsolete);
             Assert.True(File.Exists(obsolete));
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer);
+        using var reopened = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
         Assert.False(reopened.CanSafelyClose);
         Assert.Equal("Second", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
@@ -215,7 +215,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
         var observer = new RecordingObserver();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher, fileObserver: observer);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer);
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         Assert.True(app.EditPreferredName("avery@example.com", "First"), app.Status);
@@ -252,7 +252,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
         var observer = new RecordingObserver();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher, fileObserver: observer);
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer);
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var image = Convert.FromBase64String(
@@ -267,7 +267,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, bytes);
         }
-        using (var other = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var other = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(other.OpenWorkspace(donor), other.Status);
             Assert.True(other.EditPreferredName("avery@example.com", "Delivered"), other.Status);
@@ -337,7 +337,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     {
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
-        using (var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher))
+        using (var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher))
         {
             Assert.True(app.OpenWorkspace(current), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
@@ -371,12 +371,12 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
             foreach (var (path, bytes) in retained) Assert.Equal(bytes, File.ReadAllBytes(path));
             Assert.Contains("reclamation deferred", app.Status);
             var otherPath = Path.Combine(folder, "other");
-            using var other = ApplicationWorkflow.CreateIncrementalFileBacked();
+            using var other = ApplicationWorkflow.CreateFileBacked();
             Assert.True(other.OpenWorkspace(otherPath), other.Status);
             Assert.True(app.OpenWorkspace(otherPath), app.Status);
             Assert.DoesNotContain("reclamation deferred", app.Status);
         }
-        using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
         Assert.Contains("reclamation deferred", reopened.Status);
         Assert.Equal("Final", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
@@ -389,7 +389,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     public void Cleanup_preserves_changed_retired_bytes_unknown_files_conflict_copies_and_historical_photos()
     {
         var current = Path.Combine(folder, "current");
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(current), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var original = WorkspaceFixtures.IndexedDocuments(current)["people:avery@example.com"];

@@ -16,8 +16,7 @@ public sealed class PhotoTests : IDisposable
     private string Producer => Path.Combine(root, "producer");
     private string Workspace => Path.Combine(root, "workspace");
 
-    private static IApplicationWorkflow CreateWorkflow(bool incremental) => incremental
-        ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
+    private static IApplicationWorkflow CreateWorkflow() => ApplicationWorkflow.CreateFileBacked();
 
     private string Import(string? photoJson, int batch = 1, string name = "Avery Example")
     {
@@ -31,12 +30,10 @@ public sealed class PhotoTests : IDisposable
         return path;
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Decoded_PNG_is_available_on_the_profile_after_producer_removal_and_Workspace_reopen(bool incremental)
+    [Fact]
+    public void Decoded_PNG_is_available_on_the_profile_after_producer_removal_and_Workspace_reopen()
     {
-        using var app = CreateWorkflow(incremental);
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var import = Import("\"avery.data\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.data"), Png);
@@ -45,7 +42,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.ApplyImport(preview.Id), app.Status);
         Directory.Delete(Producer, true);
 
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var photo = reopened.GetPhoto("AVERY@example.com");
         Assert.NotNull(photo);
@@ -96,9 +93,9 @@ public sealed class PhotoTests : IDisposable
         }
     }
 
-    private IApplicationWorkflow ImportOriginalPhoto(bool incremental = false)
+    private IApplicationWorkflow ImportOriginalPhoto()
     {
-        var app = CreateWorkflow(incremental);
+        var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var import = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -106,12 +103,10 @@ public sealed class PhotoTests : IDisposable
         return app;
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Photo_changes_join_the_structured_timeline_with_content_references_and_local_import_provenance(bool incremental)
+    [Fact]
+    public void Photo_changes_join_the_structured_timeline_with_content_references_and_local_import_provenance()
     {
-        using var app = ImportOriginalPhoto(incremental);
+        using var app = ImportOriginalPhoto();
         var originalReference = Assert.Single(app.People).PhotoPath;
         Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
         var local = Path.Combine(Producer, "local.jpg");
@@ -122,7 +117,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
         var import = Import("\"avery.png\"", 2);
         Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var changes = reopened.GetProfileTimeline("avery@example.com")!.Changes;
         Assert.Equal(3, changes.Count);
@@ -137,18 +132,16 @@ public sealed class PhotoTests : IDisposable
         Assert.Equal(Png, reopened.GetPhoto("avery@example.com")!.Bytes.ToArray());
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Omitted_photo_preserves_image_and_null_clears_it_durably_without_clearing_other_fields(bool incremental)
+    [Fact]
+    public void Omitted_photo_preserves_image_and_null_clears_it_durably_without_clearing_other_fields()
     {
-        using var app = ImportOriginalPhoto(incremental);
+        using var app = ImportOriginalPhoto();
         Assert.True(app.ApplyImport(app.PreviewImportFile(Import(null, 2, "Avery Updated")).Id), app.Status);
         Assert.Equal(Png, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
         var clear = app.PreviewImportFile(Import("null", 3, "Avery Updated"));
         Assert.Contains(clear.Changes, change => change.Contains("Photo") && change.Contains("clear"));
         Assert.True(app.ApplyImport(clear.Id), app.Status);
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         Assert.Null(reopened.GetPhoto("avery@example.com"));
         Assert.Equal("Avery Updated", Assert.Single(reopened.People).DirectoryName);
@@ -206,14 +199,12 @@ public sealed class PhotoTests : IDisposable
         Assert.Equal(Png, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Accepted_batch_replay_is_a_no_op_but_same_path_with_different_image_bytes_conflicts_after_reopen(bool incremental)
+    [Fact]
+    public void Accepted_batch_replay_is_a_no_op_but_same_path_with_different_image_bytes_conflicts_after_reopen()
     {
-        using var app = ImportOriginalPhoto(incremental);
+        using var app = ImportOriginalPhoto();
         Assert.True(app.EditPreferredName("avery@example.com", "Local name"));
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var path = Import("\"avery.png\"");
         var replay = reopened.PreviewImportFile(path);
@@ -228,12 +219,10 @@ public sealed class PhotoTests : IDisposable
         Assert.Equal(Png, reopened.GetPhoto("avery@example.com")!.Bytes.ToArray());
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Photos_reporting_changes_and_replay_preserve_private_notes_and_note_refresh_revisions(bool incremental)
+    [Fact]
+    public void Photos_reporting_changes_and_replay_preserve_private_notes_and_note_refresh_revisions()
     {
-        using var app = new WorkspaceViewModel(CreateWorkflow(incremental));
+        using var app = new WorkspaceViewModel(CreateWorkflow());
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -288,7 +277,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPhoto("avery@example.com", Path.Combine(Producer, "avery.png")), app.Status);
         Assert.True(app.EditPersonNote(note.Id, note.Title, "Writing after external refresh"), app.Status);
         Directory.Delete(Producer, true);
-        using var reopened = new WorkspaceViewModel(CreateWorkflow(incremental));
+        using var reopened = new WorkspaceViewModel(CreateWorkflow());
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var person = Assert.Single(reopened.ReportingRoots).Person;
         Assert.Equal("avery@example.com", person.Email);
@@ -359,31 +348,27 @@ public sealed class PhotoTests : IDisposable
         Assert.Equal(escaping ? "Avery Example" : "Avery Updated", Assert.Single(app.People).DirectoryName);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void A_local_photo_edit_is_copied_and_saved_but_invalid_replacement_does_not_erase_it(bool incremental)
+    [Fact]
+    public void A_local_photo_edit_is_copied_and_saved_but_invalid_replacement_does_not_erase_it()
     {
-        using var app = ImportOriginalPhoto(incremental);
+        using var app = ImportOriginalPhoto();
         var selected = Path.Combine(Producer, "selected.jpg");
         File.WriteAllBytes(selected, Jpeg);
         Assert.True(app.EditPhoto("avery@example.com", selected), app.Status);
         File.WriteAllText(selected, "Corrupt replacement");
         Assert.False(app.EditPhoto("avery@example.com", selected));
         Directory.Delete(Producer, true);
-        using var reopened = CreateWorkflow(incremental);
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         Assert.Equal("image/jpeg", reopened.GetPhoto("avery@example.com")!.ContentType);
         Assert.True(reopened.EditPhoto("avery@example.com", null), reopened.Status);
         Assert.Null(reopened.GetPhoto("avery@example.com"));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Distinct_images_stay_with_the_intended_Person_and_reordered_replay_remains_a_no_op(bool incremental)
+    [Fact]
+    public void Distinct_images_stay_with_the_intended_Person_and_reordered_replay_remains_a_no_op()
     {
-        using var app = CreateWorkflow(incremental);
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -420,7 +405,7 @@ public sealed class PhotoTests : IDisposable
     {
         var observer = new RecordingObserver();
         var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -455,7 +440,7 @@ public sealed class PhotoTests : IDisposable
         foreach (var (key, file) in before) Assert.Equal(bytes[key], File.ReadAllBytes(file));
         Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write &&
             e.Path.StartsWith(Path.Combine(Workspace, "documents", "photos")));
-        using (var prior = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var prior = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(prior.OpenWorkspace(Workspace), prior.Status);
             Assert.Single(prior.People);
@@ -479,7 +464,7 @@ public sealed class PhotoTests : IDisposable
             Assert.DoesNotContain(writes, e => e.Path.StartsWith(Path.Combine(Workspace, "documents")) &&
                 File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
         }
-        using (var reopened = ApplicationWorkflow.CreateIncrementalFileBacked())
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
             Assert.Equal("blake@example.com", reopened.GetRelationships("avery@example.com")!.Manager!.Email);
@@ -511,7 +496,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
         Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write &&
             e.Path.StartsWith(Path.Combine(Workspace, "documents", "photos")));
-        using var cleared = ApplicationWorkflow.CreateIncrementalFileBacked();
+        using var cleared = ApplicationWorkflow.CreateFileBacked();
         Assert.True(cleared.OpenWorkspace(Workspace), cleared.Status);
         Assert.Null(cleared.GetPhoto("avery@example.com"));
         Assert.Null(cleared.GetPhoto("blake@example.com"));

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
@@ -76,11 +75,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         string BatchId, string Fingerprint, JsonElement Source, Dictionary<string, byte[]> Photos,
         IReadOnlyList<PhotoResource> Resources);
     private sealed record AcceptedBatch(string Fingerprint, JsonElement Source, DateTimeOffset AppliedAt);
-    private sealed record WorkspaceMetadata(
-        [property: System.Text.Json.Serialization.JsonRequired] int SchemaVersion,
-        [property: System.Text.Json.Serialization.JsonRequired] string Generation,
-        IReadOnlyList<string>? Files = null,
-        IReadOnlyDictionary<string, int>? RecordVersions = null);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -187,7 +181,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             workspace = fullPath;
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
-            Status = conversionMessage ?? "Workspace opened.";
+            Status = "Workspace opened.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
@@ -437,16 +431,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             complete.UnionWith(path);
         }
     }
-    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null,
-        IReadOnlyDictionary<string, byte[]>? snapshot = null, bool allGenerations = false)
+    private string WorkspaceFingerprint(bool includePersonNotes = true,
+        IReadOnlyDictionary<string, byte[]>? snapshot = null)
     {
         using var access = CoordinateWorkspaceIo(workspace!);
-        snapshot ??= CaptureWorkspaceBytes(allGenerations);
+        snapshot ??= CaptureWorkspaceBytes();
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in (snapshot is null ? EnumerateWorkspaceFiles(workspace!, allGenerations) : snapshot.Keys)
+        foreach (var path in snapshot.Keys
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
-                (ignoredGeneration is null || !p.StartsWith(Path.Combine(workspace!, "generations", ignoredGeneration) +
-                    Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) &&
                 (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))).Order())
@@ -469,88 +461,16 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             failedSaves.Remove(operation);
             return true;
         }
-        if (incrementalStorage)
-            return SaveIncrementally(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
-                nextTeamContexts, nextHistoricalContexts, operation, resources);
-        try
-        {
-            using var access = CoordinateWorkspaceIo(workspace!);
-            EnsureWorkspaceWritable();
-            using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            var sourceBytes = CaptureWorkspaceBytes();
-            if (WorkspaceFingerprint(snapshot: sourceBytes) != revision)
-                throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
-            string? sourceGeneration = null;
-            if (sourceBytes.TryGetValue(Path.Combine(workspace!, "workspace.json"), out var pointerBytes))
-            {
-                using var sourcePointer = JsonDocument.Parse(pointerBytes);
-                sourceGeneration = Path.Combine(workspace!, "generations", ReadWorkspaceMetadata(sourcePointer.RootElement).Generation);
-            }
-            var generation = Guid.NewGuid().ToString("N");
-            var directory = Path.Combine(workspace!, "generations", generation);
-            var published = new ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            Directory.CreateDirectory(Path.Combine(directory, "people"));
-            RunBoundedFileIo(proposed.Values, person =>
-            {
-                var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-                var target = Path.Combine(directory, "people", key + ".json");
-                var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "people", key + ".json");
-                if (people.TryGetValue(person.Email, out var prior) && prior == person &&
-                    source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                    WriteDurablyBytes(target, bytes, published);
-                else WriteVersionedRecord(target, person, published);
-            });
-            SavePhotos(directory, proposed, proposedPhotos ?? photos, published);
-            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts, published);
-            WriteDurably(Path.Combine(directory, "batches.json"), accepted, published);
-            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes, published);
-            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes, published);
-            var staged = Path.Combine(workspace!, "workspace.next");
-            var files = published.Keys
-                .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
-            // Unlink only the app-owned stage, then create exclusively so a raced link is never followed.
-            DeleteWorkspaceFile(staged);
-            WriteDurablyBytes(staged, JsonSerializer.SerializeToUtf8Bytes(
-                new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), JsonOptions), published);
-            if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
-                throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
-            var destination = Path.Combine(workspace!, "workspace.json");
-            PublishWorkspaceFile(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
-            liveGeneration = generation;
-            var generationPrefix = Path.Combine(workspace!, "generations") + Path.DirectorySeparatorChar;
-            var expected = sourceBytes.Where(entry => !entry.Key.StartsWith(generationPrefix, StringComparison.OrdinalIgnoreCase))
-                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
-            foreach (var (path, bytes) in published)
-                expected[path == staged ? destination : path] = bytes;
-            AcceptWorkspaceRevision(expected);
-            teamContextRevisions = nextTeamContexts;
-            historicalTeamContexts = nextHistoricalContexts;
-            failedSaves.Remove(operation);
-            return true;
-        }
-        catch (Exception ex) when (StorageError(ex))
-        {
-            return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
-        }
+        return SaveIncrementally(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
+            nextTeamContexts, nextHistoricalContexts, operation, resources);
     }
-    private void WriteDurably<T>(string path, T value, ConcurrentDictionary<string, byte[]>? published = null)
-    {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
-        using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        file.Write(bytes);
-        fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
-        file.Flush(true);
-        fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
-        if (published is not null) published[path] = bytes;
-    }
-    private void WriteDurablyBytes(string path, byte[] bytes, ConcurrentDictionary<string, byte[]>? published = null)
+    private void WriteDurablyBytes(string path, byte[] bytes)
     {
         using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         file.Write(bytes);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
         file.Flush(true);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
-        if (published is not null) published[path] = bytes;
     }
     private void PublishWorkspaceFile(string staged, string destination, string? backup)
     {

@@ -249,7 +249,7 @@ checks:
 | Lane | Required coverage |
 |---|---|
 | Core and view models | Identity, explicit patch semantics, graph rules, inheritance, history, and view-model behavior. |
-| Filesystem integration | Actual temporary-folder import, validation/apply, saves, external refresh, photos, migration, and recovery behavior. |
+| Filesystem integration | Actual temporary-folder import, validation/apply, saves, external refresh, photos, compatibility refusal, and recovery behavior. |
 | Desktop smoke | Actual Windows launch, open-profile, edit, and save flows; not a test-only success flag substituting for UI behavior. |
 
 Use fictitious people and local fixtures, never company data. Exercise the
@@ -353,9 +353,12 @@ establish a publicly verified legal publisher or Windows installer reputation.
 Initial unsigned installers may encounter OS warnings or blocks. Do not bypass
 warnings or weaken OS protections.
 
-### Automatic workspace migrations
+### Workspace compatibility and future migrations
 
-Known supported migrations, including breaking migrations, may run automatically
+Workspace version 3 deliberately rejects older versions without mutation; no
+migration or legacy cleanup ships. Preserve old folders and explicitly create a
+new empty Workspace. If a future change defines supported migrations, including
+breaking migrations, they may run automatically
 as part of app upgrades. Preserve recoverable original data, validate conversion,
 and handle failures safely; installer rollback alone does not restore workspace
 files.

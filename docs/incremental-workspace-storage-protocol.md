@@ -1,19 +1,18 @@
-# Incremental storage safety protocol (proposed, not active)
+# Incremental storage safety protocol (Workspace version 3)
 
 This is the implementation design for [#38](https://github.com/geevensingh/org-explorer/issues/38),
 established by [#41](https://github.com/geevensingh/org-explorer/issues/41).
 It supplements [ADR 0007](adr/0007-incremental-workspace-storage.md).
-The shipping reader/writer still uses [Workspace version 2](workspace-format.md),
-including its existing conversion behavior. This document neither activates a
-new format nor authorizes deleting or converting an existing Workspace.
+The shipping reader/writer uses [Workspace version 3](workspace-format.md),
+activated by #47. Older and future Workspace versions are rejected without
+mutation. There is no migration or legacy-folder cleanup.
 
-## Internal profile tracer foundation (#42)
+## Shipping reader and writer (#42, #47)
 
-The version-3 profile tracer is available only through the internal
-`ApplicationWorkflow.CreateIncrementalFileBacked` test factory. The public
-factory, desktop and version-1/2 behavior are unchanged. This is not a supported
-user format. Independent recovery and reclamation are implemented internally
-below; shipping activation is still #47.
+`ApplicationWorkflow.CreateFileBacked` is the normal version-3 boundary for
+desktop, tests, creation and reopening. There is no activation bypass or legacy
+generation writer. Independent recovery and bounded reclamation below run on
+ordinary successful saves.
 
 `ApplicationWorkflow.IncrementalIndex.cs` implements the current selector and
 bounded radix index. A selector contains `schemaVersion: 3`, a `commit` GUID,
@@ -52,18 +51,17 @@ post-publication receipt/selection and maintenance-only retry. The delivery
 slice owns complete race/out-of-order coverage; the Import slice owns full
 multi-Person/resource behavior and batching of index updates. Reclamation consumes
 inventories and durable retirement information, not ownership inferred from
-paths. Final activation remains blocked on #47.
+paths.
 
 `WorkspaceFixtures.IndexedDocuments` is the storage-aware inspection helper.
 Functional tests still drive the existing workflow/view-model; no desktop
 caller or public per-Person repository interprets these paths.
 
-## Independent recovery implementation (#45, internal only)
+## Independent recovery implementation (#45)
 
-The internal version-3 workflow now prepares independent recovery before each
-profile/Import or independently atomic note publication. The shipping factory
-still uses version 2; no migration, recovery UI, deletion or shipping activation
-is introduced here.
+The shipping workflow prepares independent recovery before each profile/Import
+or independently atomic note publication. Recovery materialization uses the
+normal reader; no separate recovery UI or old-format conversion is introduced.
 
 `recovery\current.json` is a version-1 recovery envelope containing the originating
 transaction GUID, exact accepted current-byte fingerprint (`sourceRevision`),
@@ -123,12 +121,12 @@ seal files each have their own record. Selector/receipt stages remain inside
 their owning transaction; payloads stage at unique `recovery\<id>.next` paths
 recorded in those inventories. No population-wide inventory is rewritten.
 
-## Automatic reclamation implementation (#46, internal only)
+## Automatic reclamation implementation (#46)
 
-The internal workflow runs reclamation after a successful current publication,
+The shipping workflow runs reclamation after a successful current publication,
 committed recovery receipt and validated recovery-selector replacement, while
 still holding the same local gate and writer lease. Profile/Import and atomic
-note saves use this ordering. The shipping factory remains unchanged.
+note saves use this ordering.
 
 Before any deletion, maintenance validates actual current bytes and selected
 independent recovery, and durably publishes `maintenance\reclamation.json`.
@@ -202,7 +200,7 @@ and its resources remain unbounded user data, not cleanup targets.
 
 ## Delivery validation and cleanup protection (#44)
 
-The internal reader accepts direct edits to the currently indexed documents,
+The reader accepts direct edits to the currently indexed documents,
 not only app-produced replacement selectors. Person/history consistency, accepted
 Import provenance and decoded photo resources are validated together before the
 open view changes. Required photos include initial observations, old/new change
@@ -233,12 +231,12 @@ staged/retired/unknown objects and provider conflict copies need the separate
 provenance and retirement checks below. A last-good in-memory view or an ignored
 recovery-only event is not permission to reclaim a competing in-flight graph.
 Recovery-only changes remain outside the canonical current revision and must
-not invalidate an otherwise unchanged Import preview. These tests do not
-implement or activate reclamation, recovery selection or the shipping format.
+not invalidate an otherwise unchanged Import preview. Reclamation and recovery
+selection follow the separate publication and ownership rules above.
 
 ## Mutation semantics and resource roots (#43)
 
-The internal writer collects changed document locations by family before
+The writer collects changed document locations by family before
 updating the index. A reviewed multi-Person Import writes each affected index
 path once for that publication, including when many updates share an existing
 branch. Unchanged branches and documents remain referenced in place. All
@@ -280,11 +278,11 @@ Current Person/Team Markdown remains independently atomic at its existing path,
 with stable ownership and dates, archival and draft-base conflict protection.
 Profile/Import saves do not copy current Markdown or create note edit-version
 history. Independent recovery captures those bytes under its separate protocol.
-The internal factory remains opt-in; shipping activation is still #47.
+The public factory uses this protocol without an opt-in.
 
 ## Roots and physical independence
 
-The proposed version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:
+The version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:
 
 | Root | Purpose |
 |---|---|
@@ -297,7 +295,7 @@ The proposed version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:
 | `transactions\<id>\` | Durable intent, staged selector, changed-object inventory, candidate recovery root, and eventual publication/abort receipt. Not a current or accepted recovery selector. |
 | `maintenance\` | Incremental ownership/retirement receipts and restartable deletion progress; not canonical user data. |
 
-These are proposed responsibilities, not a requirement for callers to interpret
+These are storage responsibilities, not a requirement for callers to interpret
 paths. Storage-aware test helpers may follow the declared format. The existing
 `IApplicationWorkflow` remains the functional boundary.
 
@@ -475,11 +473,11 @@ and decoded images, not merely a "recovery ready" flag. This procedure must not
 require an uncommitted transaction to finish or a missing current document to be
 reconstructed. Installer rollback is not Workspace restoration.
 
-The development workflow exposes `RecoverWorkspace(destinationPath)` for this
+The workflow exposes `RecoverWorkspace(destinationPath)` for this
 procedure. It deliberately reuses receipt/seal validation and the normal semantic
 reader instead of introducing a second format-aware export script:
 
-1. Close other clients and preserve the original folder. Use a fresh internal
+1. Close other clients and preserve the original folder. Use a fresh normal
    version-3 workflow to open the source. An unavailable current selector does
    not prevent the explicit recovery operation from validating its independent
    recovery roots. Never point a writer directly at the protected recovery tree.
@@ -499,10 +497,9 @@ reader instead of introducing a second format-aware export script:
    call `RetryStorageMaintenance()` there to establish its own independent
    recovery before safe close/restart. This does not manufacture another edit.
 
-These are internal development operations until final activation; they are not
-instructions to convert a shipping version-1/2 Workspace.
+These operations do not convert a version-1/2 Workspace and add no recovery UI.
 
-## Deterministic scenarios for the later slices
+## Deterministic safety scenarios
 
 Drive these through file-backed `IApplicationWorkflow` and isolated folders, using
 `WorkspaceViewModel` only for observable draft/compatibility/safe-close behavior.
@@ -545,13 +542,15 @@ bytes from a throwing write. A returned write remains counted even if its later
 flush/publication fails or its file is deleted. Publish is a rename/replace, not a
 second payload copy; backup movement is carried in the same event. Lock-file and
 directory metadata, app-local preferences, and external-provider/test-publisher
-writes are not app Workspace payload. Existing conversion copies/overwrites are
-observed only to preserve coverage of today's real recovery path; conversion is
-not part of the future format.
+writes are not app Workspace payload. Old-format refusal writes nothing;
+conversion is not part of this format.
 
-Later recovery/reclamation writers must use this same narrow effects boundary;
-no new maintenance engine is introduced here. Tests compare observed writes to
-independently inspected real staged files, exercise repeated failed note stages,
-remove entire failed generation payloads at the publisher, and exercise existing
-recovery copies/overwrites. They prove observation survives full-copy-then-delete
-without making today's inefficient full-copy count a permanent storage contract.
+Current, recovery and reclamation use this same narrow effects boundary.
+Tests compare observed writes with independently inspected staged files, exercise
+repeated failed note stages and remove only the rejected test transaction's new
+payloads at the publisher. Counts survive deletion. The existing rich 10,000-Person
+workload also accounts for actual current/recovery documents, bounded indexes,
+stages and transaction metadata around its representative edit, proving unrelated
+document bytes/references are reused in both trees. Fixture richness, full retained
+data assertions, runner selection and budgets remain unchanged; no new latency SLA
+is introduced.

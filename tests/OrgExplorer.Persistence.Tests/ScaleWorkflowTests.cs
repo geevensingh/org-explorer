@@ -1,5 +1,6 @@
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Xunit;
@@ -17,7 +18,8 @@ public sealed class ScaleWorkflowTests(ITestOutputHelper output)
         // Timings are evidence, not an agreed application-latency SLA.
         {
             fixture.Build();
-            var app = Measure("load", () => fixture.Open());
+            var observer = new RecordingObserver();
+            var app = Measure("load", () => fixture.Open(fileObserver: observer));
             AssertPopulation(app);
             Measure("navigation-100", () =>
             {
@@ -56,8 +58,61 @@ public sealed class ScaleWorkflowTests(ITestOutputHelper output)
             Measure("note-save", () => Assert.True(app.EditPersonNote(note.Id, note.Title, "# Revised orchid private writing."), app.Status));
             Assert.Contains(app.Search("Revised orchid"), r => r.NoteId == note.Id);
             Assert.DoesNotContain(app.Search("Orchid private writing 1000."), r => r.NoteId == note.Id);
+            var indexedBefore = WorkspaceFixtures.IndexedDocuments(fixture.Workspace);
+            var recoveryBefore = WorkspaceFixtures.RecoveryDocuments(fixture.Workspace);
+            var unchanged = indexedBefore.Concat(recoveryBefore).Where(pair =>
+                pair.Key != "people:" + ScaleFixture.Target && pair.Key != "profileHistory:" + ScaleFixture.Target)
+                .ToDictionary(pair => pair.Value, pair => SHA256.HashData(File.ReadAllBytes(pair.Value)));
+            observer.Effects.Clear();
             Measure("profile-save", () =>
                 Assert.True(app.EditPersonText(ScaleFixture.Target, PersonTextField.OfficeNumber, "0009S"), app.Status));
+            var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
+            var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
+                .GroupBy(e => e.Path).ToDictionary(group => group.Key, group => group.Last().Destination!);
+            var currentAfter = WorkspaceFixtures.IndexedDocuments(fixture.Workspace);
+            var recoveryAfter = WorkspaceFixtures.RecoveryDocuments(fixture.Workspace);
+            foreach (var (before, after) in new[] { (indexedBefore, currentAfter), (recoveryBefore, recoveryAfter) })
+                foreach (var (identity, documentPath) in before.Where(pair =>
+                    pair.Key != "people:" + ScaleFixture.Target && pair.Key != "profileHistory:" + ScaleFixture.Target))
+                {
+                    Assert.Equal(documentPath, after[identity]);
+                    Assert.Equal(unchanged[documentPath], SHA256.HashData(File.ReadAllBytes(documentPath)));
+                }
+            Assert.NotEmpty(writes);
+            foreach (var family in writes.GroupBy(e => Path.GetRelativePath(fixture.Workspace, e.Path)
+                .Split(Path.DirectorySeparatorChar)[0]))
+                Log($"10000-Person profile write {family.Key}: {family.Count()} writes, {family.Sum(e => e.Bytes)} bytes.");
+            Log($"10000-Person profile write total: {writes.Sum(e => e.Bytes)} bytes, including transient/repeated writes.");
+            var unchangedDigests = unchanged.Values.Select(Convert.ToHexString).ToHashSet();
+            foreach (var write in writes)
+            {
+                Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path);
+                var location = File.Exists(write.Path) ? write.Path : publications.GetValueOrDefault(write.Path);
+                if (location is not null && File.Exists(location))
+                    Assert.DoesNotContain(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(location))), unchangedDigests);
+            }
+            foreach (var (root, after) in new[] { (fixture.Workspace, currentAfter), (Path.Combine(fixture.Workspace, "recovery"), recoveryAfter) })
+            {
+                var writtenDocuments = writes.Select(write => publications.GetValueOrDefault(write.Path, write.Path))
+                    .Where(path => path.StartsWith(Path.Combine(root, "documents") + Path.DirectorySeparatorChar) &&
+                        !path.EndsWith(".sha256", StringComparison.Ordinal))
+                    .ToHashSet();
+                Assert.Equal(new[] { "people:" + ScaleFixture.Target, "profileHistory:" + ScaleFixture.Target }.Order(),
+                    after.Where(pair => writtenDocuments.Contains(pair.Value)).Select(pair => pair.Key).Order());
+                Assert.Equal(2, writtenDocuments.Count);
+                Assert.Contains(writes, write => write.Path.StartsWith(Path.Combine(root, "index") + Path.DirectorySeparatorChar));
+            }
+            Assert.Contains(writes, write => write.Path.StartsWith(Path.Combine(fixture.Workspace, "transactions") + Path.DirectorySeparatorChar));
+            Assert.All(writes.Where(write => write.Path.Contains(Path.DirectorySeparatorChar + "index" + Path.DirectorySeparatorChar) &&
+                !publications.GetValueOrDefault(write.Path, write.Path).EndsWith(".sha256", StringComparison.Ordinal)),
+                write =>
+                {
+                    var location = publications.GetValueOrDefault(write.Path, write.Path);
+                    using var node = JsonDocument.Parse(File.ReadAllBytes(location));
+                    var entries = node.RootElement.GetProperty("entries");
+                    var children = node.RootElement.GetProperty("children");
+                    Assert.InRange((entries.ValueKind == JsonValueKind.Null ? children : entries).EnumerateObject().Count(), 1, 16);
+                });
             var import = ScaleFixture.Batch(Enumerable.Range(0, ScaleFixture.Population).Select(i =>
             {
                 var patch = new Dictionary<string, object?> { ["email"] = ScaleFixture.Email(i) };
@@ -132,6 +187,12 @@ public sealed class ScaleWorkflowTests(ITestOutputHelper output)
         output.WriteLine(message);
         if (Environment.GetEnvironmentVariable("SCALE_TIMING_FILE") is { Length: > 0 } path)
             File.AppendAllText(path, message + Environment.NewLine);
+    }
+
+    private sealed class RecordingObserver : IWorkspaceFileObserver
+    {
+        public ConcurrentQueue<WorkspaceFileEffect> Effects { get; } = new();
+        public void Observe(WorkspaceFileEffect effect) => Effects.Enqueue(effect);
     }
     private T Measure<T>(string operation, Func<T> action) => ScaleFixture.Measure(operation, action, Log);
     private void Measure(string operation, Action action) => ScaleFixture.Measure(operation, action, Log);

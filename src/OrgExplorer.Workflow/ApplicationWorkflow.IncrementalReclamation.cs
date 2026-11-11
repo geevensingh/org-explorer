@@ -31,7 +31,7 @@ public sealed partial class ApplicationWorkflow
     private void ReclaimIncrementalStorage(PreparedRecovery prepared)
     {
         var current = CaptureWorkspaceBytes();
-        using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true })
+        using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
             validation.ReadIncrementalWorkspaceData(current);
         var accepted = WorkspaceFingerprint(snapshot: current);
         if (accepted != prepared.Metadata.SourceRevision)

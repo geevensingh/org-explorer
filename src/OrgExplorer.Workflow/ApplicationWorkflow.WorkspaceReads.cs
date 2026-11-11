@@ -18,11 +18,10 @@ public sealed partial class ApplicationWorkflow
         public void Dispose() { if (active) workspaceReadSnapshot.Value = previous; }
     }
 
-    private Dictionary<string, byte[]> CaptureWorkspaceBytes(bool allGenerations = false)
+    private Dictionary<string, byte[]> CaptureWorkspaceBytes()
     {
         var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        var paths = (incrementalStorage ? EnumerateIncrementalWorkspaceFiles(workspace!) :
-                EnumerateWorkspaceFiles(workspace!, allGenerations))
+        var paths = EnumerateIncrementalWorkspaceFiles(workspace!)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).ToArray();
         RunBoundedFileIo(paths, path => bytes[path] = ReadWorkspaceBytesUncached(path));
         return new Dictionary<string, byte[]>(bytes, StringComparer.OrdinalIgnoreCase);

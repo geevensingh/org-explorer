@@ -216,7 +216,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var (key, relative) in graph.Documents[family])
                 bytes[Path.Combine(root, directory, key + ".md")] = bytes[IncrementalPath(root, relative, family)];
         bytes[Path.Combine(root, "workspace.json")] = JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions);
-        using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root, incrementalStorage = true };
+        using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root };
         validation.ReadIncrementalWorkspaceData(bytes);
         return (metadata, bytes, receiptBytes);
     }
@@ -300,7 +300,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
-            if (!incrementalStorage || workspace is null) return Fail("No incremental Workspace maintenance is available.");
+            if (workspace is null) return Fail("No incremental Workspace maintenance is available.");
             var recoveryCompleted = false;
             try
             {
@@ -309,7 +309,7 @@ public sealed partial class ApplicationWorkflow
                 using var lease = new FileStream(Path.Combine(workspace, ".workspace.lock"),
                     FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 var current = CaptureWorkspaceBytes();
-                using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace, incrementalStorage = true };
+                using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace };
                 validation.ReadIncrementalWorkspaceData(current);
                 var currentRevision = WorkspaceFingerprint(snapshot: current);
                 var candidate = pendingRecovery is { } prepared && prepared.Metadata.SourceRevision == currentRevision
@@ -360,7 +360,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
-            if (!incrementalStorage || workspace is null) return Fail("No incremental recovery source is open.");
+            if (workspace is null) return Fail("No incremental recovery source is open.");
             if (!CanSafelyClose) return Fail("Resolve retained writing and recovery maintenance before switching to a recovered Workspace.");
             try
             {
@@ -394,7 +394,7 @@ public sealed partial class ApplicationWorkflow
                     throw new IOException("Recovery bytes changed while copying; destination has not been opened.");
                 if (!ReadWorkspaceBytesUncached(path).AsSpan().SequenceEqual(selector))
                     throw new IOException("Recovery selection changed while copying; destination has not been opened.");
-                using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = destination, incrementalStorage = true })
+                using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = destination })
                     validation.ReadIncrementalWorkspaceData(recovery.Bytes.ToDictionary(e =>
                         Path.Combine(destination, Path.GetRelativePath(root, e.Key)), e => ReadWorkspaceBytesUncached(
                             Path.Combine(destination, Path.GetRelativePath(root, e.Key))), StringComparer.OrdinalIgnoreCase));

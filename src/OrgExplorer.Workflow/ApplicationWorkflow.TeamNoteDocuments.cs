@@ -33,26 +33,6 @@ public sealed partial class ApplicationWorkflow
         return result;
     }
 
-    private static Dictionary<string, Guid> LoadTeamContextRevisions(string generation, Dictionary<string, PersonProfile> owners)
-    {
-        var path = Path.Combine(generation, "team-context.json");
-        var result = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path))
-        {
-            if (Directory.Exists(path)) throw new IOException("Team context revisions must be a file.");
-            return result;
-        }
-        using var document = JsonDocument.Parse(ReadWorkspaceText(path));
-        CheckProperties(document.RootElement, document.RootElement.ValueKind == JsonValueKind.Object
-            ? document.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Team context revisions");
-        var loaded = document.RootElement.Deserialize<Dictionary<string, Guid>>(JsonOptions)
-            ?? throw new FormatException("Invalid Team context revisions.");
-        foreach (var (email, value) in loaded)
-            if (!owners.ContainsKey(email) || !result.TryAdd(email, value))
-                throw new FormatException($"Team context revision: unknown or duplicate owner {email}.");
-        return result;
-    }
-
     private bool SaveTeamNote(TeamNote note, Guid confirmation)
     {
         try
