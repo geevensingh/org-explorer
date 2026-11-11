@@ -37,10 +37,13 @@ public sealed class WorkspaceSettings
         }
     }
 
-    public bool RestoreWorkspace(IApplicationWorkflow workflow) =>
-        LastWorkspacePath is { } path && OpenWorkspace(workflow, path, WorkspaceOpenMode.ExistingOnly);
+    public bool RestoreWorkspace(IApplicationWorkflow workflow, string? restartWorkspace = null) =>
+        (restartWorkspace ?? LastWorkspacePath) is { } path && OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.ExistingOnly);
 
-    public bool OpenWorkspace(IApplicationWorkflow workflow, string path, WorkspaceOpenMode mode = WorkspaceOpenMode.OpenOrCreate)
+    public bool OpenWorkspace(IApplicationWorkflow workflow, string path) =>
+        OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.OpenOrCreate);
+
+    private bool OpenWorkspaceCore(IApplicationWorkflow workflow, string path, WorkspaceOpenMode mode)
     {
         if (!workflow.OpenWorkspace(path, mode)) return false;
         RememberWorkspace(workflow.Compatibility.WorkspacePath!);

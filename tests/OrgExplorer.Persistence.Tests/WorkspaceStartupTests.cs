@@ -1,6 +1,6 @@
+using System.Text.Json.Nodes;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
-using System.Text.Json.Nodes;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -171,6 +171,27 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.True(app.IsWorkspaceCurrent);
         Assert.Null(settings.LastWorkspacePath);
         Assert.Contains("NOT saved", settings.PreferenceError);
+    }
+
+    [Fact]
+    public void Explicit_restart_workspace_restore_uses_existing_only_and_updates_the_default_only_on_success()
+    {
+        var first = Path.Combine(root, "first");
+        var restartWorkspace = Path.Combine(root, "restart-workspace");
+        var settings = new WorkspaceSettings(Preferences);
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked()))
+        {
+            Assert.True(settings.OpenWorkspace(app, first), app.Status);
+            Assert.False(settings.RestoreWorkspace(app, restartWorkspace));
+            Assert.False(Directory.Exists(restartWorkspace));
+            Assert.Equal(first, new WorkspaceSettings(Preferences).LastWorkspacePath);
+            WorkspaceFixtures.CopyVersionOne(restartWorkspace);
+            Assert.True(settings.RestoreWorkspace(app, restartWorkspace), app.Status);
+        }
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(new WorkspaceSettings(Preferences).RestoreWorkspace(reopened), reopened.Status);
+        Assert.Equal(restartWorkspace, reopened.Compatibility.WorkspacePath);
+        Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
     }
 
     private static void AssertWorkspaceBytes(string workspace, Dictionary<string, byte[]> expected)

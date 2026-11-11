@@ -28,7 +28,7 @@ public partial class MainWindow
                     updateJournal.Recover(installedVersion, path =>
                     {
                         WorkspaceLocation.RequireIndependent(path);
-                        return opened = workspaceSettings.OpenWorkspace(workflow, path, WorkspaceOpenMode.ExistingOnly);
+                        return opened = workspaceSettings.RestoreWorkspace(workflow, path);
                     }, () => workflow.Status);
                     return true;
                 }, "Reopening Workspace after update...");
@@ -72,7 +72,9 @@ public partial class MainWindow
         }
         if (!TryLeaveLocalEdits()) return;
         WorkspacePath.Text = path;
-        var opened = await RunWorkflowAsync(() => workspaceSettings.OpenWorkspace(workflow, path, mode), "Opening Workspace...");
+        var opened = await RunWorkflowAsync(() => mode == WorkspaceOpenMode.ExistingOnly
+            ? workspaceSettings.RestoreWorkspace(workflow, path)
+            : workspaceSettings.OpenWorkspace(workflow, path), "Opening Workspace...");
         ShowWorkspaceOpenOutcome(path, mode, opened);
         PresentWorkspaceOpen();
     }
