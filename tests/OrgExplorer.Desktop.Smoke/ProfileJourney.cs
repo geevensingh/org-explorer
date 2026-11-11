@@ -101,8 +101,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitRestoredWorkspace(window, workspace);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertPreferredNameReading(window, "Ave", "Edit");

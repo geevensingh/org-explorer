@@ -52,6 +52,16 @@ persisted data even without an explicit view refresh.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
+`WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
+workflow/view-model with isolated folders. It covers first run, preference/app
+reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,
+alternate-folder recovery, intentional manual creation, failed attempts retaining
+the previous default, and visible corrupt/unwritable preference errors. These
+cases also prove that both manual and existing-only settings opens retain a
+dirty profile, independent quick changes, saved bytes and the successful
+preference until an explicit leave decision. These are filesystem/settings
+assertions, not WPF evidence or a second profile-mode policy.
+
 ## Moving coverage
 
 1. Read the actual assertions at both layers before removing a desktop check.
@@ -170,7 +180,10 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   reactivation and explicit no-Manager UI.
 - `compatibility-settings`: global Settings before open, supported conversion,
   unsupported delivered version/write blocking, recoverable conversion failure
-  and validated retry.
+  and validated retry. Startup coverage also checks first-run controls, automatic
+  same-Workspace reopening without a selected Person, an honest empty recovery
+  state with Retry/Choose actions and no replacement creation, successful Retry,
+  failed manual attempts retaining the old default, and alternate-folder reopen.
 - `update-settings`: actual default-enabled startup and manual checks against a
   controlled loopback feed with ephemeral embedded public trust, responsive local
   editing/saving during a pending check, signed availability, persisted opt-out
@@ -215,6 +228,11 @@ Every scenario opts out of startup update checks before launching the app,
 except the controlled `update-settings` and `installer-update` scenarios.
 This includes ordinary smoke, manual normal-build execution and installed
 create/reopen flows; they must never fetch or apply a production release.
+Every scenario also supplies its own `ORG_EXPLORER_SETTINGS_DIRECTORY`, initially
+without a remembered Workspace. Launch fails closed without an explicit absolute
+settings directory, so no fixture falls back to the workstation owner's actual
+preferences or Workspace. Repeated launches within one scenario deliberately
+share only that scenario's settings to exercise durable reopening.
 
 For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,

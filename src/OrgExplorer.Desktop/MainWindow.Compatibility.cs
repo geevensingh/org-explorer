@@ -17,6 +17,11 @@ public partial class MainWindow
             return;
         }
         if (workPending) return;
+        if (failedWorkspaceOpen is { } failed)
+        {
+            await OpenWorkspaceAtPathAsync(failed.Path, failed.Mode);
+            return;
+        }
         await RunWorkflowAsync(workflow.RefreshWorkspace, "Validating Workspace / conversion…");
         RefreshExternalWorkspace();
     }

@@ -15,6 +15,10 @@ internal static partial class Program
         try
         {
             var window = Window(process);
+            Await(() => Find(window, "Status").Current.Name == "Choose a Workspace.");
+            AssertValue(window, "WorkspacePath", "");
+            if (!Find(window, "OpenWorkspace").Current.IsEnabled)
+                throw new InvalidOperationException("First launch did not leave usable Workspace-opening controls.");
             Click(window, "OpenSettings");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
@@ -68,6 +72,7 @@ internal static partial class Program
         try
         {
             var window = Window(recovery);
+            AwaitRestoredWorkspace(window, workspace);
             Set(window, "WorkspacePath", recoveryWorkspace);
             using (File.Open(Path.Combine(recoveryWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
@@ -92,6 +97,103 @@ internal static partial class Program
         {
             StopApplication(recovery);
         }
+        RunStartupRecoveryFlow(executable, root, recoveryWorkspace);
+    }
+
+    private static void RunStartupRecoveryFlow(string executable, string root, string workspace)
+    {
+        var moved = Path.Combine(root, "temporarily-moved");
+        Directory.Move(workspace, moved);
+        using (var retry = Launch(executable))
+        {
+            try
+            {
+                var window = Window(retry);
+                AwaitStartupRecovery(window, workspace);
+                if (Directory.Exists(workspace))
+                    throw new InvalidOperationException("Startup recreated a missing Workspace.");
+                Directory.Move(moved, workspace);
+                Click(window, "RetryStartupWorkspace");
+                AwaitRestoredWorkspace(window, workspace);
+                OpenPerson(window, "casey@example.com", "alex@example.com");
+                Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+                AssertProfileValue(window, "OfficeNumber", "0009C");
+                AssertPreferredNameReading(window, "Ave", "Edit");
+                Close(retry);
+            }
+            finally { StopApplication(retry); }
+        }
+
+        Directory.Move(workspace, moved);
+        var invalid = Path.Combine(root, "not-a-folder");
+        File.WriteAllText(invalid, "Not a Workspace directory.");
+        using (var failedManual = Launch(executable))
+        {
+            try
+            {
+                var window = Window(failedManual);
+                AwaitStartupRecovery(window, workspace);
+                Set(window, "WorkspacePath", invalid);
+                Click(window, "OpenWorkspace");
+                Await(() => Find(window, "Status").Current.Name.Contains("could not be opened"));
+                Close(failedManual);
+            }
+            finally { StopApplication(failedManual); }
+        }
+
+        var alternate = Path.Combine(root, "alternate-workspace");
+        WorkspaceFixtures.CopyVersionOne(alternate);
+        using (var choose = Launch(executable))
+        {
+            try
+            {
+                var window = Window(choose);
+                AwaitStartupRecovery(window, workspace);
+                if (Directory.Exists(workspace))
+                    throw new InvalidOperationException("A failed manual attempt replaced the remembered Workspace.");
+                Set(window, "WorkspacePath", alternate);
+                Click(window, "OpenWorkspace");
+                AwaitRestoredWorkspace(window, alternate);
+                Close(choose);
+            }
+            finally { StopApplication(choose); }
+        }
+        using var reopened = Launch(executable);
+        try
+        {
+            var window = Window(reopened);
+            AwaitRestoredWorkspace(window, alternate);
+            OpenPerson(window, "casey@example.com", "alex@example.com");
+            Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertProfileValue(window, "OfficeNumber", "0009C");
+            AssertPreferredNameReading(window, "Ave", "Edit");
+            Close(reopened);
+        }
+        finally { StopApplication(reopened); }
+    }
+
+    private static void AwaitRestoredWorkspace(AutomationElement window, string workspace)
+    {
+        Await(() => Value(window, "WorkspacePath") == Path.GetFullPath(workspace) &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+            Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace.");
+        if (Find(window, "Email").Current.Name.Length != 0 ||
+            !Find(window, "WorkspaceStartupStatus").Current.IsOffscreen)
+            throw new InvalidOperationException("Opening restored a selected Person or retained a false startup failure.");
+    }
+
+    private static void AwaitStartupRecovery(AutomationElement window, string workspace)
+    {
+        Await(() => !Find(window, "WorkspaceStartupStatus").Current.IsOffscreen &&
+            Find(window, "WorkspaceStartupStatus").Current.Name.Contains(workspace) &&
+            Find(window, "WorkspaceStartupStatus").Current.Name.Contains("could not be reopened") &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
+        if (!Find(window, "RetryStartupWorkspace").Current.IsEnabled ||
+            !Find(window, "ChooseAnotherWorkspace").Current.IsEnabled ||
+            Find(window, "Email").Current.Name.Length != 0 ||
+            Find(window, "People").FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)) is not null)
+            throw new InvalidOperationException("Failed startup did not remain empty with actionable recovery controls.");
     }
 
     private static void AssertNoFakeUpdater(AutomationElement window)

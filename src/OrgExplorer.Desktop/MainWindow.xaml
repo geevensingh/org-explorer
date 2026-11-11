@@ -32,6 +32,16 @@
       </DockPanel>
       <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
                  TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
+      <StackPanel x:Name="WorkspaceStartupPanel" Visibility="Collapsed" Margin="0,0,0,12">
+        <TextBlock x:Name="WorkspaceStartupStatus" AutomationProperties.AutomationId="WorkspaceStartupStatus"
+                   TextWrapping="Wrap"/>
+        <WrapPanel Margin="0,8,0,0">
+          <Button x:Name="RetryStartupWorkspaceButton" Content="Retry previous Workspace"
+                  AutomationProperties.AutomationId="RetryStartupWorkspace" Click="RetryStartupWorkspace" Margin="0,0,12,0"/>
+          <Button Content="Choose another folder..." AutomationProperties.AutomationId="ChooseAnotherWorkspace"
+                  Click="ChooseAnotherWorkspace"/>
+        </WrapPanel>
+      </StackPanel>
       <Border x:Name="SettingsPanel" Visibility="Collapsed" BorderBrush="Gray" BorderThickness="1" Padding="12" Margin="0,0,0,12">
         <StackPanel>
           <TextBlock Text="Settings — Workspace compatibility and recovery" FontWeight="SemiBold"/>
