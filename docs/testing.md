@@ -157,6 +157,7 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline.
 - `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed

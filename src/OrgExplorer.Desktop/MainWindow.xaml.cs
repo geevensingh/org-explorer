@@ -292,6 +292,9 @@ public partial class MainWindow : Window
     {
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
+        if (!workPending)
+            WorkflowActivity.Text = unsavedAttributes.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+                ? "Pending local edits — not yet saved" : "Ready";
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."

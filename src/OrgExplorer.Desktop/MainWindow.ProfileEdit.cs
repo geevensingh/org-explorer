@@ -7,8 +7,6 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
-    private sealed record ProfileValueRow(string Label, string Value, string AutomationId);
-
     private void BeginProfileEdit(object sender, RoutedEventArgs e)
     {
         if (workPending || selectedEmail is null) return;
@@ -64,22 +62,24 @@ public partial class MainWindow
         PreferredNameContext.IsEnabled = PreferredName.IsEnabled = writable;
     }
 
-    private void ShowProfileValues(PersonProfile person)
+    private void ShowProfileValues(PersonProfile? person)
     {
-        (string Label, string? Value, string Id)[] values =
-        [
-            ("Alias", person.Alias, "AliasValue"), ("Job title", person.JobTitle, "JobTitleValue"),
-            ("Department", person.Department, "DepartmentValue"),
-            ("Office building", person.OfficeBuilding, "OfficeBuildingValue"),
-            ("Office number", person.OfficeNumber, "OfficeNumberValue"),
-            ("Office state / province", person.OfficeState, "OfficeStateValue"),
-            ("Office country", person.OfficeCountry, "OfficeCountryValue"),
-            ("LinkedIn profile URL", person.LinkedInProfileUrl, "LinkedInProfileUrlValue")
-        ];
-        ProfileValues.ItemsSource = values.Where(v => v.Value is not null)
-            .Select(v => new ProfileValueRow(v.Label, v.Value!, v.Id)).ToArray();
-        DirectoryName.Visibility = person.DirectoryName is null ? Visibility.Collapsed : Visibility.Visible;
-        OpenLinkedInButton.Visibility = person.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
+        ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
+        ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle);
+        ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department);
+        ShowProfileValue(OfficeBuildingValueRow, OfficeBuildingValue, person?.OfficeBuilding);
+        ShowProfileValue(OfficeNumberValueRow, OfficeNumberValue, person?.OfficeNumber);
+        ShowProfileValue(OfficeStateValueRow, OfficeStateValue, person?.OfficeState);
+        ShowProfileValue(OfficeCountryValueRow, OfficeCountryValue, person?.OfficeCountry);
+        ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
+        DirectoryName.Visibility = person?.DirectoryName is null ? Visibility.Collapsed : Visibility.Visible;
+        OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text)
+    {
+        value.Text = text ?? "";
+        row.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void CopyProfileValue(object sender, RoutedEventArgs e)

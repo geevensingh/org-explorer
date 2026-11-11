@@ -47,6 +47,7 @@ internal static partial class Program
             Set(window, "OfficeNumber", "Cancelled office");
             Click(window, "ClearPhoto");
             CancelProfileEditing(window);
+            AwaitLocalWorkIdle(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
             AssertPhotoVisible(window);
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
@@ -145,20 +146,31 @@ internal static partial class Program
 
     private static void AssertProfileValue(AutomationElement window, string field, string expected)
     {
-        Await(() =>
+        var observed = "not yet observed";
+        try
         {
-            var value = window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
-            if (expected.Length == 0) return value is null;
-            return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
-        });
+            Await(() =>
+            {
+                var value = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
+                observed = value is null ? "missing" :
+                    $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
+                if (expected.Length == 0) return value is null;
+                return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
+            });
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException($"{field} reading expected '{expected}'; last UI observation: {observed}.", error);
+        }
     }
 
     private static AutomationElement ProfileLeaveWindow(AutomationElement window)
     {
         AutomationElement? decision = null;
-        Await(() => (decision = AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
+        Await(() => (decision = window.FindFirst(TreeScope.Descendants, new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window),
             new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")))) is not null);
         return decision!;
     }

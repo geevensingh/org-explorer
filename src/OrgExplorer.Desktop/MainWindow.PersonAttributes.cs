@@ -23,6 +23,7 @@ public partial class MainWindow
         displayedAttributeBases.Clear();
         profileDraftBases.Clear();
         foreach (var editor in PersonEditors) editor.Clear();
+        ShowProfileValues(null);
         preferredNameOwner = null;
         PreferredNameValue.Text = "";
         EditPreferredNameButton.Content = "Add preferred name";
