@@ -22,6 +22,17 @@ history. This is a performance target, not a hard import cap. Measure load,
 navigation, search, and update behavior; do not silently invent an agreed latency
 guarantee or substitute a smaller dataset.
 
+## Opening a workspace
+
+Remember the last successfully opened workspace and reopen it automatically on
+startup. Show the empty app with workspace-opening controls only on first launch
+or when the previous workspace cannot be reopened, not a disabled profile editor
+as the normal startup experience.
+
+If reopening fails, explain the failure and offer Retry or Choose another folder.
+Do not silently create a replacement workspace at the old location or present a
+failed reopen as a successfully opened empty workspace.
+
 ## Local files and the sync boundary
 
 All canonical person data, notes, photos, and history belong in a user-chosen local
@@ -34,11 +45,14 @@ sync-account access controls: someone with access to the folder or its cloud cop
 can read it. There is no hosted user-data service, external AI processing, or
 upload of private notes by this app.
 
-Each client saves local changes as they happen and notices external file changes.
+Each client saves profile drafts on explicit Save, autosaves the quick edits
+described below, and notices external file changes.
 The external engine owns syncing and conflict resolution, whether it is OneDrive,
 SharePoint, Google Drive, or another folder provider. Do not add provider APIs,
 semantic merges, or an application conflict-resolution UI. Provider-created
 alternate copies or competing versions may need handling outside the app.
+The stale-profile warning below protects an unsaved draft; it does not introduce
+an in-app compare/merge workflow.
 
 External changes must be validated before becoming current application state.
 Incomplete sync delivery, invalid files, or incompatible versions must be visible
@@ -82,7 +96,57 @@ Opening a profile, rendering Markdown, or displaying a photo must not fetch
 remote content. An explicitly selected external link may open in the user's
 browser. App update traffic is separate from private workspace data.
 
+### Viewing and editing
+
+Default to View mode when opening a workspace or selecting a person. Present
+populated profile attributes as readable, copyable values, not always-visible
+editors or disabled textboxes. Omit empty optional profile fields from View mode.
+Keep email non-editable, manager/report navigation available, and a supplied
+LinkedIn URL available as an explicitly opened link.
+
+One Edit profile action enters a person-scoped edit mode using the existing
+editing controls as the starting point. Show all editable fields, including
+empty ones. Directory name, alias, job title, department, office fields, LinkedIn
+URL, manager changes, and choosing or clearing a photo all belong to this mode.
+Stage these changes until explicit Save; do not apply manager or photo changes
+immediately. Cancel discards the profile draft without applying it. Successful
+Save and Cancel both return to View mode. Failed saves show the error and retain
+the draft.
+
+Keep these quick actions independent of the main profile Save/Cancel:
+
+- Preferred name appears as ordinary text with a small one-click Edit action.
+  If unset, show Add preferred name rather than hiding the quick action.
+  Opening the inline editor retains its autosave behavior.
+- Favorite remains a one-click toggle that saves immediately.
+- Person notes and team notes retain their own editing and autosave behavior,
+  described below.
+
+Profile Save must preserve independently saved quick changes; Cancel must not
+undo them.
+
+When leaving an unsaved profile draft, offer Save / Discard / Stay. This includes
+selecting another person, opening Import, switching workspaces, closing the app,
+or taking another action that would abandon the draft. A failed or stale Save
+keeps the draft open instead of proceeding with navigation.
+
+Use the selected profile's version when entering Edit profile as the stale-save
+baseline, not its version when the app started. If that profile changes externally
+between entering Edit profile and clicking Save, warn and block Save while
+preserving the draft. Changes already incorporated before editing, or changes to
+unrelated profiles, do not constitute this conflict. Do not silently overwrite
+newer profile data.
+
+Put Archive / Reactivate in the person's More menu rather than leaving those
+controls permanently visible or including them in the profile draft. Require
+confirmation, then apply the action independently of profile Save/Cancel.
+
 ## Importing person updates
+
+Import has its own view, reachable without entering Edit profile. Remove the
+import file chooser, preview, review, and Apply controls from the normal people
+view rather than keeping them at the top of the window. Preserve the existing
+preview, review, and explicit Apply workflow in the dedicated view.
 
 The app defines and consumes the [versioned JSON contract](import-format.md).
 Another agent, session, or tool produces the file and any accompanying local
@@ -120,6 +184,15 @@ because an ordinary field was updated.
 
 Both kinds of notes are private to the workspace owner. "Team" is display scope,
 not shared access.
+
+Existing notes open in rendered Read mode. A one-click Edit action reveals the
+title and Markdown editors, retaining their current autosave behavior rather than
+joining the main profile Save/Cancel workflow. New note opens directly for editing.
+
+Hiding empty optional profile fields does not hide notes or their sections.
+Person notes and team notes sections remain visible when empty, with an
+empty-state message and New note action. An existing note remains accessible
+and editable even when its body is empty.
 
 A person note appears only as that person's direct context. A team note belongs
 to the manager on whom it was written. Current descendant profiles show the team
@@ -248,7 +321,9 @@ app restarted automatically.
 
 Wait for pending local saves and in-progress import application before applying
 and restarting. Do not wait for the external sync engine. Save failure prevents a
-data-losing restart. Reopen the same workspace after restart.
+data-losing restart. Unsaved profile drafts must also be protected: use the
+Save / Discard / Stay decision rather than silently saving or discarding a draft
+to restart. Reopen the same workspace after restart.
 
 Offline, rate-limit, invalid-signature, download, install, and restart failures
 must be explicit status/errors while retaining the existing usable app wherever
