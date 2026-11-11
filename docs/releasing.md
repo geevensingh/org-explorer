@@ -179,8 +179,16 @@ Old-key bridge/rebootstrap policy remains [unchanged](update-protocol.md#rotatio
 
 ## Safe hosted proof before merge
 
-The existing registered CI workflow has a second **manual-only, default-false**
-bridge. On a pushed candidate branch, with the repository-authorized account:
+**Product release rehearsal** (`release-verification.yml`) is a reusable,
+non-publishing workflow. It has no separate **Run workflow** button. In Actions,
+open **Continuous integration**, select **Run workflow**, choose the candidate
+branch and enable `run_release_verification` ("Rehearse a product release with
+test keys; never publish"). The option is **manual-only and defaults to false**.
+Its jobs and evidence appear inside that CI run, not as separate runs on the
+reusable workflow's page.
+
+The equivalent command, on a pushed candidate branch with the
+repository-authorized account, is:
 
 ```powershell
 gh workflow run ci.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f run_release_verification=true
