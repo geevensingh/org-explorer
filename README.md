@@ -31,8 +31,12 @@ dotnet run --project src\OrgExplorer.Desktop
 ```
 
 Choose an empty local folder outside the installation, then **Open Workspace**.
-Choose a version-1 JSON file, review **Preview import**, and deliberately **Apply
-reviewed import**. Expand/collapse the **Imported reporting population**, select
+Open **Import...** without entering Edit profile, choose a version-1 JSON file,
+review **Preview import**, and deliberately **Apply reviewed import**.
+**Back to people** returns to reading; file selection, preview and Apply controls
+are shown only in the dedicated Import view. Changing the file path or returning
+to people requires a fresh preview before Apply.
+Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
 Profiles open in **View** mode with populated, readable values; right-click a

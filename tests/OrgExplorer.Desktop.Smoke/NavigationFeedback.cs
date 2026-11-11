@@ -23,6 +23,7 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             OpenPerson(window, "casey@example.com");
@@ -60,16 +61,49 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "0009P");
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "Discard me");
-            Click(window, "PreviewImport");
+            Click(window, "OpenImport");
             Click(ProfileLeaveWindow(window), "StayOnProfile");
+            Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
+            AssertImportHidden(window);
             AssertValue(window, "OfficeNumber", "Discard me");
+            if (Find(window, "Email").Current.Name != "avery@example.com")
+                throw new InvalidOperationException("Staying on the profile opened Import or changed its owner.");
+            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Click(window, "OpenImport");
+                Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
+                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) &&
+                    Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                    Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+                    Find(window, "SaveProfile").Current.IsEnabled &&
+                    window.FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
+                AssertImportHidden(window);
+                AssertValue(window, "OfficeNumber", "Discard me");
+                if (Find(window, "Email").Current.Name != "avery@example.com")
+                    throw new InvalidOperationException("Failed Import leave-save changed the profile owner.");
+            }
+            Click(window, "OpenImport");
+            Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
+            Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
+            ReturnToPeople(window);
+            AssertProfileValue(window, "OfficeNumber", "Discard me");
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "Discard for Import");
+            Click(window, "OpenImport");
+            Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
+            Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
+            ReturnToPeople(window);
+            AssertProfileValue(window, "OfficeNumber", "Discard me");
+            BeginProfileEditing(window);
+            Set(window, "OfficeNumber", "Discard for Manager");
             Click(window, "NavigateManager");
             Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
             Await(() => Find(window, "Email").Current.Name == "casey@example.com" &&
                 Find(window, "WorkflowActivity").Current.Name == "Ready" &&
                 Find(window, "Status").Current.Name.Contains("Profile draft discarded", StringComparison.Ordinal));
             OpenPerson(window, "casey@example.com");
-            AssertProfileValue(window, "OfficeNumber", "0009P");
+            AssertProfileValue(window, "OfficeNumber", "Discard me");
             foreach (var kind in new[] { "Person", "Team" })
             {
                 Click(window, $"New{kind}Note");
@@ -77,11 +111,12 @@ internal static partial class Program
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
                 BeginProfileEditing(window);
                 Set(window, "DirectoryNameEditor", "Discard this profile only");
-                Click(window, "NavigateManager");
+                Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));
                 if (!Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal))
                     throw new InvalidOperationException($"Discarding the profile hid the retained failed {kind} note.");
+                AssertImportHidden(window);
                 var status = Find(window, "Status").Current.Name;
                 if (!status.StartsWith("Navigation blocked:") || !status.Contains($"{kind} note") ||
                     !status.Contains("Retry or discard"))

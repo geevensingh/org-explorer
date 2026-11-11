@@ -21,13 +21,15 @@
   </Window.Resources>
   <Grid Margin="20">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-      <RowDefinition Height="140"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
     <StackPanel>
       <DockPanel Margin="0,0,0,12">
         <Button DockPanel.Dock="Right" Content="_Settings and upgrade guidance" AutomationProperties.AutomationId="OpenSettings"
                 Click="ToggleSettings" HorizontalAlignment="Right"/>
+        <Button x:Name="OpenImportButton" DockPanel.Dock="Right" Content="_Import..."
+                AutomationProperties.AutomationId="OpenImport" Click="OpenImportView" Margin="0,0,12,0"/>
         <TextBlock Text="Private offline Workspace" FontSize="24"/>
       </DockPanel>
       <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
@@ -69,25 +71,36 @@
       <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>
       <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath" ToolTip="Workspace folder, separate from installation"/>
     </DockPanel>
-    <DockPanel x:Name="ImportControls" Grid.Row="2" Margin="0,0,0,8">
-      <Button x:Name="PreviewButton" DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
-      <Button DockPanel.Dock="Right" Content="Choose JSON…" Click="ChooseImport" Margin="8,0"/>
-      <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"/>
-    </DockPanel>
-    <DockPanel x:Name="ImportPreviewPanel" Grid.Row="3" Margin="0,0,0,12">
-      <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
-              IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
-      <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>
-      <ListBox x:Name="PreviewText" AutomationProperties.AutomationId="Preview"
-               AutomationProperties.Name="Import changes will appear here. No data changes until Apply."
-               VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-        <ListBox.ItemTemplate>
-          <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
-    </DockPanel>
-    <Grid x:Name="ExplorerPanel" Grid.Row="4">
+    <Grid x:Name="ImportPanel" Grid.Row="2" Visibility="Collapsed" AutomationProperties.AutomationId="ImportView">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <DockPanel Margin="0,0,0,12">
+        <Button DockPanel.Dock="Right" Content="Back to people" AutomationProperties.AutomationId="BackToPeople"
+                Click="ShowPeopleView"/>
+        <TextBlock Text="Import — review explicit Person updates" FontSize="24"/>
+      </DockPanel>
+      <DockPanel x:Name="ImportControls" Grid.Row="1" Margin="0,0,0,8">
+        <Button x:Name="PreviewButton" DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
+        <Button DockPanel.Dock="Right" Content="Choose JSON…" AutomationProperties.AutomationId="ChooseImportFile" Click="ChooseImport" Margin="8,0"/>
+        <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"
+                 TextChanged="ChangeImportPath"/>
+      </DockPanel>
+      <DockPanel x:Name="ImportPreviewPanel" Grid.Row="2" Margin="0,0,0,12">
+        <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
+                IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
+        <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>
+        <ListBox x:Name="PreviewText" AutomationProperties.AutomationId="Preview"
+                 AutomationProperties.Name="Import changes will appear here. No data changes until Apply."
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Grid>
+    <Grid x:Name="ExplorerPanel" Grid.Row="2">
       <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
@@ -342,7 +355,7 @@
       </StackPanel>
       </ScrollViewer>
     </Grid>
-    <StackPanel Grid.Row="5" Margin="0,16,0,0">
+    <StackPanel Grid.Row="3" Margin="0,16,0,0">
       <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready"/>
       <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
       <WrapPanel>

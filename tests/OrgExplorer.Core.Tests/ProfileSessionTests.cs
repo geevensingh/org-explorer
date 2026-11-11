@@ -89,6 +89,76 @@ public sealed class ProfileSessionTests
         Assert.Equal(!canLeave, app.ProfileEdit is not null);
     }
 
+    [Theory]
+    [InlineData(ProfileLeaveDecision.Stay, false, false, "Engineer")]
+    [InlineData(ProfileLeaveDecision.Discard, false, true, "Engineer")]
+    [InlineData(ProfileLeaveDecision.Save, false, true, "Principal")]
+    [InlineData(ProfileLeaveDecision.Save, true, false, "Engineer")]
+    public void Import_navigation_requires_the_shared_leave_decision_and_retains_rejected_drafts(
+        ProfileLeaveDecision decision, bool invalidManager, bool canLeave, string savedTitle)
+    {
+        using var app = Open();
+        const string email = "avery@example.com";
+        Assert.True(app.BeginProfileEdit(email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
+        if (invalidManager) Assert.True(app.StageProfileManager(email));
+        Assert.False(app.TryOpenImport());
+        Assert.False(app.IsImportOpen);
+        Assert.Equal(email, app.ProfileEdit!.Basis.Email);
+        Assert.Equal("Principal", app.ProfileEdit.Draft.JobTitle);
+        Assert.Contains("Stayed", app.Status);
+        Assert.Equal(canLeave, app.TryLeaveProfileEdit(decision));
+        Assert.Equal(canLeave, app.TryOpenImport());
+        Assert.Equal(canLeave, app.IsImportOpen);
+        Assert.Equal(savedTitle, app.GetRelationships(email)!.Person.JobTitle);
+        if (!canLeave)
+        {
+            Assert.Equal(email, app.ProfileEdit!.Basis.Email);
+            Assert.Equal("Principal", app.ProfileEdit.Draft.JobTitle);
+        }
+        else
+        {
+            app.ShowPeople();
+            Assert.Null(app.ProfileEdit);
+            Assert.False(app.IsImportOpen);
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Import_navigation_preserves_pending_and_failed_independent_note_writing(NoteScope scope)
+    {
+        using var app = Open();
+        var draft = app.BeginNoteDraft(scope, "avery@example.com")!;
+        app.RetainNoteDraft(draft);
+        Assert.False(app.TryOpenImport());
+        Assert.False(app.IsImportOpen);
+        Assert.Contains("Retry or discard", app.Status);
+        Assert.Null(app.SaveNoteDraft(draft, "", "Retained private writing"));
+        Assert.False(app.TryOpenImport());
+        Assert.False(app.IsImportOpen);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Context", "Retained private writing"));
+        Assert.True(app.TryOpenImport(), app.Status);
+        Assert.Equal("Retained private writing", scope == NoteScope.Person
+            ? Assert.Single(app.GetPersonNotes(draft.OwnerEmail)).Markdown
+            : Assert.Single(app.GetTeamNotes(draft.OwnerEmail)).Markdown);
+    }
+
+    [Fact]
+    public void Import_navigation_does_not_clear_failed_quick_changes()
+    {
+        using var app = Open();
+        Assert.False(app.EditPreferredName("avery@example.com", " "));
+        Assert.False(app.TryOpenImport());
+        Assert.False(app.IsImportOpen);
+        Assert.NotNull(app.LocalSaveError);
+        Assert.Contains("Retry or discard", app.Status);
+        Assert.True(app.EditPreferredName("avery@example.com", "My Avery"));
+        Assert.True(app.TryOpenImport(), app.Status);
+        Assert.Equal("My Avery", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+    }
+
     [Fact]
     public void Rejected_leave_save_retains_the_owner_and_complete_draft_and_cancel_preserves_note_failures()
     {

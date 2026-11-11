@@ -76,6 +76,49 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Null(cleared.GetPhoto(Email));
     }
 
+    [Fact]
+    public void Import_transition_retains_a_failed_leave_save_then_publishes_only_the_explicitly_reviewed_batch()
+    {
+        using var app = Open();
+        Assert.True(app.BeginProfileEdit(Email));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "009"));
+        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(app.TryLeaveProfileEdit(ProfileLeaveDecision.Save));
+            Assert.Contains("NOT saved", app.Status);
+            Assert.False(app.TryOpenImport());
+            Assert.False(app.IsImportOpen);
+            Assert.Equal(Email, app.ProfileEdit!.Basis.Email);
+            Assert.Equal("Principal", app.ProfileEdit.Draft.JobTitle);
+            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        }
+        Assert.True(app.TryLeaveProfileEdit(ProfileLeaveDecision.Save), app.Status);
+        Assert.True(app.TryOpenImport(), app.Status);
+        var import = Path.Combine(root, "review.json");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"32000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","jobTitle":"Imported title"}]}
+            """);
+        var review = app.PreviewImportFile(import);
+        Assert.True(review.CanApply, app.Status);
+        using (var beforeApply = Reopen())
+            Assert.Equal("Principal", beforeApply.GetRelationships(Email)!.Person.JobTitle);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        app.ShowPeople();
+        Assert.False(app.IsImportOpen);
+        Assert.Null(app.ProfileEdit);
+        using var reopened = Reopen();
+        var person = reopened.GetRelationships(Email)!.Person;
+        Assert.Equal("Imported title", person.JobTitle);
+        Assert.Equal("009", person.OfficeNumber);
+        Assert.Equal("morgan@example.com", person.ManagerEmail);
+        Assert.Contains(reopened.GetProfileTimeline(Email)!.Changes, change =>
+            change.Field == "jobTitle" && change.NewValue.GetString() == "Imported title");
+    }
+
     [Theory]
     [InlineData("jobTitle", false)]
     [InlineData("department", false)]
@@ -103,6 +146,8 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             Assert.Equal("Local draft", app.ProfileEdit!.Draft.JobTitle);
             Assert.Equal(delivered, File.ReadAllBytes(personFile));
             Assert.False(app.CanSafelyClose);
+            Assert.False(app.TryOpenImport());
+            Assert.False(app.IsImportOpen);
         }
         app.CancelProfileEdit();
         Assert.True(app.BeginProfileEdit(Email));

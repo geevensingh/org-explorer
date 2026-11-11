@@ -35,10 +35,13 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
             AssertEmptyNotes(window, "Person");

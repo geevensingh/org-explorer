@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Automation;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -32,12 +33,27 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            AwaitLocalWorkIdle(window);
+            AssertImportHidden(window);
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            using (var saved = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!saved.OpenWorkspace(workspace) || saved.People.Count != 0)
+                    throw new InvalidOperationException("Choosing or previewing an Import changed the saved population.");
+            }
+            Set(window, "ImportPath", import + ".missing");
+            Await(() => !Find(window, "ApplyImport").Current.IsEnabled);
+            Set(window, "ImportPath", import);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -62,11 +78,13 @@ internal static partial class Program
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000003",
                  "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"morgan@example.com","archived":true}]}
                 """);
+            OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
             if (Find(window, "ApplyImport").Current.IsEnabled ||
                 !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
+            ReturnToPeople(window);
             AssertPreferredNameReading(window, "", "Add preferred name");
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", " ");
@@ -88,21 +106,34 @@ internal static partial class Program
                  "observedAt":"2026-11-03T17:00:00Z","people":[
                  {"email":"avery@example.com","officeNumber":"0009C","department":null}]}
                 """);
+            OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
+            ReturnToPeople(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
+            OpenImportView(window);
+            if (Find(window, "ApplyImport").Current.IsEnabled)
+                throw new InvalidOperationException("Returning to people retained an applicable unreviewed Import.");
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
+            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            ReturnToPeople(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
-            Close(process);
+            OpenImportView(window);
+            process.CloseMainWindow();
+            if (!process.WaitForExit(10000))
+                throw new TimeoutException("App did not close normally from Import.");
             Directory.Delete(producer, true);
 
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace);
+            AssertImportHidden(window);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertPreferredNameReading(window, "Ave", "Edit");

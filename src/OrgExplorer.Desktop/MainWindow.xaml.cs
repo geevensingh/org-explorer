@@ -9,7 +9,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow : Window
 {
-    private readonly IApplicationWorkflow workflow = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
+    private readonly WorkspaceViewModel workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -60,6 +60,33 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "Import JSON|*.json", Title = "Choose a version-1 Import batch" };
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
+    private void OpenImportView(object sender, RoutedEventArgs e)
+    {
+        if (workflow.IsImportOpen || !TryLeaveLocalEdits()) return;
+        if (!workflow.TryOpenImport())
+        {
+            ShowNavigationBlocked("Navigation blocked: " + workflow.Status);
+            return;
+        }
+        ShowStatus();
+    }
+    private void ShowPeopleView(object sender, RoutedEventArgs e)
+    {
+        if (!TryLeaveLocalEdits()) return;
+        workflow.ShowPeople();
+        ClearImportPreview();
+        RefreshPeople();
+        ShowStatus();
+    }
+    private void ChangeImportPath(object sender, TextChangedEventArgs e) => ClearImportPreview();
+    private void ClearImportPreview()
+    {
+        preview = null;
+        ApplyButton.IsEnabled = false;
+        PreviewText.ItemsSource = null;
+        System.Windows.Automation.AutomationProperties.SetName(PreviewText,
+            "Choose a version-1 Import batch and preview again. No data changes until Apply.");
+    }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
         => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
 
@@ -67,8 +94,7 @@ public partial class MainWindow : Window
     {
         PersonNotes.OpenPerson(null);
         TeamNotes.OpenPerson(null);
-        preview = null;
-        ApplyButton.IsEnabled = false;
+        ClearImportPreview();
         selectedEmail = null;
         ClearSearchContext();
         FavoriteButton.IsEnabled = false;
@@ -290,6 +316,8 @@ public partial class MainWindow : Window
 
     private void ShowStatus()
     {
+        ImportPanel.Visibility = workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerPanel.Visibility = workflow.IsImportOpen ? Visibility.Collapsed : Visibility.Visible;
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         if (!workPending)

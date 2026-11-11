@@ -5,6 +5,7 @@ namespace OrgExplorer.Workflow;
 public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
     private readonly IApplicationWorkflow workflow;
+    private string? navigationError;
     public WorkspaceViewModel(IApplicationWorkflow workflow)
     {
         this.workflow = workflow;
@@ -38,10 +39,33 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
-    public string Status => workflow.Status;
+    public string Status => navigationError ?? workflow.Status;
+    public bool IsImportOpen { get; private set; }
+    public bool TryOpenImport() => Observe(() =>
+    {
+        if (!workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Stay)) return false;
+        if (!workflow.CanSafelyClose)
+        {
+            navigationError = "Import navigation blocked: local writing is pending or was NOT saved. " +
+                "Retry or discard the independent changes before leaving. " + (workflow.LocalSaveError ?? workflow.Status);
+            return false;
+        }
+        IsImportOpen = true;
+        return true;
+    });
+    public void ShowPeople() => Observe(() =>
+    {
+        IsImportOpen = false;
+        return true;
+    });
     public bool OpenWorkspace(string path) => OpenWorkspace(path, WorkspaceOpenMode.OpenOrCreate);
     public bool OpenWorkspace(string path, WorkspaceOpenMode mode) =>
-        Observe(() => workflow.OpenWorkspace(path, mode));
+        Observe(() =>
+        {
+            var opened = workflow.OpenWorkspace(path, mode);
+            if (opened) IsImportOpen = false;
+            return opened;
+        });
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
@@ -57,6 +81,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
 
     private T Observe<T>(Func<T> operation)
     {
+        navigationError = null;
         var result = operation();
         Notify();
         return result;
@@ -74,5 +99,6 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
     }
 }

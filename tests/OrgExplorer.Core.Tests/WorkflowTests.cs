@@ -43,6 +43,31 @@ public class WorkflowTests
         Assert.Equal("Ave", Assert.Single(viewModel.People).PreferredName);
     }
 
+    [Fact]
+    public void Dedicated_import_view_reviews_without_mutating_and_returns_to_people_after_explicit_apply()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.False(app.IsImportOpen);
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var notified = new List<string?>();
+        app.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+        Assert.True(app.TryOpenImport(), app.Status);
+        Assert.True(app.IsImportOpen);
+        var preview = app.PreviewImport(Batch);
+        Assert.True(preview.CanApply, app.Status);
+        Assert.Empty(app.People);
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        Assert.True(app.IsImportOpen);
+        app.ShowPeople();
+        Assert.False(app.IsImportOpen);
+        Assert.Null(app.ProfileEdit);
+        Assert.Equal("Avery Example", Assert.Single(app.People).DirectoryName);
+        Assert.Contains(nameof(app.IsImportOpen), notified);
+        Assert.True(app.TryOpenImport());
+        Assert.True(app.OpenWorkspace("another-fictitious"));
+        Assert.False(app.IsImportOpen);
+    }
+
     [Theory]
     [InlineData("2026-11-01T17:00:00Z", "2026-02-29T17:00:00Z", "observedAt")]
     [InlineData("\"schemaVersion\":1", "\"schemaVersion\":2", "upgrade")]

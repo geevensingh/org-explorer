@@ -169,11 +169,16 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
-  and JPEG pixels, photo clear/placeholder and Profile timeline.
+  and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
+  explicitly, replaces the people view, and returns to reading with Import
+  controls absent. Choosing/previewing retains the saved population; changing the
+  path invalidates Apply until reviewed again.
 - `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
   leave-save retention and Import protection versus independent failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
-  separately successful navigation.
+  separately successful navigation. Opening the dedicated Import view exercises
+  all three profile decisions and a locked-file leave-save rejection, then checks
+  reading values after returning; independent failed notes still block Import.
 - `person-note-rendering`: Read-first existing notes with both editors hidden,
   one-click editing, empty-section actions, direct New-note editing and empty-body
   accessibility, actual Markdown text, loopback

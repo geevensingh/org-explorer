@@ -30,6 +30,7 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");

@@ -30,6 +30,7 @@ internal static partial class Program
             var window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             SelectTreePerson(window, "casey@example.com");
@@ -136,11 +137,47 @@ internal static partial class Program
 
     private static void ApplyReviewedHistoryImport(AutomationElement window)
     {
+        OpenImportView(window);
         Click(window, "PreviewImport");
         Await(() => Find(window, "ApplyImport").Current.IsEnabled);
         Click(window, "ApplyImport");
         Await(() => Find(window, "Status").Current.Name.Contains("applied") ||
             Find(window, "Status").Current.Name.Contains("no changes"));
+        ReturnToPeople(window);
+    }
+    private static void OpenImportView(AutomationElement window)
+    {
+        var path = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportPath"));
+        if (path is not null && !path.Current.IsOffscreen) return;
+        AwaitLocalWorkIdle(window);
+        Click(window, "OpenImport");
+        Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
+        var people = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "People"));
+        if (people is not null && !people.Current.IsOffscreen)
+            throw new InvalidOperationException("Import did not replace the people view.");
+    }
+    private static void ReturnToPeople(AutomationElement window)
+    {
+        Click(window, "BackToPeople");
+        Await(() =>
+        {
+            var path = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportPath"));
+            return path is null || path.Current.IsOffscreen;
+        });
+        AssertImportHidden(window);
+    }
+    private static void AssertImportHidden(AutomationElement window)
+    {
+        foreach (var id in new[] { "ImportPath", "ChooseImportFile", "PreviewImport", "Preview", "ApplyImport", "BackToPeople" })
+        {
+            var control = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, id));
+            if (control is not null && !control.Current.IsOffscreen)
+                throw new InvalidOperationException($"People view still displays Import control {id}.");
+        }
     }
     private static void SelectTeamNote(AutomationElement window, string title)
     {

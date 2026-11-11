@@ -32,6 +32,7 @@ internal static partial class Program
                     {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
                     {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
                     """);
+                OpenImportView(window);
                 Set(window, "ImportPath", import);
                 ApplyReviewedHistoryImport(window);
                 OpenPerson(window, "casey@example.com", "morgan@example.com");

@@ -46,9 +46,13 @@ internal static partial class Program
             File.WriteAllText(pointer, data.ToJsonString());
             var before = WorkspaceFixtures.Bytes(workspace);
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            if (Find(window, "PreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled ||
+            if (Find(window, "PreferredName").Current.IsEnabled ||
                 Find(window, "ToggleFavorite").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
+            OpenImportView(window);
+            if (Find(window, "ApplyImport").Current.IsEnabled)
+                throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
+            ReturnToPeople(window);
             Click(window, "OpenSettings");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
             AssertNoFakeUpdater(window);
@@ -80,8 +84,12 @@ internal static partial class Program
                 Await(() => Find(window, "Status").Current.Name.Contains("conversion failed"));
                 Click(window, "OpenSettings");
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
-                if (Find(window, "EditPreferredName").Current.IsEnabled || Find(window, "ApplyImport").Current.IsEnabled)
+                if (Find(window, "EditPreferredName").Current.IsEnabled)
                     throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
+                OpenImportView(window);
+                if (Find(window, "ApplyImport").Current.IsEnabled)
+                    throw new InvalidOperationException("Failed migration enabled Import application.");
+                ReturnToPeople(window);
                 foreach (var (path, bytes) in originals)
                     if (!bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(recoveryWorkspace, path))))
                         throw new InvalidOperationException("Failed migration replaced original " + path);

@@ -209,6 +209,7 @@ internal static partial class Program
                 if (i == 1000) update["managerEmail"] = ScaleFixture.Email(12);
                 return update;
             }), 4));
+            OpenImportView(window);
             Set(window, "ImportPath", import);
             ScaleFixture.Measure("UI-validated-refresh", () =>
             {
@@ -218,6 +219,7 @@ internal static partial class Program
                     throw new InvalidOperationException("The 10,000-record review lost its final Person.");
                 Click(window, "ApplyImport");
                 AwaitScale(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+                ReturnToPeople(window);
                 AwaitScale(() => Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"));
             });
             var notePath = Directory.GetFiles(Path.Combine(fixture.Workspace, "notes"))
