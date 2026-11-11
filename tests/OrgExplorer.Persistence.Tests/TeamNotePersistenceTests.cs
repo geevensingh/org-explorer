@@ -156,7 +156,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.Equal("**Manager**", Assert.Single(app.GetTeamNotes("manager@example.com", true)).Markdown);
         Assert.Empty(app.GetTeamNotes("manager@example.com"));
-        Assert.Equal(3, Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories)
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md")
             .Count(path => File.ReadAllText(path).Contains("\"kind\": \"team\"")));
     }
 

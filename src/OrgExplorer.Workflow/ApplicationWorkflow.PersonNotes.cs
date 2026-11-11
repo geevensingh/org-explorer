@@ -85,11 +85,9 @@ public sealed partial class ApplicationWorkflow
     {
         var result = new Dictionary<Guid, PersonNote>();
         var directory = Path.Combine(path, "notes");
-        if (workspaceReadSnapshot.Value is null && !Directory.Exists(directory))
-        {
-            if (File.Exists(directory)) throw new IOException("Person notes folder is not a directory.");
-            return result;
-        }
+        if (workspaceReadSnapshot.Value is { } snapshot ? snapshot.ContainsKey(directory) : File.Exists(directory))
+            throw new IOException("Person notes folder is not a directory.");
+        if (workspaceReadSnapshot.Value is null && !Directory.Exists(directory)) return result;
         RejectNoteLink(directory);
         foreach (var file in NoteDocumentPaths(directory))
         {

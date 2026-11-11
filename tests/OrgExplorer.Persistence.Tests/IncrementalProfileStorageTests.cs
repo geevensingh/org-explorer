@@ -399,12 +399,13 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
                 output.WriteLine($"{unrelatedCount + 2} People: {group.Key} = {group.Sum(e => e.Bytes)} bytes.");
             var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
                 .ToDictionary(e => e.Path, e => e.Destination!);
-            bool Copied(WorkspaceFileEffect write, string path)
+            var writtenBytes = written.Select(e => e.Path).Distinct().ToDictionary(path => path, path =>
             {
-                var location = File.Exists(write.Path) ? write.Path : publications.GetValueOrDefault(write.Path);
-                return write.Path == path || location is not null && File.Exists(location) &&
-                    File.ReadAllBytes(location).AsSpan().SequenceEqual(File.ReadAllBytes(path));
-            }
+                var location = File.Exists(path) ? path : publications.GetValueOrDefault(path);
+                return location is not null && File.Exists(location) ? File.ReadAllBytes(location) : null;
+            });
+            bool Copied(WorkspaceFileEffect write, string path) => write.Path == path ||
+                writtenBytes[write.Path] is { } bytes && bytes.AsSpan().SequenceEqual(before[Path.GetRelativePath(root, path)]);
             var current = WorkspaceFixtures.IndexedDocuments(root);
             foreach (var (identity, path) in current.Where(e => e.Key is not "people:avery@example.com" and not "profileHistory:avery@example.com"))
             {

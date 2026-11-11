@@ -46,6 +46,11 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         Assert.Equal(delivered, File.ReadAllBytes(file));
 
         app.DiscardUnsavedChanges(id);
+        if (incremental)
+        {
+            Assert.False(app.CanSafelyClose);
+            Assert.True(app.RetryStorageMaintenance(), app.Status);
+        }
         Assert.True(app.CanSafelyClose);
         var accepted = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, Owner, id));
         Assert.Equal("Delivered writing", accepted.Markdown);
@@ -151,6 +156,11 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         Assert.False(File.Exists(file));
         Assert.False(app.CanSafelyClose);
         app.DiscardUnsavedChanges(original.Id);
+        if (incremental)
+        {
+            Assert.False(app.CanSafelyClose);
+            Assert.True(app.RetryStorageMaintenance(), app.Status);
+        }
         Assert.True(app.CanSafelyClose);
         Assert.Null(app.BeginNoteDraft(scope, Owner, original.Id));
     }

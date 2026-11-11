@@ -79,6 +79,8 @@ public sealed class LocalPublicationDeliveryTests
             var secondPath = Path.Combine(folder, deliveredTeamNote ? "team-notes" : "notes", second + ".md");
             var validDelivery = File.ReadAllText(secondPath).Replace("Provider original", "Provider delivered");
             var delivered = invalidDelivery ? validDelivery.Replace("avery@example.com", "unknown@example.com") : validDelivery;
+            publisher.PublicationPath = localChange == "generation" ? Path.Combine(folder, "workspace.json") :
+                Path.Combine(folder, localChange == "team" ? "team-notes" : "notes", first + ".md");
             publisher.Deliver = () => File.WriteAllText(secondPath, delivered);
             var saved = localChange switch
             {
@@ -132,10 +134,11 @@ public sealed class LocalPublicationDeliveryTests
     private sealed class DeliveringPublisher : IWorkspaceFilePublisher
     {
         public Action? Deliver { get; set; }
+        public string? PublicationPath { get; set; }
         public void Publish(string staged, string destination, string? backup)
         {
-            var delivery = Deliver;
-            Deliver = null;
+            var delivery = destination == PublicationPath ? Deliver : null;
+            if (delivery is not null) Deliver = null;
             delivery?.Invoke();
             if (File.Exists(destination)) File.Replace(staged, destination, backup);
             else File.Move(staged, destination);

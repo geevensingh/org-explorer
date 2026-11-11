@@ -418,8 +418,8 @@ public sealed class IncrementalDeliveryTests : IDisposable
 
         public void Publish(string staged, string destination, string? backup)
         {
-            var delivery = Deliver;
-            Deliver = null;
+            var delivery = Path.GetFileName(destination) == "workspace.json" ? Deliver : null;
+            if (delivery is not null) Deliver = null;
             if (!AfterPublication) delivery?.Invoke();
             if (File.Exists(destination)) File.Replace(staged, destination, backup);
             else File.Move(staged, destination);
