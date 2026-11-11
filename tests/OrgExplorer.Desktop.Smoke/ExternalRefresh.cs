@@ -146,8 +146,14 @@ internal static partial class Program
         Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
         Click(window, "RetryProfileSave");
         Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
+            Find(window, "Status").Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            Find(window, "SaveProfile").Current.IsEnabled && Find(window, "RetryProfileSave").Current.IsEnabled &&
+            window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
         AssertValue(window, "OfficeNumber", local);
+        if (Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException("Rejected profile retry changed its owner.");
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
             throw new InvalidOperationException("Explicit profile save or retry overwrote the delivered field.");
         Click(window, "DiscardProfileDraft");
@@ -203,8 +209,14 @@ internal static partial class Program
             throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
         Click(window, $"Retry{kind}NoteSave");
         Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
+            status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
+            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
+            window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
         AssertValue(window, $"{kind}NoteMarkdown", local);
+        if (Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException($"Rejected {kind} retry changed its owner.");
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
             throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
         Click(window, $"Discard{kind}NoteDraft");
