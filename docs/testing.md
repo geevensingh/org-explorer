@@ -285,6 +285,9 @@ The headless readiness regression scripts missing/disabled controls and transien
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
+Completed rejection requires concrete failure feedback, a closed leave dialog,
+enabled profile Save controls, retained owner/value, and pending unsaved-draft
+activity. It must not require Ready while that rejected draft is still retained.
 The scale mutation scenario retains actual in-progress-work rejection while
 Settings renders. A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to
