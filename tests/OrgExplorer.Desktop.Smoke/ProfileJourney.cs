@@ -47,7 +47,8 @@ internal static partial class Program
                     throw new InvalidOperationException("Choosing or previewing an Import changed the saved population.");
             }
             Set(window, "ImportPath", import + ".missing");
-            Await(() => !Find(window, "ApplyImport").Current.IsEnabled);
+            Await(() => !Find(window, "ApplyImport").Current.IsEnabled &&
+                Find(window, "Status").Current.Name.Contains("Preview again"));
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);

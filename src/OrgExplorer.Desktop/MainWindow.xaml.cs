@@ -78,14 +78,19 @@ public partial class MainWindow : Window
         RefreshPeople();
         ShowStatus();
     }
-    private void ChangeImportPath(object sender, TextChangedEventArgs e) => ClearImportPreview();
+    private void ChangeImportPath(object sender, TextChangedEventArgs e)
+    {
+        if (!IsInitialized) return;
+        ClearImportPreview();
+        StatusText.Text = "Import file selection changed. Preview again before Apply. No data changes until Apply.";
+    }
     private void ClearImportPreview()
     {
         preview = null;
         ApplyButton.IsEnabled = false;
-        PreviewText.ItemsSource = null;
-        System.Windows.Automation.AutomationProperties.SetName(PreviewText,
-            "Choose a version-1 Import batch and preview again. No data changes until Apply.");
+        const string guidance = "Choose a version-1 Import batch and preview again. No data changes until Apply.";
+        PreviewText.ItemsSource = new[] { guidance };
+        System.Windows.Automation.AutomationProperties.SetName(PreviewText, guidance);
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
         => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
