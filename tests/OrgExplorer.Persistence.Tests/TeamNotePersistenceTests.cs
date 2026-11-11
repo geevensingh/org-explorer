@@ -16,9 +16,9 @@ public sealed class TeamNotePersistenceTests : IDisposable
         {"email":"replacement@example.com","displayName":"Replacement Example","managerEmail":null}]}
         """;
 
-    private IApplicationWorkflow Open()
+    private IApplicationWorkflow Open(bool incremental = false)
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        var app = new WorkspaceViewModel(incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
@@ -117,10 +117,12 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.Empty(Directory.GetFiles(folder, "*.next", SearchOption.AllDirectories));
     }
 
-    [Fact]
-    public void Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership(bool incremental)
     {
-        using var app = Open();
+        using var app = Open(incremental);
         var direct = app.CreatePersonNote("avery@example.com", "Direct", "Private Avery")!;
         app.CreatePersonNote("manager@example.com", "About Manager", "Must not inherit");
         var root = app.CreateTeamNote("root@example.com", "Organization", "# Root")!;
@@ -128,7 +130,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         var replacement = app.CreateTeamNote("replacement@example.com", "New context", "Replacement")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, null));
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = incremental ? ApplicationWorkflow.CreateIncrementalFileBacked() : ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var inherited = reopened.GetInheritedTeamNotes("avery@example.com");
         Assert.Equal(new[] { manager.Id, root.Id }, inherited.Select(n => n.Note.Id));

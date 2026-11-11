@@ -159,6 +159,7 @@ public sealed partial class ApplicationWorkflow
             WriteDurablyBytes(Path.Combine(transaction, "intent.json"),
                 JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, commit, baseRevision = revision }, JsonOptions));
             var available = new Dictionary<string, byte[]>(source, StringComparer.OrdinalIgnoreCase);
+            var updates = IndexedFamilies.ToDictionary(f => f, _ => new Dictionary<string, string>());
             var inventory = 0;
             void WriteObject(string relative, byte[] bytes)
             {
@@ -179,7 +180,7 @@ public sealed partial class ApplicationWorkflow
                     source[IncrementalPath(workspace!, prior, family)].AsSpan().SequenceEqual(bytes)) return;
                 var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
                 WriteObject(relative, bytes);
-                roots[family] = UpdateIndex(roots[family], family, key, relative, "", available, WriteObject);
+                updates[family][key] = relative;
                 documents[family][key] = relative;
             }
             foreach (var person in proposed.Values)
@@ -202,6 +203,9 @@ public sealed partial class ApplicationWorkflow
             foreach (var (name, value) in proposedPhotos)
                 if (!photos.TryGetValue(name, out var before) || !before.AsSpan().SequenceEqual(value))
                     SetDocument("photos", name, value, Path.GetExtension(name));
+            foreach (var (family, changes) in updates)
+                if (changes.Count > 0)
+                    roots[family] = UpdateIndexBatch(roots[family], family, changes, "", available, WriteObject);
             var candidate = JsonSerializer.SerializeToUtf8Bytes(new IncrementalMetadata(3, commit, roots,
                 new(CurrentRecordVersions)), JsonOptions);
             var staged = Path.Combine(transaction, "selector.next");

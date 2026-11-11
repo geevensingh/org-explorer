@@ -160,6 +160,11 @@ public sealed partial class ApplicationWorkflow
     }
 
     private string UpdateIndex(string? reference, string family, string key, string document, string prefix,
+        IReadOnlyDictionary<string, byte[]> source, Action<string, byte[]> write, string? indexRoot = null) =>
+        UpdateIndexBatch(reference, family, new Dictionary<string, string> { [key] = document }, prefix,
+            source, write, indexRoot);
+
+    private string UpdateIndexBatch(string? reference, string family, IReadOnlyDictionary<string, string> updates, string prefix,
         IReadOnlyDictionary<string, byte[]> source, Action<string, byte[]> write, string? indexRoot = null)
     {
         var root = indexRoot ?? workspace!;
@@ -167,12 +172,14 @@ public sealed partial class ApplicationWorkflow
             ReadIndexNode(root, reference, family, prefix, source);
         if (node.Entries is { } existing)
         {
-            var entries = new Dictionary<string, string>(existing) { [key] = document };
+            var entries = new Dictionary<string, string>(existing);
+            foreach (var (key, document) in updates) entries[key] = document;
             return Build(entries, prefix);
         }
-        var edge = IndexKeyHash(key)[prefix.Length].ToString();
         var children = new Dictionary<string, string>(node.Children!);
-        children[edge] = UpdateIndex(children.GetValueOrDefault(edge), family, key, document, prefix + edge, source, write, root);
+        foreach (var group in updates.GroupBy(e => IndexKeyHash(e.Key)[prefix.Length].ToString()))
+            children[group.Key] = UpdateIndexBatch(children.GetValueOrDefault(group.Key), family,
+                group.ToDictionary(e => e.Key, e => e.Value), prefix + group.Key, source, write, root);
         return WriteNode(new(1, family, null, children));
 
         string Build(Dictionary<string, string> entries, string partition)

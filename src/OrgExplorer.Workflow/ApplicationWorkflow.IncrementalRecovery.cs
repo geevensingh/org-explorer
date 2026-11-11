@@ -80,13 +80,13 @@ public sealed partial class ApplicationWorkflow
                 Encoding.ASCII.GetBytes(ByteDigest(bytes)));
             available[Path.Combine(root, relative)] = bytes;
         }
-        void Set(string family, string key, byte[] bytes, string extension, Dictionary<string, string?> familyRoots)
+        string? Set(string family, string key, byte[] bytes, string extension)
         {
             if (oldDocuments.TryGetValue(family, out var documents) && documents.TryGetValue(key, out var prior) &&
-                available[IncrementalPath(root, prior, family)].AsSpan().SequenceEqual(bytes)) return;
+                available[IncrementalPath(root, prior, family)].AsSpan().SequenceEqual(bytes)) return null;
             var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
             Write(relative, bytes);
-            familyRoots[family] = UpdateIndex(familyRoots[family], family, key, relative, "", available, Write, root);
+            return relative;
         }
         var sourceDocuments = sourceGraph.Documents.ToDictionary(e => e.Key, e => e.Value.ToDictionary(
             document => document.Key, document => current[IncrementalPath(workspace!, document.Value, e.Key)]));
@@ -101,9 +101,13 @@ public sealed partial class ApplicationWorkflow
             if (oldDocuments.TryGetValue(family, out var old))
                 foreach (var removed in old.Keys.Except(documents.Keys))
                     familyRoots[family] = RemoveRecoveryIndex(root, familyRoots[family]!, family, removed, "", available, Write);
+            var updates = new Dictionary<string, string>();
             foreach (var (key, bytes) in documents)
-                Set(family, key, bytes, family == "photos" ? Path.GetExtension(key) :
-                    family is "personNotes" or "teamNotes" ? ".md" : ".json", familyRoots);
+                if (Set(family, key, bytes, family == "photos" ? Path.GetExtension(key) :
+                    family is "personNotes" or "teamNotes" ? ".md" : ".json") is { } location)
+                    updates[key] = location;
+            if (updates.Count != 0)
+                familyRoots[family] = UpdateIndexBatch(familyRoots[family], family, updates, "", available, Write, root);
         }
         var metadata = new RecoverySelector(1, Guid.ParseExact(Path.GetFileName(transaction), "N"),
             WorkspaceFingerprint(snapshot: current), sourceGraph.Metadata with { Roots = roots }, noteRoots, publication);
