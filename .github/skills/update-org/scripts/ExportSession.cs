@@ -262,7 +262,7 @@ public sealed class ExportSession : IDisposable
             Require(full.StartsWith(path + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                 || full.StartsWith(System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
                 "Evidence must be a staged source or a host-saved temporary tool result.");
-            Local(full);
+            FreshPayload(full);
             var bytes = File.ReadAllBytes(full);
             var relative = "sources\\" + Hash(bytes) + ".json";
             Immutable(System.IO.Path.Combine(path, relative), bytes);
@@ -501,8 +501,9 @@ public sealed class ExportSession : IDisposable
         if (location.Equals("HOME OFFICE", StringComparison.OrdinalIgnoreCase)
             || location.Equals("NO WORKSPACE", StringComparison.OrdinalIgnoreCase))
         {
-            fields["officeBuilding"] = null;
-            fields["officeNumber"] = null;
+            foreach (var field in new[] { "officeBuilding", "officeNumber" })
+                if (!fields.TryAdd(field, null) && fields[field] is not null)
+                    warnings.Add($"{email}: directory {location} conflicts with sourced {field}; retained work-profile observation.");
         }
         else if (!Placeholder(location))
         {

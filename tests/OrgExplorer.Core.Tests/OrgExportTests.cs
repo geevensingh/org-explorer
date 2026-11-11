@@ -64,10 +64,12 @@ public sealed class OrgExportTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => session.Publish());
     }
 
-    [Fact]
-    public void Refresh_clears_explicitly_absent_offices_but_omits_unknown_fields_and_photos()
+    [Theory]
+    [InlineData("HOME OFFICE")]
+    [InlineData("NO WORKSPACE")]
+    public void Refresh_clears_explicitly_absent_offices_but_omits_unknown_fields_and_photos(string location)
     {
-        var path = Seed("HOME OFFICE");
+        var path = Seed(location);
         object result;
         using (var session = ExportSession.Open(path, publishing: true))
         {
@@ -132,6 +134,31 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal("USA", person["officeCountry"]!.GetValue<string>());
         Assert.True(person.ContainsKey("officeNumber"));
         Assert.Null(person["officeNumber"]);
+    }
+
+    [Theory]
+    [InlineData("HOME OFFICE")]
+    [InlineData("NO WORKSPACE")]
+    public void Sourced_office_values_override_conflicting_directory_sentinel_clears(string location)
+    {
+        var path = Seed(location);
+        using var session = ExportSession.Open(path, publishing: true);
+        var evidence = Path.Combine(root, "sourced-office.json");
+        Save(evidence, new { directoryId = RootId, workPosition = new { officeLocation = "NEW SITE/001.2" } });
+        var fields = UnknownFields();
+        fields["officeBuilding"] = new("value", "NEW SITE", "Own work-position building.");
+        fields["officeNumber"] = new("value", "001.2", "Own work-position office number.");
+        var input = Path.Combine(root, "sourced-office-observation.json");
+        Save(input, new ExportSession.Observation(RootId, "person1@example.test", fields,
+            [evidence], [], null, DateTimeOffset.UtcNow));
+        session.Profile(RootId, input);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        var jsonPath = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
+        var person = JsonNode.Parse(File.ReadAllText(jsonPath))!["people"]!.AsArray().Single()!.AsObject();
+        Assert.Equal("NEW SITE", person["officeBuilding"]?.GetValue<string>());
+        Assert.Equal("001.2", person["officeNumber"]?.GetValue<string>());
+        var warnings = JsonNode.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(jsonPath)!, "review-required.json")))!.AsArray();
+        Assert.Contains(warnings, warning => warning!.GetValue<string>().Contains("conflict", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -204,6 +231,27 @@ public sealed class OrgExportTests : IDisposable
         Save(response, new JsonObject { ["results"] = new JsonArray(Ok(User(RootId))) });
         File.SetLastWriteTimeUtc(response, DateTime.UtcNow.AddDays(-1));
         Assert.Throws<InvalidOperationException>(() => session.Ingest(requests, response));
+    }
+
+    [Theory]
+    [InlineData("value", "OLD SITE")]
+    [InlineData("clear", null)]
+    public void Current_observation_cannot_relabel_stale_profile_source_as_fresh(string state, string? value)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var evidence = Path.Combine(root, "previous-profile-source.json");
+        Save(evidence, new { directoryId = RootId, workPosition = new { building = value } });
+        File.SetLastWriteTimeUtc(evidence, DateTime.UtcNow.AddDays(-1));
+        var fields = UnknownFields();
+        fields["officeBuilding"] = new(state, value, "An old source result with a new observation timestamp.");
+        var input = Path.Combine(root, "current-observation.json");
+        Save(input, new ExportSession.Observation(RootId, "person1@example.test", fields,
+            [evidence], [], null, DateTimeOffset.UtcNow));
+        var error = Assert.Throws<InvalidOperationException>(() => session.Profile(RootId, input));
+        Assert.Contains("previous run", error.Message);
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "profiles")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "sources")));
     }
 
     [Fact]

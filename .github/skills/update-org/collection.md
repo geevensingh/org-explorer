@@ -86,6 +86,8 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
 All properties are required; `error` is null only when the lookup completed.
 `observedAt` is the current run's actual lookup time, not an old evidence date.
 `evidenceFiles` are absolute local paths to relevant newly obtained source results.
+Each source file must itself be fresh for this run; a current observation
+timestamp cannot make a previous run's source file current.
 The helper copies them into content-addressed provenance. Each field needs a
 source attribution or explicit uncertainty reason.
 
@@ -136,8 +138,10 @@ normalizations and conflicting/ambiguous evidence for review.
 
 Preserve room letters, dots and leading zeroes. The helper splits clear
 `BUILDING/ROOM` directory locations, flags `/Mobile` and `/REDMND` rather than
-treating them as room numbers, and explicitly clears physical building/room for
-`HOME OFFICE` or `NO WORKSPACE`. Other removals require a `clear` observation with
+treating them as room numbers, and supplies fallback physical building/room clears
+for `HOME OFFICE` or `NO WORKSPACE` only where there is no sourced observation for
+that field. Conflicting sourced values take precedence and are flagged for review.
+Other removals require a `clear` observation with
 source evidence; missing data is not removal. Missing photos always preserve a
 saved image. Normalize sourced US country spellings to `USA`; keep sourced state
 names or abbreviations consistently rather than inventing missing geography.
