@@ -16,7 +16,7 @@ public partial class MainWindow
         }
         PreferredNameValue.Text = person.PreferredName ?? "";
         EditPreferredNameButton.Content = person.PreferredName is null ? "Add preferred name" : "Edit";
-        if (!unsavedAttributes.ContainsKey(PersonTextField.PreferredName))
+        if (!unsavedPreferredNameEdits.ContainsKey(PersonTextField.PreferredName))
             PreferredName.Text = person.PreferredName ?? "";
         PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent;
     }
@@ -37,7 +37,7 @@ public partial class MainWindow
 
     private void ReadPreferredName(object sender, RoutedEventArgs e)
     {
-        if (workPending || unsavedAttributes.ContainsKey(PersonTextField.PreferredName))
+        if (workPending || unsavedPreferredNameEdits.ContainsKey(PersonTextField.PreferredName))
         {
             ShowNavigationBlocked(workflow.LocalSaveError is null
                 ? "Preferred name is not yet saved. Wait for saving to finish before returning to reading."

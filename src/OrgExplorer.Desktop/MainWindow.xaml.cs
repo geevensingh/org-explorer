@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeUpdates();
-        profileSaveTimer.Tick += SaveProfileDraft;
+        preferredNameSaveTimer.Tick += SavePreferredNameDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
         Title = $"Org explorer {version} (Windows x64 / win)";
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
                     workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
             }
         };
-        Closed += (_, _) => { profileSaveTimer.Stop(); workflow.Dispose(); };
+        Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -326,7 +326,7 @@ public partial class MainWindow : Window
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         if (!workPending)
-            WorkflowActivity.Text = unsavedAttributes.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+            WorkflowActivity.Text = unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
@@ -335,9 +335,9 @@ public partial class MainWindow : Window
                 ? "No Workspace is open. Choose a folder or retry the previous Workspace."
                 : "STALE / unavailable — displayed information is the last valid local state, not current data.";
         RetryProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedAttributes.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
         DiscardProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedAttributes.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
         UpdateProfileMode();
         if (!workflow.IsWorkspaceCurrent)
         {
@@ -358,7 +358,7 @@ public partial class MainWindow : Window
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
         if (!TryLeaveNotes()) return false;
-        if (unsavedAttributes.Count == 0 && !HasUnsavedRelationship)
+        if (unsavedPreferredNameEdits.Count == 0 && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;
             return true;

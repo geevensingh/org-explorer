@@ -53,6 +53,11 @@ Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
 previously incorporated delivery and unrelated-person delivery. Save revalidates
 persisted data even without an explicit view refresh.
+Import navigation permits returning to its own failed Apply recovery view without
+clearing the retained Import error or claiming safe close. Independent note,
+quick-action and dirty-profile writing still block entry. A real-folder case holds
+the publication lock, rejects Apply, returns to People, releases the lock, reenters
+Import and explicitly previews/applies again before checking durable values.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -311,6 +316,11 @@ and that note's owner/editor until its own deliberate discard.
 External-delivery retries use the same distinction for profile and Person/Team
 note drafts: settled main-work controls plus concrete rejection and pending
 writing, followed by unchanged owner/editor and delivered-byte assertions.
+Before invoking Retry once, subscribe to actual activity changes and require that
+retry's saving activity followed by retained-writing Pending completion. The
+preceding rejection or an intermediate Ready alone cannot satisfy observation;
+headless runner replay covers queued and fast retries and missing transitions
+within the existing observation budget.
 The scale mutation scenario retains actual in-progress-work rejection while
 Settings renders. A rejection check invokes once, then observes the actual rejection
 message within the existing deadline while requiring the original Person to

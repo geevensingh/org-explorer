@@ -37,6 +37,7 @@ public partial interface IApplicationWorkflow : IDisposable
     event EventHandler? WorkspaceChanged;
     bool IsWorkspaceCurrent { get; }
     bool CanSafelyClose { get; }
+    bool CanEnterImport { get; }
     string? LocalSaveError { get; }
     void DiscardUnsavedChanges(Guid? noteId = null);
     bool RefreshWorkspace();

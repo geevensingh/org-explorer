@@ -119,6 +119,52 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             change.Field == "jobTitle" && change.NewValue.GetString() == "Imported title");
     }
 
+    [Fact]
+    public void Failed_import_can_return_to_people_then_reenter_review_and_apply_without_discarding_its_error()
+    {
+        using var app = Open();
+        Assert.True(app.TryOpenImport(), app.Status);
+        var import = Path.Combine(root, "retry-import.json");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"32000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","jobTitle":"Reviewed retry title"}]}
+            """);
+        var review = app.PreviewImportFile(import);
+        Assert.True(review.CanApply, app.Status);
+        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(app.ApplyImport(review.Id));
+            Assert.Contains("NOT saved", app.LocalSaveError);
+            Assert.False(app.CanSafelyClose);
+            Assert.Equal("Engineer", app.GetRelationships(Email)!.Person.JobTitle);
+            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            app.ShowPeople();
+            Assert.False(app.IsImportOpen);
+        }
+        var failure = app.LocalSaveError;
+        Assert.True(app.TryOpenImport(), app.Status);
+        Assert.True(app.IsImportOpen);
+        Assert.Equal(failure, app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        review = app.PreviewImportFile(import);
+        Assert.True(review.CanApply, app.Status);
+        using (var beforeApply = Reopen())
+            Assert.Equal("Engineer", beforeApply.GetRelationships(Email)!.Person.JobTitle);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        app.ShowPeople();
+        Assert.False(app.IsImportOpen);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.CanSafelyClose);
+        using var reopened = Reopen();
+        Assert.Equal("Reviewed retry title", reopened.GetRelationships(Email)!.Person.JobTitle);
+        Assert.Equal("morgan@example.com", reopened.GetRelationships(Email)!.Person.ManagerEmail);
+        Assert.Equal("Reviewed retry title",
+            Assert.Single(reopened.GetProfileTimeline(Email)!.Changes).NewValue.GetString());
+    }
+
     [Theory]
     [InlineData("jobTitle", false)]
     [InlineData("department", false)]

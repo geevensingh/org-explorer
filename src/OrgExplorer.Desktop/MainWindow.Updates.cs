@@ -98,8 +98,8 @@ public partial class MainWindow
             {
                 await WaitForLocalWork();
                 if (workflow.ProfileEdit is { IsDirty: true } || workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
-                await FlushProfileDraft();
-                if (unsavedAttributes.Count != 0 ||
+                await FlushPreferredNameDraft();
+                if (unsavedPreferredNameEdits.Count != 0 ||
                     !await PersonNotes.FlushPendingDraftAsync() || !await TeamNotes.FlushPendingDraftAsync()) return false;
                 if (!TryLeaveLocalEdits()) return false;
                 accepted = await Task.Run(() => workflow.RestartWhenSafe(restart));

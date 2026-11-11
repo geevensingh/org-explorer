@@ -15,6 +15,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
     public bool CanSafelyClose => workflow.CanSafelyClose;
+    public bool CanEnterImport => workflow.CanEnterImport;
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
     public string? LocalSaveError => workflow.LocalSaveError;
     public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
@@ -44,7 +45,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool TryOpenImport() => Observe(() =>
     {
         if (!workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Stay)) return false;
-        if (!workflow.CanSafelyClose)
+        if (!workflow.CanEnterImport)
         {
             navigationError = "Import navigation blocked: local writing is pending or was NOT saved. " +
                 "Retry or discard the independent changes before leaving. " + (workflow.LocalSaveError ?? workflow.Status);
@@ -99,6 +100,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsWorkspaceCurrent)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Compatibility)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));

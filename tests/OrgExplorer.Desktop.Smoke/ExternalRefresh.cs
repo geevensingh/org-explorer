@@ -147,8 +147,8 @@ internal static partial class Program
         AssertValue(window, "OfficeNumber", local);
         Click(window, "SaveProfile");
         Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
-        Click(window, "RetryProfileSave");
-        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+        AssertRejectedRetry(window, "RetryProfileSave", "Saving complete profile…",
+            () => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
             Find(window, "Status").Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
             Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
             Find(window, "SaveProfile").Current.IsEnabled && Find(window, "RetryProfileSave").Current.IsEnabled &&
@@ -210,8 +210,8 @@ internal static partial class Program
         Await(() => status.Current.Name.Contains("before leaving or closing", StringComparison.Ordinal));
         if (Find(window, "Email").Current.Name != "avery@example.com")
             throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
-        Click(window, $"Retry{kind}NoteSave");
-        Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
+        AssertRejectedRetry(window, $"Retry{kind}NoteSave", $"Saving private {kind} note…",
+            () => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
             status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
             Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
             Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
@@ -236,5 +236,34 @@ internal static partial class Program
         Await(() => status.Current.Name.Contains("saved locally", StringComparison.Ordinal));
         if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
+    }
+
+    private static void AssertRejectedRetry(AutomationElement window, string button, string savingActivity,
+        Func<bool> isRejected)
+    {
+        var retry = ControlReadiness.AwaitPattern(() => Find(window, button), control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
+        RetryRejection.AssertCompleted(
+            changed => new ActivitySubscription(Find(window, "WorkflowActivity"), changed),
+            retry.Invoke, savingActivity, isRejected, Await);
+    }
+
+    private sealed class ActivitySubscription : IDisposable
+    {
+        private readonly AutomationElement activity;
+        private readonly AutomationPropertyChangedEventHandler handler;
+
+        internal ActivitySubscription(AutomationElement activity, Action<string> changed)
+        {
+            this.activity = activity;
+            handler = (_, e) =>
+            {
+                if (e.NewValue is string name) changed(name);
+            };
+            Automation.AddAutomationPropertyChangedEventHandler(activity, TreeScope.Element, handler,
+                AutomationElement.NameProperty);
+        }
+
+        public void Dispose() => Automation.RemoveAutomationPropertyChangedEventHandler(activity, handler);
     }
 }

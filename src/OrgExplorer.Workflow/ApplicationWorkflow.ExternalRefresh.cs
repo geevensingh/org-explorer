@@ -20,6 +20,15 @@ public sealed partial class ApplicationWorkflow
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true };
+    public bool CanEnterImport
+    {
+        get
+        {
+            lock (workspaceGate)
+                return failedSaves.Keys.All(operation => operation == "import") && unsavedNoteBases.IsEmpty &&
+                    ProfileEdit is not { IsDirty: true };
+        }
+    }
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
     public void DiscardUnsavedChanges(Guid? noteId = null)
     {
