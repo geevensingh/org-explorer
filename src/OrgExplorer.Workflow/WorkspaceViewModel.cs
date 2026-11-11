@@ -71,5 +71,6 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Compatibility)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
     }
 }

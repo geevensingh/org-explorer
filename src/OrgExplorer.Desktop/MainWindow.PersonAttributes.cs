@@ -19,6 +19,7 @@ public partial class MainWindow
     private void ClearPersonEditors()
     {
         loading = true;
+        workflow.CancelProfileEdit();
         displayedAttributeBases.Clear();
         profileDraftBases.Clear();
         foreach (var editor in PersonEditors) editor.Clear();
@@ -30,21 +31,25 @@ public partial class MainWindow
     private void LoadPersonEditors(PersonProfile person)
     {
         loading = true;
-        DirectoryNameEditor.Text = person.DirectoryName ?? "";
-        PreferredName.Text = person.PreferredName ?? "";
-        Alias.Text = person.Alias ?? "";
-        JobTitle.Text = person.JobTitle ?? "";
-        Department.Text = person.Department ?? "";
-        OfficeBuilding.Text = person.OfficeBuilding ?? "";
-        OfficeNumber.Text = person.OfficeNumber ?? "";
-        OfficeState.Text = person.OfficeState ?? "";
-        OfficeCountry.Text = person.OfficeCountry ?? "";
-        LinkedInProfileUrl.Text = person.LinkedInProfileUrl ?? "";
-        foreach (var field in Enum.GetValues<PersonTextField>()) displayedAttributeBases[field] = person;
+        var draft = workflow.ProfileEdit?.Draft ?? person;
+        DirectoryNameEditor.Text = draft.DirectoryName ?? "";
+        if (!unsavedAttributes.ContainsKey(PersonTextField.PreferredName)) PreferredName.Text = person.PreferredName ?? "";
+        Alias.Text = draft.Alias ?? "";
+        JobTitle.Text = draft.JobTitle ?? "";
+        Department.Text = draft.Department ?? "";
+        OfficeBuilding.Text = draft.OfficeBuilding ?? "";
+        OfficeNumber.Text = draft.OfficeNumber ?? "";
+        OfficeState.Text = draft.OfficeState ?? "";
+        OfficeCountry.Text = draft.OfficeCountry ?? "";
+        LinkedInProfileUrl.Text = draft.LinkedInProfileUrl ?? "";
+        foreach (var field in Enum.GetValues<PersonTextField>())
+            if (!unsavedAttributes.ContainsKey(field)) displayedAttributeBases[field] = person;
         AttributeEditors.IsEnabled = true;
         OpenLinkedInButton.IsEnabled = person.LinkedInProfileUrl is not null;
         OpenLinkedInButton.ToolTip = person.LinkedInProfileUrl;
         loading = false;
+        ShowProfileValues(person);
+        UpdateProfileMode();
     }
 
     private void EditPersonAttribute(object sender, TextChangedEventArgs e)
@@ -52,6 +57,15 @@ public partial class MainWindow
         if (loading || selectedEmail is null || sender is not TextBox editor) return;
         var field = Enum.Parse<PersonTextField>((string)editor.Tag);
         var value = editor.Text.Length == 0 ? null : editor.Text;
+        if (field != PersonTextField.PreferredName)
+        {
+            workflow.StageProfileText(field, value);
+            MarkDraftPending();
+            ApplyButton.IsEnabled = false;
+            preview = null;
+            ShowStatus();
+            return;
+        }
         profileDraftBases.TryAdd(field, displayedAttributeBases[field]);
         unsavedAttributes[field] = value;
         if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
@@ -100,6 +114,11 @@ public partial class MainWindow
     private async void RetryProfileSave(object sender, RoutedEventArgs e)
     {
         if (selectedEmail is null) return;
+        if (workflow.ProfileEdit is not null)
+        {
+            await SaveProfileSessionAsync();
+            return;
+        }
         await FlushProfileDraft();
         if (workPending) return;
         await RetryRelationshipSave();
@@ -114,15 +133,17 @@ public partial class MainWindow
             ShowNavigationBlocked("Discard blocked: local work is in progress. Please wait for it to finish.");
             return;
         }
+        if (workflow.ProfileEdit is not null)
+        {
+            CancelProfileEdit(sender, e);
+            return;
+        }
         unsavedAttributes.Clear();
         profileDraftBases.Clear();
         profileSaveTimer.Stop();
         unsavedArchived = null;
-        unsavedManager = null;
         unsavedFavorite = null;
-        workflow.DiscardUnsavedChanges();
-        PersonNotes.DiscardLocalDraft();
-        TeamNotes.DiscardLocalDraft();
+        if (selectedEmail is not null) workflow.DiscardPersonChanges(selectedEmail);
         RefreshPeople();
         ShowStatus();
     }

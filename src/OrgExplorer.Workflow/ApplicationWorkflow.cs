@@ -146,6 +146,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private bool OpenWorkspaceCore(string path)
     {
         if (disposed) return Fail("The Workspace workflow is closed.");
+        if (profileEdit is { IsDirty: true })
+            return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
+        CancelProfileEdit();
         StopWatching();
         workspaceCurrent = false;
         pending = null;

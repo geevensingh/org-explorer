@@ -18,7 +18,8 @@ public sealed partial class ApplicationWorkflow
     private string? saveErrorSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
-    public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty;
+    public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
+        ProfileEdit is not { IsDirty: true };
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
     public void DiscardUnsavedChanges(Guid? noteId = null)
     {

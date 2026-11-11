@@ -75,7 +75,7 @@ internal static partial class Program
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
             AssertPhotoVisible(window);
             AssertValue(window, "PreferredName", "Ave");
-            AssertValue(window, "OfficeNumber", "007B");
+            AssertProfileValue(window, "OfficeNumber", "007B");
             AssertValue(window, "PersonNoteMarkdown", "# Retained individual writing");
             SelectTeamNote(window, "Retained owned Team note");
             AssertValue(window, "TeamNoteMarkdown", "Owned Team writing");
@@ -97,8 +97,8 @@ internal static partial class Program
             ((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectArchivedPerson(window, "avery@example.com");
             AssertPhotoVisible(window);
-            AssertValue(window, "Alias", "avery");
-            AssertValue(window, "OfficeNumber", "007B");
+            AssertProfileValue(window, "Alias", "avery");
+            AssertProfileValue(window, "OfficeNumber", "007B");
             SelectNote(window, "Retained individual");
             AssertValue(window, "PersonNoteMarkdown", "# Retained individual writing");
             SelectTeamNote(window, "Retained owned Team note");
@@ -128,9 +128,10 @@ internal static partial class Program
                 HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Reactivation mixed frozen writing into current context.");
 
+            BeginProfileEditing(window);
             SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");
             Click(window, "ApplyManagerChange");
-            Await(() => Find(window, "Status").Current.Name.Contains("Manager change saved locally"));
+            SaveProfileEditing(window);
             if (!Find(window, "NavigateManager").Current.Name.Contains("explicit no-Manager"))
                 throw new InvalidOperationException("Explicit in-app Manager clear was not applied.");
             if (CurrentReadingText(window).Contains("Later Manager writing"))

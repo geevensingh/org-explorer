@@ -123,7 +123,7 @@ public partial class MainWindow
             try
             {
                 await WaitForLocalWork();
-                if (workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
+                if (workflow.ProfileEdit is { IsDirty: true } || workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
                 await FlushProfileDraft();
                 if (unsavedAttributes.Count != 0 ||
                     !await PersonNotes.FlushPendingDraftAsync() || !await TeamNotes.FlushPendingDraftAsync()) return false;

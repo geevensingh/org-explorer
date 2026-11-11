@@ -58,7 +58,9 @@ internal static partial class Program
             AwaitLocalWorkIdle(window);
             if (!Find(window, "TeamNoteOwnership").Current.Name.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Owned Team writing lost its explicit Manager attribution.");
+            BeginProfileEditing(window);
             Set(window, "JobTitle", "Director");
+            SaveProfileEditing(window);
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             var inherited = Find(window, "InheritedTeamSummary").Current.Name;

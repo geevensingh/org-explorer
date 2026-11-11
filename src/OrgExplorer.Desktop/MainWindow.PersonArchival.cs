@@ -8,8 +8,7 @@ public partial class MainWindow
 {
     private sealed record ManagerChoice(string? Email, string Label);
     private bool? unsavedArchived;
-    private ManagerChoice? unsavedManager;
-    private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedManager is not null || unsavedFavorite.HasValue;
+    private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedFavorite.HasValue;
 
     private void ChangeArchivedFilter(object sender, RoutedEventArgs e) => RefreshArchivedPeople();
 
@@ -48,10 +47,13 @@ public partial class MainWindow
         var choices = new List<ManagerChoice> { new(null, "(explicit no-Manager — clear relationship)") };
         choices.AddRange(workflow.People.Where(p => !string.Equals(p.Email, person.Email, StringComparison.OrdinalIgnoreCase))
             .Select(p => new ManagerChoice(p.Email, $"{p.Heading} ({p.Email})" + (p.Archived ? " — Archived" : ""))));
+        var wasLoading = loading;
+        loading = true;
         ManagerChoices.ItemsSource = choices;
         ManagerChoices.SelectedItem = choices.FirstOrDefault(c =>
-            string.Equals(c.Email, unsavedManager is not null ? unsavedManager.Email : person.ManagerEmail,
+            string.Equals(c.Email, workflow.ProfileEdit is { } edit ? edit.Draft.ManagerEmail : person.ManagerEmail,
                 StringComparison.OrdinalIgnoreCase));
+        loading = wasLoading;
     }
 
     private void ClearPersonArchival()
@@ -77,16 +79,17 @@ public partial class MainWindow
         InvalidateRelationshipPreview();
     }
 
-    private async void ChangePersonManager(object sender, RoutedEventArgs e)
+    private void StagePersonManager(object sender, SelectionChangedEventArgs e)
     {
-        if (selectedEmail is null || ManagerChoices.SelectedItem is not ManagerChoice choice || !TryLeaveLocalEdits()) return;
-        var email = selectedEmail;
-        if (await RunWorkflowAsync(() => workflow.EditPersonManager(email, choice.Email), "Saving Manager change…"))
-        {
-            unsavedManager = null;
-            RefreshPeople();
-        }
-        else if (!workflow.CanSafelyClose) unsavedManager = choice;
+        if (!loading) ChangePersonManager(sender, e);
+    }
+
+    private void ChangePersonManager(object sender, RoutedEventArgs e)
+    {
+        if (loading || workPending || workflow.ProfileEdit is null ||
+            ManagerChoices.SelectedItem is not ManagerChoice choice) return;
+        workflow.StageProfileManager(choice.Email);
+        MarkDraftPending();
         InvalidateRelationshipPreview();
     }
 
@@ -100,7 +103,6 @@ public partial class MainWindow
     private async Task RetryRelationshipSave()
     {
         if (selectedEmail is null) return;
-        if (unsavedManager is { } manager && await RunWorkflowAsync(() => workflow.EditPersonManager(selectedEmail, manager.Email), "Retrying Manager save…")) unsavedManager = null;
         if (unsavedArchived is { } archived && await RunWorkflowAsync(() => workflow.EditPersonArchived(selectedEmail, archived), "Retrying archival save…")) unsavedArchived = null;
         if (unsavedFavorite is { } favorite && await RunWorkflowAsync(() => workflow.EditFavorite(selectedEmail, favorite), "Retrying favorite save…")) unsavedFavorite = null;
     }
