@@ -174,13 +174,16 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
         Assert.NotEmpty(writes);
         Assert.True(writes.Sum(e => e.Bytes) < 32768, $"Small {mutation} wrote {writes.Sum(e => e.Bytes)} bytes.");
+        var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
+            .ToDictionary(e => e.Path, e => e.Destination!);
         var current = WorkspaceFixtures.IndexedDocuments(folder);
         foreach (var (key, path) in before.Where(e => !e.Key.EndsWith(":avery@example.com")))
         {
             Assert.Equal(path, current[key]);
             Assert.Equal(bytes[key], File.ReadAllBytes(path));
             Assert.DoesNotContain(writes, e => e.Path == path ||
-                File.Exists(e.Path) && File.ReadAllBytes(e.Path).AsSpan().SequenceEqual(bytes[key]));
+                File.Exists(publications.GetValueOrDefault(e.Path, e.Path)) &&
+                File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
         }
         Assert.DoesNotContain(writes, e => e.Path.EndsWith(".md"));
         using var reopened = ApplicationWorkflow.CreateIncrementalFileBacked();
@@ -204,7 +207,8 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     {
         var large = MeasureEdit(Path.Combine(folder, "large"), 256);
         var small = MeasureEdit(Path.Combine(folder, "small"), 4);
-        output.WriteLine($"Same Preferred-name edit: 6 People = {small} bytes; 258 People = {large} bytes (all payload/metadata writes).");
+        output.WriteLine($"Same Preferred-name edit: 6 People = {small.Total} bytes ({small.Provenance} provenance); " +
+            $"258 People = {large.Total} bytes ({large.Provenance} provenance), including all transient writes.");
         // #46 adds staging-path inventories and retirement evidence for affected
         // index paths, not population snapshots. Cap that provenance delta too.
         Assert.True(large.Provenance <= small.Provenance + 4096,

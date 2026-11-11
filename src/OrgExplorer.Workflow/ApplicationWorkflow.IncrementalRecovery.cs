@@ -170,7 +170,7 @@ public sealed partial class ApplicationWorkflow
         return graph;
     }
 
-    private (RecoverySelector Metadata, Dictionary<string, byte[]> Bytes) ValidateRecovery(string root, byte[] selector,
+    private (RecoverySelector Metadata, Dictionary<string, byte[]> Bytes, byte[]? Receipt) ValidateRecovery(string root, byte[] selector,
         bool requireReceipt)
     {
         RejectWorkspaceLink(root);
@@ -183,13 +183,15 @@ public sealed partial class ApplicationWorkflow
             throw new FormatException("Invalid recovery provenance.");
         ReadIncrementalMetadata(Encoding.UTF8.GetBytes(json.RootElement.GetProperty("workspace").GetRawText()));
         CheckProperties(json.RootElement.GetProperty("noteRoots"), ["personNotes", "teamNotes"], "Recovery notes");
+        byte[]? receiptBytes = null;
         if (requireReceipt)
         {
             var receiptPath = Path.Combine(workspace!, "transactions", metadata.Transaction.ToString("N"), "committed.json");
             for (var entry = receiptPath; !entry.Equals(workspace, StringComparison.OrdinalIgnoreCase);
                  entry = Path.GetDirectoryName(entry)!)
                 if (File.Exists(entry) || Directory.Exists(entry)) RejectWorkspaceLink(entry);
-            using var receiptJson = JsonDocument.Parse(ReadWorkspaceBytesUncached(receiptPath));
+            receiptBytes = ReadWorkspaceBytesUncached(receiptPath);
+            using var receiptJson = JsonDocument.Parse(receiptBytes);
             CheckProperties(receiptJson.RootElement, ["schemaVersion", "commit", "revision", "recoveryDigest", "publication"], "Recovery receipt");
             var receipt = receiptJson.RootElement.Deserialize<RecoveryReceipt>(JsonOptions)
                 ?? throw new FormatException("Missing committed recovery receipt.");
@@ -216,7 +218,7 @@ public sealed partial class ApplicationWorkflow
         bytes[Path.Combine(root, "workspace.json")] = JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions);
         using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root, incrementalStorage = true };
         validation.ReadIncrementalWorkspaceData(bytes);
-        return (metadata, bytes);
+        return (metadata, bytes, receiptBytes);
     }
 
     private void CompleteRecovery(PreparedRecovery prepared)
@@ -282,8 +284,8 @@ public sealed partial class ApplicationWorkflow
             if (selected.Metadata.SourceRevision != WorkspaceFingerprint(snapshot: current))
                 throw new IOException("The current validated revision is not yet independently protected.");
             storageReclamationDeferred = Directory.GetDirectories(Path.Combine(workspace!, "transactions"))
-                .Any(transaction => File.Exists(Path.Combine(transaction, "intent.json")) &&
-                    !File.Exists(Path.Combine(transaction, "retired.json")));
+                .Any(transaction => !File.Exists(Path.Combine(transaction, "retired.json")) &&
+                    TransactionFiles(transaction).Length != 0);
             if (File.Exists(Path.Combine(workspace!, "maintenance", "reclamation.json")))
                 throw new IOException("Storage reclamation was interrupted. Retry storage maintenance; no edit needs replaying.");
             failedSaves.Remove("storage-maintenance");

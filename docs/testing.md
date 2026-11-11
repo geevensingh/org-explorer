@@ -117,6 +117,9 @@ complete, while ambiguous intent/candidate/receipt failures, changed superseded
 bytes, unknown/conflict files and historical photos remain protected. These are
 small required filesystem cases, not shipping activation, legacy cleanup,
 desktop or supported-population scale evidence.
+Recovery-selector-only delivery after validation also suspends cleanup without
+deleting the previously selected independent graph; retry protects the committed
+current state without replay.
 
 The #43 extension counts actual index writes for both creation and update of a
 reviewed 128-Person Import, including shared paths, and checks old graph visibility

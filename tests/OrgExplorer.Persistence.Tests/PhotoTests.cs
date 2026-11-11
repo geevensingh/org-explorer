@@ -469,13 +469,15 @@ public sealed class PhotoTests : IDisposable
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
         Assert.NotEmpty(writes);
         Assert.True(writes.Sum(e => e.Bytes) < 131072, $"Two-Person resource import wrote {writes.Sum(e => e.Bytes)} bytes.");
+        var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
+            .ToDictionary(e => e.Path, e => e.Destination!);
         var current = WorkspaceFixtures.IndexedDocuments(Workspace);
         foreach (var key in new[] { "photos:" + originalPhoto, "acceptedBatches:10000000-0000-4000-8000-000000000001" })
         {
             Assert.Equal(before[key], current[key]);
             Assert.Equal(bytes[key], File.ReadAllBytes(current[key]));
             Assert.DoesNotContain(writes, e => e.Path.StartsWith(Path.Combine(Workspace, "documents")) &&
-                File.ReadAllBytes(e.Path).AsSpan().SequenceEqual(bytes[key]));
+                File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
         }
         using (var reopened = ApplicationWorkflow.CreateIncrementalFileBacked())
         {

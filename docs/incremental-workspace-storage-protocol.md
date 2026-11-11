@@ -175,6 +175,10 @@ previous/current/recovery selectors, protected bytes/seals and transaction
 membership/structural metadata. Providers do not honor the lease: a selector
 racing a batch cannot be accepted as a smaller valid state. Subsequent refresh
 still requires the complete semantic/resource graph.
+Guards use the exact validated selector, receipt, object and seal snapshots,
+not fresh reads that could bless delivery between validation and root capture.
+Previous/current candidates are likewise resolved against a captured object
+snapshot before their paths become protected roots.
 
 Removing an inventory only after processing its payload/stage is incremental
 deletion progress; a missing file is idempotent on restart. Changed payloads are

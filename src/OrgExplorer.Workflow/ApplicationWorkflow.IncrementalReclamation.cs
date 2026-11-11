@@ -78,41 +78,50 @@ public sealed partial class ApplicationWorkflow
 
         var protectedPaths = new HashSet<string>(current.Keys, StringComparer.OrdinalIgnoreCase);
         var guards = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        void Guard(string path)
+        void Guard(string path, byte[]? expected = null)
         {
             RejectStoragePathLinks(path);
-            guards[path] = ByteDigest(ReadWorkspaceBytesUncached(path));
+            var digest = ByteDigest(expected ?? ReadWorkspaceBytesUncached(path));
+            if (guards.TryGetValue(path, out var prior) && prior != digest)
+                throw new IOException("Protected storage changed during root capture; storage reclamation is deferred.");
+            guards[path] = digest;
         }
-        void ProtectGraph(IncrementalGraph graph, bool recovery)
+        void ProtectGraph(IncrementalGraph graph, bool recovery, IReadOnlyDictionary<string, byte[]> bytes)
         {
             foreach (var path in graph.Paths)
             {
                 protectedPaths.Add(path);
-                Guard(path);
+                Guard(path, bytes[path]);
                 if (recovery)
                 {
                     protectedPaths.Add(path + ".sha256");
-                    Guard(path + ".sha256");
+                    Guard(path + ".sha256", System.Text.Encoding.ASCII.GetBytes(ByteDigest(bytes[path])));
                 }
             }
         }
-        void ProtectRecovery(byte[] bytes)
+        void ProtectRecovery(RecoverySelector metadata, IReadOnlyDictionary<string, byte[]> bytes, byte[]? receipt)
         {
-            var recovery = ValidateRecovery(prepared.Root, bytes, true);
-            ProtectGraph(RecoveryDocuments(prepared.Root, recovery.Metadata), true);
-            protectedPaths.Add(Path.Combine(workspace!, "transactions",
-                recovery.Metadata.Transaction.ToString("N"), "committed.json"));
-            Guard(Path.Combine(workspace!, "transactions", recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+            ProtectGraph(RecoveryDocuments(prepared.Root, metadata, bytes), true, bytes);
+            var receiptPath = Path.Combine(workspace!, "transactions", metadata.Transaction.ToString("N"), "committed.json");
+            protectedPaths.Add(receiptPath);
+            if (receipt is not null) Guard(receiptPath, receipt);
+            else if (File.Exists(receiptPath)) Guard(receiptPath);
+        }
+        void ProtectCurrentCandidate(byte[] selector)
+        {
+            var graph = ResolveIncrementalGraph(workspace!, selector);
+            var bytes = graph.Paths.ToDictionary(path => path, ReadWorkspaceBytesUncached, StringComparer.OrdinalIgnoreCase);
+            ProtectGraph(ResolveIncrementalGraph(workspace!, selector, bytes), false, bytes);
         }
         Guard(pending);
-        Guard(selectedPath);
-        ProtectRecovery(selectedBytes);
+        Guard(selectedPath, selectedBytes);
+        ProtectRecovery(selected.Metadata, selected.Bytes, selected.Receipt);
         var previous = Path.Combine(workspace!, "workspace.previous.json");
         var previousDigest = File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null;
         if (previousDigest is not null)
         {
             Guard(previous);
-            ProtectGraph(ResolveIncrementalGraph(workspace!, ReadWorkspaceBytesUncached(previous)), false);
+            ProtectCurrentCandidate(ReadWorkspaceBytesUncached(previous));
         }
 
         var transactionsRoot = Path.Combine(workspace!, "transactions");
@@ -156,15 +165,12 @@ public sealed partial class ApplicationWorkflow
             {
                 var name = Path.GetFileName(file);
                 if (name == "selector.next")
-                    ProtectGraph(ResolveIncrementalGraph(workspace!, ReadWorkspaceBytesUncached(file)), false);
+                    ProtectCurrentCandidate(ReadWorkspaceBytesUncached(file));
                 if (name is "recovery.next" or "recovery.previous.json")
                 {
                     var bytes = ReadWorkspaceBytesUncached(file);
                     var recovery = ValidateRecovery(prepared.Root, bytes, requireReceipt: name == "recovery.previous.json");
-                    ProtectGraph(RecoveryDocuments(prepared.Root, recovery.Metadata), true);
-                    protectedPaths.Add(Path.Combine(transactionsRoot, recovery.Metadata.Transaction.ToString("N"), "committed.json"));
-                    if (name == "recovery.previous.json")
-                        Guard(Path.Combine(transactionsRoot, recovery.Metadata.Transaction.ToString("N"), "committed.json"));
+                    ProtectRecovery(recovery.Metadata, recovery.Bytes, recovery.Receipt);
                 }
             }
         }
@@ -235,7 +241,7 @@ public sealed partial class ApplicationWorkflow
         if (File.Exists(pending))
             throw new IOException("Reclamation plan changed before completion; storage maintenance remains incomplete.");
         storageReclamationDeferred = transactions.Any(transaction => Directory.Exists(transaction) &&
-            File.Exists(Path.Combine(transaction, "intent.json")) && !File.Exists(Path.Combine(transaction, "retired.json")));
+            !File.Exists(Path.Combine(transaction, "retired.json")) && TransactionFiles(transaction).Length != 0);
         failedSaves.Remove("storage-maintenance");
     }
 

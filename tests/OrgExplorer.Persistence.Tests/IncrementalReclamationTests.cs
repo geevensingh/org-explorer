@@ -209,6 +209,38 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         }
     }
 
+    [Fact]
+    public void Recovery_selector_delivery_after_validation_cannot_be_blessed_by_the_cleanup_root_census()
+    {
+        var current = Path.Combine(folder, "current");
+        var publisher = new InspectingPublisher();
+        var observer = new RecordingObserver();
+        using var app = ApplicationWorkflow.CreateIncrementalFileBacked(filePublisher: publisher, fileObserver: observer);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        Assert.True(app.EditPreferredName("avery@example.com", "First"), app.Status);
+        var selected = Path.Combine(current, "recovery", "current.json");
+        var priorSelector = File.ReadAllBytes(selected);
+        var priorBytes = SelectedClosure(current).ToDictionary(path => path, File.ReadAllBytes);
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (Path.GetFileName(destination) == "retired.json") File.WriteAllBytes(selected, priorSelector);
+        };
+        observer.Effects.Clear();
+        Assert.True(app.EditPreferredName("avery@example.com", "Second"), app.Status);
+        publisher.BeforePublish = null;
+        Assert.Contains("storage maintenance incomplete", app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Delete);
+        foreach (var (path, bytes) in priorBytes) Assert.Equal(bytes, File.ReadAllBytes(path));
+        Assert.Equal("Second", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
+        Assert.True(app.CanSafelyClose, app.LocalSaveError);
+        Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
+        Assert.Equal("Second", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.Equal(2, app.GetProfileTimeline("avery@example.com")!.Changes.Count);
+    }
+
     [Theory]
     [InlineData("pointer-first")]
     [InlineData("index-first")]
