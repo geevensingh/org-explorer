@@ -42,6 +42,12 @@ the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
 saved data. The app does not upload Workspace data.
 
+Preferred name normally appears as readable text. **Edit** (or **Add preferred
+name** when unset) reveals its independent autosaving inline editor; **Done**
+returns to reading after the save succeeds. Pending or failed writing stays in
+the editor with the existing retry/discard protections. **Mark favorite** remains
+an independent one-click saved action.
+
 Loading, validation and local writes run off the desktop dispatcher. Rapid
 profile/Markdown typing is coalesced after a short quiet interval; the visible
 draft stays editable while a previous write completes. Pending/newer drafts are
@@ -82,8 +88,11 @@ Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
 before restoring files externally.
 
-Profiles also offer multiple private **Person notes**, an autosaved Markdown
-editor, and a native rendered **Read** view. Notes show their Person owner and
+Profiles also offer multiple private **Person notes**. Existing notes open in
+native rendered **Read** mode; one-click **Edit** reveals their autosaved title
+and Markdown editors, and **Read** hides both editors again. **New Person note**
+opens directly for writing. Empty note sections retain a message and New action,
+and notes with empty bodies remain readable and editable. Notes show their Person owner and
 never inherit to reports. **Archive note** preserves writing; **Show archived
 notes** allows reading and restoring it. The app watches local folder events and automatically reflects valid external
 Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
@@ -100,7 +109,7 @@ HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a
 **Person note** about a Manager never opts into inheritance. The profile separates
-owned Team notes from **Current inherited Team context**, which includes notes
+owned Team notes (with the same Read/Edit behavior) from **Current inherited Team context**, which includes notes
 from every formal management ancestor and identifies each owning Person by name
 and email. Informal leads/project membership are not reporting relationships.
 Team scope is still private to the Workspace owner, not sharing.

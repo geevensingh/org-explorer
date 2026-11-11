@@ -40,7 +40,9 @@ internal static partial class Program
             QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
-            AssertValue(window, "PersonNoteTitle", "Individual context");
+            AssertNoteView(window, "Person", editing: false);
+            if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
+                throw new InvalidOperationException("Search did not open the saved Person note for reading.");
             Click(window, "ArchivePersonNote");
             QueryAndSelect(window, "Individual context", "avery@example.com", "Archived note — not current writing", "Person note");
             AssertSearchReading(window, "Private Person writing");
@@ -73,8 +75,10 @@ internal static partial class Program
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"));
+            AssertPreferredNameReading(window, "Ave Preferred", "Edit");
             SelectFavorite(window, "alex@example.com");
             SelectFavorite(window, "avery@example.com");
+            AssertPreferredNameReading(window, "Ave Preferred", "Edit");
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
             File.WriteAllText(import, SearchImport("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 3));
             ApplyReviewedHistoryImport(window);

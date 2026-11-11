@@ -287,6 +287,7 @@ public partial class MainWindow : Window
         ApplyButton.IsEnabled = false;
         preview = null;
         AttributeEditors.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
+        PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent && selectedEmail is not null;
         Photo.CanEdit = workflow.IsWorkspaceCurrent && selectedEmail is not null;
         PersonNotes.RefreshExternalWorkspace();
         TeamNotes.RefreshExternalWorkspace();
@@ -307,6 +308,7 @@ public partial class MainWindow : Window
         {
             ArchivePersonButton.IsEnabled = ReactivatePersonButton.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
+            PreferredNameContext.IsEnabled = false;
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }

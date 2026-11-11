@@ -36,6 +36,7 @@ internal static partial class Program
                 ApplyReviewedHistoryImport(window);
                 OpenPerson(window, "casey@example.com", "morgan@example.com");
                 AssertPhotoVisible(window);
+                Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Ave");
                 AwaitLocalWorkIdle(window);
                 Click(window, "NewPersonNote");
@@ -116,7 +117,7 @@ internal static partial class Program
         Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
         AssertValue(window, "OfficeNumber", "0002B");
         AssertValue(window, "Department", "");
-        AssertValue(window, "PreferredName", "Ave");
+        AssertPreferredNameReading(window, "Ave", "Edit");
         AssertValue(window, "Alias", "avery");
         AssertValue(window, "JobTitle", "Engineer");
         AssertPhotoVisible(window);
