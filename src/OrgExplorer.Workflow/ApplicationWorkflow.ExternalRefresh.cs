@@ -206,6 +206,11 @@ public sealed partial class ApplicationWorkflow
     {
         using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         conversionMessage = null;
+        if (incrementalStorage)
+        {
+            OpenIncrementalWorkspace();
+            return;
+        }
         if (!memory)
         {
             var pointerPath = Path.Combine(workspace!, "workspace.json");
@@ -269,23 +274,10 @@ public sealed partial class ApplicationWorkflow
                 foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
                 {
                     using var document = JsonDocument.Parse(ReadWorkspaceText(file));
-                    var root = document.RootElement;
-                    CheckRecordVersion(root, "Person", metadata.SchemaVersion);
-                    CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
-                        "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-                        "managerEmail", "archived", "isFavorite", "photoPath", "heading"], Path.GetFileName(file));
-                    var email = Email(Required(root, "email", "Person"), "Person.email");
-                    Required(root, "directoryName", email);
-                    var manager = Required(root, "managerEmail", email);
-                    if (manager.ValueKind != JsonValueKind.Null) Email(manager, $"{email}.managerEmail");
-                    var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
+                    var person = ReadPersonRecord(document.RootElement, metadata.SchemaVersion);
+                    var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
                     if (!Path.GetFileName(file).Equals(key + ".json", StringComparison.OrdinalIgnoreCase))
-                        throw new FormatException($"{email}: conflicting Person filename; resolve provider copies outside the app.");
-                    var person = DeserializeVersionedRecord<PersonProfile>(root)
-                        ?? throw new FormatException("Invalid Person data.");
-                    Email(JsonSerializer.SerializeToElement(person.Email), "email");
-                    foreach (var (field, property, _) in TextFields)
-                        ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
+                        throw new FormatException($"{person.Email}: conflicting Person filename; resolve provider copies outside the app.");
                     if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
                 }
                 ValidateGraph(loaded);
@@ -296,16 +288,7 @@ public sealed partial class ApplicationWorkflow
                 accepted = batchDocument.RootElement.Deserialize<Dictionary<string, AcceptedBatch>>(JsonOptions)
                     ?? throw new FormatException("Invalid accepted batch data.");
                 foreach (var (id, batch) in accepted)
-                {
-                    if (!Guid.TryParseExact(id, "D", out _) || batch is null ||
-                        batch.Fingerprint is null || !Regex.IsMatch(batch.Fingerprint, "^[A-F0-9]{64}$") ||
-                        batch.Source.ValueKind != JsonValueKind.Object ||
-                        !batch.Source.TryGetProperty("batchId", out var batchId) || batchId.ValueKind != JsonValueKind.String ||
-                        !Guid.TryParse(batchId.GetString(), out var sourceId) || sourceId.ToString() != id ||
-                        batch.AppliedAt == default || batch.AppliedAt.Offset != TimeSpan.Zero)
-                        throw new FormatException("Invalid accepted batch identity, source evidence, fingerprint, or application time.");
-                    ValidateAcceptedSource(batch.Source);
-                }
+                    ValidateAcceptedBatch(id, batch);
                 loadedPhotos = LoadPhotos(generation, loaded);
                 history = ReadProfileHistory(generation, loaded, metadata.SchemaVersion);
                 historicalContexts = ReadHistoricalTeamContexts(generation, loaded);
@@ -372,6 +355,34 @@ public sealed partial class ApplicationWorkflow
             var email = ValidateImportRecord(record, "Accepted batch Person");
             if (!keys.Add(email)) throw new FormatException("Accepted batch: duplicate Person identity.");
         }
+    }
+
+    private static PersonProfile ReadPersonRecord(JsonElement root, int workspaceVersion)
+    {
+        CheckRecordVersion(root, "Person", workspaceVersion);
+        CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
+            "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
+            "managerEmail", "archived", "isFavorite", "photoPath", "heading"], "Person");
+        var email = Email(Required(root, "email", "Person"), "Person.email");
+        Required(root, "directoryName", email);
+        var manager = Required(root, "managerEmail", email);
+        if (manager.ValueKind != JsonValueKind.Null) Email(manager, $"{email}.managerEmail");
+        var person = DeserializeVersionedRecord<PersonProfile>(root) ?? throw new FormatException("Invalid Person data.");
+        foreach (var (field, property, _) in TextFields)
+            ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
+        return person;
+    }
+
+    private static void ValidateAcceptedBatch(string id, AcceptedBatch? batch)
+    {
+        if (!Guid.TryParseExact(id, "D", out _) || batch is null ||
+            batch.Fingerprint is null || !Regex.IsMatch(batch.Fingerprint, "^[A-F0-9]{64}$") ||
+            batch.Source.ValueKind != JsonValueKind.Object ||
+            !batch.Source.TryGetProperty("batchId", out var batchId) || batchId.ValueKind != JsonValueKind.String ||
+            !Guid.TryParse(batchId.GetString(), out var sourceId) || sourceId.ToString() != id ||
+            batch.AppliedAt == default || batch.AppliedAt.Offset != TimeSpan.Zero)
+            throw new FormatException("Invalid accepted batch identity, source evidence, fingerprint, or application time.");
+        ValidateAcceptedSource(batch.Source);
     }
 
     private static void RejectWorkspaceLink(string path)

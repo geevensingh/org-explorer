@@ -54,6 +54,12 @@ public sealed partial class ApplicationWorkflow
     private int InspectWorkspaceVersions()
     {
         using var access = CoordinateWorkspaceIo(workspace!);
+        if (incrementalStorage)
+        {
+            var path = Path.Combine(workspace!, "workspace.json");
+            if (File.Exists(path)) ReadIncrementalMetadata(ReadWorkspaceBytesUncached(path));
+            return 3;
+        }
         var pointer = Path.Combine(workspace!, "workspace.json");
         if (!File.Exists(pointer)) return 2;
         RejectWorkspaceLink(pointer);

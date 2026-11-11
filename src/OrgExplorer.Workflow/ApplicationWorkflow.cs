@@ -466,6 +466,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             failedSaves.Remove(operation);
             return true;
         }
+        if (incrementalStorage)
+            return SaveIncrementally(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
+                nextTeamContexts, nextHistoricalContexts, operation, resources);
         try
         {
             using var access = CoordinateWorkspaceIo(workspace!);

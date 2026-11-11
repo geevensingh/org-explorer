@@ -73,6 +73,19 @@ existing conversion recovery copies, not just surviving file sizes. The
 defines later recovery/reclamation cases; neither that format nor cleanup is
 activated by this observation prefactor.
 
+`IncrementalProfileStorageTests` exercises the internal version-3 tracer through
+the same file-backed workflow (and the view model for text drafts). It creates
+an empty Workspace, seeds accepted Import evidence, and reopens profile text,
+favorites, relationships, notes, images and history. The rich small regression
+compares the same edit with 6 and 258 People, counting every observed payload
+and metadata write, including transient stages. It checks reused unrelated
+document bytes as well as a bounded byte increase; final directory size alone
+cannot pass it. Real pointer replacement failures prove retained drafts,
+retry/discard and no staging adoption. Receipt failure distinguishes a committed
+edit from incomplete transaction maintenance. This internal test factory does
+not activate version 3 in the application or claim independent recovery,
+reclamation, desktop coverage or 10,000-Person evidence.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,

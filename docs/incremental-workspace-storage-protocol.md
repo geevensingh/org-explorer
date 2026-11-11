@@ -7,6 +7,56 @@ The shipping reader/writer still uses [Workspace version 2](workspace-format.md)
 including its existing conversion behavior. This document neither activates a
 new format nor authorizes deleting or converting an existing Workspace.
 
+## Internal profile tracer foundation (#42)
+
+The version-3 profile tracer is available only through the internal
+`ApplicationWorkflow.CreateIncrementalFileBacked` test factory. The public
+factory, desktop and version-1/2 behavior are unchanged. This is not a supported
+user format or a completed recovery/reclamation implementation.
+
+`ApplicationWorkflow.IncrementalIndex.cs` implements the current selector and
+bounded radix index. A selector contains `schemaVersion: 3`, a `commit` GUID,
+the fixed `roots` families (`people`, `profileHistory`, `acceptedBatches`,
+`photos`, `teamContext`, `historicalTeamContext`), and the unchanged
+`recordVersions` map. A null family root explicitly represents an empty family.
+Each version-1 index node identifies its family and contains either `entries`
+(normalized logical identity to document location) or hexadecimal `children`,
+never both. Identity SHA-256 partitions bound fanout and depth. Leaf buckets
+are bounded; a save copies the affected paths, not a population-wide manifest
+or an ever-growing delta chain.
+
+`ApplicationWorkflow.IncrementalStorage.cs` resolves and validates the complete
+current graph behind the workflow. Person and Profile-history documents retain
+record version 2. Each accepted-batch and Team-context document contains one
+entry of the existing map representation; Historical team context retains its
+version-1 document and Person/Team Markdown stays independently atomic.
+Photos have unique physical locations and their existing logical resource
+identities; current bytes, rather than a filename hash promise, are validated.
+
+`SaveIncrementally` writes a durable transaction intent before creating
+objects. Each new document/index node has its own durable creation inventory
+record (relative location, byte length and digest). It flushes and validates
+the candidate, rechecks the complete base and producer resources, then publishes
+the staged selector through the existing publisher. The accepted revision is
+the validated base plus the operation's own bytes, not a post-publication reread.
+A post-publication committed receipt is separate from the intent. Receipt
+failure reports saved locally with incomplete maintenance and blocks safe close,
+rather than inviting the edit to be repeated as if it were unsaved.
+
+Unreferenced staged/retired objects and transactions do not become current data
+on reopen. Failed attempts are deliberately preserved for later classification;
+this slice neither selects recovery nor deletes objects. The recovery slice
+must extend this transaction boundary with an independently validated candidate,
+post-publication receipt/selection and maintenance-only retry. The delivery
+slice owns complete race/out-of-order coverage; the Import slice owns full
+multi-Person/resource behavior and batching of index updates. Reclamation must
+consume inventories and durable retirement information, not infer ownership
+from paths. Final activation remains blocked on those slices.
+
+`WorkspaceFixtures.IndexedDocuments` is the storage-aware inspection helper.
+Functional tests still drive the existing workflow/view-model; no desktop
+caller or public per-Person repository interprets these paths.
+
 ## Roots and physical independence
 
 The proposed version-3 layout keeps readable JSON, Markdown, JPEG and PNG files:

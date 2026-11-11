@@ -31,6 +31,24 @@ internal static class WorkspaceFixtures
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase))
             .ToDictionary(p => Path.GetRelativePath(root, p), File.ReadAllBytes);
 
+    internal static Dictionary<string, string> IndexedDocuments(string root)
+    {
+        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "workspace.json")))!;
+        var result = new Dictionary<string, string>();
+        foreach (var family in pointer["roots"]!.AsObject())
+            if (family.Value is not null) Visit(family.Key, family.Value.GetValue<string>());
+        return result;
+
+        void Visit(string family, string relative)
+        {
+            var node = JsonNode.Parse(File.ReadAllText(Path.Combine(root, relative)))!;
+            if (node["entries"] is JsonObject entries)
+                foreach (var entry in entries) result.Add(family + ":" + entry.Key, Path.Combine(root, entry.Value!.GetValue<string>()));
+            else
+                foreach (var child in node["children"]!.AsObject()) Visit(family, child.Value!.GetValue<string>());
+        }
+    }
+
     internal static void WriteLegacyPointer(string root, JsonNode pointer)
     {
         pointer["schemaVersion"] = 1;

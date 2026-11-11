@@ -114,13 +114,13 @@ public sealed partial class ApplicationWorkflow
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
 
     private static Dictionary<string, List<HistoricalTeamContext>> ReadHistoricalTeamContexts(string generation,
-        Dictionary<string, PersonProfile> population)
+        Dictionary<string, PersonProfile> population, IEnumerable<string>? files = null)
     {
         var contexts = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
         var ids = new HashSet<Guid>();
         var directory = Path.Combine(generation, "historical-team-context");
-        if (!Directory.Exists(directory)) return contexts;
-        foreach (var file in Directory.GetFiles(directory, "*.json"))
+        if (files is null && !Directory.Exists(directory)) return contexts;
+        foreach (var file in files ?? Directory.GetFiles(directory, "*.json"))
         {
             using var json = JsonDocument.Parse(ReadWorkspaceText(file));
             RequireVersion(json.RootElement, "Historical team context", [1]);
@@ -130,7 +130,7 @@ public sealed partial class ApplicationWorkflow
             if (document.SchemaVersion != 1)
                 throw new FormatException("Unsupported Historical team context version. Upgrade the app; writes are blocked.");
             if (document.Email is null || !population.ContainsKey(document.Email) || document.Contexts is null ||
-                !Path.GetFileName(file).Equals(HistoricalContextKey(document.Email) + ".json", StringComparison.OrdinalIgnoreCase) ||
+                files is null && !Path.GetFileName(file).Equals(HistoricalContextKey(document.Email) + ".json", StringComparison.OrdinalIgnoreCase) ||
                 !contexts.TryAdd(document.Email, document.Contexts))
                 throw new FormatException("Historical team context has an unknown, duplicate, or conflicting Person.");
             foreach (var capture in document.Contexts) ValidateHistoricalCapture(capture, document.Email, ids);
