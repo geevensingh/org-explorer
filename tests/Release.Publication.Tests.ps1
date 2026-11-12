@@ -1,13 +1,29 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . "$PSScriptRoot\..\eng\Release.ps1"
-$candidate = 'a' * 40
+$fixture = Join-Path $PSScriptRoot ("..\.test-workspaces\release-publication-" + [guid]::NewGuid().ToString('N'))
+$history = "$fixture-history"
+New-Item $fixture, $history -ItemType Directory -Force | Out-Null
+git -C $history init --quiet
+$candidateMessage = 'Ship café 🚀 *bold* _notes_ [link](https://example.invalid) `code` ``ticks`` <b> & &#65; \ #64 @owner :smile: ~done~ ! |'
+foreach ($message in @('Previously released source', 'Earlier unpublished change',
+    "$candidateMessage`n`nPrivate candidate body must not enter the description.",
+    'Adjacent newer revision must not enter the description')) {
+    git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m $message
+    if ($LASTEXITCODE -ne 0) { throw 'Publication source fixture commit failed.' }
+}
+$candidate = (git -C $history rev-parse HEAD~1).Trim()
+$previousSource = (git -C $history rev-parse HEAD~3).Trim()
 $checks = 0
 function Assert([bool]$Condition, [string]$Reason) { if (!$Condition) { throw $Reason }; $script:checks++ }
 function Rejects([scriptblock]$Action, [string]$Reason) {
     $rejected = $false
     try { & $Action } catch { $rejected = $true }
     Assert $rejected "Release accepted $Reason."
+}
+function Update-FixtureProvenance([hashtable]$Plan) {
+    Remove-Item "$fixture\release-provenance.json"
+    New-ReleaseProvenance -Plan $Plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
 }
 $run = @{
     id = 42; event = 'push'; head_branch = 'main'; head_sha = $candidate; conclusion = 'success'; status = 'completed'
@@ -32,8 +48,7 @@ $latestRelease = $null
 $manifestResponse = $null
 $renewalProvenanceResponse = $null
 $missingCurrentCi = $false
-$fixture = Join-Path $PSScriptRoot ("..\.test-workspaces\release-publication-" + [guid]::NewGuid().ToString('N'))
-New-Item $fixture -ItemType Directory -Force | Out-Null
+$createdBody = $null
 
 # The only fake is the external GitHub CLI boundary. No production API is called.
 function gh {
@@ -64,6 +79,7 @@ function gh {
             @{ workflow_runs = if ($script:missingCurrentCi) { @() } else { @($script:run) } } | ConvertTo-Json -Depth 10 -Compress; return
         }
         '/git/ref/heads/main$' { @{ object = @{ sha = $script:main } } | ConvertTo-Json -Compress; return }
+        '/git/ref/tags/v0.0.9$' { @{ object = @{ sha = $previousSource; type = 'commit' } } | ConvertTo-Json -Compress; return }
         '/git/ref/tags/(v0.1.0|metadata-v0.1.0-[0-9]+-[0-9]+)$' { @{ object = @{ sha = $candidate; type = 'commit' } } | ConvertTo-Json -Compress; return }
         '/git/refs$' {
             Assert ($method -eq 'POST') 'Tags must be created, never force-updated.'
@@ -88,6 +104,7 @@ function gh {
                 $inputIndex = [Array]::IndexOf($arguments, '--input')
                 $body = Get-Content $arguments[$inputIndex + 1] -Raw | ConvertFrom-Json
                 $script:currentTag = $body.tag_name
+                $script:createdBody = $body.body
                 Assert ($body.target_commitish -ceq $candidate -and $body.draft -eq $true -and $body.make_latest -ceq 'false') 'Public assets must not precede provenance and gates.'
                 $script:effects.Add('draft'); $script:draft = $true
                 '{"id":99}'; return
@@ -183,22 +200,59 @@ try {
         Rejects { Assert-ReleaseInventory -ReleaseDirectory $fixture -Version 0.1.0 -Key $key -KeyId test-active } 'changed package after authorization'
         [IO.File]::WriteAllBytes("$fixture\geevensingh.OrgExplorer-0.1.0-full.nupkg", $saved)
         $failUpload = $true
-        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active } 'partial upload'
+        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history } 'partial upload'
         Assert (!$effects.Contains('publish') -and $draft) 'Upload failure must leave only an unpublished draft.'
         $failUpload = $false; $effects.Clear(); $draft = $false
         $badDigest = $true
-        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active } 'missing GitHub-uploaded digest'
+        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history } 'missing GitHub-uploaded digest'
         Assert (!$effects.Contains('publish')) 'Unavailable remote digest must block promotion.'
         $badDigest = $false; $effects.Clear(); $draft = $false; $missingRemoteAsset = $true
-        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active } 'incomplete remote upload'
+        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history } 'incomplete remote upload'
         Assert (!$effects.Contains('publish')) 'Missing remote asset must block promotion.'
         $missingRemoteAsset = $false; $effects.Clear(); $draft = $false
         $moveMainOnUpload = $true
-        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active } 'main advancing during upload'
+        Rejects { Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history } 'main advancing during upload'
         Assert (!$effects.Contains('publish') -and $draft) 'A superseded candidate must never become public/latest.'
         $moveMainOnUpload = $false; $main = $candidate; $effects.Clear(); $draft = $false
-        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active
+        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish') 'Publish only a complete verified draft, with immutable exact-source tag and latest updated last.'
+        $expectedProvenance = "Exact source: $candidate. Trusted CI: 42. Fresh complete scale verification: 43. See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing."
+        $expectedSubject = '``` Ship café 🚀 *bold* _notes_ [link](https://example.invalid) `code` ``ticks`` <b> & &#65; \ #64 @owner :smile: ~done~ ! | ```'
+        Assert ($createdBody -ceq "Source commit: $expectedSubject`n`n$expectedProvenance") 'The description must begin with only the exact candidate subject as literal Unicode/Markdown text, not its body or another commit, followed by unchanged provenance.'
+        $releases = @(@{ id = 1; draft = $false; prerelease = $false; published_at = '2026-11-09T00:00:00Z'
+            tag_name = 'v0.0.9'; assets = @(@{ name = 'release-provenance.json'; id = 7 }) })
+        $assetResponse = @{ schemaVersion = 1; sourceSha = $previousSource; tag = 'v0.0.9'; version = '0.0.9'; ciRunId = 40; verificationRunId = 41 } | ConvertTo-Json
+        $plan.lastSourceSha = $previousSource; $plan.lastTag = 'v0.0.9'
+        Update-FixtureProvenance -Plan $plan
+        $effects.Clear(); $draft = $false
+        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        Assert ($createdBody -ceq "Source commit: $expectedSubject`n`n$expectedProvenance") 'Multiple commits since the preceding app source must still display only the final candidate subject, never a multi-commit changelog.'
+        $releases = @(); $plan.lastSourceSha = ''; $plan.lastTag = ''
+        Update-FixtureProvenance -Plan $plan
+        $effects.Clear(); $draft = $false
+        $unavailableHistory = "$fixture-unavailable"
+        git init --quiet $unavailableHistory
+        $subjectError = $null
+        try {
+            Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $unavailableHistory
+        } catch { $subjectError = $_.Exception.Message }
+        Assert ($subjectError -match 'source commit subject' -and $effects.Count -eq 0 -and !$draft) 'Unavailable exact-source history must fail explicitly on subject resolution before creating a tag or draft, without falling back to another checkout.'
+        Remove-Item $unavailableHistory -Recurse -Force
+        $savedCandidate = $candidate
+        foreach ($unusableMessage in @('', "Subject with an escape `e[31msequence")) {
+            git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty --allow-empty-message --cleanup=verbatim -m $unusableMessage
+            if ($LASTEXITCODE -ne 0) { throw 'Unusable-subject fixture commit failed.' }
+            $candidate = (git -C $history rev-parse HEAD).Trim()
+            $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
+            Update-FixtureProvenance -Plan $plan
+            $subjectError = $null
+            try {
+                Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+            } catch { $subjectError = $_.Exception.Message }
+            Assert ($subjectError -match 'source commit subject' -and $effects.Count -eq 0 -and !$draft) 'An empty or control-character Git subject must fail explicitly before tag or draft creation, never publish an unusable label or placeholder.'
+        }
+        $candidate = $savedCandidate; $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
+        Update-FixtureProvenance -Plan $plan
         Remove-Item "$fixture\org-explorer-update.win-x64.json", "$fixture\release-provenance.json"
         $null = New-SignedReleaseManifest -ReleaseDirectory $fixture -Version 0.1.0 -Key $key -KeyId test-active -Now ([DateTimeOffset]::UtcNow.AddDays(-8))
         New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
@@ -241,6 +295,7 @@ try {
         $renewalProof | ConvertTo-Json -Depth 10 | Set-Content "$renewalDirectory\release-provenance.json"
         Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 44 -Key $key -KeyId test-active
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish' -and $currentTag -ceq 'metadata-v0.1.0-123-1') 'Renewal must publish only an immutable metadata tag while preserving the original app version.'
+        Assert ($createdBody -ceq "Metadata renewal only. Original app/package remains v0.1.0 at $candidate; no new app version. Bootstrap assets are byte-identical. Fresh exact-product scale verification and provenance are recorded in release-provenance.json.") 'Metadata renewal descriptions must remain unchanged, without a new source-subject paragraph.'
         $renewalProvenanceResponse = Get-Content "$renewalDirectory\release-provenance.json" -Raw
         $renewedRelease = @{ id = 99; tag_name = $currentTag; draft = $false; prerelease = $false; published_at = [DateTimeOffset]::UtcNow.ToString('O')
             assets = @(Get-ReleaseInventory $renewalDirectory | ForEach-Object {
@@ -301,6 +356,8 @@ try {
 } finally {
     Remove-Item Function:\gh
     Remove-Item $fixture -Recurse -Force
+    Remove-Item $history -Recurse -Force
     if (Test-Path "$fixture-renewal") { Remove-Item "$fixture-renewal" -Recurse -Force }
     if (Test-Path "$fixture-source") { Remove-Item "$fixture-source" -Recurse -Force }
+    if (Test-Path "$fixture-unavailable") { Remove-Item "$fixture-unavailable" -Recurse -Force }
 }

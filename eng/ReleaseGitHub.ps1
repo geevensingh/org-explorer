@@ -98,13 +98,26 @@ function Assert-UnchangedReleaseBaseline($Plan) {
     if ($source -cne $Plan.lastSourceSha -or $tag -cne $Plan.lastTag) { throw 'Another publication changed the comparison baseline. Replan from successful main CI; never replace it with an older build.' }
 }
 
-function Publish-Release($Plan, [string]$ReleaseDirectory, [long]$CiRunId, [Security.Cryptography.ECDsa]$Key, [string]$KeyId) {
+function Publish-Release($Plan, [string]$ReleaseDirectory, [long]$CiRunId, [Security.Cryptography.ECDsa]$Key, [string]$KeyId,
+    [string]$Root = (Split-Path $PSScriptRoot -Parent)) {
     if (!$Plan.publish -or $Plan.tag -cne "v$($Plan.version)") { throw 'This plan does not authorize an app publication.' }
     Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
     $provenance = Get-Content (Join-Path $ReleaseDirectory 'release-provenance.json') -Raw | ConvertFrom-Json
     if ($provenance.sourceSha -cne $Plan.sourceSha -or $provenance.ciRunId -ne $CiRunId) { throw 'Packaged source/CI provenance does not match the authorized candidate.' }
+    try {
+        $subject = (Invoke-ReleaseGit $Root @('show', '-s', '--encoding=UTF-8', '--format=%s', $Plan.sourceSha, '--')) -join "`n"
+    } catch { throw "Cannot resolve source commit subject for $($Plan.sourceSha). Publication stopped before tag or draft creation: $_" }
+    if ([string]::IsNullOrWhiteSpace($subject) -or $subject -match '\p{Cc}') {
+        throw "Unusable source commit subject for $($Plan.sourceSha). Publication stopped before tag or draft creation."
+    }
+    # A padded code span preserves literal text, including GitHub mentions/emoji and embedded backticks.
+    $delimiter = '`'
+    foreach ($ticks in [regex]::Matches($subject, '`+')) {
+        if ($ticks.Length -ge $delimiter.Length) { $delimiter = '`' * ($ticks.Length + 1) }
+    }
+    $subject = "$delimiter $subject $delimiter"
     Publish-VerifiedReleaseDraft -PublicationTag $Plan.tag -SourceSha $Plan.sourceSha -Name "Org explorer $($Plan.version)" `
-        -Body "Exact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing." `
+        -Body "Source commit: $subject`n`nExact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing." `
         -ReleaseDirectory $ReleaseDirectory -BeforePromotion {
             Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
             Assert-UnchangedReleaseBaseline $Plan

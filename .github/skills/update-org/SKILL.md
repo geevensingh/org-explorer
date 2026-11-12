@@ -20,6 +20,8 @@ Read [the collection protocol](collection.md). Invoke `workiq` and follow its
 current people, structured-read, grounding, binary-download and recovery contracts.
 Resolve the exact directory root and connected user's directory ID; ask for
 selection when identity is ambiguous. A missing argument requires a root.
+Resolve these prerequisites serially. A failed prerequisite lookup stops here;
+do not perform an unrecorded recovery before the shared run exists.
 
 Build the bundled helper, then initialize the private staging run. Completion:
 one unambiguous root and a helper-created local run path, outside Git/cloud sync.
@@ -27,7 +29,13 @@ Use current source results, not any previous conversation or employee fixture.
 
 ## 2. Establish the complete reporting subtree
 
-Use helper-generated pending paths and ingest complete structured WorkIQ results.
+Use helper-generated pending paths and the shared
+[capture sequence](collection.md#capture-one-source-call) to ingest original
+structured WorkIQ results. Use the same capture path for profile evidence and
+photo downloads; normal output is counts and local references, not source payloads.
+Claim and finish every source call through the shared
+[source coordination gate](collection.md#source-coordination), including the
+coordinator's directory reads.
 Traverse every direct-report page, including leaves and excluded accounts.
 Follow the root's Manager chain to its sourced endpoint; ancestors supply context,
 not permission to enumerate their other reports.
@@ -44,7 +52,7 @@ disjoint local job files. Never silently truncate the requested subtree.
 
 Fetch fresh photo metadata for all retained people, at most 50 paths per
 structured-read call, and ingest every individual result. Dispatch the job files
-to **up to four concurrent subagents**, each with one disjoint batch. Use a fresh
+to **up to two concurrent subagents**, each with one disjoint batch. Use a fresh
 agent for the next independent batch, not a reusable message-driven worker pool.
 If subagents are unavailable, explain this before collection and ask whether to
 continue serially.
@@ -57,18 +65,24 @@ counts, local paths and errors. Neither image payloads nor employee lists belong
 in coordinator messages, Git, issues, Libraries or shared attachments.
 
 Completion: every job finishes, every retained person has a fresh accounted-for
-profile observation, and each photo has bytes or a confirmed `ImageNotFound`.
+profile observation with no unresolved batch item, and each photo has bytes or a
+confirmed `ImageNotFound`. Use the protocol's complete batch outcomes to establish
+coverage, including when a helper invocation exits nonzero after retaining successes.
 
 ## 4. Recover or stop
 
-The WorkIQ recovery allowance is **one failed-read recovery pass for this whole
-invocation**, not one per worker or phase. Coordinate it centrally, retain successes,
-honor returned delays and retry only eligible failed reads. Record failures and
-recovery decisions in the private run. An early recovery does not reset the
-allowance for later failures. Authentication/access/policy denial stops the
-affected source workflow without alternate paths, tools or agents. Notify the
-coordinator immediately; it tells all active workers to stop source reads and
-starts no queued batches until the authorization issue is resolved.
+Use `source-status` to settle every active claim before the coordinator consumes
+`source-recover` once. The gate owns the invocation-wide allowance and returned
+retry delays; follow its granted targets rather than re-running whole batches.
+Retain local successes and deferred first reads. An interrupted worker requires
+the explicit stopped-worker handoff in the collection protocol.
+For mixed profile batches, correct and resubmit only failed inputs according to
+the collection protocol; retained successes need no repeated lookup or resubmission.
+Authentication/access/policy denial stops this invocation without alternate
+paths, tools, agents, strategies or providers. Notify the coordinator immediately;
+it stops active workers' further source calls and queued dispatch. Report the
+authorization prerequisite rather than attempting recovery or resetting the run
+to evade it.
 
 An uncompleted lookup is not "no photo" or "unknown geography." Unresolved service
 errors or incomplete hierarchy block publication. Retain local progress and
