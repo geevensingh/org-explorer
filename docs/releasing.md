@@ -69,6 +69,18 @@ and bytes if main advances in that network interval. The serialization applies
 to this workflow, not an owner concurrently editing GitHub Releases. Owners
 must not manually move tags, replace assets or alter latest during publication.
 
+Future app release descriptions begin with a distinct `Source commit: <subject>`
+paragraph, followed by the existing exact source SHA, trusted CI, fresh complete
+scale-verification run, asset-provenance reference and signing explanation. The
+subject comes from Git at the exact authorized source SHA in local release
+history, not the checkout's HEAD or the full commit message. An inline code span
+keeps Unicode and Markdown-significant punctuation literal, including embedded
+backticks, mentions and emoji syntax. Only that final commit's subject is shown,
+even when several commits accumulated; it is not an
+exhaustive changelog. Missing history, an empty subject or control characters
+stop publication explicitly before any tag or draft is created. Historical
+release descriptions and metadata-renewal descriptions are not changed.
+
 Only a completely uploaded, verified **draft** becomes public/latest. Assets:
 
 - Windows x64 setup, full `.nupkg`, and portable ZIP;
