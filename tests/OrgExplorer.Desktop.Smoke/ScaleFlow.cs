@@ -23,12 +23,12 @@ internal static partial class Program
                 Click(window, "OpenWorkspace");
                 // Settings must work while actual filesystem work is outstanding, not after a blocked dispatcher returns.
                 Await(() => Find(window, "WorkflowActivity").Current.Name.Contains("Opening"));
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, true);
                 Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
                 if (!Find(window, "WorkflowActivity").Current.Name.Contains("Opening"))
                     throw new InvalidOperationException("Settings was not responsive while the real scale open was pending.");
                 AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, false);
             });
             ScaleFixture.Measure("UI-tree", () =>
             {

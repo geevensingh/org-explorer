@@ -36,6 +36,24 @@ internal static partial class Program
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             var window = (Window)Activator.CreateInstance(type)!;
             var failures = new List<string>();
+            var settingsPanel = (FrameworkElement)window.FindName("SettingsPanel");
+            static bool Contains(DependencyObject parent, DependencyObject? child)
+            {
+                for (; child is not null; child = LogicalTreeHelper.GetParent(child))
+                    if (ReferenceEquals(parent, child)) return true;
+                return false;
+            }
+            foreach (var name in new[] { "WorkspaceControls", "WorkspacePath", "OpenImportButton" })
+            {
+                var control = (FrameworkElement)window.FindName(name);
+                if (!Contains(settingsPanel, control))
+                    failures.Add($"{name}: infrequent management belongs in Settings, not everyday chrome.");
+            }
+            if (window.FindName("WorkspaceName") is not TextBlock workspaceName || workspaceName.Focusable)
+                failures.Add("Everyday chrome needs a quiet, non-interactive Workspace name.");
+            var search = (FrameworkElement)window.FindName("SearchQuery");
+            if (Contains((FrameworkElement)window.FindName("ExplorerPanel"), search))
+                failures.Add("Search must remain directly accessible outside the People view.");
             if (window.FindName("DiscardImportButton") is not Button)
                 failures.Add("Failed Import has no independent discard control.");
             foreach (var name in new[] { "DirectoryName", "Email", "AliasValue", "JobTitleValue", "DepartmentValue",
@@ -71,7 +89,9 @@ internal static partial class Program
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
                     {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000001",
                      "observedAt":"2026-11-01T17:00:00Z","people":[
-                     {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                     {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
+                      "jobTitle":"Researcher","department":"Research","officeCountry":"Canada",
+                      "alias":"ave","officeNumber":"007B"}]}
                     """).Id) || seed.CreatePersonNote("avery@example.com", "Saved title", "# Saved note") is null)
                 throw new InvalidOperationException("Profile refresh fixture failed: " + seed.Status);
         }
@@ -80,8 +100,33 @@ internal static partial class Program
         Control<TextBox>("WorkspacePath").Text = folder;
         Invoke("OpenWorkspaceButton");
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        Invoke("OpenSettingsButton");
+        if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Collapsed ||
+            Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("WorkspaceName").Text != "workspace" ||
+            System.Windows.Automation.AutomationProperties.GetHelpText(Control<TextBlock>("WorkspaceName")) != folder)
+            throw new InvalidOperationException("Settings must use the bounded main work area without navigating or opening Import.");
+        Invoke("OpenSettingsButton");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
+        if (window.FindName("ProfileDetails") is not Expander details || details.IsExpanded)
+            throw new InvalidOperationException("Person reading must start with secondary profile details collapsed.");
+        if (Control<TextBlock>("JobTitleValue").Text != "Researcher" ||
+            Control<TextBlock>("DepartmentValue").Text != "Research" ||
+            Control<TextBlock>("OfficeCountryValue").Text != "Canada")
+            throw new InvalidOperationException("The essential profile summary lost role, department or location.");
+        details.IsExpanded = true;
+        if (Control<TextBlock>("OfficeNumberValue").Text != "007B" ||
+            Control<FrameworkElement>("LinkedInProfileUrlValueRow").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("More details must expose populated attributes without empty rows.");
+        Invoke("EditProfileButton");
+        if (Control<FrameworkElement>("AttributeEditors").Visibility != Visibility.Visible ||
+            Control<TextBox>("LinkedInProfileUrl").Text != "" ||
+            Control<FrameworkElement>("ProfileValues").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Full Edit must expose empty fields without duplicate reading values.");
+        Invoke("CancelProfileButton");
+        if (Control<TextBlock>("OfficeNumberValue").Text != "007B")
+            throw new InvalidOperationException("Profile Cancel changed the readable saved value.");
         var notes = Control<FrameworkElement>("PersonNotes");
         T NoteControl<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         NoteControl<ListBox>("NotesList").SelectedIndex = 0;
@@ -123,11 +168,21 @@ internal static partial class Program
             finally { property.RemoveValueChanged(status, saved); }
             if (dirtyNote)
             {
+                Invoke("OpenSettingsButton");
+                if (NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note")
+                    throw new InvalidOperationException("Opening Settings changed independent writing.");
+                Invoke("OpenImportButton");
+                if (Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
+                    Control<TextBlock>("Email").Text != "avery@example.com" ||
+                    NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
+                    !Control<TextBlock>("StatusText").Text.Contains("Person note", StringComparison.Ordinal) ||
+                    File.ReadAllText(noteFile) != delivered)
+                    throw new InvalidOperationException("Settings Import bypassed the failed independent Person-note draft.");
                 NoteControl<Button>("DiscardButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
             }
         }
-        Console.WriteLine("PASS: profile Save refreshes accepted note delivery and preserves unsaved note writing without showing a window.");
+        Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
     }
 
     private static void PumpUntil(Func<bool> complete)

@@ -112,7 +112,7 @@ internal static partial class Program
             window = AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
             return window is not null && window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspacePath")) is not null;
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OpenSettings")) is not null;
         });
         ((WindowPattern)window!.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
         return window!;
@@ -127,19 +127,40 @@ internal static partial class Program
     }
     internal static void Set(AutomationElement window, string id, string value)
     {
+        if (id == "WorkspacePath") SetSettingsVisible(window, true);
+        else SetSettingsVisible(window, false);
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
     }
     internal static void Click(AutomationElement window, string id)
     {
+        if (id is "OpenWorkspace" or "OpenImport" or "RetryWorkspace" or "CheckForUpdates")
+            SetSettingsVisible(window, true);
+        else if (id != "OpenSettings") SetSettingsVisible(window, false);
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
-    private static void AwaitLocalWorkIdle(AutomationElement window) => Await(() =>
-        Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-        !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-        !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-        !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
+    private static void SetSettingsVisible(AutomationElement window, bool visible)
+    {
+        bool IsOpen()
+        {
+            var title = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "SettingsTitle"));
+            return title is not null && !title.Current.IsOffscreen;
+        }
+        if (IsOpen() == visible) return;
+        Click(window, "OpenSettings");
+        Await(() => IsOpen() == visible);
+    }
+    private static void AwaitLocalWorkIdle(AutomationElement window)
+    {
+        SetSettingsVisible(window, false);
+        Await(() =>
+            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+            !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+            !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+            !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
+    }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {
         var actual = Value(window, id);

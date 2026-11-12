@@ -7,6 +7,14 @@ public partial class MainWindow
     private void ToggleSettings(object sender, RoutedEventArgs e)
     {
         SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        UpdateMainViews();
+        if (!IsVisible) return;
+        if (SettingsPanel.Visibility == Visibility.Visible)
+        {
+            SettingsScroll.ScrollToTop();
+            WorkspacePath.Focus();
+        }
+        else OpenSettingsButton.Focus();
     }
 
     private async void RetryWorkspace(object sender, RoutedEventArgs e)
