@@ -9,3 +9,4 @@ feature and delivery requirements remain in [the design](../design.md).
 - [0004: External partial-update import contract](0004-external-partial-imports.md)
 - [0005: Native Windows UI on .NET](0005-native-windows-dotnet.md)
 - [0006: Project-key update authentication](0006-project-key-update-authentication.md)
+- [0007: Incremental readable-file workspace storage](0007-incremental-workspace-storage.md)
