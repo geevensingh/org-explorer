@@ -12,11 +12,21 @@ public partial class MainWindow
             preview = null;
             ShowStatus();
         });
-        TeamNotes.OwnerRequested += (email, noteId) =>
+        TeamNotes.OwnerRequested += noteId =>
         {
-            NavigateTo(email);
-            if (string.Equals(selectedEmail, email, StringComparison.OrdinalIgnoreCase))
+            if (!TryLeaveLocalEdits()) return;
+            if (!workflow.NavigateInheritedTeamNote(noteId))
+            {
+                ShowNavigationBlocked(workflow.Status);
+                return;
+            }
+            if (NavigateTo(workflow.PeopleNavigation.SelectedEmail!, searchNavigation: true))
+            {
+                ClearSearchContext();
                 TeamNotes.OpenNote(noteId);
+                TeamNotes.BringIntoView();
+                ShowStatus();
+            }
         };
     }
 }

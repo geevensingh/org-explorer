@@ -111,6 +111,17 @@ secondary search, empty invitation, unavailable choice and visible preference
 and note-save failures. Those assertions require hosted Windows; non-UI success
 does not constitute their execution.
 
+Owned Team presentation reuses that same observable owned-note interaction.
+`TeamNoteTests` covers all-ancestor and secondary-note inheritance, exact
+owner-correct review navigation, retained independent Person writing, new/empty
+Team writing and frozen search identity after designation, editing and archival.
+`WorkspaceStartupTests` extends the existing real-file seam with Team designation
+reopen, canonical owner/scope/GUID identity, unchanged Workspace writing,
+preserved pane proportions, locked/corrupt/unsupported/invalid preferences and
+missing/archived targets. The secondary-draft file-backed regression runs for
+both scopes, retaining exact editing and delivered bytes on rejected ongoing
+navigation. No preference write changes synchronized Workspace schema.
+
 Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
 and its navigation/query/browsing operations. Focused cases preserve an exact
 secondary note and frozen search destination, and retain owner/editor, expansion,
@@ -202,6 +213,10 @@ It also checks that all ten profile Copy targets accept focus and Tab navigation
 The actual compiled Person-note surface and secondary title list must expose
 distinct automation identities, so collapsed/empty-list discovery cannot select
 the visible surrounding surface instead.
+The Team surface also has a distinct identity. The compiled contract requires
+collapsed Other Team notes, collapsed inherited details with warnings outside,
+and secondary History containing profile changes, confirmations, observations
+and frozen Team evidence.
 The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
@@ -220,6 +235,10 @@ The same invisible-control regression exercises the essential profile summary,
 collapsed/populated More details, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It additionally drives actual compiled owned-Team create/read/designate/Other
+controls, an exact empty secondary note, a locked preference rejection and a
+failed secondary-note save with protected ongoing navigation and successful
+retry. These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on the folder, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged
@@ -301,9 +320,13 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   no-fetch assertion, failed filesystem save, restored tree selection,
   Workspace/close rejection, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
-  Read-first owned notes, direct New-note editing and empty-body accessibility,
-  review navigation/confirmation and archive/restore, actual current/frozen reading and honest
-  historical dates through a representative ancestor move and reopen.
+  ongoing/Other designation and exact secondary search, Read-first owned notes,
+  direct New-note editing and empty-body accessibility, visible preference/save
+  failures, collapsed attributed warnings at 700 x 500 and 1100 x 900,
+  protected owner review navigation/confirmation and archive/restore,
+  secondary History with confirmations/observations, actual current/frozen
+  reading in both layouts and honest historical dates through a representative
+  ancestor move, exact frozen search and reopen.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.

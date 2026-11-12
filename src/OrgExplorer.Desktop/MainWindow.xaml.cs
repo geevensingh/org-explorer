@@ -221,7 +221,10 @@ public partial class MainWindow : Window
             return false;
         }
         if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
+        {
             ProfileDetails.IsExpanded = false;
+            HistoryAccess.IsExpanded = false;
+        }
         selectedEmail = person.Email;
         if (navigation) ClearSearchContext();
         LoadPersonEditors(person);

@@ -2,26 +2,38 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <StackPanel>
-    <TextBlock Text="Team notes — private, explicitly inherited scope" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+    <TextBlock Text="Owned Team notes" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
     <TextBlock x:Name="Ownership" AutomationProperties.AutomationId="TeamNoteOwnership"
                TextWrapping="Wrap" Margin="0,4,0,8"/>
-    <DockPanel Margin="0,0,0,8">
-      <Button x:Name="NewButton" DockPanel.Dock="Right" Content="New Team note"
+    <TextBlock x:Name="OngoingStatus" AutomationProperties.AutomationId="TeamOngoingNoteStatus"
+               TextWrapping="Wrap" Foreground="#9C3B10" Margin="0,4"/>
+    <TextBlock x:Name="OwnedReviewWarnings" AutomationProperties.AutomationId="OwnedTeamReviewWarnings"
+               TextWrapping="Wrap" Foreground="#9C3B10" FontWeight="SemiBold" Margin="0,4"/>
+    <WrapPanel Margin="0,0,0,8">
+      <Button x:Name="NewButton" Content="New Team note"
               AutomationProperties.AutomationId="NewTeamNote" Click="CreateNote" IsEnabled="False"/>
-      <CheckBox x:Name="IncludeArchived" Content="Show archived Team notes"
+      <Button x:Name="OngoingButton" Content="Open ongoing note" Margin="8,0,0,0"
+              AutomationProperties.AutomationId="OpenOngoingTeamNote" Click="OpenOngoing" Visibility="Collapsed"/>
+    </WrapPanel>
+    <Expander x:Name="OtherNotes" Header="Other notes" AutomationProperties.AutomationId="OtherTeamNotes"
+              Expanded="ChangeOtherNotes" Collapsed="ChangeOtherNotes" Margin="0,0,0,8">
+      <StackPanel>
+        <TextBlock Text="Open any owned Team note, then choose Use as ongoing. Every active Team note still supplies context to formal descendants."
+                   TextWrapping="Wrap" Margin="0,4"/>
+        <CheckBox x:Name="IncludeArchived" Content="Show archived Team notes"
                 AutomationProperties.AutomationId="ShowArchivedTeamNotes"
                 Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
-    </DockPanel>
-    <TextBlock Text="Owned Team notes (not inherited from another Manager)" FontWeight="SemiBold"/>
-    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes" AutomationProperties.Name="Owned Team notes"
-             DisplayMemberPath="Title" Height="80" SelectionChanged="SelectNote">
-      <ListBox.ItemContainerStyle>
-        <Style TargetType="ListBoxItem">
-          <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
-          <Setter Property="AutomationProperties.AutomationId" Value="{Binding Id}"/>
-        </Style>
-      </ListBox.ItemContainerStyle>
-    </ListBox>
+        <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes" AutomationProperties.Name="Owned Team notes"
+                 DisplayMemberPath="Title" MaxHeight="160" SelectionChanged="SelectNote">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
+              <Setter Property="AutomationProperties.AutomationId" Value="{Binding Id}"/>
+            </Style>
+          </ListBox.ItemContainerStyle>
+        </ListBox>
+      </StackPanel>
+    </Expander>
     <TextBlock x:Name="EmptyNotes" AutomationProperties.AutomationId="TeamNotesEmpty"
                Text="No owned Team notes. New Team note opens directly for writing."
                TextWrapping="Wrap" Foreground="DimGray" Margin="0,8"/>
@@ -29,7 +41,12 @@
                TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
     <TextBlock x:Name="NoteHeading" AutomationProperties.AutomationId="TeamNoteHeading"
                FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4"/>
-    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed">
+    <WrapPanel>
+      <TextBlock x:Name="NoteKind" AutomationProperties.AutomationId="TeamNoteKind" VerticalAlignment="Center"/>
+      <Button x:Name="DesignateButton" Content="Use as ongoing" Margin="8,0,0,0" Visibility="Collapsed"
+              AutomationProperties.AutomationId="UseAsOngoingTeamNote" Click="DesignateOngoing"/>
+    </WrapPanel>
+    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
       <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
         <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
                                   MaxWidth="600" Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
@@ -58,12 +75,20 @@
               Click="DiscardDraft" IsEnabled="False"/>
     </WrapPanel>
     <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" TextWrapping="Wrap"/>
-    <TextBlock Text="Current inherited Team context — every formal ancestor" FontSize="18" FontWeight="SemiBold"
-               TextWrapping="Wrap" Margin="0,16,0,4"/>
-    <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" TextWrapping="Wrap"/>
-    <StackPanel x:Name="ReviewOwners" Margin="0,4"/>
-    <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"
-                              MaxWidth="600" Height="240" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+    <TextBlock x:Name="InheritedReviewWarnings" AutomationProperties.AutomationId="InheritedTeamReviewWarnings"
+               TextWrapping="Wrap" Foreground="#9C3B10" FontWeight="SemiBold" Margin="0,16,0,4"/>
+    <Expander x:Name="CurrentTeamContext"
+              AutomationProperties.AutomationId="CurrentTeamContext" Margin="0,4">
+      <Expander.Header>
+        <TextBlock x:Name="ContextHeading" Text="Current inherited Team context — every formal ancestor" TextWrapping="Wrap"/>
+      </Expander.Header>
+      <StackPanel>
+        <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" TextWrapping="Wrap"/>
+        <StackPanel x:Name="ReviewOwners" Margin="0,4"/>
+        <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"
+                                 MaxWidth="600" Height="240" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+      </StackPanel>
+    </Expander>
     <TextBlock Text="Team scope is not sharing. Person notes never inherit. Images and raw HTML are never loaded."
                TextWrapping="Wrap" Foreground="DimGray" Margin="0,4"/>
   </StackPanel>

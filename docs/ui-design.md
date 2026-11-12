@@ -169,13 +169,11 @@ Workspace paths are canonical and matched case-insensitively on Windows; keys
 include stable owner email, Person/Team scope and the existing note GUID.
 Preference writes preserve other Workspace entries and publish atomically.
 Invalid data/versions and read/write failures are explicit and cannot overwrite
-previous preferences or mutate note documents. The shared observable owned-note
-interaction and designation storage support the subsequent owned-Team slice.
+previous preferences or mutate note documents. Owned Team writing reuses this
+same observable interaction and designation storage.
 
-This status covers Person notes and shared designation support only. Owned-Team
-presentation and exact startup-view restoration remain separate
-delivery work; it does not declare the entire redesign implemented or hosted
-WPF acceptance complete.
+This status covers ongoing-note behavior and shared designation support, not
+exact startup-view restoration or complete hosted WPF acceptance.
 
 ### Implemented adaptive host
 
@@ -218,7 +216,7 @@ search/clear restoration. The existing draft-navigation journey adds a real
 protected compact-overlay rejection. These are implemented assertions, not a
 claim that hosted acceptance has run for this candidate; compiled/invisible
 local checks do not prove these rendered numeric choices. Exact startup-view
-restoration and the remaining Team presentation slice are not completed here.
+restoration remains separate delivery work.
 
 ## Team context and history
 
@@ -240,6 +238,36 @@ Preserve [manager-owned context](adr/0003-manager-owned-team-context.md), frozen
 historical captures, and all current-versus-historical distinctions. Do not
 silently hide review-needed writing, transfer notes to replacement Managers, or
 rewrite history as part of this layout change.
+
+### Implemented owned-Team and secondary evidence slice
+
+Owned Team notes now reuse the Person ongoing/Other interaction, including
+explicit ambiguous choice, stable owner/scope/GUID preferences, exact search,
+Read-first existing notes, direct new-note editing and unavailable-choice
+guidance. Designating a Team note never filters inherited context or mutates
+writing. Preference updates preserve the adaptive host's pane proportions.
+
+Person writing remains first. All active formal-ancestor Team notes remain in a
+separate expandable context section. Attributed review warnings for inherited
+and owned Team notes stay outside collapsed details/Other notes. Following an
+inherited note validates its current applicability and opens the exact owner's
+existing review/edit workflow; failed or retained independent writing rejects
+that navigation without replacing its editor.
+
+History starts collapsed and retains the structured Profile timeline, field
+confirmations, source observations and frozen former-chain writing. Current
+inheritance, frozen owner identity and exact historical search stay distinct.
+The same surfaces live within the existing wide/compact adaptive host; headers
+wrap and Markdown retains its 600-DIP reading limit. Existing title/Markdown
+autosave, retry/discard, archive/restore and external-change protections remain.
+
+Workflow and real-file regressions cover secondary inheritance/navigation,
+durable Team designation, preference failures/nonmutation and retained drafts.
+The existing hosted Team/history journey adds actual ongoing/Other, collapsed
+warnings, protected owner navigation and current/frozen evidence assertions at
+700 x 500 and 1100 x 900. These are implemented assertions, not a claim that
+hosted acceptance has run for this candidate. Exact last-view restoration is
+still unimplemented by this slice.
 
 ## Startup and remembered view
 
