@@ -178,7 +178,7 @@ public sealed partial class ApplicationWorkflow
         {
             using var access = CoordinateWorkspaceIo(workspace);
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
-            ReadAndAcceptWorkspace();
+            ReadAndAcceptWorkspace(protectAcceptedDelivery: true);
             pending = null;
             Status = "Workspace refreshed from validated local files.";
             return true;
@@ -192,12 +192,12 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void ReadAndAcceptWorkspace()
+    private void ReadAndAcceptWorkspace(bool protectAcceptedDelivery = false)
     {
         using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
         if (!memory)
         {
-            OpenIncrementalWorkspace();
+            OpenIncrementalWorkspace(protectAcceptedDelivery);
             return;
         }
         people = new(StringComparer.OrdinalIgnoreCase);

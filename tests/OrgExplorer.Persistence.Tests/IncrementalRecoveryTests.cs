@@ -219,6 +219,73 @@ public sealed class IncrementalRecoveryTests : IDisposable
     }
 
     [Fact]
+    public void Valid_external_delivery_automatically_protects_exact_bytes_before_safe_close()
+    {
+        var current = Path.Combine(folder, "current");
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        var note = app.CreatePersonNote("avery@example.com", "Private", "Original writing")!;
+        var notePath = Path.Combine(current, "notes", note.Id + ".md");
+        var delivered = File.ReadAllText(notePath).Replace("Original writing", "Delivered exact writing\r\nwith CRLF");
+        File.WriteAllText(notePath, delivered);
+
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.True(app.CanSafelyClose, app.Status);
+        Assert.Equal(delivered, File.ReadAllText(notePath));
+        Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
+        var commit = Commit(current);
+        File.WriteAllText(notePath, "damaged current writing");
+        Assert.False(app.RefreshWorkspace());
+        Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
+        Assert.Equal(commit, Commit(Path.Combine(folder, "restored")));
+        Assert.Equal(delivered, File.ReadAllText(Path.Combine(folder, "restored", "notes", note.Id + ".md")));
+    }
+
+    [Fact]
+    public void Failed_automatic_delivery_protection_stays_explicit_until_intentional_maintenance_retry()
+    {
+        var current = Path.Combine(folder, "current");
+        var publisher = new InspectingPublisher();
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        var note = app.CreatePersonNote("avery@example.com", "Private", "Original writing")!;
+        var notePath = Path.Combine(current, "notes", note.Id + ".md");
+        var selected = File.ReadAllBytes(Path.Combine(current, "recovery", "current.json"));
+        var attempts = 0;
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (Path.GetFileName(destination) != "committed.json") return;
+            attempts++;
+            throw new IOException("Automatic delivery receipt interrupted.");
+        };
+        File.WriteAllText(notePath, File.ReadAllText(notePath).Replace("Original writing", "First delivery"));
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(1, attempts);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("Automatic delivery receipt interrupted", app.LocalSaveError);
+        Assert.Equal(selected, File.ReadAllBytes(Path.Combine(current, "recovery", "current.json")));
+
+        var delivered = File.ReadAllText(notePath).Replace("First delivery", "Latest delivery");
+        File.WriteAllText(notePath, delivered);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(1, attempts);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("Automatic delivery receipt interrupted", app.LocalSaveError);
+        Assert.Equal(selected, File.ReadAllBytes(Path.Combine(current, "recovery", "current.json")));
+        publisher.BeforePublish = null;
+        Assert.True(app.RetryStorageMaintenance(), app.Status);
+        Assert.True(app.CanSafelyClose, app.Status);
+        Assert.Equal(delivered, File.ReadAllText(notePath));
+        File.WriteAllText(notePath, "damaged current writing");
+        Assert.False(app.RefreshWorkspace());
+        Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
+        Assert.Equal(delivered, File.ReadAllText(Path.Combine(folder, "restored", "notes", note.Id + ".md")));
+        Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
+    }
+
+    [Fact]
     public void Accepted_external_note_bytes_and_removal_are_protected_without_inventing_profile_changes()
     {
         var current = Path.Combine(folder, "current");

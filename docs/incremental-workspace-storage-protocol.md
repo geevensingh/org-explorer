@@ -123,6 +123,14 @@ Recovery-only writes never replace current files or change a pending preview's
 current fingerprint. A committed maintenance error survives generic draft
 discard and blocks safe close/restart until maintenance succeeds.
 
+On first acceptance of a changed, valid external revision, ordinary refresh runs
+that same independent capture, receipt, selection and reclamation path
+automatically before reporting refresh complete. It does not retry an existing
+maintenance failure or an interrupted reclamation plan. An actual failure during
+this first protection attempt remains explicit and blocks safe close until the
+owner intentionally retries maintenance. Opening an already unprotected Workspace
+still reports its existing maintenance problem rather than silently retrying it.
+
 ### Roots handed to reclamation
 
 The reclamation implementation protects the current `workspace.json`

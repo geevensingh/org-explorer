@@ -69,7 +69,6 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
-            CompleteStorageMaintenance(window);
             SelectTeamNote(window, "New Team note");
             AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("External owned Team context"));
@@ -114,7 +113,6 @@ internal static partial class Program
             Await(() => ReadingText(window).Contains("Pending context"));
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
-            CompleteStorageMaintenance(window);
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
             AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
             AssertExplicitProfileDeliveryConflict(window, personFile);
@@ -166,7 +164,6 @@ internal static partial class Program
             throw new InvalidOperationException("Explicit profile save or retry overwrote the delivered field.");
         Click(window, "DiscardProfileDraft");
         AssertProfileValue(window, "OfficeNumber", "Delivered office");
-        CompleteStorageMaintenance(window);
         AwaitLocalWorkIdle(window);
         if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
             throw new InvalidOperationException("Profile discard rewrote delivered bytes.");
@@ -229,7 +226,6 @@ internal static partial class Program
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
             throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
         Click(window, $"Discard{kind}NoteDraft");
-        CompleteStorageMaintenance(window);
         var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
         Await(() => Find(window, $"{kind}NoteHeading").Current.Name.Length > 0 &&
             Find(window, "WorkflowActivity").Current.Name == "Ready");
@@ -245,14 +241,6 @@ internal static partial class Program
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
     }
 
-    private static void CompleteStorageMaintenance(AutomationElement window, Action<Func<bool>>? awaitCompletion = null)
-    {
-        Click(window, "OpenSettings");
-        Click(window, "RetryWorkspace");
-        (awaitCompletion ?? Await)(() => Find(window, "Status").Current.Name.Contains("Storage maintenance completed") &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
-        Click(window, "OpenSettings");
-    }
 
     private static void AssertRejectedRetry(AutomationElement window, string button, string savingActivity,
         Func<bool> isRejected)

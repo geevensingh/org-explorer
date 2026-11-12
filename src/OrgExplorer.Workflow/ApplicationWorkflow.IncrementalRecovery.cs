@@ -281,7 +281,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void CheckRecoveryOnOpen(IReadOnlyDictionary<string, byte[]> current)
+    private void CheckRecoveryOnOpen(IReadOnlyDictionary<string, byte[]> current, bool protectAcceptedDelivery)
     {
         pendingRecovery = null;
         verifiedRecoveryPath = null;
@@ -291,7 +291,16 @@ public sealed partial class ApplicationWorkflow
             var selected = ValidateRecovery(root, ReadWorkspaceBytesUncached(Path.Combine(root, "current.json")), true);
             verifiedRecoveryPath = root;
             if (selected.Metadata.SourceRevision != WorkspaceFingerprint(snapshot: current))
+            {
+                if (failedSaves.ContainsKey("storage-maintenance")) return;
+                if (protectAcceptedDelivery &&
+                    !File.Exists(Path.Combine(workspace!, "maintenance", "reclamation.json")))
+                {
+                    MaintainAcceptedStorage();
+                    return;
+                }
                 throw new IOException("The current validated revision is not yet independently protected.");
+            }
             storageReclamationDeferred = Directory.GetDirectories(Path.Combine(workspace!, "transactions"))
                 .Any(transaction => !File.Exists(Path.Combine(transaction, "retired.json")) &&
                     TransactionFiles(transaction).Length != 0);
@@ -305,7 +314,9 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    public bool RetryStorageMaintenance()
+    public bool RetryStorageMaintenance() => MaintainAcceptedStorage();
+
+    private bool MaintainAcceptedStorage()
     {
         lock (workspaceGate)
         {

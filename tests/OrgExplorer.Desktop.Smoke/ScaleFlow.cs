@@ -233,7 +233,6 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
-            ScaleFixture.Measure("UI-storage-maintenance", () => CompleteStorageMaintenance(window, AwaitScale));
             Close(process);
             process = Launch(executable);
             window = Window(process);

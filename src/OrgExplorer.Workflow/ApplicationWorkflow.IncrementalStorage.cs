@@ -4,7 +4,7 @@ namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
-    private void OpenIncrementalWorkspace()
+    private void OpenIncrementalWorkspace(bool protectAcceptedDelivery = false)
     {
         var pointer = Path.Combine(workspace!, "workspace.json");
         if (!File.Exists(pointer) && !Directory.EnumerateFileSystemEntries(workspace!).Any())
@@ -32,7 +32,7 @@ public sealed partial class ApplicationWorkflow
         InvalidateProjections();
         revision = WorkspaceFingerprint(snapshot: bytes);
         workspaceCurrent = true;
-        CheckRecoveryOnOpen(bytes);
+        CheckRecoveryOnOpen(bytes, protectAcceptedDelivery);
         compatibility = new(WorkspaceCompatibilityState.Compatible,
             "Current validated version-3 Workspace. Settings remain available.", workspace, 3,
             verifiedRecoveryPath);
