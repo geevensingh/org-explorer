@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -179,6 +180,7 @@ internal static partial class Program
         Invoke("OpenSettingsButton");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
+        VerifyAdaptiveDividerLayout(window);
         if (window.FindName("ProfileDetails") is not Expander details || details.IsExpanded)
             throw new InvalidOperationException("Person reading must start with secondary profile details collapsed.");
         if (Control<TextBlock>("JobTitleValue").Text != "Researcher" ||
@@ -212,6 +214,7 @@ internal static partial class Program
                 NoteControl<TextBox>("MarkdownEditor").Text = "# Retained unsaved note";
                 PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
             }
+
             var status = Control<TextBlock>("StatusText");
             var property = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
             var completed = false;
@@ -255,6 +258,73 @@ internal static partial class Program
         VerifyOwnedTeamPresentation(window, folder);
         VerifyPersonNoteUpdateFlush(window, folder);
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
+    }
+
+    private static void VerifyAdaptiveDividerLayout(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var viewport = Control<ScrollViewer>("PersonScroll");
+        var body = Control<Grid>("PersonBody");
+        var profile = Control<GroupBox>("ProfileSummary");
+        var notes = Control<GroupBox>("NotesPane");
+        var profileDivider = Control<GridSplitter>("ProfileDivider");
+        var peopleDivider = Control<GridSplitter>("PeopleDivider");
+        var people = Control<GroupBox>("PeoplePanel");
+        var host = Control<Grid>("ExplorerPanel");
+        void Layout(double width = 1920, double height = 1040)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("The compiled divider regression must not show a window or create its native handle.");
+        }
+        void Contained(string stage)
+        {
+            var content = (FrameworkElement)viewport.Content;
+            var dividerBounds = profileDivider.TransformToAncestor(content).TransformBounds(new Rect(profileDivider.RenderSize));
+            var noteBounds = notes.TransformToAncestor(content).TransformBounds(new Rect(notes.RenderSize));
+            var viewportBounds = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
+            if (viewport.ViewportWidth <= 0 || people.ActualWidth < 239 || profile.ActualWidth < 239 || notes.ActualWidth < 359 ||
+                viewportBounds.Right > host.ActualWidth + 1 ||
+                body.ActualWidth > viewport.ViewportWidth + 1 ||
+                dividerBounds.Right > viewport.ViewportWidth + 1 || noteBounds.Right > viewport.ViewportWidth + 1)
+                throw new InvalidOperationException($"Compiled divider overflow {stage}: viewport={viewport.ViewportWidth}, " +
+                    $"body={body.ActualWidth}, profile={profile.ActualWidth}, notes={notes.ActualWidth}, " +
+                    $"divider={dividerBounds}, noteBounds={noteBounds}.");
+        }
+        void Drag(GridSplitter divider, double delta, string stage)
+        {
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            try
+            {
+                divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+                Layout();
+                Contained(stage + " held");
+            }
+            finally
+            {
+                divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+                Layout();
+            }
+            Contained(stage + " completed");
+        }
+        Layout();
+        Contained("initial");
+        Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
+        Drag(profileDivider, 240 - profile.ActualWidth, "profile minimum");
+        var content = (FrameworkElement)viewport.Content;
+        var start = profileDivider.TransformToAncestor(content).Transform(new Point(0, 0)).X;
+        Drag(profileDivider, viewport.ViewportWidth - 20 - start, "profile maximum");
+        Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");
+        Drag(profileDivider, (profile.ActualWidth + notes.ActualWidth) * .36 - profile.ActualWidth, "profile 36%");
+        if (Math.Abs(profile.ActualWidth / (profile.ActualWidth + notes.ActualWidth) - .36) > .01)
+            throw new InvalidOperationException("The actual compiled profile divider cannot reach 36% within the visible viewport.");
+        Drag(peopleDivider, host.ActualWidth - people.ActualWidth, "People maximum");
+        Layout(1100, 900);
+        Contained("narrower wide viewport");
+        Console.WriteLine("PASS: real compiled splitter drags keep both panes/divider inside the viewport through minimum, maximum, outer resize and 36% recovery; no visible window/native handle.");
     }
 
     private static void VerifyOwnedTeamPresentation(Window window, string folder)

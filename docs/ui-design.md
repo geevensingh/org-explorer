@@ -208,6 +208,9 @@ designations and the startup folder, use the existing lock/atomic publication,
 and report failure without claiming durability or changing the last valid
 balance. Resize/minimum clamps are not preference writes; compact transitions
 never save over wide choices. No synchronized Workspace schema changes.
+Both sides of each wide divider remain proportional columns, so dragging
+respects both pane minimums inside the available viewport rather than allowing
+a fixed-width column to push notes or its divider offscreen.
 
 The required high-resolution `responsive-workspace` journey measures actual bounds/text at 700 x 500,
 1100 x 900, maximized, and available host widths 959/960/961, then exercises

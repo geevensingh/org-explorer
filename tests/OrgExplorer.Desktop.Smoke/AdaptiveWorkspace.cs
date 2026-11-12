@@ -115,8 +115,13 @@ internal static partial class Program
     {
         var bounds = Find(window, id).Current.BoundingRectangle;
         var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var x = (int)(bounds.Left + bounds.Width / 2);
         var y = (int)Math.Max(bounds.Top + 20, viewport.Top + 20);
-        if (!SetCursorPos((int)(bounds.Left + bounds.Width / 2), y))
+        if (id == "ProfileDivider" && (bounds.Left < viewport.Left - 1 || bounds.Right > viewport.Right + 1 ||
+            Find(window, "NotesPane").Current.BoundingRectangle.Right > viewport.Right + 1 ||
+            y < viewport.Top || y >= viewport.Bottom || targetX < viewport.Left || targetX >= viewport.Right))
+            throw new InvalidOperationException($"Rendered profile divider/content is not reachable inside its viewport: divider={bounds}, viewport={viewport}, start={x},{y}, targetX={targetX}.");
+        if (!SetCursorPos(x, y))
             throw new InvalidOperationException("The hosted interactive desktop could not position the divider pointer.");
         mouse_event(2, 0, 0, 0, 0);
         try
@@ -151,6 +156,7 @@ internal static partial class Program
             {
                 if (!Visible("People") || profile.Width / scale < 239 || notes.Width / scale < 359 ||
                     profile.Right > notes.Left + 1 || Math.Abs(profile.Top - notes.Top) > 2 ||
+                    notes.Right > Bounds("ProfileScroll").Right + 1 ||
                     identity.Top >= profile.Top ||
                     Math.Abs((notes.Left - profile.Right) / scale - 8) > 1 ||
                     Math.Abs((Bounds("ProfileScroll").Left - Bounds("PeopleNavigation").Right) / scale - 8) > 1)
@@ -234,7 +240,22 @@ internal static partial class Program
         var profile = Bounds("ProfileSummary");
         var notes = Bounds("NotesPane");
         DragDivider(window, "ProfileDivider", profile.Left + (profile.Width + notes.Width) * .36);
-        Await(() => Math.Abs(RenderedPaneProportions(window).ProfilePercent - 36) < 1);
+        var observedProfilePercent = double.NaN;
+        try
+        {
+            Await(() =>
+            {
+                observedProfilePercent = RenderedPaneProportions(window).ProfilePercent;
+                return Math.Abs(observedProfilePercent - 36) < 1;
+            });
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException($"Profile drag did not reach 36% (tolerance 1%, single gesture, 20 s). " +
+                $"lastProfilePercent={observedProfilePercent}; startProfilePx={profile}; startNotesPx={notes}; " +
+                $"targetXPx={(int)(profile.Left + (profile.Width + notes.Width) * .36)}; " +
+                $"profilePx={Bounds("ProfileSummary")}; notesPx={Bounds("NotesPane")}; viewportPx={Bounds("ProfileScroll")}", error);
+        }
         var preferred = RenderedPaneProportions(window);
         var widePeopleWidth = Bounds("PeopleNavigation").Width;
         Resize(1100, 900);
