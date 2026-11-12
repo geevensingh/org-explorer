@@ -165,10 +165,19 @@ HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a
 **Person note** about a Manager never opts into inheritance. The profile separates
-owned Team notes (with the same Read/Edit behavior) from **Current inherited Team context**, which includes notes
+owned Team notes from **Current inherited Team context**, which includes notes
 from every formal management ancestor and identifies each owning Person by name
 and email. Informal leads/project membership are not reporting relationships.
 Team scope is still private to the Workspace owner, not sharing.
+
+Person writing stays first. Owned Team writing uses the same direct ongoing note,
+explicit ambiguous choice, secondary **Other notes**, exact search and Read/Edit
+interaction, with independent autosave/retry/discard. Team choices share the
+device-local settings lifecycle above and preserve pane proportions. Every active
+Team note still contributes inherited context, including secondary notes.
+Inherited details start collapsed; attributed **Needs review** warnings stay
+outside the collapsed section. Following a note opens its exact owner's review
+workflow, subject to all existing writing/navigation protections.
 
 Team notes stay with the Person on whom they were written. A reporting move
 replaces the current inherited context with the new chain without relocating
@@ -182,8 +191,9 @@ applies**, edit the autosaved Markdown (which confirms current applicability), o
 archived note does not silently confirm it. Failed review saves retain the warning
 and saved writing; unsaved drafts block navigation/close and offer retry/discard.
 
-**Historical team context** is a separate read-only section on the Person's
-profile. Direct transfers and ancestor reorganizations capture the coherent
+Secondary **History** access retains the structured Profile timeline,
+field-specific confirmations, source observations and read-only **Historical team
+context**. Direct transfers and ancestor reorganizations capture the coherent
 former Reporting chain and attributed, locally known active Team-note text and
 versions. Current inheritance follows only the final new chain. Later edits,
 review actions, note archival, or Manager renaming do not rewrite those captures.

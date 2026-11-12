@@ -127,6 +127,7 @@ internal static partial class Program
             AssertNoteView(window, "Team", editing: false);
             if (!TeamReadingText(window).Contains("Owned Team writing"))
                 throw new InvalidOperationException("Archival lost owned Team-note reading.");
+            ExpandHistory(window);
             if (!Find(window, "TeamNoteReview").Current.Name.Contains("Needs review") ||
                 !Find(window, "HistoricalTeamSummary").Current.Name.Contains("Archival closure") ||
                 CurrentReadingText(window).Contains("Original Manager writing"))
