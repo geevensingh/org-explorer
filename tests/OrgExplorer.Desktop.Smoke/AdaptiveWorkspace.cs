@@ -33,6 +33,9 @@ internal static partial class Program
     private static extern bool GetClientRect(IntPtr window, out ResizeRect rect);
 
     [DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr window);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
 
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
@@ -94,7 +97,7 @@ internal static partial class Program
             GetMonitorInfo(monitor, ref info)
                 ? $"monitorPx={info.Monitor}; workAreaPx={info.WorkArea}; monitorFlags={info.Flags}"
                 : $"monitor unavailable (GetMonitorInfo Win32={Marshal.GetLastWin32Error()})";
-        return $"nativeWindowPx={window}; clientLocalPx={client}; currentDpi={GetDpiForWindow(handle)}; {screen}; " +
+        return $"nativeWindowPx={window}; nativeMaximized={IsZoomed(handle)}; clientLocalPx={client}; currentDpi={GetDpiForWindow(handle)}; {screen}; " +
             $"primaryDesktopPx={GetSystemMetrics(0)}x{GetSystemMetrics(1)}; " +
             $"virtualDesktopPx=[{GetSystemMetrics(76)},{GetSystemMetrics(77)}; {GetSystemMetrics(78)}x{GetSystemMetrics(79)}]; " +
             $"minimumTrackPx={GetSystemMetrics(34)}x{GetSystemMetrics(35)}; maximumTrackPx={GetSystemMetrics(59)}x{GetSystemMetrics(60)}";
@@ -341,7 +344,18 @@ internal static partial class Program
             throw new InvalidOperationException("Rejected overlay navigation lost the original owner, exact failed editor, geometry or navigation panel.");
         AssertSelectionMatchesProfile(window);
         Click(window, "ClosePeople");
-        ((WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
-        Await(() => !IsVisible(window, "OpenPeople"));
+        var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        state.SetWindowVisualState(WindowVisualState.Maximized);
+        try { Await(() => !IsVisible(window, "OpenPeople")); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Returning to wide reading after the completed single rejected People navigation " +
+                "did not hide the compact People entry within 20 seconds. " +
+                $"requestedState=Maximized; actualState={state.Current.WindowVisualState}; canMaximize={state.Current.CanMaximize}; " +
+                $"windowPx={window.Current.BoundingRectangle}; hostPx={Find(window, "AdaptiveWorkspace").Current.BoundingRectangle}; " +
+                $"viewportPx={Find(window, "ProfileScroll").Current.BoundingRectangle}; " +
+                $"owner={Find(window, "Email").Current.Name}; title={Value(window, "PersonNoteTitle")}; " +
+                $"status={Find(window, "Status").Current.Name}; {NativeResizeBounds((IntPtr)window.Current.NativeWindowHandle)}", error);
+        }
     }
 }
