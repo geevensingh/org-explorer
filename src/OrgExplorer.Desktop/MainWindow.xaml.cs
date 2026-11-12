@@ -44,6 +44,8 @@ public partial class MainWindow : Window
             if (updateHandoffPending || !TryLeaveLocalEdits() || !workflow.CanSafelyClose)
             {
                 e.Cancel = true;
+                SettingsPanel.Visibility = Visibility.Collapsed;
+                UpdateMainViews();
                 StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
                     workPending ? "Local work is still pending; closing waits for it to finish." :
                     workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
