@@ -19,6 +19,8 @@ public sealed partial class ExportSession
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
+    public sealed record SourceCompletion(Guid BatchId, Guid ClaimId, SourceRead[] Reads,
+        bool RecoveryConsumed, string? StopReason);
 
     public SourceLedger SourceStatus() => WithSources(ledger => ledger);
 
@@ -75,7 +77,7 @@ public sealed partial class ExportSession
         });
     }
 
-    public SourceLedger FinishSource(Guid claimId, string resultsFile)
+    public SourceCompletion FinishSource(Guid claimId, string resultsFile)
     {
         FreshPayload(resultsFile);
         var bytes = File.ReadAllBytes(resultsFile);
@@ -102,7 +104,9 @@ public sealed partial class ExportSession
                 };
                 ledger.Reads[ledger.Reads.IndexOf(read)] = read with { State = outcome.Error is null ? "completed" : "failed" };
             }
-            return ledger;
+            return new SourceCompletion(ledger.BatchId, claimId,
+                ledger.Reads.Where(read => read.Attempts.LastOrDefault()?.ClaimId == claimId).ToArray(),
+                ledger.RecoveryConsumed, ledger.StopReason);
         });
     }
 
@@ -143,8 +147,7 @@ public sealed partial class ExportSession
     {
         var objects = SourceObjects(response).ToArray();
         var codes = objects.Select(obj => SourceText(obj["code"])).Where(code => code.Length > 0).ToArray();
-        var statuses = objects.SelectMany(obj => new[] { "statusCode", "httpStatusCode", "status" }
-            .Select(name => SourceStatusCode(obj[name]))).Where(code => code is not null).ToArray();
+        var statuses = objects.SelectMany(SourceStatuses).ToArray();
         var denied = statuses.Any(status => status is 401 or 403) || codes.Any(code =>
             new[] { "Forbidden", "Unauthorized", "AccessDenied", "ErrorAccessDenied", "Authorization_RequestDenied",
                 "InvalidAuthenticationToken", "AuthenticationRequired", "AuthenticationFailed", "PolicyDenied",
@@ -187,7 +190,16 @@ public sealed partial class ExportSession
                 else delayError = "Invalid returned retry delay: " + name + "=" + text;
                 if (candidate is not null && (retryAt is null || candidate > retryAt)) retryAt = candidate;
             }
-        var error = $"HTTP {response["statusCode"]}: {string.Join(", ", codes)}; {response["error"]?.ToJsonString()}";
+        var failures = objects.Where(obj => SourceStatuses(obj).Any(status => status is < 200 or >= 300)).ToArray();
+        if (failures.Length == 0)
+            failures = objects.Where(obj => obj["error"] is not null || obj["code"] is not null).ToArray();
+        var error = string.Join("; ", failures.Select(obj =>
+        {
+            var status = SourceStatuses(obj).FirstOrDefault(status => status is < 200 or >= 300);
+            var description = status is null ? "Source error" : $"HTTP {status}";
+            return description + ": " + (obj["error"] ?? obj).ToJsonString();
+        }));
+        if (error.Length == 0) error = "Source read failed without a structured source status or error.";
         if (delayError is not null) error += "; " + delayError;
         return (error, transient && delayError is null, retryAt, denied);
     }
@@ -220,6 +232,9 @@ public sealed partial class ExportSession
 
     private static int? SourceStatusCode(JsonNode? value)
         => value is JsonValue json && int.TryParse(json.ToString(), CultureInfo.InvariantCulture, out var code) ? code : null;
+    private static IEnumerable<int?> SourceStatuses(JsonObject obj)
+        => new[] { "statusCode", "httpStatusCode", "status" }.Select(name => SourceStatusCode(obj[name]))
+            .Where(status => status is not null);
     private static string SourceText(JsonNode? value)
         => value is JsonValue json ? json.ToString() : "";
 

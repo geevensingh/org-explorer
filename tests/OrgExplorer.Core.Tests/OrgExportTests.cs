@@ -430,6 +430,48 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cli_source_finish_reports_only_its_claim_while_status_retains_all_reads(bool recovery)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        foreach (var id in new[] { RootId, ChildId })
+        {
+            var previous = session.ClaimSource("photo-worker", "photo", [$"/users/{id}/photo/$value"]);
+            FinishSource(session, previous, Ok(new JsonObject()));
+        }
+        var target = $"/users/{AltId}/photo/$value";
+        var claim = session.ClaimSource("photo-worker", "photo", [target]);
+        if (recovery)
+        {
+            FinishSource(session, claim, new JsonObject
+            {
+                ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" }
+            });
+            session.BeginSourceRecovery();
+            claim = session.ClaimSource("replacement", "photo", [target]);
+        }
+        var results = Path.Combine(root, "finish-results.json");
+        Save(results, new[] { new ExportSession.SourceResult(target, Ok(new JsonObject())) });
+
+        var result = await RunCli("source-finish", path, claim.ClaimId!.Value.ToString(), results);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        var output = JsonNode.Parse(result.Output)!;
+        var read = Assert.Single(output["reads"]!.AsArray());
+        Assert.Equal(target, read!["target"]!.GetValue<string>());
+        Assert.Equal("completed", read["state"]!.GetValue<string>());
+        Assert.Equal(claim.ClaimId.Value, output["claimId"]!.GetValue<Guid>());
+        Assert.Equal(recovery, output["recoveryConsumed"]!.GetValue<bool>());
+        Assert.Null(output["stopReason"]);
+        var ledger = session.SourceStatus();
+        Assert.Equal(3, ledger.Reads.Count);
+        Assert.All(ledger.Reads, item => Assert.Equal("completed", item.State));
+    }
+
+    [Theory]
     [InlineData("HOME OFFICE")]
     [InlineData("NO WORKSPACE")]
     public void Refresh_clears_explicitly_absent_offices_but_omits_unknown_fields_and_photos(string location)

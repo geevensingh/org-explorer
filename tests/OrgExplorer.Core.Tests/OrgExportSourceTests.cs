@@ -220,6 +220,40 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
     }
 
+    [Theory]
+    [InlineData(429, "TooManyRequests")]
+    [InlineData(403, "Forbidden")]
+    public void Nested_failure_diagnostics_retain_the_source_status_and_message_instead_of_the_successful_envelope(
+        int status, string code)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var claim = session.ClaimSource("profile-worker", "profile", [Identity(1)]);
+        const string message = "Fictitious source could not complete this read.";
+        Finish(session, claim, new JsonObject
+        {
+            ["statusCode"] = 200, ["data"] = new JsonObject
+            {
+                ["results"] = new JsonArray(new JsonObject
+                {
+                    ["statusCode"] = status,
+                    ["error"] = new JsonObject { ["error"] = new JsonObject { ["code"] = code, ["message"] = message } }
+                })
+            }
+        });
+
+        var ledger = session.SourceStatus();
+        var error = Assert.Single(Assert.Single(ledger.Reads).Attempts).Error;
+        Assert.Contains($"HTTP {status}", error);
+        Assert.Contains(message, error);
+        Assert.Contains(code, error);
+        Assert.DoesNotContain("HTTP 200", error);
+        if (status == 403) Assert.Contains(message, ledger.StopReason);
+        var blocked = Assert.Throws<InvalidOperationException>(() => session.Publish());
+        Assert.Contains($"HTTP {status}", blocked.Message);
+        Assert.Contains(message, blocked.Message);
+    }
+
     private void Finish(ExportSession session, ExportSession.SourceClaim claim, params JsonObject[] responses)
     {
         var file = Path.Combine(root, Guid.NewGuid() + ".json");

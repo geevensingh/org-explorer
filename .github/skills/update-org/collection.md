@@ -34,7 +34,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
 | `source-status RUN` | Returns the persistent invocation-wide source record, including active claims, failures, deferred first reads, saved result paths and recovery consumption. |
 | `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
-| `source-finish RUN CLAIM-ID RESULTS.json` | Records exactly one outcome per claimed target and retains the result file for handoff. |
+| `source-finish RUN CLAIM-ID RESULTS.json` | Records and returns only this claim's outcomes plus invocation recovery/stop flags; retains the result file for handoff. Use `source-status` for the full ledger. |
 | `source-recover RUN` | Coordinator only: consumes the single failed-read recovery pass after all active claims settle. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
