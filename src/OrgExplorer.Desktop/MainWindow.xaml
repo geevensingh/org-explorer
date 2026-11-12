@@ -394,7 +394,7 @@
           <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
                    AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
         </StackPanel>
-        <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
+        <local:PersonNotesControl x:Name="PersonNotes" AutomationProperties.AutomationId="PersonNotesSurface" Margin="0,16,0,0"/>
         <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
         <GroupBox Header="Structured Profile timeline — most recent recording first" Margin="0,16,0,0">
           <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">

@@ -179,7 +179,26 @@ internal static partial class Program
         SetSettingsVisible(window, true);
         held.TrySetResult();
         server.HoldResponse = null;
-        Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Controlled installer process boundary"));
+        try { Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Controlled installer process boundary")); }
+        catch (TimeoutException error)
+        {
+            string State(string id) => window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, id))?.Current.Name ?? "<not exposed>";
+            string durable;
+            try
+            {
+                durable = File.ReadAllText(noteFile).Contains("Final private writing flushed before update", StringComparison.Ordinal)
+                    ? "final writing saved" : "final writing absent";
+            }
+            catch (Exception readError) when (readError is IOException or UnauthorizedAccessException)
+            {
+                durable = "note could not be read: " + readError.Message;
+            }
+            throw new TimeoutException("The update did not reach its controlled installer boundary. " +
+                $"Update: {State("UpdateGuidance")}; activity: {State("WorkflowActivity")}; status: {State("Status")}; " +
+                $"Person note: {State("PersonNoteStatus")}; selected note: {State("PersonNoteKind")}; " +
+                $"durable note: {durable}; handoff present: {File.Exists(handoff)}.", error);
+        }
         SetSettingsVisible(window, false);
         AssertValue(window, "PersonNoteMarkdown", "Final private writing flushed before update");
         using var request = JsonDocument.Parse(File.ReadAllText(handoff));

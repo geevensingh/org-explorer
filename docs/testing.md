@@ -170,10 +170,14 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
 It constructs the actual compiled MainWindow BAML and event connectors on STA
 with isolated settings, requires the window to remain invisible with no native
 main-window handle, then closes it. It never calls Show or runs the application
-dispatcher; startup restore/update Loaded handlers and UI Automation are not run.
+dispatcher; startup restore/update Loaded handlers and an external UI Automation
+client are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 It also checks that all ten profile Copy targets accept focus and Tab navigation.
+The actual compiled Person-note surface and secondary title list must expose
+distinct automation identities, so collapsed/empty-list discovery cannot select
+the visible surrounding surface instead.
 The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
@@ -192,6 +196,14 @@ The same invisible-control regression exercises the essential profile summary,
 collapsed/populated More details, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also exercises the existing public note-flush boundary after a failed save,
+successful retry and newer writing while Settings hides the editor. With the
+lane's ephemeral trusted-update build, it additionally drives the actual signed
+Check for updates command through in-process WPF button providers: failed writing
+blocks handoff, retry and newer writing reach the controlled installer effect,
+and that effect observes the final file hash. These calls still never show/focus
+the window, create its native handle, or use an external UI Automation client;
+they do not replace the real hosted update-settings journey.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
