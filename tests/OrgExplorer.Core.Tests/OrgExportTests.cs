@@ -18,6 +18,304 @@ public sealed class OrgExportTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
+    public void Capture_correlates_original_inline_results_and_preserves_order_and_nested_failures()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "coordinator.jsonl");
+        File.WriteAllText(events, "");
+        var requests = new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId) };
+        var arguments = new JsonObject { ["entityUrls"] = JsonSerializer.SerializeToNode(requests) };
+        var requestFile = Path.Combine(root, "request.json");
+        Save(requestFile, new { toolName = "workiq-fetch", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "other", toolName = "workiq-fetch",
+            arguments = new { entityUrls = new[] { ExportSession.UserPath(ChildId) } } });
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "mine", toolName = "workiq-fetch", arguments });
+        const string payload = "{ \"results\": [ {\"statusCode\":200,\"data\":{\"id\":\"10000000-0000-0000-0000-000000000001\"}}, {\"statusCode\":503,\"error\":{\"code\":\"Unavailable\",\"retryAfter\":5}} ] }";
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "other", success = true,
+            result = new { content = "{\"results\":[]}" } });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "mine", success = false,
+            error = new { message = "One source failed" }, result = new { content = payload } });
+
+        var capture = session.Capture(ticket);
+
+        Assert.False(capture.ToolSucceeded);
+        Assert.Equal("mine", capture.ToolCallId);
+        Assert.Equal(2, capture.ResultCount);
+        Assert.Equal(1, capture.NonSuccessResults);
+        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
+        Assert.Equal(requests, JsonSerializer.Deserialize<string[]>(File.ReadAllText(capture.RequestsFile!)));
+        Assert.Contains("One source failed", File.ReadAllText(capture.CompletionFile));
+        session.Ingest(capture.RequestsFile!, capture.ResponseFile);
+        var receipts = session.Plan().Receipts;
+        Assert.Equal(200, receipts[requests[0]].Response["statusCode"]!.GetValue<int>());
+        Assert.Equal(503, receipts[requests[1]].Response["statusCode"]!.GetValue<int>());
+        Assert.Equal(5, receipts[requests[1]].Response["error"]!["retryAfter"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData("mcp")]
+    [InlineData("structured")]
+    [InlineData("saved")]
+    [InlineData("error")]
+    [InlineData("native-structured")]
+    [InlineData("native-contents")]
+    [InlineData("detailed")]
+    public void Capture_transports_original_binary_payloads_directly_to_photo_validation(string transport)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("v1")));
+        var payload = File.ReadAllText(Blob());
+        var events = Path.Combine(root, "photo-worker.jsonl");
+        File.WriteAllText(events, "");
+        var requestFile = Path.Combine(root, "photo-request.json");
+        var arguments = new { path = "/users/" + RootId + "/photo/$value" };
+        Save(requestFile, new { toolName = "workiq-fetch_blob", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "photo", toolName = "workiq-fetch_blob", arguments });
+        object result;
+        if (transport == "native-structured")
+            result = new { content = "Display summary only", structuredContent = JsonNode.Parse(payload) };
+        else if (transport == "native-contents")
+            result = new { content = "Display summary only", contents = new[] { new { type = "text", text = payload } } };
+        else if (transport == "detailed")
+            result = new { content = "Display summary only", detailedContent = payload };
+        else if (transport == "structured")
+            result = new { content = JsonSerializer.Serialize(new { structuredContent = JsonNode.Parse(payload),
+                content = new[] { new { type = "text", text = "Display summary only" } } }) };
+        else if (transport == "saved")
+        {
+            var saved = Path.Combine(root, "host-saved-photo.json");
+            File.WriteAllText(saved, payload);
+            result = new { content = "Output too large to display.\nFull output saved to: " + saved };
+        }
+        else
+            result = new { content = JsonSerializer.Serialize(new { isError = transport == "error",
+                content = new[] { new { type = "text", text = payload } } }) };
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "photo", success = transport != "error",
+            result });
+
+        var capture = session.Capture(ticket);
+        var photo = JsonSerializer.SerializeToNode(session.Photo(RootId, capture.ResponseFile), ExportSession.Json)!;
+
+        Assert.Equal(Png, File.ReadAllBytes(Path.Combine(path, "photos", RootId + ".png")));
+        Assert.Equal(Png.Length, photo["sizeBytes"]!.GetValue<int>());
+        Assert.Equal("431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+            photo["sha256"]!.GetValue<string>());
+        Assert.Equal(JsonNode.Parse(payload)!.ToJsonString(), JsonNode.Parse(File.ReadAllText(capture.ResponseFile))!.ToJsonString());
+        if (transport == "saved")
+            Assert.Equal(payload, File.ReadAllText(Assert.Single(capture.SavedFiles)));
+    }
+
+    [Fact]
+    public async Task Concurrent_workers_capture_only_their_own_results_in_a_shared_event_stream()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "shared.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "fictitious work profile" };
+        var tickets = new List<string>();
+        foreach (var actor in new[] { "worker-a", "worker-b" })
+        {
+            var file = Path.Combine(root, actor + ".json");
+            Save(file, new { toolName = "workiq-retrieve", arguments, agentId = actor });
+            tickets.Add(session.BeginCapture(events, file));
+        }
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "a", toolName = "workiq-retrieve", arguments }, "worker-a");
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "b", toolName = "workiq-retrieve", arguments }, "worker-b");
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "b", success = true,
+            result = new { content = "{\"worker\":\"b\"}" } }, "worker-b");
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "a", success = true,
+            result = new { content = "{\"worker\":\"a\"}" } }, "worker-a");
+
+        var captures = await Task.WhenAll(tickets.Select(ticket => Task.Run(() => session.Capture(ticket))));
+
+        Assert.Equal("{\"worker\":\"a\"}", File.ReadAllText(captures[0].ResponseFile));
+        Assert.Equal("{\"worker\":\"b\"}", File.ReadAllText(captures[1].ResponseFile));
+        Assert.NotEqual(captures[0].ResponseFile, captures[1].ResponseFile);
+    }
+
+    [Fact]
+    public void Capture_retains_successes_from_a_native_error_without_a_result_wrapper()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "failed-batch.jsonl");
+        File.WriteAllText(events, "");
+        var requests = new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId) };
+        var arguments = new { entityUrls = requests };
+        var requestFile = Path.Combine(root, "failed-request.json");
+        Save(requestFile, new { toolName = "workiq-fetch", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "failed-batch", toolName = "workiq-fetch", arguments });
+        var payload = JsonSerializer.Serialize(new { results = new[] { Ok(User(RootId)), Missing("AccessDenied") } });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "failed-batch", success = false,
+            error = new { message = "MCP error -32603: " + payload } });
+
+        var capture = session.Capture(ticket);
+
+        Assert.False(capture.ToolSucceeded);
+        Assert.Equal(1, capture.NonSuccessResults);
+        session.Ingest(capture.RequestsFile!, capture.ResponseFile);
+        Assert.Equal(RootId, session.Plan().Receipts[requests[0]].Response["data"]!["id"]!.GetValue<string>());
+        Assert.Equal("AccessDenied", session.Plan().Receipts[requests[1]].Response["error"]!["error"]!["code"]!.GetValue<string>());
+        Assert.NotEmpty(session.Plan().Errors);
+    }
+
+    [Theory]
+    [InlineData("null-entry")]
+    [InlineData("no-status")]
+    [InlineData("incomplete")]
+    [InlineData("truncated")]
+    [InlineData("unsupported")]
+    [InlineData("missing-saved")]
+    [InlineData("stale-saved")]
+    [InlineData("foreign-worker")]
+    [InlineData("foreign-completion")]
+    [InlineData("duplicate")]
+    public void Capture_blocks_incomplete_unsupported_or_uncorrelated_results(string fault)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "blocked.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { entityUrls = new[] { ExportSession.UserPath(RootId) } };
+        var requestFile = Path.Combine(root, "blocked-request.json");
+        Save(requestFile, new { toolName = "workiq-fetch", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        var start = new { toolCallId = "blocked", toolName = "workiq-fetch", arguments };
+        AppendEvent(events, "tool.execution_start", start, fault == "foreign-worker" ? "another-worker" : null);
+        if (fault == "duplicate")
+            AppendEvent(events, "tool.execution_start", start);
+        var payload = fault switch
+        {
+            "null-entry" => "{\"results\":[null]}",
+            "no-status" => "{\"results\":[{}]}",
+            "incomplete" => "{\"results\":[]}",
+            "truncated" => "{\"results\":[",
+            "unsupported" => "Payload excerpt only",
+            _ => JsonSerializer.Serialize(new { results = new[] { Ok(User(RootId)) } })
+        };
+        if (fault is "missing-saved" or "stale-saved")
+        {
+            var saved = Path.Combine(root, "missing-or-stale.json");
+            if (fault == "stale-saved")
+            {
+                File.WriteAllText(saved, payload);
+                File.SetLastWriteTimeUtc(saved, DateTime.UtcNow.AddDays(-1));
+            }
+            payload = "Output too large to display.\nFull output saved to: " + saved;
+        }
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "blocked", success = true,
+            result = new { content = payload } }, fault == "foreign-completion" ? "another-worker" : null);
+
+        var error = Record.Exception(() => session.Capture(ticket));
+
+        Assert.True(error is InvalidOperationException or JsonException or IOException, error?.ToString() ?? "Capture unexpectedly succeeded.");
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "receipts")));
+    }
+
+    [Theory]
+    [InlineData("length")]
+    [InlineData("magic")]
+    public void Captured_photos_still_require_authoritative_decoded_length_and_content(string fault)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("v1")));
+        var events = Path.Combine(root, "damaged-photo.jsonl");
+        File.WriteAllText(events, "");
+        var requestFile = Path.Combine(root, "damaged-request.json");
+        var arguments = new { path = "/users/" + RootId + "/photo/$value" };
+        Save(requestFile, new { toolName = "workiq-fetch_blob", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "damaged", toolName = "workiq-fetch_blob", arguments });
+        var payload = JsonNode.Parse(File.ReadAllText(Blob()))!.AsObject();
+        if (fault == "length") payload["sizeBytes"] = Png.Length + 1;
+        else payload["contentType"] = "image/jpeg";
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "damaged", success = true,
+            result = new { content = payload.ToJsonString() } });
+
+        var capture = session.Capture(ticket);
+
+        Assert.Throws<InvalidOperationException>(() => session.Photo(RootId, capture.ResponseFile));
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "photos")));
+    }
+
+    [Fact]
+    public void Captured_profile_evidence_is_copied_losslessly_and_a_result_cannot_be_claimed_twice()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "profile.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "fictitious work profile" };
+        var requestFile = Path.Combine(root, "profile-request.json");
+        Save(requestFile, new { toolName = "workiq-retrieve", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        var overlapping = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "profile", toolName = "workiq-retrieve", arguments });
+        const string payload = "{ \"directoryId\": \"10000000-0000-0000-0000-000000000001\", \"citations\": [\"https://example.test/work-profile\"], \"workPosition\": {} }";
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "profile", success = true,
+            result = new { content = payload } });
+        var captured = session.Capture(ticket);
+        var input = Path.Combine(root, "captured-observation.json");
+        Save(input, new ExportSession.Observation(RootId, "person1@example.test", UnknownFields(),
+            [captured.ResponseFile], [], null, DateTimeOffset.UtcNow));
+
+        session.Profile(RootId, input);
+
+        Assert.Equal(payload, File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(path, "sources")))));
+        Assert.Throws<InvalidOperationException>(() => session.Capture(overlapping));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(overlapping)!, "response.json")));
+    }
+
+    [Theory]
+    [InlineData("changed-history")]
+    [InlineData("changed-arguments")]
+    [InlineData("missing-completion")]
+    [InlineData("duplicate-completion")]
+    [InlineData("stale-event")]
+    public void Capture_requires_unchanged_history_and_one_fresh_exact_completed_invocation(string fault)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "history.jsonl");
+        AppendEvent(events, "session.start", new { marker = "original" });
+        var arguments = new { query = "fictitious work profile" };
+        var requestFile = Path.Combine(root, "history-request.json");
+        Save(requestFile, new { toolName = "workiq-retrieve", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        if (fault == "changed-history")
+            File.WriteAllText(events, File.ReadAllText(events).Replace("original", "modified", StringComparison.Ordinal));
+        if (fault == "stale-event")
+            File.AppendAllText(events, JsonSerializer.Serialize(new { type = "tool.execution_start",
+                timestamp = DateTimeOffset.UtcNow.AddDays(-1), data = new { toolCallId = "history", toolName = "workiq-retrieve", arguments } }) + "\n");
+        else
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "history", toolName = "workiq-retrieve",
+                arguments = fault == "changed-arguments" ? new { query = "another profile" } : arguments });
+        if (fault != "missing-completion")
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "history", success = true,
+                result = new { content = "{\"citations\":[]}" } });
+        if (fault == "duplicate-completion")
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "history", success = true,
+                result = new { content = "{\"citations\":[]}" } });
+
+        Assert.Throws<InvalidOperationException>(() => session.Capture(ticket));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
+        if (fault == "missing-completion")
+        {
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "history", success = true,
+                result = new { content = "{\"citations\":[]}" } });
+            Assert.Equal("{\"citations\":[]}", File.ReadAllText(session.Capture(ticket).ResponseFile));
+        }
+    }
+
+    [Fact]
     public void Reports_require_every_page_and_leaf_and_keep_distinct_same_named_people()
     {
         var path = NewRun();
@@ -368,6 +666,8 @@ public sealed class OrgExportTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, JsonSerializer.Serialize(value, ExportSession.Json));
     }
+    private static void AppendEvent(string file, string type, object data, string? agentId = null)
+        => File.AppendAllText(file, JsonSerializer.Serialize(new { type, data, agentId, timestamp = DateTimeOffset.UtcNow }) + "\n");
     public void Dispose()
     {
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);

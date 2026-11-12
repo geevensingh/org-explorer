@@ -8,7 +8,7 @@ using OrgExplorer.Workflow;
 
 namespace OrgExplorer.OrgExport;
 
-public sealed class ExportSession : IDisposable
+public sealed partial class ExportSession : IDisposable
 {
     public static readonly JsonSerializerOptions Json = new()
     {
