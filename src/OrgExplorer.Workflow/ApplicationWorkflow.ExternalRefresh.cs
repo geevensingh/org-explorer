@@ -257,6 +257,7 @@ public sealed partial class ApplicationWorkflow
 
     private static void RejectWorkspaceLink(string path)
     {
+        Storage47Probe.Link();
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
     }

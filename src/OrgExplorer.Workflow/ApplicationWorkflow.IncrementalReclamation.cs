@@ -30,6 +30,7 @@ public sealed partial class ApplicationWorkflow
     // Called with the local I/O gate and writer lease, only after recovery selection.
     private void ReclaimIncrementalStorage(PreparedRecovery prepared)
     {
+        using var phase = Storage47Probe.Scope("ReclaimIncrementalStorage");
         var current = CaptureWorkspaceBytes();
         using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
             validation.ReadIncrementalWorkspaceData(current);
@@ -65,6 +66,7 @@ public sealed partial class ApplicationWorkflow
         var retirementPath = Path.Combine(prepared.Transaction, "retired.json");
         if (!File.Exists(retirementPath))
         {
+            using var retirementPhase = Storage47Probe.Scope("CreateRetirement");
             var files = TransactionFiles(prepared.Transaction)
                 .Where(path => IsCreationInventory(Path.GetFileName(path)) ||
                     Path.GetFileName(path) is "intent.json" or "committed.json" or "selector.next" or
@@ -177,6 +179,7 @@ public sealed partial class ApplicationWorkflow
 
         void Recheck()
         {
+            using var recheckPhase = Storage47Probe.Scope("Recheck");
             var actual = CaptureWorkspaceBytes();
             if (WorkspaceFingerprint(snapshot: actual) != accepted ||
                 (File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null) != previousDigest ||
@@ -218,6 +221,7 @@ public sealed partial class ApplicationWorkflow
         Recheck();
         foreach (var (transaction, retirement) in retired)
         {
+            using var inventoryPhase = Storage47Probe.Scope("VisitRetiredInventories " + retirement.Files.Count);
             var inventories = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>();
             RunBoundedFileIo(retirement.Files.Keys.Where(IsCreationInventory), name =>
             {

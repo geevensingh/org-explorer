@@ -45,6 +45,7 @@ public sealed partial class ApplicationWorkflow
     private PreparedRecovery PrepareRecovery(IReadOnlyDictionary<string, byte[]> current, string transaction,
         RecoveryPublication? publication = null)
     {
+        using var phase = Storage47Probe.Scope("PrepareRecovery");
         var root = Path.Combine(workspace!, "recovery");
         CreateIncrementalDirectory(root);
         RecoverySelector? previous = null;
@@ -179,6 +180,7 @@ public sealed partial class ApplicationWorkflow
     private (RecoverySelector Metadata, Dictionary<string, byte[]> Bytes, byte[]? Receipt) ValidateRecovery(string root, byte[] selector,
         bool requireReceipt)
     {
+        using var phase = Storage47Probe.Scope("ValidateRecovery " + requireReceipt);
         RejectWorkspaceLink(root);
         using var json = JsonDocument.Parse(selector);
         CheckProperties(json.RootElement, ["schemaVersion", "transaction", "sourceRevision", "workspace", "noteRoots", "publication"], "Recovery");
@@ -231,6 +233,7 @@ public sealed partial class ApplicationWorkflow
 
     private void CompleteRecovery(PreparedRecovery prepared)
     {
+        using var phase = Storage47Probe.Scope("CompleteRecovery");
         ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: false);
         var receipt = JsonSerializer.SerializeToUtf8Bytes(new RecoveryReceipt(1, prepared.Metadata.Transaction,
             prepared.Metadata.SourceRevision, ByteDigest(prepared.Selector), prepared.Metadata.Publication), JsonOptions);

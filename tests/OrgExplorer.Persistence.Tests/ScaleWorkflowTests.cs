@@ -100,10 +100,12 @@ public sealed class ScaleWorkflowTests(ITestOutputHelper output)
                 Assert.Equal(new[] { "people:" + ScaleFixture.Target, "profileHistory:" + ScaleFixture.Target }.Order(),
                     after.Where(pair => writtenDocuments.Contains(pair.Value)).Select(pair => pair.Key).Order());
                 Assert.Equal(2, writtenDocuments.Count);
-                Assert.Contains(writes, write => write.Path.StartsWith(Path.Combine(root, "index") + Path.DirectorySeparatorChar));
+                Assert.Contains(writes, write => publications.GetValueOrDefault(write.Path, write.Path)
+                    .StartsWith(Path.Combine(root, "index") + Path.DirectorySeparatorChar));
             }
             Assert.Contains(writes, write => write.Path.StartsWith(Path.Combine(fixture.Workspace, "transactions") + Path.DirectorySeparatorChar));
-            Assert.All(writes.Where(write => write.Path.Contains(Path.DirectorySeparatorChar + "index" + Path.DirectorySeparatorChar) &&
+            Assert.All(writes.Where(write => publications.GetValueOrDefault(write.Path, write.Path)
+                .Contains(Path.DirectorySeparatorChar + "index" + Path.DirectorySeparatorChar) &&
                 !publications.GetValueOrDefault(write.Path, write.Path).EndsWith(".sha256", StringComparison.Ordinal)),
                 write =>
                 {

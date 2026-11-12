@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -98,7 +99,16 @@ internal static partial class Program
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Editable after update failure");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+                Find(window, "Status").Current.Name ==
+                    "Saved locally.\nStorage reclamation deferred for preserved unretired transactions.");
+            using (var saved = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!saved.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||
+                    saved.GetRelationships("casey@example.com")!.Person.PreferredName != "Editable after update failure" ||
+                    !saved.CanSafelyClose)
+                    throw new InvalidOperationException("The post-update-failure edit was not durably saved: " + saved.Status);
+            }
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();
             AwaitStartupPreference(window, ToggleState.On);
