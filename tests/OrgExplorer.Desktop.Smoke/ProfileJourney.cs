@@ -160,6 +160,7 @@ internal static partial class Program
             Click(window, "ApplyImport");
             Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
             ReturnToPeople(window);
+            ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));

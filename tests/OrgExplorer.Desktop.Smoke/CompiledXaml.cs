@@ -79,6 +79,19 @@ internal static partial class Program
             var listPeer = UIElementAutomationPeer.CreatePeerForElement(noteList);
             if (surfacePeer.GetAutomationId() == listPeer.GetAutomationId())
                 failures.Add("The Person-note surface and its secondary title list share an automation identity; empty/collapsed-list discovery targets the visible surface.");
+            var teamNotes = (FrameworkElement)window.FindName("TeamNotes");
+            if (teamNotes.FindName("OtherNotes") is not Expander { IsExpanded: false } otherTeamNotes ||
+                !Contains(otherTeamNotes, (DependencyObject)teamNotes.FindName("NotesList")))
+                failures.Add("Owned Team titles must be behind collapsed Other notes, not a permanent picker.");
+            if (teamNotes.FindName("CurrentTeamContext") is not Expander { IsExpanded: false } teamContext ||
+                teamNotes.FindName("InheritedReviewWarnings") is not TextBlock warning ||
+                Contains(teamContext, warning))
+                failures.Add("Inherited Team details must start collapsed without hiding attributed review warnings.");
+            if (window.FindName("HistoryAccess") is not Expander { IsExpanded: false } history ||
+                new[] { "ProfileTimelineText", "FieldConfirmationsText", "ProfileObservationsText",
+                    "HistoricalTeamSummary", "HistoricalTeamReading" }.Any(name =>
+                        !Contains(history, (DependencyObject)window.FindName(name))))
+                failures.Add("Secondary History must retain profile changes, confirmations, observations and frozen Team evidence.");
             foreach (var name in new[] { "DirectoryName", "Email", "AliasValue", "JobTitleValue", "DepartmentValue",
                 "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue", "OfficeCountryValue", "LinkedInProfileUrlValue" })
             {
@@ -234,8 +247,91 @@ internal static partial class Program
                 PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
             }
         }
+        VerifyOwnedTeamPresentation(window, folder);
         VerifyPersonNoteUpdateFlush(window, folder);
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
+    }
+
+    private static void VerifyOwnedTeamPresentation(Window window, string folder)
+    {
+        var notes = (FrameworkElement)window.FindName("TeamNotes");
+        T Control<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        void Saved()
+        {
+            try { PumpUntil(() => Control<TextBlock>("NoteStatus").Text == "Team note saved locally and confirmed for current context."); }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException($"Team save did not settle: note={Control<TextBlock>("NoteStatus").Text}; " +
+                    $"activity={((TextBlock)window.FindName("WorkflowActivity")).Text}; " +
+                    $"status={((TextBlock)window.FindName("StatusText")).Text}; title={Control<TextBox>("NoteTitle").Text}.", error);
+            }
+        }
+        void Select(string title)
+        {
+            Control<Expander>("OtherNotes").IsExpanded = true;
+            var list = Control<ListBox>("NotesList");
+            list.SelectedItem = list.Items.Cast<OwnedNote>().Single(n => n.Title == title);
+        }
+        Invoke("NewButton");
+        PumpUntil(() => Control<TextBox>("NoteTitle").Text == "New Team note");
+        if (Control<TabControl>("Views").SelectedItem != notes.FindName("EditTab"))
+            throw new InvalidOperationException("New Team writing must start directly in Edit.");
+        Control<TextBox>("NoteTitle").Text = "Continuing Team";
+        Control<TextBox>("MarkdownEditor").Text = "Saved Team writing";
+        Saved();
+        Invoke("NewButton");
+        PumpUntil(() => Control<TextBox>("NoteTitle").Text == "New Team note");
+        Control<TextBox>("NoteTitle").Text = "Secondary Team";
+        Saved();
+        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
+        var tree = (TreeView)window.FindName("PeopleList");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
+        if (!Control<TextBlock>("OngoingStatus").Text.Contains("Choose", StringComparison.Ordinal) ||
+            Control<Expander>("OtherNotes").IsExpanded || Control<TabControl>("Views").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("An ambiguous Team collection must not silently open replacement writing.");
+        Select("Continuing Team");
+        Invoke("DesignateButton");
+        PumpUntil(() => Control<TextBlock>("NoteKind").Text == "Ongoing Team note");
+        if (Control<Expander>("OtherNotes").IsExpanded || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
+            throw new InvalidOperationException("Designated Team writing must open directly in Read without a permanent title list.");
+        Select("Secondary Team");
+        if (Control<TextBox>("MarkdownEditor").Text != "" || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
+            throw new InvalidOperationException("An empty secondary Team note must remain an exact, Read-first destination.");
+        var settings = Path.Combine(Path.GetDirectoryName(folder)!, "workspace-settings.json");
+        var preference = File.ReadAllBytes(settings);
+        using (File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Invoke("DesignateButton");
+            PumpUntil(() => Control<TextBlock>("OngoingStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
+            if (Control<TextBlock>("NoteKind").Text != "Other Team note" ||
+                !File.ReadAllBytes(settings).SequenceEqual(preference))
+                throw new InvalidOperationException("Failed Team designation must retain both the exact secondary note and durable choice.");
+        }
+        Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md")
+            .Single(path => File.ReadAllText(path).Contains("Secondary Team", StringComparison.Ordinal));
+        var saved = File.ReadAllBytes(file);
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Control<TextBox>("MarkdownEditor").Text = "Retained secondary Team draft";
+            PumpUntil(() => Control<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
+            Invoke("OngoingButton");
+            if (Control<TextBox>("MarkdownEditor").Text != "Retained secondary Team draft" ||
+                Control<TextBox>("NoteTitle").Text != "Secondary Team" ||
+                Control<TabControl>("Views").SelectedItem != notes.FindName("EditTab") ||
+                !Control<TextBlock>("NoteStatus").Text.Contains("before leaving or closing", StringComparison.Ordinal) ||
+                !File.ReadAllBytes(file).SequenceEqual(saved))
+                throw new InvalidOperationException("Ongoing navigation must retain the exact failed Team editor and saved bytes.");
+        }
+        Invoke("RetryButton");
+        Saved();
+        Invoke("OngoingButton");
+        if (Control<TextBox>("MarkdownEditor").Text != "Saved Team writing" ||
+            Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
+            throw new InvalidOperationException("Explicit ongoing navigation did not return to saved Team reading after retry.");
+        Console.WriteLine("PASS: actual compiled owned Team interactions retain ambiguous choice, exact empty notes, preference failures and protected drafts without showing a window.");
     }
 
     private static void VerifyPersonNoteUpdateFlush(Window window, string folder)

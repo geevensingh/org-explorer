@@ -444,8 +444,13 @@
           </StackPanel>
         </GroupBox>
         <local:PersonNotesControl x:Name="PersonNotes" AutomationProperties.AutomationId="PersonNotesSurface" Margin="0,16,0,0"/>
-        <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
-        <GroupBox Header="Structured Profile timeline — most recent recording first" Margin="0,16,0,0">
+        <local:TeamNotesControl x:Name="TeamNotes" AutomationProperties.AutomationId="TeamNotesSurface" Margin="0,16,0,0"/>
+        <Expander x:Name="HistoryAccess" Header="History" AutomationProperties.AutomationId="HistoryAccess" Margin="0,16,0,0">
+        <StackPanel>
+        <GroupBox Margin="0,16,0,0">
+          <GroupBox.Header>
+            <TextBlock Text="Structured Profile timeline — most recent recording first" TextWrapping="Wrap"/>
+          </GroupBox.Header>
           <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
             <TextBlock x:Name="ProfileTimelineText" AutomationProperties.AutomationId="ProfileTimeline"
                        Text="Select a Person to review Profile changes." TextWrapping="Wrap" Margin="8"/>
@@ -455,13 +460,19 @@
           <TextBlock x:Name="FieldConfirmationsText" AutomationProperties.AutomationId="FieldConfirmations"
                      TextWrapping="Wrap" Margin="8"/>
         </Expander>
-        <Expander Header="Source observations and local recordings" Margin="0,8,0,0" IsExpanded="True">
+        <Expander Margin="0,8,0,0" IsExpanded="True">
+          <Expander.Header>
+            <TextBlock Text="Source observations and local recordings" TextWrapping="Wrap"/>
+          </Expander.Header>
           <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
             <TextBlock x:Name="ProfileObservationsText" AutomationProperties.AutomationId="ProfileObservations"
                        TextWrapping="Wrap" Margin="8"/>
           </ScrollViewer>
         </Expander>
-        <GroupBox Header="Historical team context — frozen former context, not current inheritance" Margin="0,16,0,0">
+        <GroupBox Margin="0,16,0,0">
+          <GroupBox.Header>
+            <TextBlock Text="Historical team context — frozen former context, not current inheritance" TextWrapping="Wrap"/>
+          </GroupBox.Header>
           <StackPanel Margin="8">
             <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
               <TextBlock x:Name="HistoricalTeamSummary" AutomationProperties.AutomationId="HistoricalTeamSummary"
@@ -473,6 +484,8 @@
                                       AutomationProperties.Name="Historical frozen Team notes; never current inheritance"/>
           </StackPanel>
         </GroupBox>
+        </StackPanel>
+        </Expander>
         </StackPanel>
         </GroupBox>
         </Grid>

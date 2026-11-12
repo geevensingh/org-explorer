@@ -77,6 +77,7 @@ internal static partial class Program
         Click(window, "ClearPhoto");
         SaveProfileEditing(window);
         Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
+        ExpandHistory(window);
         Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("Photo:") &&
                     Find(window, "ProfileTimeline").Current.Name.Contains(".jpg → (clear)") &&
                     Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));

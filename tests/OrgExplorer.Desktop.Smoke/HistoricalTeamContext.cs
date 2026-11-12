@@ -40,8 +40,7 @@ internal static partial class Program
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             AssertNoteView(window, "Team", editing: true);
-            if (Find(window, "TeamNotes", ControlType.List).Current.Name != "Owned Team notes" ||
-                Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
+            if (Find(window, "TeamNoteTitle").Current.Name != "Team note title" ||
                 Find(window, "TeamNoteMarkdown").Current.Name != "Team note Markdown")
                 throw new InvalidOperationException("Team note title and writing lack distinct accessible names.");
             Set(window, "TeamNoteTitle", "Casey context");
@@ -58,6 +57,55 @@ internal static partial class Program
                 throw new InvalidOperationException("Owned Team reading lost decoded Markdown entities.");
             if (!TeamReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Owned Team Markdown did not show remote-image suppression.");
+            AwaitLocalWorkIdle(window);
+            Click(window, "NewTeamNote");
+            Set(window, "TeamNoteTitle", "Secondary empty Team note");
+            AwaitLocalWorkIdle(window);
+            OpenPerson(window, "casey@example.com", "morgan@example.com");
+            NavigateToManager(window, "morgan@example.com");
+            NavigateToManager(window, "casey@example.com");
+            Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("Choose an ongoing note"));
+            AssertOtherTeamNotesCollapsed(window);
+            SelectTeamNote(window, "Casey context");
+            Click(window, "UseAsOngoingTeamNote");
+            AssertOtherTeamNotesCollapsed(window);
+            AssertNoteView(window, "Team", editing: false);
+            QueryAndSelect(window, "Secondary empty Team note", "casey@example.com", "Current", "Owned Team note");
+            Await(() => Find(window, "TeamNoteHeading").Current.Name == "Secondary empty Team note");
+            AssertNoteView(window, "Team", editing: false);
+            if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note"))
+                throw new InvalidOperationException("Team search redirected a secondary note to the ongoing note.");
+            var secondaryFile = Directory.GetFiles(Path.Combine(workspace, "team-notes"), "*.md")
+                .Single(path => File.ReadAllText(path).Contains("Secondary empty Team note", StringComparison.Ordinal));
+            var savedSecondary = File.ReadAllBytes(secondaryFile);
+            SelectTab(window, "TeamNoteEditTab");
+            using (File.Open(secondaryFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Set(window, "TeamNoteMarkdown", "Retained secondary Team writing");
+                Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("NOT saved"));
+                Click(window, "OpenOngoingTeamNote");
+                Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("before leaving or closing"));
+                AssertValue(window, "TeamNoteMarkdown", "Retained secondary Team writing");
+                AssertNoteView(window, "Team", editing: true);
+                if (Find(window, "TeamNoteHeading").Current.Name != "Secondary empty Team note" ||
+                    !savedSecondary.SequenceEqual(File.ReadAllBytes(secondaryFile)))
+                    throw new InvalidOperationException("Ongoing Team navigation changed a failed secondary draft or saved writing.");
+            }
+            Click(window, "DiscardTeamNoteDraft");
+            Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
+            AssertNoteView(window, "Team", editing: false);
+            var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var savedPreferences = File.ReadAllBytes(preferences);
+            using (File.Open(preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Click(window, "UseAsOngoingTeamNote");
+                Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("NOT saved"));
+                if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note") ||
+                    !savedPreferences.SequenceEqual(File.ReadAllBytes(preferences)))
+                    throw new InvalidOperationException("Failed Team designation changed the durable ongoing choice.");
+            }
+            Click(window, "OpenOngoingTeamNote");
+            Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             NavigateToManager(window, "morgan@example.com");
             Click(window, "NewTeamNote");
@@ -71,17 +119,42 @@ internal static partial class Program
             SaveProfileEditing(window);
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             OpenPerson(window, "casey@example.com", "morgan@example.com");
+            Click(window, "NewPersonNote");
+            Set(window, "PersonNoteTitle", "Primary Person context");
+            Set(window, "PersonNoteMarkdown", "Everyday individual writing");
+            AwaitLocalWorkIdle(window);
+            SelectTab(window, "PersonNoteReadTab");
+            foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+            {
+                ResizeWindow(window, size.Width, size.Height);
+                AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+            }
+            ExpandCurrentTeamContext(window);
             var inherited = Find(window, "InheritedTeamSummary").Current.Name;
             if (!inherited.Contains("morgan@example.com") || !inherited.Contains("casey@example.com") ||
+                !inherited.Contains("Secondary empty Team note") ||
                 !inherited.Contains("Needs review") || CurrentReadingText(window).Contains("Never inherited"))
                 throw new InvalidOperationException("Inherited context lost ancestor attribution, review feedback or private scope.");
-            Click(window, "ReviewTeamNote-morgan@example.com");
+            SelectTab(window, "PersonNoteEditTab");
+            Set(window, "PersonNoteTitle", " ");
+            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
+            ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
+            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+            AssertValue(window, "PersonNoteTitle", " ");
+            AssertValue(window, "PersonNoteMarkdown", "Everyday individual writing");
+            if (Find(window, "Email").Current.Name != "avery@example.com")
+                throw new InvalidOperationException("Inherited review bypassed the selected Person's retained writing.");
+            Click(window, "DiscardPersonNoteDraft");
+            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
+            ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
             Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
             AssertNoteView(window, "Team", editing: false);
             Click(window, "ConfirmTeamNote");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Confirmed"));
             Click(window, "ArchiveTeamNote");
             Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("archived locally"));
+            Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
+            ExpandSection(window, "OtherTeamNotes");
             ((TogglePattern)Find(window, "ShowArchivedTeamNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectTeamNote(window, "Morgan context");
             SelectTab(window, "TeamNoteEditTab");
@@ -94,14 +167,20 @@ internal static partial class Program
             Set(window, "TeamNoteTitle", "Alex context");
             Set(window, "TeamNoteMarkdown", "# Current branch\nNew branch writing");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
+            ExpandHistory(window);
             if (!Find(window, "HistoricalTeamSummary").Current.Name.Contains("baseline"))
                 throw new InvalidOperationException("Initial creation fabricated a historical transfer.");
+            if (!Find(window, "FieldConfirmations").Current.Name.Contains("morgan@example.com") ||
+                !Find(window, "FieldConfirmations").Current.Name.Contains("Imported") ||
+                !Find(window, "ProfileObservations").Current.Name.Contains("Observation 2026-11-01T17:00:00Z"))
+                throw new InvalidOperationException("Secondary History lost field confirmations or source observations.");
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"11000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-06T17:00:00Z","people":[
                  {"email":"morgan@example.com","managerEmail":"alex@example.com"}]}
                 """);
             ApplyReviewedHistoryImport(window);
+            ExpandHistory(window);
             Await(() => Find(window, "HistoricalTeamSummary").Current.Name.Contains("Historical captures: 1"));
             var summary = Find(window, "HistoricalTeamSummary").Current.Name;
             if (!summary.Contains("Morgan (morgan@example.com) → Casey (casey@example.com)") ||
@@ -121,6 +200,17 @@ internal static partial class Program
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
                 throw new InvalidOperationException("Later Team editing changed frozen writing or failed to update current reading.");
+            foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+            {
+                ResizeWindow(window, size.Width, size.Height);
+                if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing") ||
+                    ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
+                    throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
+            }
+            QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
+            AssertSearchReading(window, "Original direct", "Later writing");
+            if (!Find(window, "SearchContext").Current.Name.Contains("morgan@example.com"))
+                throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
             Close(process);
             process = Launch(executable);
             window = Window(process);
@@ -129,6 +219,16 @@ internal static partial class Program
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
                 throw new InvalidOperationException("Reopening lost separate current and Historical writing.");
+            SelectTreePerson(window, "casey@example.com");
+            Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
+            AssertOtherTeamNotesCollapsed(window);
+            AssertNoteView(window, "Team", editing: false);
+            SelectTeamNote(window, "Secondary empty Team note");
+            Click(window, "UseAsOngoingTeamNote");
+            AssertOtherTeamNotesCollapsed(window);
+            if (Find(window, "TeamNoteHeading").Current.Name != "Secondary empty Team note" ||
+                Find(window, "TeamNoteKind").Current.Name != "Ongoing Team note")
+                throw new InvalidOperationException("The reopened owned Team designation cannot be changed explicitly.");
             if (listener.Pending()) throw new InvalidOperationException("Team Markdown fetched remote content.");
             Close(process);
         }
@@ -182,6 +282,7 @@ internal static partial class Program
     private static void SelectTeamNote(AutomationElement window, string title)
     {
         AwaitLocalWorkIdle(window);
+        ExpandSection(window, "OtherTeamNotes");
         AutomationElement? item = null;
         Await(() => (item = Find(window, "TeamNotes").FindFirst(TreeScope.Descendants,
             new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
@@ -192,7 +293,60 @@ internal static partial class Program
     private static string TeamReadingText(AutomationElement window) =>
         ((TextPattern)Find(window, "TeamNoteReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
     private static string HistoricalReadingText(AutomationElement window) =>
-        ((TextPattern)Find(window, "HistoricalTeamReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
+        SecondaryReadingText(window, "HistoryAccess", "HistoricalTeamReading");
     private static string CurrentReadingText(AutomationElement window) =>
-        ((TextPattern)Find(window, "InheritedTeamReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
+        SecondaryReadingText(window, "CurrentTeamContext", "InheritedTeamReading");
+
+    private static void ExpandSection(AutomationElement window, string id)
+    {
+        var expansion = (ExpandCollapsePattern)Find(window, id).GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Expanded) expansion.Expand();
+        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+    }
+
+    private static void ExpandHistory(AutomationElement window) => ExpandSection(window, "HistoryAccess");
+    private static void ExpandCurrentTeamContext(AutomationElement window) => ExpandSection(window, "CurrentTeamContext");
+    private static string SecondaryReadingText(AutomationElement window, string section, string reading)
+    {
+        ExpandSection(window, section);
+        return ((TextPattern)Find(window, reading).GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
+    }
+
+    private static void AssertOtherTeamNotesCollapsed(AutomationElement window)
+    {
+        Await(() => ((ExpandCollapsePattern)Find(window, "OtherTeamNotes").GetCurrentPattern(ExpandCollapsePattern.Pattern))
+            .Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        var list = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNotes"));
+        if (list is not null && !list.Current.IsOffscreen)
+            throw new InvalidOperationException("Ordinary Team reading still displays a permanent title picker.");
+    }
+
+    private static void AssertCollapsedTeamWarnings(AutomationElement window, string email, string title)
+    {
+        foreach (var section in new[] { "CurrentTeamContext", "HistoryAccess" })
+            if (((ExpandCollapsePattern)Find(window, section).GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                .Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+                throw new InvalidOperationException($"{section} must not precede everyday Person writing.");
+        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+        if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
+        Await(() => !Find(window, "InheritedTeamReviewWarnings").Current.IsOffscreen);
+        var warning = Find(window, "InheritedTeamReviewWarnings").Current.Name;
+        if (!warning.Contains(email) || !warning.Contains(title) || !warning.Contains("Needs review"))
+            throw new InvalidOperationException("Collapsed inherited context concealed attributed review needs.");
+        var reading = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "InheritedTeamReading"));
+        if (reading is not null && !reading.Current.IsOffscreen)
+            throw new InvalidOperationException("Collapsed inherited details still occupy the primary reading path.");
+    }
+
+    private static void ReviewInheritedTeamNote(AutomationElement window, string owner, string title)
+    {
+        ControlReadiness.AwaitPattern(() => window.FindFirst(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                new PropertyCondition(AutomationElement.NameProperty, $"Read / review '{title}' - owner {owner}")))
+                ?? throw new InvalidOperationException("Missing actual UI control: attributed inherited Team-note review action."),
+            control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
+    }
 }

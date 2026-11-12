@@ -9,14 +9,15 @@ namespace OrgExplorer.Desktop;
 
 public partial class TeamNotesControl : UserControl
 {
-    private IApplicationWorkflow? workflow;
+    private WorkspaceViewModel? workflow;
     private Action? changed;
     private string? owner;
     private Guid? selected;
     private bool loading;
+    private bool includeArchived;
     private readonly NoteDraftState draft;
     private NoteDraft? noteBase;
-    public event Action<string, Guid>? OwnerRequested;
+    public event Action<Guid>? OwnerRequested;
 
     public TeamNotesControl()
     {
@@ -29,7 +30,7 @@ public partial class TeamNotesControl : UserControl
         Unloaded += (_, _) => draft.Stop();
     }
 
-    public void Attach(IApplicationWorkflow application, Action onChanged)
+    public void Attach(WorkspaceViewModel application, Action onChanged)
     {
         workflow = application;
         changed = onChanged;
@@ -47,8 +48,12 @@ public partial class TeamNotesControl : UserControl
         if (!string.Equals(owner, email, StringComparison.OrdinalIgnoreCase))
         {
             if (!TryLeave()) return;
+            if (workflow?.OpenOwnedNotes(NoteScope.Team, email) != true) return;
             owner = email;
-            selected = null;
+            loading = true;
+            IncludeArchived.IsChecked = includeArchived = false;
+            OtherNotes.IsExpanded = CurrentTeamContext.IsExpanded = false;
+            loading = false;
         }
         Ownership.Text = email is null ? "Select a Person." :
             $"Owned by {email}; applies to current formal descendants. Ownership stays with this Person, not a permanent team. No sharing.";
@@ -59,30 +64,35 @@ public partial class TeamNotesControl : UserControl
 
     public void OpenNote(Guid id)
     {
-        if (!TryLeave()) return;
-        selected = id;
-        IncludeArchived.IsChecked = workflow is not null && owner is not null &&
-            workflow.GetTeamNotes(owner, true).Any(n => n.Id == id && n.Archived);
-        RefreshNotes(preserveEditing: false);
-    }
-
-    private void RefreshNotes(bool preserveEditing = true)
-    {
+        if (!TryLeave() || workflow is null || owner is null) return;
+        if (!workflow.OpenOwnedNote(NoteScope.Team, id)) { ShowPresentation(); return; }
         loading = true;
-        var notes = workflow is null || owner is null ? [] : workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true);
-        NotesList.ItemsSource = notes;
-        NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == selected);
-        EmptyNotes.Visibility = notes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Text = IncludeArchived.IsChecked == true
-            ? "No owned Team notes, including archived notes. New Team note opens directly for writing."
-            : "No active owned Team notes. New Team note opens directly for writing; Show archived Team notes to find retained writing.";
+        IncludeArchived.IsChecked = includeArchived = workflow.TeamNotesView.SelectedNote?.Archived == true;
+        if (includeArchived) workflow.ShowOtherNotes(NoteScope.Team, true);
         loading = false;
-        LoadNote(NotesList.SelectedItem as TeamNote, preserveEditing);
+        RefreshNotes();
     }
 
-    private void LoadNote(TeamNote? note, bool preserveEditing = false)
+    private void RefreshNotes()
     {
-        var editing = preserveEditing && selected == note?.Id && Views.SelectedItem == EditTab;
+        if (workflow is null) return;
+        var view = workflow.TeamNotesView;
+        loading = true;
+        var notes = view.Notes.Where(n => includeArchived || !n.Archived).ToArray();
+        NotesList.ItemsSource = notes;
+        NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == view.SelectedNote?.Id);
+        OtherNotes.IsExpanded = view.OtherNotesOpen;
+        OtherNotes.Visibility = owner is not null && view.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyNotes.Visibility = owner is not null && !view.Notes.Any(n => !n.Archived) ? Visibility.Visible : Visibility.Collapsed;
+        EmptyNotes.Text = "No active owned Team notes. Write a new Team note to begin; Other notes retains archived writing.";
+        loading = false;
+        LoadNote(view.SelectedNote);
+        ShowPresentation();
+    }
+
+    private void LoadNote(OwnedNote? note)
+    {
+        var editing = workflow?.TeamNotesView.IsEditing == true;
         draft.Stop();
         loading = true;
         selected = note?.Id;
@@ -95,10 +105,10 @@ public partial class TeamNotesControl : UserControl
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore Team note" : "Archive Team note";
-        ReviewStatus.Text = note?.ReviewStatus ?? "Select an owned Team note to read, edit, or review.";
-        ConfirmButton.IsEnabled = note is { NeedsReview: true, Archived: false };
+        ArchiveButton.Visibility = ConfirmButton.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         draft.Reset();
         RetryButton.IsEnabled = DiscardButton.IsEnabled = false;
+        RetryButton.Visibility = DiscardButton.Visibility = Visibility.Collapsed;
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
         loading = false;
     }
@@ -109,11 +119,11 @@ public partial class TeamNotesControl : UserControl
         if (!TryLeave())
         {
             loading = true;
-            NotesList.SelectedItem = NotesList.Items.Cast<TeamNote>().FirstOrDefault(n => n.Id == selected);
+            NotesList.SelectedItem = NotesList.Items.Cast<OwnedNote>().FirstOrDefault(n => n.Id == selected);
             loading = false;
             return;
         }
-        LoadNote(NotesList.SelectedItem as TeamNote);
+        if (NotesList.SelectedItem is OwnedNote note) OpenNote(note.Id);
     }
 
     private Task<T> RunAsync<T>(Func<T> operation, bool draft = false) =>
@@ -126,10 +136,11 @@ public partial class TeamNotesControl : UserControl
         var note = await RunAsync(() => workflow.CreateTeamNote(email, "New Team note", ""));
         if (note is not null)
         {
-            selected = note.Id;
-            IncludeArchived.IsChecked = false;
+            workflow.OpenOwnedNote(NoteScope.Team, note.Id, editing: true);
+            loading = true;
+            IncludeArchived.IsChecked = includeArchived = false;
+            loading = false;
             RefreshNotes();
-            Views.SelectedItem = EditTab;
         }
         ShowStatus();
     }
@@ -139,6 +150,7 @@ public partial class TeamNotesControl : UserControl
         if (loading || workflow is null || selected is not { } id) return;
         if (!draft.HasUnsavedChanges && noteBase is { } basis) workflow.RetainNoteDraft(basis);
         draft.Edited();
+        RetryButton.Visibility = DiscardButton.Visibility = Visibility.Visible;
         NoteHeading.Text = NoteTitle.Text;
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
     }
@@ -159,7 +171,15 @@ public partial class TeamNotesControl : UserControl
         draft.CompleteSave(saved, title, markdown, NoteTitle.Text, MarkdownEditor.Text);
         if (saved && draft.HasUnsavedChanges) workflow.RetainNoteDraft(accepted!);
         RetryButton.IsEnabled = DiscardButton.IsEnabled = draft.HasUnsavedChanges;
-        if (!draft.HasUnsavedChanges) RefreshNotes();
+        RetryButton.Visibility = DiscardButton.Visibility = draft.HasUnsavedChanges ? Visibility.Visible : Visibility.Collapsed;
+        if (!draft.HasUnsavedChanges)
+        {
+            loading = true;
+            var notes = workflow.TeamNotesView.Notes.Where(n => includeArchived || !n.Archived).ToArray();
+            NotesList.ItemsSource = notes;
+            NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == id);
+            loading = false;
+        }
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
         RefreshContext();
         ShowStatus();
@@ -178,39 +198,64 @@ public partial class TeamNotesControl : UserControl
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
         var note = workflow.GetTeamNotes(owner!, true).Single(n => n.Id == id);
-        if (await RunAsync(() => workflow.ArchiveTeamNote(id, !note.Archived))) RefreshNotes(preserveEditing: false);
+        var ongoing = workflow.TeamNotesView.OngoingNoteId == id;
+        if (await RunAsync(() => workflow.ArchiveTeamNote(id, !note.Archived)))
+        {
+            if (ongoing && !note.Archived) workflow.OpenOngoingNote(NoteScope.Team);
+            RefreshNotes();
+        }
         RefreshContext();
         ShowStatus();
     }
 
     private void ChangeArchiveFilter(object sender, RoutedEventArgs e)
     {
-        if (!loading && workflow is not null && TryLeave()) RefreshNotes();
+        if (loading || workflow is null) return;
+        if (TryLeave())
+        {
+            includeArchived = IncludeArchived.IsChecked == true;
+            RefreshNotes();
+        }
+        else
+        {
+            loading = true;
+            IncludeArchived.IsChecked = includeArchived;
+            loading = false;
+        }
     }
     private void RetrySave(object sender, RoutedEventArgs e) => SaveNoteDraft(null, EventArgs.Empty);
     private async void DiscardDraft(object sender, RoutedEventArgs e)
     {
         if (!draft.HasUnsavedChanges || workflow is null) return;
         await draft.DiscardAsync(() => RunAsync(workflow.RefreshTeamNotes),
-            () => workflow.DiscardUnsavedChanges(selected), () => { RefreshNotes(preserveEditing: false); RefreshContext(); }, () => workflow.Status);
+            () => workflow.DiscardUnsavedChanges(selected), () =>
+            {
+                if (selected is { } id) workflow.OpenOwnedNote(NoteScope.Team, id);
+                RefreshNotes();
+                RefreshContext();
+            }, () => workflow.Status);
         changed?.Invoke();
     }
 
     public void RefreshExternalWorkspace()
     {
         if (workflow is null || owner is null) return;
-        if (!draft.HasUnsavedChanges && !workflow.GetTeamNotes(owner, IncludeArchived.IsChecked == true).SequenceEqual(NotesList.Items.Cast<TeamNote>()))
-            RefreshNotes();
+        if (!draft.HasUnsavedChanges)
+        {
+            var notes = workflow.TeamNotesView.Notes.Where(n => includeArchived || !n.Archived);
+            if (!notes.SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
+                selected != workflow.TeamNotesView.SelectedNote?.Id) RefreshNotes();
+        }
         RefreshContext();
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
         if (!draft.HasUnsavedChanges)
         {
             NoteTitle.IsEnabled = MarkdownEditor.IsEnabled =
-                workflow.IsWorkspaceCurrent && NotesList.SelectedItem is TeamNote { Archived: false };
+                workflow.IsWorkspaceCurrent && workflow.TeamNotesView.SelectedNote is { Archived: false };
             ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
-            ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && NotesList.SelectedItem is TeamNote { NeedsReview: true, Archived: false };
         }
-        NoteStatus.Text = workflow.Status;
+        if (!draft.HasUnsavedChanges) NoteStatus.Text = workflow.Status;
+        ShowPresentation();
     }
 
     public void DiscardLocalDraft()
@@ -221,6 +266,11 @@ public partial class TeamNotesControl : UserControl
     private void RefreshContext()
     {
         var inherited = workflow is null || owner is null ? [] : workflow.GetInheritedTeamNotes(owner);
+        var warnings = inherited.Where(n => n.Note.NeedsReview).ToArray();
+        InheritedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
+            $"Needs review: '{n.Note.Title}' - {n.Owner.Heading} ({n.Owner.Email}). Expand Current inherited Team context to read or review."));
+        InheritedReviewWarnings.Visibility = warnings.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ContextHeading.Text = $"Current inherited Team context - {inherited.Count} notes from formal ancestors";
         InheritedSummary.Text = inherited.Count == 0 ? "No current inherited Team notes." :
             string.Join("\n", inherited.Select(n => $"{n.Note.Title} — {n.Owner.Heading} ({n.Owner.Email}): {n.Note.ReviewStatus}"));
         ReviewOwners.Children.Clear();
@@ -244,14 +294,67 @@ public partial class TeamNotesControl : UserControl
                 },
                 HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
             };
-            AutomationProperties.SetAutomationId(button, "ReviewTeamNote-" + context.Owner.Email);
-            button.Click += (_, _) => OwnerRequested?.Invoke(context.Owner.Email, context.Note.Id);
+            AutomationProperties.SetAutomationId(button, "ReviewTeamNote-" + context.Note.Id);
+            AutomationProperties.SetName(button, $"Read / review '{context.Note.Title}' - owner {context.Owner.Email}");
+            button.Click += (_, _) => OwnerRequested?.Invoke(context.Note.Id);
             ReviewOwners.Children.Add(button);
         }
         InheritedReading.Document = document;
     }
 
-    private void ShowStatus() { NoteStatus.Text = workflow?.Status ?? ""; changed?.Invoke(); }
+    private void ShowStatus()
+    {
+        NoteStatus.Text = workflow?.Status ?? "";
+        ShowPresentation();
+        changed?.Invoke();
+    }
+
+    private void ShowPresentation()
+    {
+        if (workflow is null) return;
+        var view = workflow.TeamNotesView;
+        OngoingStatus.Text = view.Feedback;
+        NoteKind.Text = view.SelectedNote is null ? "" :
+            (view.IsOngoing ? "Ongoing Team note" : "Other Team note") + (view.SelectedNote.Archived ? " - Archived" : "");
+        DesignateButton.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
+        DesignateButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        OngoingButton.Visibility = view.OngoingNoteId is not null && !view.IsOngoing ? Visibility.Visible : Visibility.Collapsed;
+        OngoingButton.IsEnabled = view.Notes.Any(n => n.Id == view.OngoingNoteId && !n.Archived);
+        var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
+        var note = notes.FirstOrDefault(n => n.Id == selected);
+        ReviewStatus.Text = note?.ReviewStatus ?? "";
+        ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && note is { NeedsReview: true, Archived: false };
+        var warnings = notes.Where(n => n.NeedsReview && !n.Archived).ToArray();
+        OwnedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
+            $"Needs review: '{n.Title}' - owned by {n.OwnerEmail}. Open the note to confirm, edit or archive."));
+        OwnedReviewWarnings.Visibility = warnings.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ChangeOtherNotes(object sender, RoutedEventArgs e)
+    {
+        if (!loading) workflow?.ShowOtherNotes(NoteScope.Team, OtherNotes.IsExpanded);
+    }
+
+    private void ChangeNoteMode(object sender, SelectionChangedEventArgs e)
+    {
+        if (!loading && selected is { } id && e.Source == Views)
+            workflow?.OpenOwnedNote(NoteScope.Team, id, editing: Views.SelectedItem == EditTab);
+    }
+
+    private void OpenOngoing(object sender, RoutedEventArgs e)
+    {
+        if (!TryLeave() || workflow is null) return;
+        workflow.OpenOngoingNote(NoteScope.Team);
+        RefreshNotes();
+    }
+
+    private async void DesignateOngoing(object sender, RoutedEventArgs e)
+    {
+        if (!TryLeave() || workflow is null || selected is not { } id) return;
+        if (await RunAsync(() => workflow.DesignateOngoingNote(NoteScope.Team, id))) RefreshNotes();
+        ShowPresentation();
+        changed?.Invoke();
+    }
     private void OpenExternalLink(Uri uri)
     {
         try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }

@@ -125,6 +125,7 @@ internal static partial class Program
         SelectNote(window, "Installer lifecycle note");
         SelectTab(window, "PersonNoteEditTab");
         AssertValue(window, "PersonNoteMarkdown", "# Private fixture\nRetain this Person writing.");
+        ExpandHistory(window);
         if (!Find(window, "ProfileTimeline").Current.Name.Contains("morgan@example.com → alex@example.com") ||
             !HistoricalReadingText(window).Contains("Retain former Manager writing.") ||
             CurrentReadingText(window).Contains("Retain former Manager writing."))

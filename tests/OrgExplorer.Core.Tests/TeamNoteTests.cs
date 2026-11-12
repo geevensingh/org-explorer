@@ -24,6 +24,104 @@ public sealed class TeamNoteTests
     }
 
     [Fact]
+    public void Inherited_secondary_notes_reach_their_exact_owner_without_bypassing_retained_Person_writing()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var root = app.CreateTeamNote("root@example.com", "Root ongoing", "Root writing")!;
+        var secondary = app.CreateTeamNote("root@example.com", "Root secondary", "")!;
+        var manager = app.CreateTeamNote("manager@example.com", "Manager ongoing", "Manager writing")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Team, root.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, root.Id));
+        Assert.True(app.OpenOwnedNotes(NoteScope.Team, manager.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, manager.Id));
+        Assert.True(app.EditPersonText(root.OwnerEmail, PersonTextField.Department, "Research"));
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        var inherited = app.GetInheritedTeamNotes("avery@example.com");
+        Assert.Equal(3, inherited.Count);
+        Assert.Contains(inherited, n => n.Note.Id == root.Id && n.Owner.Email == root.OwnerEmail);
+        Assert.Contains(inherited, n => n.Note.Id == secondary.Id && n.Note.NeedsReview);
+        Assert.Contains(inherited, n => n.Note.Id == manager.Id && n.Owner.Email == manager.OwnerEmail);
+        var before = app.GetTeamNotes(root.OwnerEmail).ToArray();
+        var person = app.CreatePersonNote("avery@example.com", "Private", "Saved")!;
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, person.Id, editing: true));
+        var basis = app.BeginNoteDraft(NoteScope.Person, person.OwnerEmail, person.Id)!;
+        app.RetainNoteDraft(basis);
+
+        Assert.False(app.NavigateInheritedTeamNote(secondary.Id));
+        Assert.Equal(person.OwnerEmail, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(person.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.PersonNotesView.IsEditing);
+        Assert.Contains("retry or discard", app.Status);
+        app.DiscardUnsavedChanges(person.Id);
+        Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
+        Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(root.OwnerEmail, app.TeamNotesView.OwnerEmail);
+        Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
+        Assert.False(app.TeamNotesView.IsOngoing);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.Equal("", app.TeamNotesView.SelectedNote.Markdown);
+        Assert.Equal(before, app.GetTeamNotes(root.OwnerEmail));
+        Assert.True(app.ConfirmTeamNote(secondary.Id));
+        Assert.False(app.GetTeamNotes(root.OwnerEmail).Single(n => n.Id == secondary.Id).NeedsReview);
+        Assert.True(app.GetTeamNotes(root.OwnerEmail).Single(n => n.Id == root.Id).NeedsReview);
+        Assert.False(app.NavigateInheritedTeamNote(manager.Id));
+        Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote.Id);
+        Assert.Contains("unavailable", app.Status);
+    }
+
+    [Fact]
+    public void Owned_Team_writing_uses_shared_ongoing_interactions_without_redirecting_secondary_or_frozen_search()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var notifications = new List<string?>();
+        app.PropertyChanged += (_, e) => notifications.Add(e.PropertyName);
+        Assert.True(app.NavigatePerson("manager@example.com"));
+        Assert.Empty(app.TeamNotesView.Notes);
+        Assert.Contains("Write a new note", app.TeamNotesView.Feedback);
+        Assert.False(app.TeamNotesView.OtherNotesOpen);
+        var ongoing = app.CreateTeamNote("manager@example.com", "Continuing", "Ordinary Team writing")!;
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, ongoing.Id, editing: true));
+        Assert.True(app.TeamNotesView.IsEditing);
+        var secondary = app.CreateTeamNote(ongoing.OwnerEmail, "Orchid secondary", "")!;
+        Assert.False(app.OpenOngoingNote(NoteScope.Team));
+        Assert.Null(app.TeamNotesView.SelectedNote);
+        Assert.Contains("Choose", app.TeamNotesView.Feedback);
+        app.ShowOtherNotes(NoteScope.Team, true);
+        Assert.True(app.TeamNotesView.OtherNotesOpen);
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, ongoing.Id));
+        Assert.False(app.TeamNotesView.OtherNotesOpen);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.True(app.BeginProfileEdit(ongoing.OwnerEmail));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retained profile"));
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, secondary.Id, editing: true));
+        Assert.True(app.TeamNotesView.IsEditing);
+        Assert.NotNull(app.ProfileEdit);
+        app.CancelProfileEdit();
+        app.ChangePeopleQuery("Orchid");
+        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("Orchid"), r => r.Source == SearchSource.OwnedTeamNote)));
+        Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.False(app.TeamNotesView.IsOngoing);
+        Assert.True(app.EditPersonManager("avery@example.com", "replacement@example.com"));
+        var capture = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
+        Assert.Contains(capture.TeamNotes, n => n.Id == ongoing.Id);
+        Assert.Contains(capture.TeamNotes, n => n.Id == secondary.Id && n.Markdown == "");
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, secondary.Id));
+        Assert.True(app.EditTeamNote(secondary.Id, "Later title", "Later current writing"));
+        Assert.True(app.EditPreferredName(ongoing.OwnerEmail, "Later owner name"));
+        Assert.True(app.EditPersonArchived(ongoing.OwnerEmail, true));
+        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("Orchid"), r => r.Source == SearchSource.HistoricalTeamNote)));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        var result = app.PeopleNavigation.SelectedResult!;
+        Assert.Equal(capture.Id, result.HistoricalContextId);
+        Assert.Equal(secondary.Id, result.NoteId);
+        Assert.Equal("", result.MatchText);
+        Assert.Equal("Manager Example", result.NoteOwner!.Heading);
+        Assert.Equal("Orchid secondary", result.HistoricalContext!.TeamNotes.Single(n => n.Id == secondary.Id).Title);
+        Assert.Contains(nameof(app.TeamNotesView), notifications);
+    }
+
+    [Fact]
     public void Rejected_Team_note_drafts_remain_observable_until_retry_or_note_specific_discard()
     {
         using var app = Open();
