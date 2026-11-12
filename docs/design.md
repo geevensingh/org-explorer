@@ -4,6 +4,11 @@ This document records the design agreed during the project interview. It is a
 specification, not evidence that the app, workflows, or repository rules exist.
 The concrete producer-facing file contract is in [Import format](import-format.md).
 
+The [agreed adaptive UI redesign](ui-design.md) refines the presentation described
+here and adds ongoing-note designation and remembered view preferences. It is
+planned, not implemented. Where presentation differs, use that refinement while
+preserving the ownership, inheritance, import, editing, and data-safety rules here.
+
 ## Product and platform
 
 Build an org explorer with rich person profiles, not a relationship-reminder CRM.
