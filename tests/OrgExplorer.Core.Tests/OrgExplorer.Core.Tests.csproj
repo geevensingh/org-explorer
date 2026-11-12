@@ -22,6 +22,7 @@
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\..\.github\skills\update-org\scripts\ExportSession.cs" Link="OrgExport\ExportSession.cs" />
+    <Compile Include="..\..\.github\skills\update-org\scripts\Capture.cs" Link="OrgExport\Capture.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

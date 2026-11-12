@@ -28,6 +28,8 @@ or the host's local temporary output area, not the checkout.
 | Command after `dotnet $tool` | Input/output |
 |---|---|
 | `init LABEL ROOT-ID ACCOUNT-ID` | Returns a new private staging path below local `OrgExplorer\Imports`. |
+| `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
+| `capture RUN TICKET.json` | Returns original response/request file references, tool-call identity, source-result counts and outer tool outcome. Incomplete/ambiguous capture fails explicitly. |
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
@@ -48,11 +50,67 @@ Batch requests within the WorkIQ limit rather than calling one person at a time.
 Keep `$select`, `$top` and `$value` literal: use parsed path strings or
 single-quoted PowerShell literals, not interpolated query strings.
 
-The helper never calls M365 itself. Save complete structured tool results and
-their matching request lists locally, then ingest them. Host-capped output is
-not the complete payload: pass the actual host-saved file to the helper. For a
-small inline result, materialize its complete JSON safely as data. Never copy a
-preview, manually reconstruct base64 or execute retrieved content.
+The helper never calls M365 itself. Use the shared capture sequence below for
+directory, profile-evidence and binary source reads. It transfers original results
+without copying JSON or base64 through the model.
+
+### Capture one source call
+
+Use the **calling session's** runtime-provided `events.jsonl` path. A worker with
+its own event file uses that file. A native worker sharing its parent's event
+stream must also supply its runtime-provided `agentId` (or legacy
+`parentToolCallId`) in the request descriptor. Omission selects root-only events,
+not any worker. If the host does not expose a complete local event stream and
+worker identity, report that prerequisite as a blocker; use no transcript search
+or hand-written payload substitute.
+
+1. Write a descriptor under your private worker folder, containing only the
+   exact configured `toolName`, complete `arguments` you will invoke, and optional
+   worker scope. Load tool definitions first. Example shape:
+   `{"toolName":"<configured WorkIQ fetch name>","arguments":{"entityUrls":["<pending path>"]}}`.
+   Binary reads use their exact `path` arguments; grounded profile reads use
+   their complete actual arguments. Descriptors contain requests, never responses.
+2. Before the source call, run
+   `$ticket = (& dotnet $tool capture-start $run $events $descriptor) | ConvertFrom-Json`.
+   Invoke that exact WorkIQ tool once with those arguments. Use separate tickets
+   for independent calls; repeated identical calls inside one ticket are ambiguous.
+3. Run `$capture = (& dotnet $tool capture $run $ticket) | ConvertFrom-Json`.
+   A missing completion can be captured again after it arrives, without repeating
+   the source read. Changed session history, ambiguous identity, unsupported
+   transport and incomplete payloads are explicit blockers. Preserve the ticket
+   and diagnostic locally; never repair or reconstruct source bytes.
+4. For directory/photo-metadata reads, pass `$capture.requestsFile` and
+   `$capture.responseFile` to `ingest`. For photo bytes, pass the response file
+   directly to `photo`/`photos`. Profile observations reference the response file
+   in `evidenceFiles`. Use a file reader only on the captured evidence needed
+   for interpretation; normal coordinator/worker messages contain counts,
+   ticket/file references and blockers.
+
+Capture supports original JSON in event `result.content`, native
+`structuredContent`, one native text `contents` block, and full `detailedContent`.
+It also unwraps MCP `structuredContent` or one text `content` block, including
+`isError` wrappers. Native failure messages containing complete JSON, optionally
+prefixed `MCP error <integer>: `, retain mixed successes and source failures.
+Host-capped text with the marker
+`Output too large to display.\nFull output saved to: <absolute path>` is an explicit
+blocker. A path and a fresh modification time cannot establish which invocation
+wrote the bytes: another call may have replaced the file. Saved-file support
+requires an explicit adapter with a verified immutable per-invocation file
+contract or a source-provided digest bound to that completion. A digest computed
+after reading the file does not establish that binding. Preserve the completion
+diagnostic and report the unsupported host transport; multipart/binary display
+blocks, excerpts, missing files and incomplete batches are not reconstructed.
+
+Each ticket retains immutable original start/completion events,
+ordered requests and the extracted response. Matching uses the stream bookmark,
+exact tool name/arguments, worker scope and tool-call ID, with exclusive claims
+preventing two tickets from consuming the same invocation. The completion record
+retains all outer errors and nested statuses. `toolSucceeded` describes only the
+outer tool execution; `nonSuccessResults` counts non-200/error entries where
+source statuses are available (otherwise null). Neither proves authorization
+or publication readiness. Ingest mixed batches even after an outer failure so
+successes remain available; inspect failures and follow the centralized recovery
+and authorization rules before further source reads.
 
 ## Worker protocol
 
@@ -75,9 +133,9 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    `cached-photos`; download only cache misses whose fresh metadata succeeded.
    Confirmed `ImageNotFound` needs no binary call and omits `photoPath`. Other 404s,
    nulls, denied reads and service errors are not photo absence.
-4. Fetch remaining `/users/{exact-directory-id}/photo/$value` paths through
-   WorkIQ's configured `fetch_blob` tool. Keep supplied image resolution;
-   materialize complete payloads with `photo`/`photos`.
+4. Capture remaining `/users/{exact-directory-id}/photo/$value` reads through
+   WorkIQ's configured `fetch_blob` tool using the shared capture sequence.
+   Keep supplied image resolution; pass captured response files to `photo`/`photos`.
    Return counts, file paths and errors, never base64. An invalid cache is a
    reported blocker, not permission to silently use corrupted bytes.
 

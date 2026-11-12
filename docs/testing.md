@@ -65,6 +65,16 @@ safe-close/restart becoming available only when no other writing remains.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
+`OrgExportTests` covers the local producer's public capture and
+Ingest/Profile/Photo seams using fictitious session events and synthetic PNG bytes.
+The required core lane compiles the bundled capture helper into those tests;
+it verifies exact ordered request correlation, native/MCP/error-wrapped
+payloads, shared-stream worker isolation, retained partial successes, explicit
+incomplete-result blockers, rejection of unverified host-saved references
+(including files replaced after completion), and unchanged photo
+length/content/hash validation.
+It performs no live WorkIQ reads or desktop automation.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,

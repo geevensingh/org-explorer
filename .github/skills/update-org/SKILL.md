@@ -27,7 +27,10 @@ Use current source results, not any previous conversation or employee fixture.
 
 ## 2. Establish the complete reporting subtree
 
-Use helper-generated pending paths and ingest complete structured WorkIQ results.
+Use helper-generated pending paths and the shared
+[capture sequence](collection.md#capture-one-source-call) to ingest original
+structured WorkIQ results. Use the same capture path for profile evidence and
+photo downloads; normal output is counts and local references, not source payloads.
 Traverse every direct-report page, including leaves and excluded accounts.
 Follow the root's Manager chain to its sourced endpoint; ancestors supply context,
 not permission to enumerate their other reports.
