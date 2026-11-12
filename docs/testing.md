@@ -122,6 +122,10 @@ preserved pane proportions, locked/corrupt/unsupported/invalid preferences and
 missing/archived targets. The secondary-draft file-backed regression runs for
 both scopes, retaining exact editing and delivered bytes on rejected ongoing
 navigation. No preference write changes synchronized Workspace schema.
+The later-owner regression retains a failed preference until deliberate
+designation succeeds, then verifies that choice survives archival/reopen.
+Both Team/history desktop selections explicitly record the reviewed owner's
+ongoing choice before asserting unavailable-choice feedback after archival.
 
 Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
 and its navigation/query/browsing operations. Focused cases preserve an exact
@@ -241,7 +245,8 @@ and delivered bytes. It is not rendered-layout or actual keyboard evidence.
 It additionally drives actual compiled owned-Team create/read/designate/Other
 controls, an exact empty secondary note, a locked preference rejection and a
 failed secondary-note save with protected ongoing navigation and successful
-retry. These invisible checks do not show/focus WPF or prove rendered geometry.
+retry, then deliberate preference recovery and archived-choice feedback.
+These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on the folder, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged

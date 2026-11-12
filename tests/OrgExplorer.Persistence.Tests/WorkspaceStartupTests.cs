@@ -12,6 +12,58 @@ public sealed class WorkspaceStartupTests : IDisposable
     private string Preferences => Path.Combine(root, "app-settings", "workspace-settings.json");
 
     [Fact]
+    public void A_later_owner_can_record_a_Team_choice_after_preference_failure_and_retain_it_through_archival()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace));
+        var first = app.CreateTeamNote("avery@example.com", "Continuing Team", "Saved writing")!;
+        var other = app.CreateTeamNote(first.OwnerEmail, "Secondary Team", "")!;
+        Assert.True(app.NavigatePerson(first.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, first.Id));
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, other.Id));
+        using (File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.False(app.DesignateOngoingNote(NoteScope.Team, other.Id));
+        Assert.Contains("NOT saved", app.TeamNotesView.Feedback);
+        Assert.True(app.ApplyImport(app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"61000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null}]}
+            """).Id));
+        Assert.True(app.NavigatePerson("morgan@example.com"));
+        var later = app.CreateTeamNote("morgan@example.com", "Morgan context", "# Frozen direct\nOriginal direct")!;
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, later.Id));
+        Assert.Null(settings.GetOngoingNote(workspace, NoteScope.Team, later.OwnerEmail));
+        Assert.Null(app.TeamNotesView.OngoingNoteId);
+        Assert.Contains("NOT saved", app.TeamNotesView.Feedback);
+        var before = WorkspaceFixtures.Bytes(workspace);
+        Assert.True(app.DesignateOngoingNote(NoteScope.Team, later.Id), app.TeamNotesView.Feedback);
+        Assert.True(app.TeamNotesView.IsOngoing);
+        Assert.Null(settings.PreferenceError);
+        AssertWorkspaceBytes(workspace, before);
+        var durable = new WorkspaceSettings(Preferences);
+        Assert.Equal(first.Id, durable.GetOngoingNote(workspace, NoteScope.Team, first.OwnerEmail));
+        Assert.Equal(later.Id, durable.GetOngoingNote(workspace, NoteScope.Team, later.OwnerEmail));
+        Assert.True(app.ArchiveTeamNote(later.Id));
+        Assert.False(app.OpenOngoingNote(NoteScope.Team));
+        Assert.Null(app.TeamNotesView.SelectedNote);
+        Assert.Contains("unavailable or archived", app.TeamNotesView.Feedback);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(Preferences));
+        Assert.True(reopened.OpenWorkspace(workspace));
+        Assert.True(reopened.NavigatePerson(later.OwnerEmail));
+        Assert.Null(reopened.TeamNotesView.SelectedNote);
+        Assert.Equal(later.Id, reopened.TeamNotesView.OngoingNoteId);
+        Assert.Contains("unavailable or archived", reopened.TeamNotesView.Feedback);
+        Assert.True(reopened.OpenOwnedNote(NoteScope.Team, later.Id));
+        Assert.True(reopened.TeamNotesView.SelectedNote!.Archived);
+        Assert.True(reopened.ArchiveTeamNote(later.Id, false));
+        Assert.True(reopened.OpenOngoingNote(NoteScope.Team));
+        Assert.Equal(later.Markdown, reopened.TeamNotesView.SelectedNote!.Markdown);
+    }
+
+    [Fact]
     public void Pane_percentages_reopen_per_Workspace_and_survive_interleaved_ongoing_and_startup_updates()
     {
         var first = Path.Combine(root, "first");

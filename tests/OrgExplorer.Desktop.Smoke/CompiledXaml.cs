@@ -336,6 +336,16 @@ internal static partial class Program
         if (Control<TextBox>("MarkdownEditor").Text != "Saved Team writing" ||
             Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("Explicit ongoing navigation did not return to saved Team reading after retry.");
+        Invoke("DesignateButton");
+        PumpUntil(() => Control<TextBlock>("OngoingStatus").Text.Length == 0 &&
+            Control<TextBlock>("NoteKind").Text == "Ongoing Team note");
+        Invoke("ArchiveButton");
+        try { PumpUntil(() => Control<TextBlock>("OngoingStatus").Text.Contains("unavailable or archived", StringComparison.Ordinal)); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("Archived Team choice feedback did not settle: " +
+                Control<TextBlock>("OngoingStatus").Text + "; " + Control<TextBlock>("NoteStatus").Text, error);
+        }
         Console.WriteLine("PASS: actual compiled owned Team interactions retain ambiguous choice, exact empty notes, preference failures and protected drafts without showing a window.");
     }
 
