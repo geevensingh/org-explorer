@@ -143,6 +143,12 @@ bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
 600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
 divider effects, wide/compact/wide and actual reopen proportions, and real
 reporting-tree expansion/scroll restoration during persistent and overlay search.
+Wide browsing setup expands its fixture branch only if needed. Compact setup
+only observes the already-restored expanded state: it never reissues Expand or
+repairs lost expansion before measuring scroll/search restoration. Runner
+regressions replay the observed external provider's redundant-expansion side
+effect and require collapsed restored state to fail, not be silently repaired.
+These are harness-action contracts, not a local reproduction of native WPF focus.
 The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
 with the exact failed Person-note editor retained and actionable feedback.
 Selection helpers deliberately open compact browsing when needed; they do not

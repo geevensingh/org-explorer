@@ -295,7 +295,8 @@ internal static partial class Program
             EnsurePeopleBrowsing(window);
             var manager = Find(Find(window, "People"), "morgan@example.com");
             var branch = (ExpandCollapsePattern)manager.GetCurrentPattern(ExpandCollapsePattern.Pattern);
-            branch.Expand();
+            TreeItemRealization.AwaitExpanded(initializeBranch: !compact,
+                () => branch.Current.ExpandCollapseState == ExpandCollapseState.Expanded, branch.Expand, Await);
             var scroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
             if (!scroll.Current.VerticallyScrollable)
                 throw new InvalidOperationException("The representative browse fixture did not exercise a real reporting-tree viewport.");
