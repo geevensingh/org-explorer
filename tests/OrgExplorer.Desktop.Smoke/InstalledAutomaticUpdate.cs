@@ -44,13 +44,14 @@ internal static partial class Program
             {
                 window = Window(restarted);
                 Await(() => Find(window, "UpdateSummary").Current.Name.Contains($"installation confirmed by running version {args[4]}"));
+                SetSettingsVisible(window, true);
                 AssertValue(window, "WorkspacePath", Path.GetFullPath(args[1]));
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 AssertInstallerWorkspace(window);
                 SelectNote(window, "Automatic update safe local writing");
                 SelectTab(window, "PersonNoteEditTab");
                 AssertValue(window, "PersonNoteMarkdown", "Final installed-app writing before automatic restart.");
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, true);
                 Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("up to date"));
                 if (!Find(window, "CheckForUpdates").Current.IsEnabled)
                     throw new InvalidOperationException("Same installed version re-entered automatic download/restart.");

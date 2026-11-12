@@ -16,13 +16,14 @@ internal static partial class Program
         {
             var window = Window(process);
             Await(() => Find(window, "Status").Current.Name == "Choose a Workspace.");
+            AssertEverydayChrome(window, "No Workspace open");
+            SetSettingsVisible(window, true);
             AssertValue(window, "WorkspacePath", "");
             if (!Find(window, "OpenWorkspace").Current.IsEnabled)
                 throw new InvalidOperationException("First launch did not leave usable Workspace-opening controls.");
-            Click(window, "OpenSettings");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
-            Click(window, "OpenSettings");
+            SetSettingsVisible(window, false);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
@@ -53,15 +54,15 @@ internal static partial class Program
             if (Find(window, "ApplyImport").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
             ReturnToPeople(window);
-            Click(window, "OpenSettings");
+            SetSettingsVisible(window, true);
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
             AssertNoFakeUpdater(window);
             Click(window, "RetryWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
             AssertWorkspaceBytes(workspace, before);
             File.WriteAllBytes(pointer, compatible);
+            SetSettingsVisible(window, false);
             Await(() => Find(window, "PreferredName").Current.IsEnabled);
-            Click(window, "OpenSettings");
             Close(process);
         }
         finally
@@ -82,8 +83,9 @@ internal static partial class Program
             {
                 Click(window, "OpenWorkspace");
                 Await(() => Find(window, "Status").Current.Name.Contains("conversion failed"));
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, true);
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
+                SetSettingsVisible(window, false);
                 if (Find(window, "EditPreferredName").Current.IsEnabled)
                     throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
                 OpenImportView(window);
@@ -94,9 +96,10 @@ internal static partial class Program
                     if (!bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(recoveryWorkspace, path))))
                         throw new InvalidOperationException("Failed migration replaced original " + path);
             }
+            SetSettingsVisible(window, true);
             Click(window, "RetryWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
-            Click(window, "OpenSettings");
+            SetSettingsVisible(window, false);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             Close(recovery);
@@ -182,11 +185,12 @@ internal static partial class Program
 
     private static void AwaitRestoredWorkspace(AutomationElement window, string workspace)
     {
+        SetSettingsVisible(window, false);
         WorkspaceRestoration.AssertRestored(() =>
         {
             var recovery = window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
-            return new(Value(window, "WorkspacePath"), Find(window, "WorkflowActivity").Current.Name,
+            return new(Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkflowActivity").Current.Name,
                 Find(window, "WorkspaceFreshness").Current.Name, Find(window, "Email").Current.Name,
                 recovery?.Current.IsOffscreen);
         }, Path.GetFullPath(workspace), Await);
