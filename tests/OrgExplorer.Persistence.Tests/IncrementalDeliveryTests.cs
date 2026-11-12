@@ -193,13 +193,28 @@ public sealed class IncrementalDeliveryTests : IDisposable
                     Assert.False(app.EditPreferredName(Email, "Unsafe overwrite"));
                 }
             }
-            AssertPreserved(before);
+            if (!complete) AssertPreserved(before);
+            else
+            {
+                foreach (var source in documents.Values.Append(Path.Combine(producerFolder, "workspace.json")))
+                    Assert.Equal(File.ReadAllBytes(source),
+                        File.ReadAllBytes(Path.Combine(Folder, Path.GetRelativePath(producerFolder, source))));
+                foreach (var source in stages["index"])
+                {
+                    var target = Path.Combine(Folder, Path.GetRelativePath(producerFolder, source));
+                    if (File.Exists(target)) Assert.Equal(File.ReadAllBytes(source), File.ReadAllBytes(target));
+                }
+                Assert.DoesNotContain("maintenance incomplete", app.LocalSaveError);
+            }
         }
         Assert.True(app.IsWorkspaceCurrent);
         Assert.Equal(3, app.People.Count);
         Assert.Equal("Delivered engineer", app.GetRelationships(Email)!.Person.JobTitle);
         Assert.Single(app.GetProfileTimeline(Email)!.Changes);
         Assert.Equal(Png, app.GetPhoto("riley@example.com")!.Bytes.ToArray());
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges();
+        Assert.True(app.CanSafelyClose, app.Status);
         using var reopened = Reopen();
         Assert.Equal(3, reopened.People.Count);
         Assert.Equal("morgan@example.com", reopened.GetRelationships("riley@example.com")!.Manager!.Email);

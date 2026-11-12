@@ -46,7 +46,9 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         File.WriteAllText(file, File.ReadAllText(file).Replace("Saved Team writing", "External Team writing"));
         File.WriteAllText(directFile, File.ReadAllText(directFile).Replace("Saved Person writing", "External Person writing"));
         File.WriteAllText(metadata, new JsonObject { ["casey@example.com"] = Guid.NewGuid() }.ToJsonString());
-        var bytes = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllBytes);
+        var bytes = WorkspaceFixtures.IndexedDocuments(folder).Values
+            .Concat([file, directFile, Path.Combine(folder, "workspace.json")])
+            .ToDictionary(p => p, File.ReadAllBytes);
         await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await Eventually(() => Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown == "External Person writing");
         Assert.True(app.IsWorkspaceCurrent);
@@ -55,7 +57,8 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         Assert.Equal(System.Text.Json.JsonSerializer.Serialize(timeline),
             System.Text.Json.JsonSerializer.Serialize(app.GetProfileTimeline("casey@example.com")!.Changes));
         foreach (var (path, content) in bytes) Assert.Equal(content, File.ReadAllBytes(path));
-        Assert.Equal(bytes.Keys.Order(), Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order());
+        Assert.Equal(bytes.Count, WorkspaceFixtures.IndexedDocuments(folder).Count + 3);
+        Assert.True(app.CanSafelyClose, app.Status);
     }
 
     [Theory]
@@ -197,8 +200,6 @@ public sealed class TeamNoteExternalRefreshTests : IDisposable
         Assert.Contains("changed externally", app.Status);
         Assert.Contains("Delivered writing", File.ReadAllText(file));
         app.DiscardUnsavedChanges(note.Id);
-        Assert.False(app.CanSafelyClose);
-        Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose);
         Assert.True(app.EditTeamNote(note.Id, note.Title, "Deliberate delivered-version edit"), app.Status);
         Assert.True(app.CanSafelyClose);

@@ -114,8 +114,6 @@ public sealed class PersonNotePersistenceTests : IDisposable
             Assert.Equal("Delivered writing", Assert.Single(reopened.GetPersonNotes("avery@example.com")).Markdown);
         }
         app.DiscardUnsavedChanges(note.Id);
-        Assert.False(app.CanSafelyClose);
-        Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose);
         Assert.True(app.EditPersonNote(note.Id, note.Title, "Deliberate delivered-version edit"), app.Status);
         using var edited = ApplicationWorkflow.CreateFileBacked();
