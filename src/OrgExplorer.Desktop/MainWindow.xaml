@@ -140,7 +140,7 @@
         <ColumnDefinition Width="75*"/>
       </Grid.ColumnDefinitions>
       <GroupBox x:Name="PeoplePanel" Header="People" BorderThickness="0" Padding="0" Background="#FAFBFC"
-                AutomationProperties.AutomationId="PeopleNavigation" KeyboardNavigation.TabNavigation="Cycle">
+                AutomationProperties.AutomationId="PeopleNavigation">
       <Grid Margin="0,0,8,0">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Button x:Name="ClosePeopleButton" Content="Close People" HorizontalAlignment="Right"

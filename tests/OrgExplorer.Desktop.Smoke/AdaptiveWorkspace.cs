@@ -93,6 +93,7 @@ internal static partial class Program
                 if (before != after || Bounds("PeopleNavigation").Width / scale > 361)
                     throw new InvalidOperationException($"People overlay moved or narrowed the Person workspace: {before} -> {after}.");
                 Find(window, "ClosePeople").SetFocus();
+                Await(() => Find(window, "ClosePeople").Current.HasKeyboardFocus);
                 PressCopyKey(0x1B);
                 Await(() => !Visible("People") && Find(window, "OpenPeople").Current.HasKeyboardFocus);
                 if (profile.Left > notes.Left + 2 || profile.Top >= notes.Top)
@@ -154,7 +155,22 @@ internal static partial class Program
         var previousPeople = Bounds("PeopleNavigation").Width;
         PressCopyKey(0x27);
         Await(() => Bounds("PeopleNavigation").Width > previousPeople + 5 * scale);
+        host = Bounds("AdaptiveWorkspace");
+        DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * .27);
+        Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - 27) < 1);
+        var profile = Bounds("ProfileSummary");
+        var notes = Bounds("NotesPane");
+        DragDivider(window, "ProfileDivider", profile.Left + (profile.Width + notes.Width) * .36);
+        Await(() => Math.Abs(RenderedPaneProportions(window).ProfilePercent - 36) < 1);
         var preferred = RenderedPaneProportions(window);
+        var widePeopleWidth = Bounds("PeopleNavigation").Width;
+        Resize(1100, 900);
+        AtSize(true);
+        var resized = RenderedPaneProportions(window);
+        if (Math.Abs(preferred.PeoplePercent - resized.PeoplePercent) > .5 ||
+            Math.Abs(preferred.ProfilePercent - resized.ProfilePercent) > .5 ||
+            Math.Abs(Bounds("PeopleNavigation").Width - widePeopleWidth) < 10 * scale)
+            throw new InvalidOperationException("Wide resizing retained pixels instead of the user's percentage proportions.");
         Resize(700, 500);
         AtSize(false);
         reading = Find(window, "PersonNoteReading");

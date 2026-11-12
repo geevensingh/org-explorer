@@ -126,6 +126,8 @@ public partial class MainWindow
         ShowStatus();
         _ = Dispatcher.BeginInvoke(() =>
         {
+            if (ExplorerPanel.Visibility != Visibility.Visible || workflow.PeopleNavigation.OverlayOpen ||
+                selectedMatch is null || !SameSearchDestination(result, selectedMatch)) return;
             FocusManager.SetFocusedElement(this, SearchContextText);
             if (IsVisible) SearchContextText.Focus();
         }, System.Windows.Threading.DispatcherPriority.Input);

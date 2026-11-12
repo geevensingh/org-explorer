@@ -178,6 +178,7 @@ public partial class MainWindow
         PeoplePanel.Visibility = wideWorkspace || overlay ? Visibility.Visible : Visibility.Collapsed;
         PeoplePanel.Width = wideWorkspace ? double.NaN : Math.Min(360, ExplorerPanel.ActualWidth);
         PeoplePanel.HorizontalAlignment = wideWorkspace ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        KeyboardNavigation.SetTabNavigation(PeoplePanel, overlay ? KeyboardNavigationMode.Cycle : KeyboardNavigationMode.Continue);
         Grid.SetColumnSpan(PeoplePanel, wideWorkspace ? 1 : 3);
         Panel.SetZIndex(PeoplePanel, overlay ? 20 : 0);
         PeopleDismissSurface.Visibility = overlay ? Visibility.Visible : Visibility.Collapsed;

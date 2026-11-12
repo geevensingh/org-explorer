@@ -70,6 +70,8 @@ internal static partial class Program
             foreach (var name in new[] { "WorkspaceSurface", "PeoplePanel", "ProfileSummary", "NotesPane" })
                 if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
                     failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
+            if (KeyboardNavigation.GetTabNavigation((DependencyObject)window.FindName("PeoplePanel")) == KeyboardNavigationMode.Cycle)
+                failures.Add("People must not trap Tab navigation when no compact overlay is open.");
             var personNotes = (FrameworkElement)window.FindName("PersonNotes");
             var noteList = (ListBox)personNotes.FindName("NotesList");
             var surfacePeer = UIElementAutomationPeer.CreatePeerForElement(personNotes);
