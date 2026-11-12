@@ -148,10 +148,11 @@ public sealed partial class ApplicationWorkflow
     }
 
     private static IncrementalGraph RecoveryDocuments(string root, RecoverySelector metadata,
-        IReadOnlyDictionary<string, byte[]>? bytes = null)
+        IReadOnlyDictionary<string, byte[]>? bytes = null, Dictionary<string, byte[]>? capturedIndexes = null)
     {
         using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
-        var graph = ResolveIncrementalGraph(root, JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions), bytes);
+        var graph = ResolveIncrementalGraph(root, JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions),
+            bytes, capturedIndexes);
         if (!metadata.NoteRoots.Keys.Order().SequenceEqual(new[] { "personNotes", "teamNotes" }))
             throw new FormatException("Incomplete recovery note roots.");
         foreach (var (family, reference) in metadata.NoteRoots)
@@ -163,7 +164,7 @@ public sealed partial class ApplicationWorkflow
             {
                 if (!graph.Paths.Add(IncrementalReference(root, relative)))
                     throw new FormatException("Duplicate recovery index reference.");
-                var node = ReadIndexNode(root, relative, family, prefix, bytes);
+                var node = ReadIndexNode(root, relative, family, prefix, bytes, capturedIndexes);
                 if (node.Entries is { } entries)
                     foreach (var (key, value) in entries)
                     {
@@ -208,12 +209,13 @@ public sealed partial class ApplicationWorkflow
                 receipt.Publication != metadata.Publication)
                 throw new FormatException("Recovery does not match its committed receipt.");
         }
-        var graph = RecoveryDocuments(root, metadata);
+        var indexes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var graph = RecoveryDocuments(root, metadata, capturedIndexes: indexes);
         var captured = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         RunBoundedFileIo(graph.Paths, path =>
         {
             RejectStoragePathLinks(path);
-            var data = ReadWorkspaceBytesUncached(path);
+            var data = indexes.TryGetValue(path, out var indexBytes) ? indexBytes : ReadWorkspaceBytesUncached(path);
             var seal = path + ".sha256";
             RejectWorkspaceLink(seal);
             if (Encoding.ASCII.GetString(ReadWorkspaceBytesUncached(seal)) != ByteDigest(data))

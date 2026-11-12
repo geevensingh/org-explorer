@@ -112,8 +112,10 @@ public sealed partial class ApplicationWorkflow
         }
         void ProtectCurrentCandidate(byte[] selector)
         {
-            var graph = ResolveIncrementalGraph(workspace!, selector);
-            var bytes = graph.Paths.ToDictionary(path => path, ReadWorkspaceBytesUncached, StringComparer.OrdinalIgnoreCase);
+            var bytes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            var graph = ResolveIncrementalGraph(workspace!, selector, capturedIndexes: bytes);
+            foreach (var path in graph.Paths)
+                if (!bytes.ContainsKey(path)) bytes.Add(path, ReadWorkspaceBytesUncached(path));
             ProtectGraph(ResolveIncrementalGraph(workspace!, selector, bytes), false, bytes);
         }
         Guard(pending);

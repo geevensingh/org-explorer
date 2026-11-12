@@ -20,10 +20,11 @@ public sealed partial class ApplicationWorkflow
 
     private Dictionary<string, byte[]> CaptureWorkspaceBytes()
     {
-        var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        var paths = EnumerateIncrementalWorkspaceFiles(workspace!)
+        var indexes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var paths = EnumerateIncrementalWorkspaceFiles(workspace!, indexes)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).ToArray();
-        RunBoundedFileIo(paths, path =>
+        var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(indexes, StringComparer.OrdinalIgnoreCase);
+        RunBoundedFileIo(paths.Where(path => !indexes.ContainsKey(path)), path =>
         {
             RejectStoragePathLinks(path);
             bytes[path] = ReadWorkspaceBytesUncached(path);

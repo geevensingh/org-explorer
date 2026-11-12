@@ -68,12 +68,14 @@ public sealed partial class ApplicationWorkflow
     }
 
     private static IndexNode ReadIndexNode(string root, string relative, string family, string prefix,
-        IReadOnlyDictionary<string, byte[]>? bytes = null)
+        IReadOnlyDictionary<string, byte[]>? bytes = null, Dictionary<string, byte[]>? capturedIndexes = null)
     {
         using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
         var path = IncrementalPath(root, relative);
-        using var json = JsonDocument.Parse(bytes is null ? ReadWorkspaceBytesUncached(path) :
-            bytes.TryGetValue(path, out var value) ? value : throw new IOException("Workspace index is unavailable."));
+        var indexBytes = bytes is null ? ReadWorkspaceBytesUncached(path) :
+            bytes.TryGetValue(path, out var value) ? value : throw new IOException("Workspace index is unavailable.");
+        capturedIndexes?.Add(path, indexBytes);
+        using var json = JsonDocument.Parse(indexBytes);
         RequireVersion(json.RootElement, "Workspace index", [1]);
         CheckProperties(json.RootElement, ["schemaVersion", "family", "entries", "children"], "Workspace index");
         var node = json.RootElement.Deserialize<IndexNode>(JsonOptions)
@@ -109,7 +111,7 @@ public sealed partial class ApplicationWorkflow
         Dictionary<string, Dictionary<string, string>> Documents, HashSet<string> Paths);
 
     private static IncrementalGraph ResolveIncrementalGraph(string root, byte[] selector,
-        IReadOnlyDictionary<string, byte[]>? bytes = null)
+        IReadOnlyDictionary<string, byte[]>? bytes = null, Dictionary<string, byte[]>? capturedIndexes = null)
     {
         using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
         var metadata = ReadIncrementalMetadata(selector);
@@ -124,7 +126,7 @@ public sealed partial class ApplicationWorkflow
             {
                 var path = IncrementalReference(root, relative);
                 if (!graph.Paths.Add(path)) throw new FormatException("Duplicate or cyclic Workspace index reference.");
-                var node = ReadIndexNode(root, relative, family, prefix, bytes);
+                var node = ReadIndexNode(root, relative, family, prefix, bytes, capturedIndexes);
                 if (node.Entries is { } entries)
                     foreach (var (key, document) in entries)
                     {
@@ -139,14 +141,15 @@ public sealed partial class ApplicationWorkflow
         return graph;
     }
 
-    private static IEnumerable<string> EnumerateIncrementalWorkspaceFiles(string root)
+    private static IEnumerable<string> EnumerateIncrementalWorkspaceFiles(string root,
+        Dictionary<string, byte[]>? capturedIndexes = null)
     {
         RejectWorkspaceLink(root);
         var pointer = Path.Combine(root, "workspace.json");
         if (File.Exists(pointer))
         {
             RejectWorkspaceLink(pointer);
-            var graph = ResolveIncrementalGraph(root, ReadWorkspaceBytesUncached(pointer));
+            var graph = ResolveIncrementalGraph(root, ReadWorkspaceBytesUncached(pointer), capturedIndexes: capturedIndexes);
             foreach (var path in graph.Paths) yield return path;
         }
         // Retired objects and transactions are not current data. Unknown ordinary files

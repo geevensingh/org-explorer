@@ -117,9 +117,10 @@ complete, while ambiguous intent/candidate/receipt failures, changed superseded
 bytes, unknown/conflict files and historical photos remain protected. These are
 small required filesystem cases, not legacy cleanup,
 desktop or supported-population scale evidence.
-Recovery-selector-only delivery after validation also suspends cleanup without
-deleting the previously selected independent graph; retry protects the committed
-current state without replay.
+Recovery-selector, object, index and seal delivery after validation also suspends
+cleanup without deleting the previously selected independent graph; retry protects
+the committed current state without replay. Same-capture index-byte reuse must
+not hide changed index or seal bytes from the next publication/deletion guard.
 The reviewed 128-Person publication also bounds ownership-file count and proves
 each inventory batch is durably flushed before any corresponding payload write,
 then corrupts current documents and restores the independently expected population.

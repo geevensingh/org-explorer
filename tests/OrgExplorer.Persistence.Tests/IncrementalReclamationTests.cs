@@ -271,6 +271,8 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     [InlineData("selector")]
     [InlineData("object")]
     [InlineData("seal")]
+    [InlineData("index")]
+    [InlineData("index-seal")]
     public void Recovery_delivery_after_validation_cannot_be_blessed_by_the_cleanup_root_census(string delivery)
     {
         var current = Path.Combine(folder, "current");
@@ -284,8 +286,10 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         var priorSelector = File.ReadAllBytes(selected);
         var priorBytes = SelectedClosure(current).ToDictionary(path => path, File.ReadAllBytes);
         var deliveredPath = delivery == "selector" ? selected :
-            Directory.GetFiles(Path.Combine(current, "recovery", "documents", "acceptedBatches"), "*.json").Single() +
-                (delivery == "seal" ? ".sha256" : "");
+            delivery is "index" or "index-seal" ? Path.Combine(current, "recovery",
+                JsonNode.Parse(priorSelector)!["workspace"]!["roots"]!["acceptedBatches"]!.GetValue<string>()) :
+            Directory.GetFiles(Path.Combine(current, "recovery", "documents", "acceptedBatches"), "*.json").Single();
+        if (delivery is "seal" or "index-seal") deliveredPath += ".sha256";
         var originalBytes = File.ReadAllBytes(deliveredPath);
         var deliveredBytes = delivery == "selector" ? priorSelector : originalBytes.Concat(new byte[] { 32 }).ToArray();
         publisher.BeforePublish = (_, destination) =>
