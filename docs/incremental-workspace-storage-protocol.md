@@ -42,8 +42,9 @@ bytes and reject links. No timestamps or cross-operation validation cache
 substitute for those checks.
 
 `SaveIncrementally` writes a durable transaction intent before creating
-objects. Each new document/index node has its own durable creation inventory
-record (relative location, byte length and digest). It flushes and validates
+objects. Each new document/index node has its own creation inventory entry
+(relative location, byte length and digest). At most 32 entries share one
+immutable, durably flushed inventory file. It flushes and validates
 the candidate, rechecks the complete base and producer resources, then publishes
 the staged selector through the existing publisher. The accepted revision is
 the validated base plus the operation's own bytes, not a post-publication reread.
@@ -52,8 +53,9 @@ failure reports saved locally with incomplete maintenance and blocks safe close,
 rather than inviting the edit to be repeated as if it were unsaved.
 
 Independent object inventories and staged payloads use bounded parallel I/O.
-Each worker durably records its inventory, flushes its staged payload and
-publishes that immutable object before starting another. This bounds outstanding
+Each worker durably records one bounded inventory batch before writing any of
+its payloads, then flushes and publishes each immutable object before starting
+another. This bounds outstanding
 payload stages rather than accumulating the population in a staging directory.
 All required objects finish and complete candidate validation still precedes
 serialized selector publication.
@@ -133,10 +135,14 @@ ambiguous, not proof of abortion. Recovery selection alone releases none of thos
 roots; the #46 retirement protocol below supplies that separate decision.
 
 Current inventories remain `created-<number>.json`. Recovery inventories are
-`created-recovery-<number>.json`, with `path`, `stagingPath`, byte length and digest
-written before the corresponding staged payload. Both locations are relative
+`created-recovery-<number>.json`. A version-2 inventory envelope has exactly
+`schemaVersion` and `objects`; its 1-32 version-1 entries each contain exactly
+`schemaVersion`, `path`, `stagingPath`, `bytes` and `digest`. The complete envelope
+is durable before any corresponding staged payload. Both locations are relative
 to the Workspace, including the `recovery` prefix. Recovery documents, nodes and
-seal files each have their own record. Selector/receipt stages remain inside
+seal files each have their own entry. Existing scalar version-1 inventories from
+interrupted version-3 operations remain readable without rewriting them; this
+does not enable older Workspace formats or conversion. Selector/receipt stages remain inside
 their owning transaction; payloads stage at unique `.next` paths beside their
 final recovery documents/indexes, as recorded in their inventories. Previously
 recorded `recovery\<id>.next` stages remain protected and classifiable.
@@ -159,6 +165,11 @@ revision, recovery-envelope digest, and digests of that transaction's creation
 inventories and known intent/selector/candidate/receipt/previous-recovery files.
 The record is proportional to the operation, never the population on an ordinary
 edit. Existing ownership/retirement records are not rewritten on subsequent saves.
+Reclamation treats entries independently and retains an unchanged inventory file
+while any entry remains protected. Already removed entries may name absent files
+on retry. The inventory is released only when no entry needs protection; partial
+progress never rewrites ownership evidence. Individual file deletion still uses
+the same complete guarded boundaries of at most 32 deletions.
 
 Retirement releases that transaction's candidate and recovery-transition roots,
 not any current or selected-recovery objects. Every pass recomputes:

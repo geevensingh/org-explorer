@@ -41,7 +41,6 @@ public sealed partial class ApplicationWorkflow
 
     private static byte[] ReadWorkspaceBytesUncached(string path)
     {
-        Storage47Probe.Read();
         using var file = OpenWorkspaceRead(path);
         using var bytes = new MemoryStream();
         file.CopyTo(bytes);

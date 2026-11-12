@@ -21,6 +21,63 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         """;
 
     [Fact]
+    public void Reviewed_population_publication_bounds_durable_ownership_files_and_preserves_independent_recovery()
+    {
+        var current = Path.Combine(folder, "current");
+        var observer = new RecordingObserver();
+        var publisher = new InspectingPublisher();
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        observer.Effects.Clear();
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (destination != Path.Combine(current, "workspace.json")) return;
+            var effects = observer.Effects.ToArray();
+            foreach (var record in effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write &&
+                Path.GetFileName(e.Path).StartsWith("created-", StringComparison.Ordinal)))
+            {
+                var flush = Array.FindIndex(effects, e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == record.Path);
+                var objects = InventoryObjects(File.ReadAllBytes(record.Path)).ToArray();
+                Assert.InRange(objects.Length, 1, 32);
+                foreach (var item in objects)
+                {
+                    var staged = Path.Combine(current, item["stagingPath"]!.GetValue<string>());
+                    var write = Array.FindIndex(effects, e => e.Kind == WorkspaceFileEffectKind.Write && e.Path == staged);
+                    Assert.True(flush >= 0 && write > flush, "Ownership must be durable before its first payload write.");
+                }
+            }
+        };
+        var import = JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, batchId = "46000000-0000-4000-8000-000000000004",
+            observedAt = "2026-11-02T17:00:00Z",
+            people = Enumerable.Range(0, 128).Select(i => new
+            {
+                email = $"person{i}@example.com", displayName = $"Person {i}", jobTitle = "Engineer",
+                managerEmail = (string?)null
+            })
+        });
+        var preview = app.PreviewImport(import);
+        Assert.True(preview.CanApply, string.Join("; ", preview.Errors));
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        Assert.True(app.CanSafelyClose, app.LocalSaveError);
+        var inventoryWrites = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write &&
+            Path.GetFileName(e.Path).StartsWith("created-", StringComparison.Ordinal)).ToArray();
+        Assert.True(inventoryWrites.Length <= 64,
+            $"A 128-Person publication created {inventoryWrites.Length} individual ownership files.");
+        Assert.All(inventoryWrites, write => Assert.Contains(observer.Effects,
+            e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
+        foreach (var path in WorkspaceFixtures.IndexedDocuments(current).Values)
+            File.WriteAllText(path, "damaged current bytes");
+        Assert.False(app.RefreshWorkspace());
+        Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);
+        Assert.Equal(128, app.People.Count);
+        Assert.Equal("Person 127", app.GetRelationships("person127@example.com")!.Person.DirectoryName);
+        Assert.Equal("Engineer", app.GetRelationships("person0@example.com")!.Person.JobTitle);
+        Assert.Contains("no-op", Assert.Single(app.PreviewImport(import).Changes));
+    }
+
+    [Fact]
     public void Dozens_of_edits_reclaim_redundant_versions_without_losing_history_context_or_independent_recovery()
     {
         var current = Path.Combine(folder, "current");
@@ -133,7 +190,8 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
                     obsolete = Directory.GetDirectories(Path.Combine(current, "transactions"))
                         .Where(path => File.Exists(Path.Combine(path, "retired.json")))
                         .SelectMany(path => Directory.GetFiles(path, "created-*.json"))
-                        .Select(path => Path.Combine(current, JsonNode.Parse(File.ReadAllBytes(path))!["path"]!.GetValue<string>()))
+                        .SelectMany(path => InventoryObjects(File.ReadAllBytes(path)))
+                        .Select(inventory => Path.Combine(current, inventory["path"]!.GetValue<string>()))
                         .Last(path => File.Exists(path) && !protectedPaths.Contains(path));
                     held = new FileStream(obsolete, FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
@@ -333,6 +391,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     [InlineData("candidate")]
     [InlineData("recovery-object")]
     [InlineData("receipt")]
+    [InlineData("legacy-inventory")]
     public void Ambiguous_interrupted_transactions_keep_their_inventories_stages_and_shared_resources(string boundary)
     {
         var current = Path.Combine(folder, "current");
@@ -344,7 +403,7 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
             var oldTransactions = Directory.GetDirectories(Path.Combine(current, "transactions")).ToHashSet();
             publisher.BeforePublish = (_, destination) =>
             {
-                if (boundary == "candidate" && destination == Path.Combine(current, "workspace.json") ||
+                if (boundary is "candidate" or "legacy-inventory" && destination == Path.Combine(current, "workspace.json") ||
                     boundary == "recovery-object" && destination.Contains(Path.Combine("recovery", "documents")) ||
                     boundary == "receipt" && Path.GetFileName(destination) == "committed.json")
                     throw new IOException("Interrupted transaction; receipt absence is ambiguous.");
@@ -353,10 +412,21 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
             publisher.BeforePublish = null;
             var transaction = Assert.Single(Directory.GetDirectories(Path.Combine(current, "transactions")),
                 path => !oldTransactions.Contains(path));
+            if (boundary == "legacy-inventory")
+            {
+                var index = 90000000;
+                foreach (var record in Directory.GetFiles(transaction, "created-*.json"))
+                {
+                    var objects = InventoryObjects(File.ReadAllBytes(record)).ToArray();
+                    File.WriteAllText(record, objects[0].ToJsonString());
+                    foreach (var item in objects.Skip(1))
+                        File.WriteAllText(Path.Combine(transaction, $"created-{index++:D8}.json"), item.ToJsonString());
+                }
+            }
             var retained = Directory.GetFiles(transaction).ToDictionary(path => path, File.ReadAllBytes);
             foreach (var record in retained.Keys.Where(path => Path.GetFileName(path).StartsWith("created-")).ToArray())
             {
-                var inventory = JsonNode.Parse(retained[record])!;
+                foreach (var inventory in InventoryObjects(retained[record]))
                 foreach (var key in new[] { "path", "stagingPath" })
                     if (inventory[key] is { } value && File.Exists(Path.Combine(current, value.GetValue<string>())))
                     {
@@ -383,6 +453,46 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         Assert.Equal(boundary == "receipt" ? 2 : 1, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
         Assert.True(reopened.RecoverWorkspace(Path.Combine(folder, "restored")), reopened.Status);
         Assert.Equal("Final", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""{"schemaVersion":2,"objects":[]}""")]
+    [InlineData("""{"schemaVersion":2,"objects":[null]}""")]
+    public void Malformed_interrupted_ownership_is_reported_without_deleting_recorded_files(string invalid)
+    {
+        var current = Path.Combine(folder, "current");
+        var publisher = new InspectingPublisher();
+        var observer = new RecordingObserver();
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        var oldTransactions = Directory.GetDirectories(Path.Combine(current, "transactions")).ToHashSet();
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (destination == Path.Combine(current, "workspace.json")) throw new IOException("Interrupted current publication.");
+        };
+        Assert.False(app.EditPreferredName("avery@example.com", "Interrupted"));
+        publisher.BeforePublish = null;
+        var transaction = Assert.Single(Directory.GetDirectories(Path.Combine(current, "transactions")),
+            path => !oldTransactions.Contains(path));
+        File.WriteAllText(Directory.GetFiles(transaction, "created-*.json")[0], invalid);
+        var retained = Directory.GetFiles(current, "*", SearchOption.AllDirectories)
+            .Where(path => path != Path.Combine(current, "recovery", "current.json"))
+            .ToDictionary(path => path, File.ReadAllBytes);
+        app.DiscardUnsavedChanges();
+        observer.Effects.Clear();
+        Assert.False(app.RetryStorageMaintenance());
+        Assert.False(app.CanSafelyClose);
+        Assert.NotEmpty(app.LocalSaveError!);
+        Assert.DoesNotContain(observer.Effects, effect => effect.Kind == WorkspaceFileEffectKind.Delete);
+        foreach (var (path, bytes) in retained) Assert.Equal(bytes, File.ReadAllBytes(path));
+    }
+
+    private static IEnumerable<JsonNode> InventoryObjects(byte[] bytes)
+    {
+        var record = JsonNode.Parse(bytes)!;
+        return record["objects"] is JsonArray objects ? objects.Select(item => item!) : [record];
     }
 
     [Fact]

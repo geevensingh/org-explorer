@@ -257,7 +257,6 @@ public sealed partial class ApplicationWorkflow
 
     private static void RejectWorkspaceLink(string path, bool allowMissing = false)
     {
-        Storage47Probe.Link();
         // A new FileInfo captures attributes and absence in one query, including directories.
         var attributes = allowMissing ? new FileInfo(path).Attributes : File.GetAttributes(path);
         if (allowMissing && attributes == (FileAttributes)(-1)) return;

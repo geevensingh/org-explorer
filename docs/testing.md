@@ -120,6 +120,12 @@ desktop or supported-population scale evidence.
 Recovery-selector-only delivery after validation also suspends cleanup without
 deleting the previously selected independent graph; retry protects the committed
 current state without replay.
+The reviewed 128-Person publication also bounds ownership-file count and proves
+each inventory batch is durably flushed before any corresponding payload write,
+then corrupts current documents and restores the independently expected population.
+Interrupted scalar inventories remain readable alongside bounded batches.
+Malformed interrupted ownership reports maintenance failure and blocks safe close
+without deleting recorded files; partial-batch cleanup retains immutable evidence.
 
 The #43 extension counts actual index writes for both creation and update of a
 reviewed 128-Person Import, including shared paths, and checks old graph visibility

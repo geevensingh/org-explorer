@@ -466,17 +466,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     }
     private void WriteDurablyBytes(string path, byte[] bytes)
     {
-        Storage47Probe.Write();
         using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         file.Write(bytes);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
-        using (Storage47Probe.Measure(Storage47Probe.Operation.Flush))
-            file.Flush(true);
+        file.Flush(true);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
     }
     private void PublishWorkspaceFile(string staged, string destination, string? backup)
     {
-        Storage47Probe.Publish();
         filePublisher.Publish(staged, destination, backup);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Publish, staged, Destination: destination, Backup: backup));
     }

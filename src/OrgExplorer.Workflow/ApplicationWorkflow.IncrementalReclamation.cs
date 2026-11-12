@@ -14,6 +14,10 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] long Bytes,
         [property: JsonRequired] string Digest);
 
+    private sealed record CreationInventoryBatch(
+        [property: JsonRequired] int SchemaVersion,
+        [property: JsonRequired] CreationInventory[] Objects);
+
     private sealed record StorageRetirement(
         [property: JsonRequired] int SchemaVersion,
         [property: JsonRequired] Guid Transaction,
@@ -30,7 +34,6 @@ public sealed partial class ApplicationWorkflow
     // Called with the local I/O gate and writer lease, only after recovery selection.
     private void ReclaimIncrementalStorage(PreparedRecovery prepared)
     {
-        using var phase = Storage47Probe.Scope("ReclaimIncrementalStorage");
         var current = CaptureWorkspaceBytes();
         using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
             validation.ReadIncrementalWorkspaceData(current);
@@ -66,7 +69,6 @@ public sealed partial class ApplicationWorkflow
         var retirementPath = Path.Combine(prepared.Transaction, "retired.json");
         if (!File.Exists(retirementPath))
         {
-            using var retirementPhase = Storage47Probe.Scope("CreateRetirement");
             var files = TransactionFiles(prepared.Transaction)
                 .Where(path => IsCreationInventory(Path.GetFileName(path)) ||
                     Path.GetFileName(path) is "intent.json" or "committed.json" or "selector.next" or
@@ -159,9 +161,11 @@ public sealed partial class ApplicationWorkflow
             deferObjects |= files.Length != 0 && !File.Exists(Path.Combine(transaction, "recovery.next"));
             foreach (var file in files.Where(path => IsCreationInventory(Path.GetFileName(path))))
             {
-                var (_, path, staged) = ReadCreationInventory(ReadWorkspaceBytesUncached(file));
-                protectedPaths.Add(path);
-                protectedPaths.Add(staged);
+                foreach (var (_, path, staged) in ReadCreationInventories(ReadWorkspaceBytesUncached(file)))
+                {
+                    protectedPaths.Add(path);
+                    protectedPaths.Add(staged);
+                }
             }
             foreach (var file in files)
             {
@@ -179,7 +183,6 @@ public sealed partial class ApplicationWorkflow
 
         void Recheck()
         {
-            using var recheckPhase = Storage47Probe.Scope("Recheck");
             var actual = CaptureWorkspaceBytes();
             if (WorkspaceFingerprint(snapshot: actual) != accepted ||
                 (File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null) != previousDigest ||
@@ -221,7 +224,6 @@ public sealed partial class ApplicationWorkflow
         Recheck();
         foreach (var (transaction, retirement) in retired)
         {
-            using var inventoryPhase = Storage47Probe.Scope("VisitRetiredInventories " + retirement.Files.Count);
             var inventories = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>();
             RunBoundedFileIo(retirement.Files.Keys.Where(IsCreationInventory), name =>
             {
@@ -233,14 +235,21 @@ public sealed partial class ApplicationWorkflow
                 var record = Path.Combine(transaction, name);
                 if (!inventories.TryGetValue(name, out var recordBytes)) continue;
                 if (ByteDigest(recordBytes) != digest) continue;
-                var (inventory, path, staged) = ReadCreationInventory(recordBytes);
-                if (deferObjects || protectedPaths.Contains(path) || protectedPaths.Contains(staged)) continue;
-                if (File.Exists(path) && new FileInfo(path).Length == inventory.Bytes)
-                    DeleteRecorded(path, inventory.Digest);
-                if (File.Exists(staged) && new FileInfo(staged).Length == inventory.Bytes)
-                    DeleteRecorded(staged, inventory.Digest);
+                var retainInventory = false;
+                foreach (var (inventory, path, staged) in ReadCreationInventories(recordBytes))
+                {
+                    if (deferObjects || protectedPaths.Contains(path) || protectedPaths.Contains(staged))
+                    {
+                        retainInventory = true;
+                        continue;
+                    }
+                    if (File.Exists(path) && new FileInfo(path).Length == inventory.Bytes)
+                        DeleteRecorded(path, inventory.Digest);
+                    if (File.Exists(staged) && new FileInfo(staged).Length == inventory.Bytes)
+                        DeleteRecorded(staged, inventory.Digest);
+                }
                 // Changed bytes become unknown files, never cleanup candidates.
-                DeleteRecorded(record, digest);
+                if (!retainInventory) DeleteRecorded(record, digest);
             }
             if (TransactionFiles(transaction).Any(path => IsCreationInventory(Path.GetFileName(path))) ||
                 protectedPaths.Contains(Path.Combine(transaction, "committed.json"))) continue;
@@ -289,15 +298,42 @@ public sealed partial class ApplicationWorkflow
         return retirement;
     }
 
-    private (CreationInventory Inventory, string Path, string Staged) ReadCreationInventory(byte[] bytes)
+    private (CreationInventory Inventory, string Path, string Staged)[] ReadCreationInventories(byte[] bytes)
     {
         using var json = JsonDocument.Parse(bytes);
-        CheckProperties(json.RootElement, ["schemaVersion", "path", "stagingPath", "bytes", "digest"], "Creation inventory");
-        var inventory = json.RootElement.Deserialize<CreationInventory>(JsonOptions)
-            ?? throw new FormatException("Invalid creation inventory.");
-        if (inventory.SchemaVersion != 1 || inventory.Bytes < 0 || !ValidDigest(inventory.Digest))
-            throw new FormatException("Invalid creation inventory provenance.");
-        return (inventory, InventoryObjectPath(inventory.Path), InventoryStagePath(inventory.StagingPath));
+        if (json.RootElement.ValueKind != JsonValueKind.Object)
+            throw new FormatException("Creation inventory: expected an object.");
+        CreationInventory[] inventories;
+        if (json.RootElement.TryGetProperty("objects", out var objects))
+        {
+            CheckProperties(json.RootElement, ["schemaVersion", "objects"], "Creation inventory batch");
+            var batch = json.RootElement.Deserialize<CreationInventoryBatch>(JsonOptions)
+                ?? throw new FormatException("Invalid creation inventory batch.");
+            if (batch.SchemaVersion != 2 || batch.Objects is null || batch.Objects.Length is < 1 or > 32)
+                throw new FormatException("Invalid creation inventory batch provenance.");
+            foreach (var item in objects.EnumerateArray()) CheckInventoryProperties(item);
+            inventories = batch.Objects;
+        }
+        else
+        {
+            CheckInventoryProperties(json.RootElement);
+            inventories = [json.RootElement.Deserialize<CreationInventory>(JsonOptions)
+                ?? throw new FormatException("Invalid creation inventory.")];
+        }
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return inventories.Select(inventory =>
+        {
+            if (inventory is null || inventory.SchemaVersion != 1 || inventory.Bytes < 0 || !ValidDigest(inventory.Digest))
+                throw new FormatException("Invalid creation inventory provenance.");
+            var path = InventoryObjectPath(inventory.Path);
+            var staged = InventoryStagePath(inventory.StagingPath);
+            if (!paths.Add(path) || !paths.Add(staged))
+                throw new FormatException("Duplicate creation inventory location.");
+            return (inventory, path, staged);
+        }).ToArray();
+
+        static void CheckInventoryProperties(JsonElement item) =>
+            CheckProperties(item, ["schemaVersion", "path", "stagingPath", "bytes", "digest"], "Creation inventory");
     }
 
     private static bool ValidDigest(string value) => value is not null && Regex.IsMatch(value, "^[A-F0-9]{64}$");
