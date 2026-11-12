@@ -21,6 +21,10 @@ function Rejects([scriptblock]$Action, [string]$Reason) {
     try { & $Action } catch { $rejected = $true }
     Assert $rejected "Release accepted $Reason."
 }
+function Update-FixtureProvenance([hashtable]$Plan) {
+    Remove-Item "$fixture\release-provenance.json"
+    New-ReleaseProvenance -Plan $Plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+}
 $run = @{
     id = 42; event = 'push'; head_branch = 'main'; head_sha = $candidate; conclusion = 'success'; status = 'completed'
     path = '.github/workflows/ci.yml'; head_repository = @{ full_name = 'geevensingh/org-explorer' }
@@ -219,14 +223,12 @@ try {
             tag_name = 'v0.0.9'; assets = @(@{ name = 'release-provenance.json'; id = 7 }) })
         $assetResponse = @{ schemaVersion = 1; sourceSha = $previousSource; tag = 'v0.0.9'; version = '0.0.9'; ciRunId = 40; verificationRunId = 41 } | ConvertTo-Json
         $plan.lastSourceSha = $previousSource; $plan.lastTag = 'v0.0.9'
-        Remove-Item "$fixture\release-provenance.json"
-        New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+        Update-FixtureProvenance -Plan $plan
         $effects.Clear(); $draft = $false
         Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
         Assert ($createdBody -ceq "Source commit: $expectedSubject`n`n$expectedProvenance") 'Multiple commits since the preceding app source must still display only the final candidate subject, never a multi-commit changelog.'
         $releases = @(); $plan.lastSourceSha = ''; $plan.lastTag = ''
-        Remove-Item "$fixture\release-provenance.json"
-        New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+        Update-FixtureProvenance -Plan $plan
         $effects.Clear(); $draft = $false
         $unavailableHistory = "$fixture-unavailable"
         git init --quiet $unavailableHistory
@@ -242,8 +244,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'Unusable-subject fixture commit failed.' }
             $candidate = (git -C $history rev-parse HEAD).Trim()
             $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
-            Remove-Item "$fixture\release-provenance.json"
-            New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+            Update-FixtureProvenance -Plan $plan
             $subjectError = $null
             try {
                 Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
@@ -251,8 +252,7 @@ try {
             Assert ($subjectError -match 'source commit subject' -and $effects.Count -eq 0 -and !$draft) 'An empty or control-character Git subject must fail explicitly before tag or draft creation, never publish an unusable label or placeholder.'
         }
         $candidate = $savedCandidate; $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
-        Remove-Item "$fixture\release-provenance.json"
-        New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
+        Update-FixtureProvenance -Plan $plan
         Remove-Item "$fixture\org-explorer-update.win-x64.json", "$fixture\release-provenance.json"
         $null = New-SignedReleaseManifest -ReleaseDirectory $fixture -Version 0.1.0 -Key $key -KeyId test-active -Now ([DateTimeOffset]::UtcNow.AddDays(-8))
         New-ReleaseProvenance -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -VerificationRunId 43
