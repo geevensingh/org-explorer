@@ -10,6 +10,37 @@ internal static partial class Program
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr window);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ResizeRect
+    {
+        public int Left, Top, Right, Bottom;
+        public override readonly string ToString() =>
+            $"[{Left},{Top}..{Right},{Bottom}; {Right - Left}x{Bottom - Top} px]";
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ResizeMonitorInfo
+    {
+        public int Size;
+        public ResizeRect Monitor, WorkArea;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr window, out ResizeRect rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetClientRect(IntPtr window, out ResizeRect rect);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref ResizeMonitorInfo info);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
     [DllImport("user32.dll")]
     private static extern bool SetCursorPos(int x, int y);
 
@@ -22,9 +53,51 @@ internal static partial class Program
     private static void ResizeWindow(AutomationElement window, double width, double height)
     {
         var scale = DpiScale(window);
-        ((WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Normal);
-        ((TransformPattern)window.GetCurrentPattern(TransformPattern.Pattern)).Resize(width * scale, height * scale);
-        Await(() => Math.Abs(window.Current.BoundingRectangle.Width / scale - width) < 2);
+        var handle = (IntPtr)window.Current.NativeWindowHandle;
+        var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        var transform = (TransformPattern)window.GetCurrentPattern(TransformPattern.Pattern);
+        var observed = window.Current.BoundingRectangle;
+        var before = observed;
+        var observedState = state.Current.WindowVisualState;
+        var canResize = transform.Current.CanResize;
+        var request = $"requestedDip={width}x{height}; requestedPx={width * scale}x{height * scale}; initialDpi={scale * 96}";
+        state.SetWindowVisualState(WindowVisualState.Normal);
+        transform.Resize(width * scale, height * scale);
+        try
+        {
+            Await(() =>
+            {
+                observed = window.Current.BoundingRectangle;
+                observedState = state.Current.WindowVisualState;
+                canResize = transform.Current.CanResize;
+                return Math.Abs(observed.Width / scale - width) < 2 && Math.Abs(observed.Height / scale - height) < 2;
+            });
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException(
+                $"Responsive resize did not reach its requested size within 20 seconds. " +
+                $"{request}; beforeUiaPx={before}; lastUiaPx={observed}; lastUiaDipAtInitialDpi={observed.Width / scale}x{observed.Height / scale}; " +
+                $"lastState={observedState}; canResize={canResize}; {NativeResizeBounds(handle)}", error);
+        }
+    }
+
+    private static string NativeResizeBounds(IntPtr handle)
+    {
+        var window = GetWindowRect(handle, out var bounds)
+            ? bounds.ToString() : $"unavailable (GetWindowRect Win32={Marshal.GetLastWin32Error()})";
+        var client = GetClientRect(handle, out var clientBounds)
+            ? clientBounds.ToString() : $"unavailable (GetClientRect Win32={Marshal.GetLastWin32Error()})";
+        var monitor = MonitorFromWindow(handle, 2);
+        var info = new ResizeMonitorInfo { Size = Marshal.SizeOf<ResizeMonitorInfo>() };
+        var screen = monitor == IntPtr.Zero ? "monitor unavailable (MonitorFromWindow returned NULL)" :
+            GetMonitorInfo(monitor, ref info)
+                ? $"monitorPx={info.Monitor}; workAreaPx={info.WorkArea}; monitorFlags={info.Flags}"
+                : $"monitor unavailable (GetMonitorInfo Win32={Marshal.GetLastWin32Error()})";
+        return $"nativeWindowPx={window}; clientLocalPx={client}; currentDpi={GetDpiForWindow(handle)}; {screen}; " +
+            $"primaryDesktopPx={GetSystemMetrics(0)}x{GetSystemMetrics(1)}; " +
+            $"virtualDesktopPx=[{GetSystemMetrics(76)},{GetSystemMetrics(77)}; {GetSystemMetrics(78)}x{GetSystemMetrics(79)}]; " +
+            $"minimumTrackPx={GetSystemMetrics(34)}x{GetSystemMetrics(35)}; maximumTrackPx={GetSystemMetrics(59)}x{GetSystemMetrics(60)}";
     }
 
     private static PaneProportions RenderedPaneProportions(AutomationElement window)

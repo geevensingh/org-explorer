@@ -6,14 +6,17 @@ namespace OrgExplorer.Desktop.Smoke;
 internal sealed class DesktopScenarioSelection
 {
     internal string[] Smoke { get; }
+    internal string[] HighResolution { get; }
     internal string[] Scale { get; }
+    internal IEnumerable<string> All => Smoke.Concat(HighResolution).Concat(Scale);
 
     internal DesktopScenarioSelection(string directory)
     {
         Smoke = Read("DesktopScenarios.json");
+        HighResolution = Read("HighResolutionScenarios.json");
         Scale = Read("UiScaleScenarios.json");
-        if (Smoke.Intersect(Scale).Any())
-            throw new InvalidOperationException("Required desktop smoke and explicit UI scale must not overlap.");
+        if (All.Distinct().Count() != All.Count())
+            throw new InvalidOperationException("Ordinary smoke, required high-resolution smoke and explicit UI scale must not overlap.");
 
         string[] Read(string file)
         {
@@ -28,13 +31,14 @@ internal sealed class DesktopScenarioSelection
     internal string[] Select(string? requested) => requested switch
     {
         null => Smoke,
+        "--high-resolution" => HighResolution,
         "--ui-scale" => Scale,
         "migration" => ["compatibility-settings"],
         "--search-favorites" => ["search-favorites"],
         "--team-notes" => ["team-context-history"],
         "--person-notes" => ["person-note-rendering"],
-        _ when Smoke.Concat(Scale).Contains(requested) => [requested],
+        _ when All.Contains(requested) => [requested],
         _ => throw new ArgumentException("Unknown desktop scenario. Available: " +
-            string.Join(", ", Smoke.Concat(Scale)) + ", --ui-scale")
+            string.Join(", ", All) + ", --high-resolution, --ui-scale")
     };
 }

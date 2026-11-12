@@ -8,7 +8,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunSearchFavoriteFlow(string executable, string root)
+    private static void RunSearchFavoriteFlow(string executable, string root, bool responsive = false)
     {
         Process? process = null;
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -44,8 +44,12 @@ internal static partial class Program
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
             AssertNoteView(window, "Person", editing: false);
-            var paneBalance = AssertAdaptiveWorkspace(window);
-            AssertSearchBrowsingRestoration(window);
+            OrgExplorer.Workflow.PaneProportions? paneBalance = null;
+            if (responsive)
+            {
+                paneBalance = AssertAdaptiveWorkspace(window);
+                AssertSearchBrowsingRestoration(window);
+            }
             if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
                 throw new InvalidOperationException("Search did not open the saved Person note for reading.");
             Click(window, "ArchivePersonNote");
@@ -108,8 +112,9 @@ internal static partial class Program
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
-            Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance.PeoplePercent) < .5 &&
-                Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
+            if (responsive)
+                Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance!.PeoplePercent) < .5 &&
+                    Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
             SelectFavorite(window, "avery@example.com");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");

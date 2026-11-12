@@ -8,7 +8,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunTeamContextFlow(string executable, string root)
+    private static void RunTeamContextFlow(string executable, string root, bool responsive = false)
     {
         Process? process = null;
         var workspace = Path.Combine(root, "workspace");
@@ -124,11 +124,15 @@ internal static partial class Program
             Set(window, "PersonNoteMarkdown", "Everyday individual writing");
             AwaitLocalWorkIdle(window);
             SelectTab(window, "PersonNoteReadTab");
-            foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+            if (responsive)
             {
-                ResizeWindow(window, size.Width, size.Height);
-                AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+                foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+                {
+                    ResizeWindow(window, size.Width, size.Height);
+                    AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+                }
             }
+            else AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
             ExpandCurrentTeamContext(window);
             var inherited = Find(window, "InheritedTeamSummary").Current.Name;
             if (!inherited.Contains("morgan@example.com") || !inherited.Contains("casey@example.com") ||
@@ -200,13 +204,14 @@ internal static partial class Program
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
                 throw new InvalidOperationException("Later Team editing changed frozen writing or failed to update current reading.");
-            foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
-            {
-                ResizeWindow(window, size.Width, size.Height);
-                if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing") ||
-                    ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
-                    throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
-            }
+            if (responsive)
+                foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+                {
+                    ResizeWindow(window, size.Width, size.Height);
+                    if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing") ||
+                        ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
+                        throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
+                }
             QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Original direct", "Later writing");
             if (!Find(window, "SearchContext").Current.Name.Contains("morgan@example.com"))

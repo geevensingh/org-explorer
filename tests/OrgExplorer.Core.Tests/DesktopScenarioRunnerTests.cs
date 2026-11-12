@@ -54,6 +54,7 @@ public sealed class DesktopScenarioRunnerTests : IDisposable
         var observed = new List<string>();
         var names = new[] { "profile-journey", "draft-navigation", "person-note-rendering", "team-context-history",
             "search-favorites", "archival-navigation", "compatibility-settings", "external-refresh",
+            "responsive-workspace", "responsive-draft-navigation", "responsive-team-history",
             "scale-navigation-rendering", "scale-mutation-responsiveness", "installer-create", "installer-reopen",
             "update-settings", "installer-update" };
         var runner = new SmokeScenarioRunner(names.Select(name => new SmokeScenario(name, fixture =>

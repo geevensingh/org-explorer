@@ -68,8 +68,8 @@ try {
         throw 'Required core execution must verify the UI-scale command contract without launching UI.'
     }
     $ci = Get-Content "$root\.github\workflows\ci.yml" -Raw
-    if ($ci.Contains('Run-UiScale.ps1') -or !$ci.Contains('needs: [core, filesystem, desktop]')) {
-        throw 'UI-scale execution must reuse the manual bridge, not become a fourth required PR lane.'
+    if ($ci.Contains('Run-UiScale.ps1') -or !$ci.Contains('needs: [core, filesystem, desktop, high-resolution]')) {
+        throw 'UI-scale execution must reuse the manual bridge, not become a required PR smoke lane.'
     }
     Write-Host 'PASS: both independent scale suites reuse exact-candidate nightly/manual execution outside required PR smoke.'
 } finally { Remove-Item $results -Recurse -Force }

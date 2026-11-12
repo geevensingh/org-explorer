@@ -12,6 +12,7 @@ name. A desktop click alone does not establish a successful navigation or save.
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
 | Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, migration originals/recovery and retained context. A projection does not prove rendered pixels. |
 | Desktop smoke | Normal WPF executable and actual UI Automation | Representative import/edit/save/reopen journeys; selection/bindings, Manager/report navigation, draft rejection feedback, local photo pixels, Markdown reading, current/Historical attribution, archive/filter/reactivation, Settings and refresh reaching an open client. |
+| High-resolution smoke | Normal WPF executable on a separate disposable hosted 1920 x 1080 desktop | Required responsive geometry/type/width/divider/overlay/search/rejection and Team/history matrices; ordinary fixtures, not the 10,000-Person UI-scale suite. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
 | Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
@@ -131,20 +132,20 @@ canonical per-Workspace identity, interleaved designation/startup writes, unchan
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
-The existing search/Favorites hosted journey measures the adaptive host at
+The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at
 700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
 959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport
 bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
 600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
 divider effects, wide/compact/wide and actual reopen proportions, and real
 reporting-tree expansion/scroll restoration during persistent and overlay search.
-The draft-navigation journey additionally rejects one compact People destination
+The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
 with the exact failed Person-note editor retained and actionable feedback.
 Selection helpers deliberately open compact browsing when needed; they do not
 treat a hidden tree or a closed panel as successful navigation. Existing exact
 current/archived/frozen destinations and independent draft assertions remain.
 Only hosted Windows execution supplies this presentation evidence; the size
-matrix is not a new suite or a substitute for complete explicit UI-scale work.
+matrix belongs to its separate required smoke suite, not a substitute for complete explicit UI-scale work.
 
 ## Moving coverage
 
@@ -163,11 +164,13 @@ matrix is not a new suite or a substitute for complete explicit UI-scale work.
 
 ## Required PR/main execution
 
-Every PR and `main` commit, including docs/test-only changes, retains three
-independent parallel jobs: workflow/view-model, filesystem, and actual desktop.
-The stable aggregate `CI` requires all three successes. Failure, required skip,
+Every PR and `main` commit, including docs/test-only changes, retains four
+independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
+and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
+The stable aggregate `CI` requires all four successes. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the existing
-5/11/11-minute lane and 2-minute aggregate deadlines: 29 minutes summed, at most
+5/11/11-minute original lane deadlines, an 11-minute high-resolution lane and
+2-minute aggregate deadline: 40 minutes summed, at most
 13 minutes on the parallel critical path, excluding queues and later CD.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
@@ -311,7 +314,9 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
 ```
 
-The required names live in `tests\DesktopScenarios.json`. They cover:
+The nine ordinary required names live in `tests\DesktopScenarios.json`. The lane
+verifies native current-mode and monitor bounds at 1024 x 768 / 32 bpp / 96 DPI
+without changing its display. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
@@ -337,10 +342,10 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
   ongoing/Other designation and exact secondary search, Read-first owned notes,
   direct New-note editing and empty-body accessibility, visible preference/save
-  failures, collapsed attributed warnings at 700 x 500 and 1100 x 900,
+  failures and collapsed attributed warnings at the ordinary desktop size,
   protected owner review navigation/confirmation and archive/restore,
   secondary History with confirmations/observations, actual current/frozen
-  reading in both layouts and honest historical dates through a representative
+  reading and honest historical dates through a representative
   ancestor move, exact frozen search and reopen.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
@@ -375,6 +380,41 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   and Team typing across delivery also verifies first-autosave/retry rejection,
   retained editor/delivered writing and deliberate discard through real WPF.
 
+The fourth required lane is `.\eng\Run-CiLane.ps1 high-resolution`, restricted
+to its disposable GitHub-hosted Windows VM. Its exact named selection is
+`tests\HighResolutionScenarios.json`, invoked with `--high-resolution`:
+
+- `responsive-workspace`: the search/Favorites journey plus the complete
+  700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
+  Segoe UI text, 240/240/360 minimums, 600-DIP prose cap, overlay bounds/focus,
+  mouse/keyboard dividers, percentage resize/reopen and search/clear position.
+- `responsive-draft-navigation`: the complete draft-protection journey plus
+  actual compact overlay rejection retaining the exact owner/editor and feedback.
+- `responsive-team-history`: the complete owned/inherited Team, independent
+  draft and frozen-history journey plus the 700/1100 rendered warning/history
+  matrices. All ordinary domain/ownership/history assertions remain in the
+  ordinary journey as well.
+
+The split is by explicit scenario name, never a conditional screen-size skip.
+The two smoke manifests and explicit UI-scale manifest are nonempty, unique and
+disjoint; each lane requires its own complete named `scenarios.json`. Ordinary
+results cannot stand in for the high-resolution suite.
+
+Before any app launch, the high-resolution fixture requires GitHub Actions,
+`RUNNER_ENVIRONMENT=github-hosted`, Windows and 96 DPI. It enumerates the actual
+primary display's monitor-compatible modes, requires an advertised 1920 x 1080
+32-bpp mode, tests it with `CDS_TEST`, and applies it dynamically exactly once
+with no registry/persistence, unsafe-mode, primary-device or DPI changes.
+It then observes the exact selected mode, actual 1920 x 1080 monitor bounds,
+96 DPI, work area >=1800 x 1000 and track capacity >=1100 x 900 within the normal
+bounded observation. Driver rejection, restart requests, missing modes, wrong
+read-back or inadequate capacity fail the lane; there is no synthetic fallback.
+`display.json` records actual native prerequisites, not rendered acceptance.
+The job VM is disposable, so no restoration step is needed. This is not
+permission to change any local, self-hosted or shared display. Explicit UI-scale
+execution reuses the same preparation on hosted VMs; an already-authorized
+isolated local desktop receives read-only capacity verification, never a change.
+
 The filesystem update tests exercise actual cryptography, staged files, HTTP,
 Velopack integrity/explicit launch arguments, real pending Import publication,
 failed Person/Team saves, supported conversion originals, unsupported-data
@@ -393,7 +433,7 @@ fixture or automatic-update evidence fails the hosted lifecycle. The final
 production build rejects test trust/effects; always-run cleanup removes private
 fixture material. This is not production-update/public-key provisioning evidence.
 
-These nine required scenarios use ordinary fixtures. They do not construct the
+Both required desktop suites use ordinary fixtures. They do not construct the
 complete scale population; all genuine UI-scale work has explicit execution below.
 Every scenario opts out of startup update checks before launching the app,
 except the controlled `update-settings` and `installer-update` scenarios.
@@ -409,7 +449,8 @@ For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,
 `--person-notes`, `--team-notes` selectors remain aliases.
 The obsolete combined `scale` / `--scale` selectors are rejected; use `--ui-scale`
-or a single explicit scale scenario name.
+or a single explicit scale scenario name. `--high-resolution` selects only the
+three required high-resolution scenarios and is never part of default ordinary smoke.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
 The full selection and `update-settings` require the prepared update fixture and
@@ -577,7 +618,7 @@ Verify `headSha` is the intended candidate, both scale jobs succeeded, every nam
 result passed and both artifacts identify that SHA. The bridge calls the same
 local reusable workflow at `github.sha`; it duplicates no suite commands. The
 Boolean defaults to false and its guard requires manual dispatch. The ordinary
-three lanes still run on a bridge dispatch, but their independent `CI` aggregate
+four lanes still run on a bridge dispatch, but their independent `CI` aggregate
 does not attest to scale success: inspect both scale jobs and the whole run.
 Omit the flag for ordinary focused CI only.
 

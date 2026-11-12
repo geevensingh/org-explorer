@@ -89,10 +89,32 @@ jobs:
             .ci-results/desktop/*.json
             .ci-results/desktop/*.log
 
+  high-resolution:
+    name: High-resolution Windows smoke
+    runs-on: windows-latest
+    timeout-minutes: 11
+    steps:
+      - name: Start execution budget before setup
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: .\eng\Run-CiLane.ps1 high-resolution
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: high-resolution-timings
+          path: |
+            .ci-results/high-resolution/*.json
+            .ci-results/high-resolution/*.log
+
   ci:
     name: CI
     if: ${{ always() }}
-    needs: [core, filesystem, desktop]
+    needs: [core, filesystem, desktop, high-resolution]
     runs-on: windows-latest
     timeout-minutes: 2
     steps:
@@ -102,9 +124,10 @@ jobs:
           CORE_RESULT: ${{ needs.core.result }}
           FILESYSTEM_RESULT: ${{ needs.filesystem.result }}
           DESKTOP_RESULT: ${{ needs.desktop.result }}
+          HIGH_RESOLUTION_RESULT: ${{ needs.high-resolution.result }}
         run: |
           . .\eng\CiGate.ps1
-          Assert-CiResults @($env:CORE_RESULT, $env:FILESYSTEM_RESULT, $env:DESKTOP_RESULT)
+          Assert-CiResults @($env:CORE_RESULT, $env:FILESYSTEM_RESULT, $env:DESKTOP_RESULT, $env:HIGH_RESOLUTION_RESULT)
 
   scale-verification:
     name: Optional manual scale verification

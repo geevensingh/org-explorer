@@ -2,7 +2,10 @@
 
 `release.yml` publishes only after a **successful `ci.yml` push run on main** in
 `geevensingh/org-explorer`. It checks the run's source/repository/event and all
-three required lanes plus `CI` again through GitHub. PR, fork and manual CI runs
+ordinary core/filesystem/desktop lanes plus `CI` again through GitHub. The current
+`CI` aggregate additionally requires the fourth, separate high-resolution smoke
+lane; historical original-product CI remains authenticated at its own revision.
+PR, fork and manual CI runs
 cannot authorize production. Ordinary CI still runs for every PR/main commit,
 including repository documentation and tests.
 
@@ -218,8 +221,9 @@ gh run watch YOUR_RUN_ID --repo geevensingh/org-explorer --exit-status
 ```
 
 Do not also set the older scale flag: release verification already calls both
-exact commands. Check `headSha`, all three ordinary CI lanes, both fresh scale
-jobs and the packaging job. `CI` alone still attests only its three lanes.
+exact commands. Check `headSha`, all four required CI lanes, both fresh scale
+jobs and the packaging job. `CI` alone still attests only its four smoke/core lanes,
+not either complete scale workload.
 The bridge uses no production secrets and has no contents-write permission.
 It packages real runtime-included fixture binaries, signs with an in-memory
 ephemeral key, validates all feeds/manifests and performs a genuine metadata-only

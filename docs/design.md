@@ -274,9 +274,12 @@ succeeds. Failures, skipped required work, cancellations, and timeouts cannot
 produce a passing aggregate. Parallelize lanes and cache dependencies without
 introducing a long serialized critical path.
 
-Aim for five minutes of CI execution. Bound the total execution critical path
-within a thirty-minute fail-fast budget; do not merely give each serialized job a
-separate thirty minutes. Hosted runner queues and subsequent CD packaging and
+Aim for five minutes of CI execution. The user-directed required high-resolution
+split retains independent 5/11/11-minute ordinary lanes, adds its own 11-minute
+disposable Windows lane, and retains the 2-minute aggregate: 40 minutes summed
+and at most 13 minutes on the parallel critical path. Do not serialize these
+budgets or reduce rendered coverage to fit the ordinary 1024 x 768 runner.
+Hosted runner queues and subsequent CD packaging and
 publication are measured separately. Verify timings once real workflows exist.
 
 Use **GitHub rulesets, not classic branch protections**, to require PRs and the
