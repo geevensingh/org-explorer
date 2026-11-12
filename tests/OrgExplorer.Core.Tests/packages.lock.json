@@ -106,6 +106,12 @@
         "dependencies": {
           "Velopack": "[1.2.161, )"
         }
+      },
+      "orgexport": {
+        "type": "Project",
+        "dependencies": {
+          "OrgExplorer.Workflow": "[1.0.0, )"
+        }
       }
     }
   }

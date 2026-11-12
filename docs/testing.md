@@ -23,6 +23,13 @@ retry through the view model. `DesktopScenarioRunnerTests` also write real resul
 and fixture files (`Category=Runner`) without opening WPF. Most other core cases
 use in-memory workflow state. Classify dependencies by what a test actually does.
 
+`OrgExportTests` also run in the core lane with isolated fictitious files. They
+exercise the shared `ExportSession` and the actual compiled producer CLI through
+a project reference: mixed profile outcomes, corrected-input recovery, retained
+evidence, publication rejection, earlier-success rejection, identity correction,
+JSON array cardinality and process exit status.
+No live M365 connection or desktop automation is involved.
+
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
@@ -67,7 +74,7 @@ do not mock away the business behavior being asserted.
 
 `OrgExportTests` covers the local producer's public capture and
 Ingest/Profile/Photo seams using fictitious session events and synthetic PNG bytes.
-The required core lane compiles the bundled capture helper into those tests;
+The required core lane builds the bundled producer through the same project reference;
 it verifies exact ordered request correlation, native/MCP/error-wrapped
 payloads, shared-stream worker isolation, retained partial successes, explicit
 incomplete-result blockers, rejection of unverified host-saved references
