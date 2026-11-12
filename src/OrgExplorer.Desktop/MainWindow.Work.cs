@@ -52,7 +52,11 @@ public partial class MainWindow
 
     private async Task WaitForLocalWork()
     {
-        while (workPending && workCompleted is { } completion) await completion.Task;
-        await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);
+        // Settling the dispatcher may admit another queued save.
+        do
+        {
+            while (workPending && workCompleted is { } completion) await completion.Task;
+            await System.Windows.Threading.Dispatcher.Yield(DispatcherPriority.Background);
+        } while (workPending);
     }
 }

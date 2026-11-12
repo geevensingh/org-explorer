@@ -1,3 +1,5 @@
+#nullable enable
+
 using System.Windows.Threading;
 
 namespace OrgExplorer.Desktop;

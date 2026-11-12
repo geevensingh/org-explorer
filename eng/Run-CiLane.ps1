@@ -106,6 +106,9 @@ try {
                 Invoke-BudgetedDotnet profile-note-refresh @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
                     '--no-build', '--no-restore', '--',
                     (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-profile-refresh')
+                Invoke-BudgetedDotnet update-yield @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                    '--no-build', '--no-restore', '--',
+                    (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-update-yield')
             }
             . "$root\eng\DesktopResults.ps1"
             $manifest = if ($highResolution) { 'HighResolutionScenarios.json' } else { 'DesktopScenarios.json' }

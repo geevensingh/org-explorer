@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -188,7 +189,7 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     [InlineData(NoteScope.Team)]
     public async Task Retaining_newer_typing_does_not_wait_behind_in_flight_IO_and_uses_the_successful_base(NoteScope scope)
     {
-        using var publisher = new HeldPublisher();
+        using var publisher = new HeldNotePublisher();
         using var app = Open(publisher);
         var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Context", "Original")!;
         app.RetainNoteDraft(original);
@@ -287,27 +288,6 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             Assert.True(app.CanSafelyClose);
         }
         finally { if (Directory.Exists(delivery)) Directory.Delete(delivery, true); }
-    }
-
-    private sealed class HeldPublisher : IWorkspaceFilePublisher, IDisposable
-    {
-        public bool HoldNextNote { get; set; }
-        public ManualResetEventSlim Entered { get; } = new();
-        public ManualResetEventSlim Release { get; } = new();
-
-        public void Publish(string staged, string destination, string? backup)
-        {
-            if (HoldNextNote && Path.GetExtension(destination) == ".md")
-            {
-                HoldNextNote = false;
-                Entered.Set();
-                if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
-            }
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
-        }
-
-        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
     }
 
     public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }

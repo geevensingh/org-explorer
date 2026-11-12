@@ -7,8 +7,8 @@ $runner = [Management.Automation.Language.Parser]::ParseFile(
 if ($errors.Count) { throw 'CI runner syntax is invalid.' }
 $source = Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw
 foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--verify-standard-display'",
-    "'--high-resolution'", 'HighResolutionScenarios.json')) {
-    if (!$source.Contains($required)) { throw "Required separate high-resolution execution is missing $required" }
+    "'--high-resolution'", 'HighResolutionScenarios.json', "'--verify-update-yield'")) {
+    if (!$source.Contains($required)) { throw "Required desktop/high-resolution execution is missing $required" }
 }
 $uiScale = Get-Content (Join-Path $root 'eng\Run-UiScale.ps1') -Raw
 foreach ($required in @("'--prepare-high-resolution'", "'--verify-high-resolution'")) {
