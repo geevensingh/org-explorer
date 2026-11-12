@@ -576,6 +576,172 @@ public sealed class IncrementalDeliveryTests : IDisposable
         Assert.Single(app.GetWorkspaceConflicts());
     }
 
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("person-note")]
+    [InlineData("team-note")]
+    public void Review_regression_sibling_unconfirmed_publication_blocks_a_stale_clients_writer(string operation)
+    {
+        var publisher = new DeliveringPublisher();
+        using var owner = Open(publisher);
+        var clock = new CallbackClock();
+        using var client = ApplicationWorkflow.CreateFileBacked(timeProvider: clock);
+        Assert.True(client.OpenWorkspace(Folder), client.Status);
+        var scope = operation == "team-note" ? NoteScope.Team : NoteScope.Person;
+        var draft = client.BeginNoteDraft(scope, Email)!;
+        Dictionary<string, byte[]>? retained = null;
+        // The clock callback holds this client's public edit gate, so its watcher cannot refresh first.
+        clock.OnRead = () =>
+        {
+            publisher.Deliver = () => throw new IOException("Unconfirmed sibling publication");
+            Assert.False(owner.EditPreferredName(Email, "Unconfirmed writing"));
+            Assert.Equal(WorkspacePublicationOutcome.Indeterminate, owner.PublicationOutcome);
+            Assert.Empty(client.GetWorkspaceConflicts());
+            retained = WorkspaceFixtures.Bytes(Folder);
+            if (operation != "profile")
+                Assert.Null(client.SaveNoteDraft(draft, "Retained title", "Must remain unsaved"));
+        };
+
+        Assert.False(client.EditPreferredName(Email, "Must not publish"));
+
+        Assert.NotNull(retained);
+        AssertPreserved(retained);
+        Assert.Single(client.GetWorkspaceConflicts());
+        Assert.False(client.CanSafelyClose);
+    }
+
+    [Theory]
+    [InlineData("evidence")]
+    [InlineData("originalPath")]
+    [InlineData("localWritingPath")]
+    public void Review_regression_null_publication_provenance_is_rejected_without_crashing(string missing)
+    {
+        Guid conflictId;
+        var publisher = new DeliveringPublisher();
+        using (var app = Open(publisher))
+        {
+            var note = app.CreatePersonNote(Email, "Context", "Original writing")!;
+            var path = Path.Combine(Folder, "notes", note.Id + ".md");
+            publisher.DestinationFileName = Path.GetFileName(path);
+            publisher.Deliver = () => File.WriteAllText(path, File.ReadAllText(path).Replace("Original writing", "Delivered writing"));
+            Assert.True(app.EditPersonNote(note.Id, "Local", "Local writing"), app.Status);
+            conflictId = Assert.Single(app.GetWorkspaceConflicts()).Id;
+        }
+        var transaction = Path.Combine(Folder, "transactions", conflictId.ToString("N"));
+        var record = Path.Combine(transaction, missing == "localWritingPath" ? "publication.json" : "publication.checked.json");
+        var data = JsonNode.Parse(File.ReadAllBytes(record))!;
+        if (missing == "localWritingPath") data["localWritingPaths"]![0] = null;
+        else if (missing == "evidence") data["evidence"]![0] = null;
+        else data["evidence"]![0]!["originalPath"] = null;
+        File.WriteAllText(record, data.ToJsonString());
+        var retained = WorkspaceFixtures.Bytes(Folder);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+
+        Assert.False(reopened.OpenWorkspace(Folder));
+
+        Assert.False(reopened.CanSafelyClose);
+        Assert.Contains("journal", reopened.LocalSaveError);
+        AssertPreserved(retained);
+    }
+
+    [Theory]
+    [InlineData("publication.base.json", false)]
+    [InlineData("publication.base.json", true)]
+    [InlineData("publication.displaced", false)]
+    [InlineData("publication.displaced", true)]
+    public void Review_regression_changed_retained_provenance_requires_a_new_acknowledgement(string name, bool delete)
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var note = app.CreatePersonNote(Email, "Context", "Original writing")!;
+        var path = Path.Combine(Folder, "notes", note.Id + ".md");
+        publisher.DestinationFileName = Path.GetFileName(path);
+        publisher.Deliver = () => File.WriteAllText(path, File.ReadAllText(path).Replace("Original writing", "Delivered writing"));
+        Assert.True(app.EditPersonNote(note.Id, "Local", "Local writing"), app.Status);
+        var review = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        var retained = Path.Combine(Folder, "transactions", Assert.Single(app.GetWorkspaceConflicts()).Id.ToString("N"), name);
+        Assert.True(File.Exists(retained));
+        if (delete) File.Delete(retained);
+        else File.WriteAllText(retained, "Changed retained provenance");
+
+        Assert.False(app.ResolveWorkspaceConflicts(review));
+
+        Assert.Single(app.GetWorkspaceConflicts());
+        Assert.False(app.CanSafelyClose);
+    }
+
+    [Fact]
+    public void Review_regression_newly_arrived_displaced_provenance_requires_a_new_acknowledgement()
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        publisher.Deliver = () => throw new IOException("Unconfirmed publication before replacement");
+        Assert.False(app.EditPreferredName(Email, "Retained writing"));
+        var review = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        var path = Path.Combine(Folder, "transactions", Assert.Single(app.GetWorkspaceConflicts()).Id.ToString("N"), "publication.displaced");
+        Assert.False(File.Exists(path));
+        File.WriteAllText(path, "Newly delivered provenance");
+
+        Assert.False(app.ResolveWorkspaceConflicts(review));
+
+        Assert.Single(app.GetWorkspaceConflicts());
+        Assert.False(app.CanSafelyClose);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Review_regression_resolved_unconfirmed_note_preserves_its_stage_and_allows_the_next_edit(NoteScope scope)
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Email)!, "Context", "Original writing")!;
+        publisher.DestinationFileName = original.Id + ".md";
+        publisher.Deliver = () => throw new IOException("Unconfirmed note publication before replacement");
+        Assert.Null(app.SaveNoteDraft(original, "Retained title", "Retained stage writing"));
+        var stage = publisher.StagedPath!;
+        var retained = File.ReadAllBytes(stage);
+        app.DiscardUnsavedChanges(original.Id);
+        var review = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        Assert.True(app.ResolveWorkspaceConflicts(review), app.Status);
+        Assert.Equal(retained, File.ReadAllBytes(stage));
+
+        var saved = app.SaveNoteDraft(app.BeginNoteDraft(scope, Email, original.Id)!, "Chosen title", "New intentional writing");
+
+        Assert.NotNull(saved);
+        Assert.Equal("New intentional writing", saved.Markdown);
+        Assert.Equal(retained, File.ReadAllBytes(stage));
+        Assert.True(app.CanSafelyClose, app.Status);
+        using var reopened = Reopen();
+        Assert.Equal("New intentional writing", reopened.BeginNoteDraft(scope, Email, original.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Review_regression_verified_sibling_resolution_clears_only_the_conflict_failure(bool retainDraft)
+    {
+        var publisher = new DeliveringPublisher();
+        using var owner = Open(publisher);
+        publisher.Deliver = () => throw new IOException("Unconfirmed publication before replacement");
+        Assert.False(owner.EditPreferredName(Email, "Unconfirmed writing"));
+        using var client = Reopen();
+        Assert.Single(client.GetWorkspaceConflicts());
+        var draft = client.BeginNoteDraft(NoteScope.Person, Email)!;
+        if (retainDraft) client.RetainNoteDraft(draft);
+        var review = Assert.IsType<WorkspaceConflictReview>(owner.ReviewWorkspaceConflicts());
+        Assert.True(owner.ResolveWorkspaceConflicts(review), owner.Status);
+
+        Assert.True(client.RefreshWorkspace(), client.Status);
+
+        Assert.Empty(client.GetWorkspaceConflicts());
+        Assert.Null(client.LocalSaveError);
+        Assert.DoesNotContain("external conflict unresolved", client.Status);
+        Assert.Equal(!retainDraft, client.CanSafelyClose);
+        client.DiscardUnsavedChanges(draft.Id);
+        Assert.True(client.CanSafelyClose, client.Status);
+    }
+
     private Dictionary<string, byte[]> PrepareProfileDelivery(string email, PersonTextField field, string value)
     {
         var producerFolder = Path.Combine(root, Guid.NewGuid().ToString("N"));
@@ -621,15 +787,28 @@ public sealed class IncrementalDeliveryTests : IDisposable
         public bool AfterPublication { get; init; }
         public string DestinationFileName { get; set; } = "workspace.json";
         public string? BackupPath { get; private set; }
+        public string? StagedPath { get; private set; }
         public Action? Deliver { get; set; }
 
         public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             var delivery = Path.GetFileName(destination) == DestinationFileName ? Deliver : null;
-            if (delivery is not null) { Deliver = null; BackupPath = backup; }
+            if (delivery is not null) { Deliver = null; BackupPath = backup; StagedPath = staged; }
             if (!AfterPublication) delivery?.Invoke();
             new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
             if (AfterPublication) delivery?.Invoke();
+        }
+    }
+
+    private sealed class CallbackClock : TimeProvider
+    {
+        public Action? OnRead { get; set; }
+        public override DateTimeOffset GetUtcNow()
+        {
+            var callback = OnRead;
+            OnRead = null;
+            callback?.Invoke();
+            return TimeProvider.System.GetUtcNow();
         }
     }
 

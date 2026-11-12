@@ -155,29 +155,44 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         var id = team ? app.CreateTeamNote("avery@example.com", "Title", "Original")!.Id :
             app.CreatePersonNote("avery@example.com", "Title", "Original")!.Id;
         observer.Effects.Clear();
-        var stagedPath = Path.Combine(folder, team ? "team-notes" : "notes", id + ".next");
+        var stagedPaths = new List<string>();
+        var destinationPath = Path.Combine(folder, team ? "team-notes" : "notes", id + ".md");
         long stagedBytes = 0;
         publisher.BeforePublish = (staged, destination) =>
         {
-            if (destination != Path.Combine(folder, team ? "team-notes" : "notes", id + ".md")) return;
-            Assert.Equal(stagedPath, staged);
+            if (destination != destinationPath) return;
+            Assert.StartsWith(Path.Combine(folder, "transactions") + Path.DirectorySeparatorChar, staged);
+            Assert.DoesNotContain(staged, stagedPaths);
+            stagedPaths.Add(staged);
             stagedBytes += File.ReadAllBytes(staged).LongLength;
+            var inventoryPath = Path.Combine(Path.GetDirectoryName(staged)!, "publication.stage.json");
+            using var inventory = JsonDocument.Parse(File.ReadAllBytes(inventoryPath));
+            var entry = Assert.Single(inventory.RootElement.GetProperty("objects").EnumerateArray());
+            Assert.Equal(Path.GetFileName(staged), entry.GetProperty("path").GetString());
+            Assert.Equal(new FileInfo(staged).Length, entry.GetProperty("bytes").GetInt64());
+            Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(staged))),
+                entry.GetProperty("digest").GetString());
+            var effects = observer.Effects.ToArray();
+            var inventoryFlush = Array.FindIndex(effects, effect => effect.Kind == WorkspaceFileEffectKind.Flush && effect.Path == inventoryPath);
+            var stagedWrite = Array.FindIndex(effects, effect => effect.Kind == WorkspaceFileEffectKind.Write && effect.Path == staged);
+            Assert.True(inventoryFlush >= 0 && inventoryFlush < stagedWrite);
             throw new WorkspaceFilePublicationException("Controlled publication failure after the real write and flush.", true);
         };
         Assert.False(Edit());
-        Assert.False(File.Exists(stagedPath));
+        Assert.False(File.Exists(Assert.Single(stagedPaths)));
         Assert.False(Edit());
         Assert.False(app.CanSafelyClose);
         Assert.Contains("Controlled publication failure", app.LocalSaveError);
-        Assert.False(File.Exists(stagedPath));
+        Assert.Equal(2, stagedPaths.Count);
+        Assert.All(stagedPaths, path => Assert.False(File.Exists(path)));
         var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        var noteWrites = writes.Where(e => e.Path == stagedPath).ToArray();
+        var noteWrites = writes.Where(e => stagedPaths.Contains(e.Path)).ToArray();
         Assert.Equal(2, noteWrites.Length);
         Assert.True(writes.Length > noteWrites.Length);
         Assert.Equal(stagedBytes, noteWrites.Sum(e => e.Bytes));
         Assert.Equal(writes.Length, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Flush));
-        Assert.Equal(2, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Delete && e.Path == stagedPath));
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish && e.Path == stagedPath);
+        Assert.Equal(2, observer.Effects.Count(e => e.Kind == WorkspaceFileEffectKind.Delete && stagedPaths.Contains(e.Path)));
+        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish && stagedPaths.Contains(e.Path));
         using (var reopened = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
@@ -187,7 +202,8 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         publisher.BeforePublish = null;
         Assert.True(Edit(), app.Status);
         Assert.True(app.CanSafelyClose);
-        Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish && e.Path == stagedPath);
+        Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
+            e.Destination == destinationPath && !stagedPaths.Contains(e.Path));
 
         bool Edit() => team ? app.EditTeamNote(id, "Title", "Retained draft") :
             app.EditPersonNote(id, "Title", "Retained draft");

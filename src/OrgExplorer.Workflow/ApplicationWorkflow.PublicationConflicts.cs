@@ -54,12 +54,20 @@ public sealed partial class ApplicationWorkflow
 
     private WorkspacePublicationOutcome publicationOutcome;
     private static bool IsPublicationMetadata(string name) => name is "publication.json" or
-        "publication.base.json" or "publication.outcome.json" or "publication.checked.json" or "publication.displaced";
+        "publication.base.json" or "publication.outcome.json" or "publication.checked.json" or
+        "publication.displaced" or "publication.stage.json";
     private IReadOnlyList<WorkspaceConflict> workspaceConflicts = Array.Empty<WorkspaceConflict>();
     public WorkspacePublicationOutcome PublicationOutcome => publicationOutcome;
     public IReadOnlyList<WorkspaceConflict> GetWorkspaceConflicts()
     {
         lock (workspaceGate) return workspaceConflicts;
+    }
+
+    private void CheckPublicationConflictsBeforeWrite()
+    {
+        LoadPublicationConflicts();
+        if (workspaceConflicts.Count != 0)
+            throw new IOException("Resolve the retained publication conflict before any further mutation.");
     }
 
     private void WritePublicationRecord<T>(string transaction, string name, T value)
@@ -194,6 +202,7 @@ public sealed partial class ApplicationWorkflow
 
     private void ReadPublicationConflicts()
     {
+        var hadConflicts = workspaceConflicts.Count != 0;
         var conflicts = new List<WorkspaceConflict>();
         var transactions = Path.Combine(workspace!, "transactions");
         if (!Directory.Exists(transactions))
@@ -212,6 +221,7 @@ public sealed partial class ApplicationWorkflow
             var intent = ReadPublicationRecord<PublicationIntent>(path);
             if (intent.SchemaVersion != 1 || intent.Id == Guid.Empty || intent.Id.ToString("N") != Path.GetFileName(transaction) ||
                 !ValidDigest(intent.AfterDigest) || !ValidDigest(intent.BaseRevision) || intent.LocalWritingPaths is null ||
+                string.IsNullOrEmpty(intent.Target) ||
                 intent.BeforeDigest is not null && !ValidDigest(intent.BeforeDigest) ||
                 intent.Target != "workspace.json" &&
                 !System.Text.RegularExpressions.Regex.IsMatch(intent.Target,
@@ -244,7 +254,8 @@ public sealed partial class ApplicationWorkflow
             }
             var evidence = (check?.Evidence ?? []).Select(value =>
             {
-                if (!System.Text.RegularExpressions.Regex.IsMatch(value.Path, @"^publication-evidence-[0-9]{8}$") ||
+                if (value is null || string.IsNullOrEmpty(value.Path) || string.IsNullOrEmpty(value.OriginalPath) ||
+                    !System.Text.RegularExpressions.Regex.IsMatch(value.Path, @"^publication-evidence-[0-9]{8}$") ||
                     Path.IsPathRooted(value.OriginalPath) || value.OriginalPath.Split('\\', '/').Contains("..") ||
                     !ValidDigest(value.Digest))
                     throw new FormatException("Invalid conflict evidence provenance.");
@@ -253,7 +264,7 @@ public sealed partial class ApplicationWorkflow
             }).ToArray();
             var localWriting = intent.LocalWritingPaths.Select(relative =>
             {
-                if (!relative.StartsWith("recovery\\documents\\", StringComparison.Ordinal))
+                if (relative is null || !relative.StartsWith("recovery\\documents\\", StringComparison.Ordinal))
                     throw new FormatException("Invalid retained local writing path.");
                 var parts = relative.Split('\\');
                 if (parts.Length != 4) throw new FormatException("Invalid retained local writing reference.");
@@ -276,6 +287,11 @@ public sealed partial class ApplicationWorkflow
                 throw new FormatException("Invalid conflict acknowledgment.");
         }
         workspaceConflicts = Array.AsReadOnly(conflicts.ToArray());
+        if (conflicts.Count == 0 && hadConflicts && failedSaves.Remove("publication-conflict"))
+        {
+            publicationOutcome = WorkspacePublicationOutcome.None;
+            Status = "Retained publication conflicts were resolved externally. Independent writing and maintenance errors are unchanged.";
+        }
         if (conflicts.Count != 0)
         {
             publicationOutcome = conflicts.Any(value => value.Outcome == WorkspacePublicationOutcome.Indeterminate)
@@ -352,7 +368,8 @@ public sealed partial class ApplicationWorkflow
         foreach (var conflict in conflicts)
         {
             var transaction = Path.Combine(workspace!, "transactions", conflict.Id.ToString("N"));
-            foreach (var path in new[] { "publication.json", "publication.outcome.json", "publication.checked.json" }
+            foreach (var path in new[] { "publication.json", "publication.outcome.json", "publication.checked.json",
+                "publication.base.json", "publication.displaced" }
                 .Select(name => Path.Combine(transaction, name))
                 .Concat(conflict.LocalWritingPaths.SelectMany(path => new[] { path, path + ".sha256" }))
                 .Concat(conflict.Evidence.SelectMany(value => new[] { value.Path, value.Path + ".sha256" })))

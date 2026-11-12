@@ -179,6 +179,7 @@ public sealed partial class ApplicationWorkflow
             EnsureWorkspaceWritable();
             using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            CheckPublicationConflictsBeforeWrite();
             var source = CaptureWorkspaceBytes();
             if (WorkspaceFingerprint(snapshot: source) != revision)
                 throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");

@@ -44,6 +44,11 @@ each pair of payload/seal writes (two entries, within the 32-entry limit).
 No unrelated population documents are recopied. A missing outcome after an
 attempt, malformed journal, missing/changed evidence, or uncertain native result
 fails closed; matching current bytes alone never proves publication succeeded.
+Every writer reloads these records under its exclusive local writer lease before
+staging, even when its current-byte revision and cached conflict list are unchanged.
+Note payloads stage at transaction-unique `transactions\<id>\note.next` paths;
+`publication.stage.json` inventories their length/digest before the real write/flush.
+An interrupted retained stage cannot collide with a later intentional edit.
 
 `PublicationOutcome` distinguishes NotPublished, Published, PublishedConflict and
 Indeterminate. A positively published conflict is **saved locally; external
@@ -61,6 +66,9 @@ Evidence/seals, membership and actual current bytes are rechecked before
 acknowledgment. Newer observed delivery requires a new review. Resolution does not
 restore/merge files or replay the original mutation; normal maintenance protects
 the chosen validated state. `publication.resolved.json` is durable acknowledgment.
+The reviewed evidence revision includes the retained base selector and displaced
+target, including absence. Verified resolution receipts from another client clear
+only the publication-conflict failure, not independent writing or maintenance errors.
 Retained conflict transactions/evidence are not automatically deleted, and their
 ambiguous source resources defer object reclamation. Conflicting/interrupted
 cases therefore have no bounded-overhead promise.

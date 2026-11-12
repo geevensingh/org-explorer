@@ -173,6 +173,12 @@ collisions use the shipping publisher's explicit modes. Actual linked recovery
 selectors are never advertised or reused. These focused cases do not establish
 hardware power-loss durability, complete capture of noncooperating delivery,
 desktop interaction or supported-population scale.
+Journal-only sibling failures block both profile and note writers before staging,
+without relying on watcher delivery. Null evidence/path entries are rejected through
+normal storage errors. Reviewed base/displaced provenance includes absence; later
+changes require another review. Resolved interrupted note stages remain intact while
+new intentional edits use distinct inventoried paths, and verified sibling resolution
+clears only the conflict error while retaining independent drafts.
 
 `OrgExportTests` covers the local producer's public capture and
 Ingest/Profile/Photo seams using fictitious session events and synthetic PNG bytes.
