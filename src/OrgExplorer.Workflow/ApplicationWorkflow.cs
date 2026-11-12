@@ -470,7 +470,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         file.Write(bytes);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
-        file.Flush(true);
+        using (Storage47Probe.Measure(Storage47Probe.Operation.Flush))
+            file.Flush(true);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
     }
     private void PublishWorkspaceFile(string staged, string destination, string? backup)

@@ -255,10 +255,13 @@ public sealed partial class ApplicationWorkflow
         ValidateAcceptedSource(batch.Source);
     }
 
-    private static void RejectWorkspaceLink(string path)
+    private static void RejectWorkspaceLink(string path, bool allowMissing = false)
     {
         Storage47Probe.Link();
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        // A new FileInfo captures attributes and absence in one query, including directories.
+        var attributes = allowMissing ? new FileInfo(path).Attributes : File.GetAttributes(path);
+        if (allowMissing && attributes == (FileAttributes)(-1)) return;
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
     }
 

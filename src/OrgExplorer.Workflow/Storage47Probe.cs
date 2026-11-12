@@ -9,6 +9,19 @@ internal static class Storage47Probe
     private static readonly AsyncLocal<Phase?> Current = new();
     private static readonly object Gate = new();
     internal static Phase? Scope(string name) => Path is null ? null : new(name);
+    internal enum Operation { Inventory, Payload, Seal, Publication, Directory, Flush }
+    internal static Timing? Measure(Operation operation) => Path is null ? null : new(operation);
+    internal sealed class Timing(Operation operation) : IDisposable
+    {
+        private readonly Phase? phase = Current.Value;
+        private readonly long started = Stopwatch.GetTimestamp();
+        public void Dispose()
+        {
+            var elapsed = Stopwatch.GetTimestamp() - started;
+            for (var entry = phase; entry is not null; entry = entry.Parent)
+                Interlocked.Add(ref entry.Ticks[(int)operation], elapsed);
+        }
+    }
     internal static void Read() { for (var phase = Current.Value; phase is not null; phase = phase.Parent) Interlocked.Increment(ref phase.Reads); }
     internal static void Link() { for (var phase = Current.Value; phase is not null; phase = phase.Parent) Interlocked.Increment(ref phase.Links); }
     internal static void Write()
@@ -26,6 +39,7 @@ internal static class Storage47Probe
     {
         internal readonly Phase? Parent;
         internal long Reads, Links, Writes, Publications;
+        internal readonly long[] Ticks = new long[6];
         private readonly string name;
         private readonly Stopwatch timer = Stopwatch.StartNew();
         internal Phase(string name)
@@ -33,7 +47,7 @@ internal static class Storage47Probe
             this.name = name;
             Parent = Current.Value;
             Current.Value = this;
-            Log("START " + name);
+            Log("START " + name + " processors=" + Environment.ProcessorCount);
         }
         public void Dispose()
         {
@@ -41,6 +55,8 @@ internal static class Storage47Probe
             Current.Value = Parent;
         }
         internal void Progress() =>
-            Log($"{name}: {timer.Elapsed.TotalSeconds:F3}s reads={Reads} links={Links} writes={Writes} publications={Publications}");
+            Log($"{name}: {timer.Elapsed.TotalSeconds:F3}s reads={Reads} links={Links} writes={Writes} publications={Publications}" +
+                " aggregateWorkerSeconds=" + string.Join(",", Enum.GetValues<Operation>()
+                    .Select(operation => $"{operation}:{(double)Interlocked.Read(ref Ticks[(int)operation]) / Stopwatch.Frequency:F3}")));
     }
 }

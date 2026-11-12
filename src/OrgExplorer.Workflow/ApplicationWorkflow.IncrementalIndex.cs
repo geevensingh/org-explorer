@@ -53,7 +53,7 @@ public sealed partial class ApplicationWorkflow
         if ((bytes ?? workspaceReadSnapshot.Value)?.ContainsKey(path) == true) return path;
         for (var current = path; !current.Equals(root, StringComparison.OrdinalIgnoreCase);
              current = Path.GetDirectoryName(current)!)
-            if (File.Exists(current) || Directory.Exists(current)) RejectWorkspaceLink(current);
+            RejectWorkspaceLink(current, allowMissing: true);
         return path;
     }
 

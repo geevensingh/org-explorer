@@ -345,7 +345,7 @@ public sealed partial class ApplicationWorkflow
     {
         for (var entry = path; !entry.Equals(workspace, StringComparison.OrdinalIgnoreCase);
              entry = Path.GetDirectoryName(entry)!)
-            if (File.Exists(entry) || Directory.Exists(entry)) RejectWorkspaceLink(entry);
+            RejectWorkspaceLink(entry, allowMissing: true);
         RejectWorkspaceLink(workspace!);
     }
 }

@@ -197,7 +197,7 @@ public sealed partial class ApplicationWorkflow
             var receiptPath = Path.Combine(workspace!, "transactions", metadata.Transaction.ToString("N"), "committed.json");
             for (var entry = receiptPath; !entry.Equals(workspace, StringComparison.OrdinalIgnoreCase);
                  entry = Path.GetDirectoryName(entry)!)
-                if (File.Exists(entry) || Directory.Exists(entry)) RejectWorkspaceLink(entry);
+                RejectWorkspaceLink(entry, allowMissing: true);
             receiptBytes = ReadWorkspaceBytesUncached(receiptPath);
             using var receiptJson = JsonDocument.Parse(receiptBytes);
             CheckProperties(receiptJson.RootElement, ["schemaVersion", "commit", "revision", "recoveryDigest", "publication"], "Recovery receipt");
@@ -382,7 +382,7 @@ public sealed partial class ApplicationWorkflow
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                     for (var entry = target; !entry.Equals(destination, StringComparison.OrdinalIgnoreCase);
                          entry = Path.GetDirectoryName(entry)!)
-                        if (File.Exists(entry) || Directory.Exists(entry)) RejectWorkspaceLink(entry);
+                        RejectWorkspaceLink(entry, allowMissing: true);
                     WriteDurablyBytes(target, bytes);
                 }
                 var after = ValidateRecovery(root, selector, true);

@@ -292,14 +292,19 @@ public sealed partial class ApplicationWorkflow
         RunBoundedFileIo(objects.Select((value, index) => (value, index)), entry =>
         {
             var (value, index) = entry;
+            using (Storage47Probe.Measure(Storage47Probe.Operation.Inventory))
             WriteDurablyBytes(Path.Combine(transaction, $"{inventoryPrefix}-{index:D8}.json"),
                 JsonSerializer.SerializeToUtf8Bytes(new
                 {
                     schemaVersion = 1, path = value.Relative, stagingPath = value.StagingPath,
                     bytes = value.Bytes.LongLength, digest = ByteDigest(value.Bytes)
                 }, IncrementalJsonOptions));
+            using (Storage47Probe.Measure(Storage47Probe.Operation.Directory))
             CreateIncrementalDirectory(Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!);
+            using (Storage47Probe.Measure(value.Relative.EndsWith(".sha256", StringComparison.Ordinal)
+                ? Storage47Probe.Operation.Seal : Storage47Probe.Operation.Payload))
             WriteDurablyBytes(Path.Combine(workspace!, value.StagingPath), value.Bytes);
+            using (Storage47Probe.Measure(Storage47Probe.Operation.Publication))
             PublishWorkspaceFile(Path.Combine(workspace!, value.StagingPath),
                 Path.Combine(workspace!, value.Relative), null);
         });
@@ -309,7 +314,7 @@ public sealed partial class ApplicationWorkflow
     {
         for (var current = directory; !current.Equals(workspace, StringComparison.OrdinalIgnoreCase);
              current = Path.GetDirectoryName(current)!)
-            if (Directory.Exists(current) || File.Exists(current)) RejectWorkspaceLink(current);
+            RejectWorkspaceLink(current, allowMissing: true);
         Directory.CreateDirectory(directory);
         RejectWorkspaceLink(directory);
     }
