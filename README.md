@@ -352,16 +352,21 @@ Named scenarios run sequentially with independent fixtures, JSON results and
 failure diagnostics; missing/unexecuted work cannot pass. They retain real
 photo pixels, Markdown rendering, draft protection, navigation, current/Historical
 context and external refresh rather than repeating every business permutation.
-Required smoke contains nine ordinary scenarios, including authenticated
-update/settings, not the complete scale fixture.
+Required smoke contains nine ordinary 1024 x 768 scenarios, including authenticated
+update/settings, plus three explicitly selected responsive scenarios on a separate
+required disposable hosted 1920 x 1080 runner. The high-resolution job verifies
+an advertised/tested native mode before launching the app; it never changes a
+local or shared display. Neither smoke suite uses the complete scale fixture.
 The explicit UI-scale command runs two independent rich 10,000-Person scenarios
 for realization/navigation/rendering and pending-mutation responsiveness.
 See [performance validation](docs/performance-validation.md) for fixture detail
 and historical evidence, not current execution instructions.
 
-Every PR and main commit, including docs/test-only changes, retains three
+Every PR and main commit, including docs/test-only changes, retains four
 parallel required lanes and a fail-closed aggregate `CI`. Deadlines and the
-five-minute target are unchanged. Core includes file-backed compatibility cases;
+five-minute target are unchanged; the added UI lane has the same 11-minute ceiling
+as ordinary desktop (40 minutes summed, at most 13 on the parallel critical path).
+Core includes file-backed compatibility cases;
 its project name does not make all tests isolated units. Filesystem coverage
 proves durable writes, publication/delivery safety and recovery at the same
 workflow interface. Product-check publication rejects leaked fixtures and test
@@ -412,7 +417,7 @@ isolate Velopack's user-registry and shortcut effects.
 ### Isolated hosted Windows verification
 
 The separate **Isolated Windows installer** workflow runs on relevant PR changes
-or manual dispatch. It does not replace or rewrite the three required CI lanes.
+or manual dispatch. It does not replace the four required CI lanes.
 It builds fixture versions `0.1.0` and `0.1.1`, tests all four fast bootstrap
 hooks, then runs the actual setup/WPF/upgrade/uninstall lifecycle on a disposable
 GitHub-hosted Windows runner:

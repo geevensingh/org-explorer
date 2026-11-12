@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="..\DesktopScenarios.json" Link="DesktopScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\HighResolutionScenarios.json" Link="HighResolutionScenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\UiScaleScenarios.json" Link="UiScaleScenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />

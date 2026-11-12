@@ -19,7 +19,7 @@ internal static partial class Program
 {
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false)
     {
-        AssertDisplayProbeInterop();
+        AssertDisplayInterop();
         if (verifyProfileRefresh) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);

@@ -5,6 +5,15 @@ $errors = $null
 $runner = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $root 'eng\Run-CiLane.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'CI runner syntax is invalid.' }
+$source = Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw
+foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--verify-standard-display'",
+    "'--high-resolution'", 'HighResolutionScenarios.json')) {
+    if (!$source.Contains($required)) { throw "Required separate high-resolution execution is missing $required" }
+}
+$uiScale = Get-Content (Join-Path $root 'eng\Run-UiScale.ps1') -Raw
+foreach ($required in @("'--prepare-high-resolution'", "'--verify-high-resolution'")) {
+    if (!$uiScale.Contains($required)) { throw "Explicit UI scale must share verified display preparation: $required" }
+}
 $command = $runner.Find({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and

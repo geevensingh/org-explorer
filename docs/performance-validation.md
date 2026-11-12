@@ -153,9 +153,14 @@ Per-lane JSON/log/TRX results are emitted under `.ci-results\`. Hosted timing
 starts before checkout/SDK setup. Each meaningful lane has one shared execution
 budget including setup/restore/build/test/fixtures, not a fresh budget per
 command: five minutes for core and eleven each for filesystem/desktop. The
-aggregate has two minutes: **29 minutes summed execution ceiling** and a
+aggregate has two minutes. These recorded three-lane results used a
+**29-minute summed execution ceiling** and a
 thirteen-minute critical-path ceiling, excluding queues and later CD.
 The five-minute optimization target remains distinct from these hard ceilings.
+The subsequent required high-resolution smoke split adds a separate 11-minute
+job without changing those lane deadlines: current CI totals 40 minutes summed
+and retains the 13-minute parallel critical-path ceiling. See `testing.md` for
+the current four-lane contract; historical timings below are not new acceptance.
 
 Fixture source/resources are linked only into test projects. The desktop lane
 also validates an actual local product publish folder and rejects test

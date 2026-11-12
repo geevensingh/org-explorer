@@ -15,6 +15,8 @@ internal static partial class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
+                return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
                 args.Length == 5 && args[2] == "update";
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
@@ -35,10 +37,13 @@ internal static partial class Program
                 ["compatibility-settings"] = root => RunWorkspaceCompatibilityFlow(executable, root),
                 ["update-settings"] = root => RunUpdateSettingsFlow(executable, root),
                 ["external-refresh"] = root => RunExternalRefreshFlow(executable, root),
+                ["responsive-workspace"] = root => RunSearchFavoriteFlow(executable, root, responsive: true),
+                ["responsive-draft-navigation"] = root => RunNavigationFeedbackFlow(executable, root, responsive: true),
+                ["responsive-team-history"] = root => RunTeamContextFlow(executable, root, responsive: true),
                 ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
                 ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
             };
-            if (!selection.Smoke.Concat(selection.Scale).Order().SequenceEqual(actions.Keys.Order()))
+            if (!selection.All.Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");
             if (installer) actions.Add("installer-" + args[2], root =>
             {
@@ -46,6 +51,8 @@ internal static partial class Program
                 else RunInstallerFlow(args, root);
             });
             var selected = installer ? ["installer-" + args[2]] : selection.Select(args.Length == 1 ? null : args[1]);
+            if (selected.Intersect(selection.HighResolution.Concat(selection.Scale)).Any())
+                HostedDisplayPreparation.Verify(new WindowsHostedDisplay().Read());
             var results = Path.GetFullPath(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ??
                 Path.Combine(".ci-results", "desktop"));
             Directory.CreateDirectory(results);

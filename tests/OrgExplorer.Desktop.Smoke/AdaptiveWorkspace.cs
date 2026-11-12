@@ -57,10 +57,10 @@ internal static partial class Program
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
         var transform = (TransformPattern)window.GetCurrentPattern(TransformPattern.Pattern);
         var observed = window.Current.BoundingRectangle;
+        var before = observed;
         var observedState = state.Current.WindowVisualState;
         var canResize = transform.Current.CanResize;
         var request = $"requestedDip={width}x{height}; requestedPx={width * scale}x{height * scale}; initialDpi={scale * 96}";
-        Console.WriteLine($"[DEBUG-adaptive-resize] Before: {request}; uiaPx={observed}; state={observedState}; canResize={canResize}; {NativeResizeBounds(handle)}");
         state.SetWindowVisualState(WindowVisualState.Normal);
         transform.Resize(width * scale, height * scale);
         try
@@ -70,17 +70,16 @@ internal static partial class Program
                 observed = window.Current.BoundingRectangle;
                 observedState = state.Current.WindowVisualState;
                 canResize = transform.Current.CanResize;
-                return Math.Abs(observed.Width / scale - width) < 2;
+                return Math.Abs(observed.Width / scale - width) < 2 && Math.Abs(observed.Height / scale - height) < 2;
             });
         }
         catch (TimeoutException error)
         {
             throw new TimeoutException(
-                $"[DEBUG-adaptive-resize] Single resize did not reach its requested width within the unchanged 20-second observation. " +
-                $"{request}; lastUiaPx={observed}; lastUiaDipAtInitialDpi={observed.Width / scale}x{observed.Height / scale}; " +
+                $"Responsive resize did not reach its requested size within 20 seconds. " +
+                $"{request}; beforeUiaPx={before}; lastUiaPx={observed}; lastUiaDipAtInitialDpi={observed.Width / scale}x{observed.Height / scale}; " +
                 $"lastState={observedState}; canResize={canResize}; {NativeResizeBounds(handle)}", error);
         }
-        Console.WriteLine($"[DEBUG-adaptive-resize] After: {request}; uiaPx={observed}; state={observedState}; canResize={canResize}; {NativeResizeBounds(handle)}");
     }
 
     private static string NativeResizeBounds(IntPtr handle)
@@ -131,7 +130,6 @@ internal static partial class Program
 
     private static PaneProportions AssertAdaptiveWorkspace(AutomationElement window)
     {
-        ProbeHostedDisplay(window);
         Set(window, "SearchQuery", "");
         var scale = DpiScale(window);
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);

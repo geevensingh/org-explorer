@@ -209,11 +209,18 @@ and report failure without claiming durability or changing the last valid
 balance. Resize/minimum clamps are not preference writes; compact transitions
 never save over wide choices. No synchronized Workspace schema changes.
 
-The hosted search/Favorites journey measures actual bounds/text at 700 x 500,
+The required high-resolution `responsive-workspace` journey measures actual bounds/text at 700 x 500,
 1100 x 900, maximized, and available host widths 959/960/961, then exercises
 mouse/keyboard dividers, minimums, bounded prose, resize/reopen balance and
-search/clear restoration. The existing draft-navigation journey adds a real
-protected compact-overlay rejection. These are implemented assertions, not a
+search/clear restoration. `responsive-draft-navigation` adds a real
+protected compact-overlay rejection; `responsive-team-history` retains the
+700/1100 rendered attributed-warning and frozen-history matrices. The nine
+ordinary desktop journeys remain on 1024 x 768 without display changes.
+The separate disposable hosted job prepares only an advertised, driver-tested
+1920 x 1080 / 32-bpp / 96-DPI mode and verifies actual native capacity before
+launch; prerequisite failure never skips or shrinks the matrix. Explicit
+10,000-Person UI scale stays separate and reuses that preparation.
+These are implemented assertions, not a
 claim that hosted acceptance has run for this candidate; compiled/invisible
 local checks do not prove these rendered numeric choices. Exact startup-view
 restoration remains separate delivery work.
