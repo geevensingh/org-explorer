@@ -91,13 +91,17 @@ Capture supports original JSON in event `result.content`, native
 It also unwraps MCP `structuredContent` or one text `content` block, including
 `isError` wrappers. Native failure messages containing complete JSON, optionally
 prefixed `MCP error <integer>: `, retain mixed successes and source failures.
-Host-capped text with the exact marker
-`Output too large to display.\nFull output saved to: <absolute path>` reads and
-retains the original fresh local file, not its preview. Other host transports
-need an explicit supported adapter before use; multipart/binary display blocks,
-excerpts, missing files and incomplete batches are not reconstructed.
+Host-capped text with the marker
+`Output too large to display.\nFull output saved to: <absolute path>` is an explicit
+blocker. A path and a fresh modification time cannot establish which invocation
+wrote the bytes: another call may have replaced the file. Saved-file support
+requires an explicit adapter with a verified immutable per-invocation file
+contract or a source-provided digest bound to that completion. A digest computed
+after reading the file does not establish that binding. Preserve the completion
+diagnostic and report the unsupported host transport; multipart/binary display
+blocks, excerpts, missing files and incomplete batches are not reconstructed.
 
-Each ticket retains immutable original start/completion events, host-saved bytes,
+Each ticket retains immutable original start/completion events,
 ordered requests and the extracted response. Matching uses the stream bookmark,
 exact tool name/arguments, worker scope and tool-call ID, with exclusive claims
 preventing two tickets from consuming the same invocation. The completion record

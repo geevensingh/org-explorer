@@ -57,7 +57,6 @@ public sealed class OrgExportTests : IDisposable
     [Theory]
     [InlineData("mcp")]
     [InlineData("structured")]
-    [InlineData("saved")]
     [InlineData("error")]
     [InlineData("native-structured")]
     [InlineData("native-contents")]
@@ -85,12 +84,6 @@ public sealed class OrgExportTests : IDisposable
         else if (transport == "structured")
             result = new { content = JsonSerializer.Serialize(new { structuredContent = JsonNode.Parse(payload),
                 content = new[] { new { type = "text", text = "Display summary only" } } }) };
-        else if (transport == "saved")
-        {
-            var saved = Path.Combine(root, "host-saved-photo.json");
-            File.WriteAllText(saved, payload);
-            result = new { content = "Output too large to display.\nFull output saved to: " + saved };
-        }
         else
             result = new { content = JsonSerializer.Serialize(new { isError = transport == "error",
                 content = new[] { new { type = "text", text = payload } } }) };
@@ -105,8 +98,37 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal("431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
             photo["sha256"]!.GetValue<string>());
         Assert.Equal(JsonNode.Parse(payload)!.ToJsonString(), JsonNode.Parse(File.ReadAllText(capture.ResponseFile))!.ToJsonString());
-        if (transport == "saved")
-            Assert.Equal(payload, File.ReadAllText(Assert.Single(capture.SavedFiles)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Capture_blocks_unverified_host_saved_file_references(bool replaced)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "replaced-file.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "fictitious work profile" };
+        var requestFile = Path.Combine(root, "replaced-request.json");
+        Save(requestFile, new { toolName = "workiq-retrieve", arguments });
+        var ticket = session.BeginCapture(events, requestFile);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "original", toolName = "workiq-retrieve", arguments });
+        var saved = Path.Combine(root, "host-output.json");
+        File.WriteAllText(saved, "{\"worker\":\"original\"}");
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "original", success = true,
+            result = new { content = "Output too large to display.\nFull output saved to: " + saved } });
+        if (replaced)
+            File.WriteAllText(saved, "{\"worker\":\"replacement\"}");
+
+        var error = Assert.Throws<InvalidOperationException>(() => session.Capture(ticket));
+
+        Assert.Contains("Unverified host-saved output reference", error.Message);
+        var completion = JsonNode.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(ticket)!, "completion.json")))!;
+        Assert.Equal("Output too large to display.\nFull output saved to: " + saved,
+            completion["data"]!["result"]!["content"]!.GetValue<string>());
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "receipts")));
     }
 
     [Fact]

@@ -91,8 +91,7 @@ public sealed partial class ExportSession
         var completionFile = System.IO.Path.Combine(directory, "completion.json");
         Immutable(startFile, Encoding.UTF8.GetBytes(start.Line));
         Immutable(completionFile, Encoding.UTF8.GetBytes(completion));
-        var savedFiles = new List<string>();
-        var response = OriginalPayload(outcome, ticket, directory, savedFiles);
+        var response = OriginalPayload(outcome);
         using var payload = JsonDocument.Parse(response);
         string[]? requests = null;
         var count = 1;
@@ -123,7 +122,7 @@ public sealed partial class ExportSession
         var captured = new CapturedResult(start.Id, outcome.GetProperty("success").GetBoolean(), count, nonSuccessResults,
             System.IO.Path.Combine(directory, "response.json"),
             requests is null ? null : System.IO.Path.Combine(directory, "requests.json"),
-            startFile, completionFile, savedFiles.ToArray());
+            startFile, completionFile, []);
         var claim = Within("captures\\" + Hash(Encoding.UTF8.GetBytes(ticket.EventsFile.ToUpperInvariant() + "\n" + start.Id)) + ".claim");
         Immutable(claim, Encoding.UTF8.GetBytes(ticketFile));
         Immutable(captured.ResponseFile, Encoding.UTF8.GetBytes(response));
@@ -146,7 +145,7 @@ public sealed partial class ExportSession
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out var field)
             && field.ValueKind == JsonValueKind.String ? field.GetString() : null;
 
-    private string OriginalPayload(JsonElement outcome, CaptureTicket ticket, string directory, List<string> savedFiles)
+    private static string OriginalPayload(JsonElement outcome)
     {
         string text;
         if (outcome.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object)
@@ -169,28 +168,15 @@ public sealed partial class ExportSession
                 text = text[(separator + 2)..];
             }
         }
-        const string savedPrefix = "Output too large to display.\nFull output saved to: ";
-        if (text.Replace("\r\n", "\n", StringComparison.Ordinal).StartsWith(savedPrefix, StringComparison.Ordinal))
-        {
-            var file = text.Replace("\r\n", "\n", StringComparison.Ordinal)[savedPrefix.Length..].Trim();
-            Require(System.IO.Path.IsPathFullyQualified(file), "The host-saved output reference must be absolute.");
-            file = System.IO.Path.GetFullPath(file);
-            var roots = new[] { path, System.IO.Path.GetTempPath(), System.IO.Path.GetDirectoryName(ticket.EventsFile)! };
-            Require(roots.Any(root => file.StartsWith(root.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)),
-                "The host-saved result must be in local staging, temporary storage, or the calling session.");
-            FreshPayload(file);
-            var bytes = File.ReadAllBytes(file);
-            var retained = System.IO.Path.Combine(directory, "host-output-" + Hash(bytes) + ".json");
-            Immutable(retained, bytes);
-            savedFiles.Add(retained);
-            text = new UTF8Encoding(false, true).GetString(bytes).TrimStart('\uFEFF');
-        }
         return UnwrapPayload(text);
     }
 
     private static string UnwrapPayload(string text, int depth = 0)
     {
         Require(depth < 8, "Unsupported deeply wrapped tool result.");
+        const string savedPrefix = "Output too large to display.\nFull output saved to: ";
+        Require(!text.Replace("\r\n", "\n", StringComparison.Ordinal).StartsWith(savedPrefix, StringComparison.Ordinal),
+            "Unverified host-saved output reference: capture requires a supported immutable per-invocation file contract or source-provided digest.");
         using var payload = JsonDocument.Parse(text);
         var body = payload.RootElement;
         Require(body.ValueKind is JsonValueKind.Object or JsonValueKind.Array,
