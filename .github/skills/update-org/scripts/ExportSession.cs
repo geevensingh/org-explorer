@@ -8,7 +8,7 @@ using OrgExplorer.Workflow;
 
 namespace OrgExplorer.OrgExport;
 
-public sealed class ExportSession : IDisposable
+public sealed partial class ExportSession : IDisposable
 {
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -23,6 +23,7 @@ public sealed class ExportSession : IDisposable
         { "jobTitle", "department", "officeBuilding", "officeNumber", "officeState", "officeCountry" };
     private readonly string path;
     private readonly Run run;
+    private readonly TimeProvider sourceClock;
     private FileStream? lease;
     private Collection? complete;
 
@@ -37,8 +38,8 @@ public sealed class ExportSession : IDisposable
     public sealed record Collection(Person[] People, string[] Pending, string[] Errors, string[] Excluded,
         int SubtreeCount, Dictionary<string, Receipt> Receipts);
 
-    private ExportSession(string path, Run run, FileStream lease)
-        => (this.path, this.run, this.lease) = (path, run, lease);
+    private ExportSession(string path, Run run, FileStream lease, TimeProvider sourceClock)
+        => (this.path, this.run, this.lease, this.sourceClock) = (path, run, lease, sourceClock);
 
     public static string Create(string label, string rootId, string accountId, string? importsRoot = null)
     {
@@ -54,11 +55,12 @@ public sealed class ExportSession : IDisposable
         foreach (var name in new[] { "receipts", "profiles", "photos", "sources", "workers" })
             Directory.CreateDirectory(System.IO.Path.Combine(staging, name));
         Save(System.IO.Path.Combine(staging, "state.json"), state);
+        Save(System.IO.Path.Combine(staging, "source-coordination.json"), new SourceLedger(state.BatchId, []));
         File.WriteAllBytes(System.IO.Path.Combine(staging, ".lease"), []);
         return staging;
     }
 
-    public static ExportSession Open(string path, bool publishing = false)
+    public static ExportSession Open(string path, bool publishing = false, TimeProvider? sourceClock = null)
     {
         path = System.IO.Path.GetFullPath(path);
         Local(path);
@@ -75,7 +77,7 @@ public sealed class ExportSession : IDisposable
             lease.Dispose();
             throw new InvalidOperationException("Publication was sealed. Start a fresh run; verified photo bytes remain reusable.");
         }
-        return new ExportSession(path, state, lease);
+        return new ExportSession(path, state, lease, sourceClock ?? TimeProvider.System);
     }
 
     public object Ingest(string requestsFile, string responseFile)
@@ -229,8 +231,10 @@ public sealed class ExportSession : IDisposable
     public object Jobs()
     {
         var collection = Plan();
+        var sources = SourceStatus();
         var jobs = new List<string>();
-        if (collection.Pending.Length == 0 && collection.Errors.Length == 0)
+        if (collection.Pending.Length == 0 && collection.Errors.Length == 0
+            && sources.StopReason is null && sources.Reads.All(read => read.State != "failed"))
             foreach (var group in collection.People.Chunk(16))
             {
                 var name = System.IO.Path.Combine(path, "workers", group[0].Id + ".json");
@@ -238,7 +242,7 @@ public sealed class ExportSession : IDisposable
                 jobs.Add(name);
             }
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
-            collection.Errors, jobFiles = jobs,
+            collection.Errors, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
@@ -361,13 +365,17 @@ public sealed class ExportSession : IDisposable
 
     public object Publish()
     {
+        var sources = RequireSourcesComplete();
         var collection = Complete();
+        foreach (var receipt in collection.Receipts.Values)
+            RequireCompletedSource(sources, "structured", receipt.Path);
         var byId = collection.People.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var people = new List<Dictionary<string, object?>>();
         var warnings = new List<string>();
         var photos = new List<PhotoEvidence>();
         foreach (var person in collection.People)
         {
+            RequireCompletedSource(sources, "profile", person.Id);
             var item = new Dictionary<string, object?>
             {
                 ["email"] = person.Email, ["displayName"] = person.Name,
@@ -398,6 +406,7 @@ public sealed class ExportSession : IDisposable
             {
                 Success(metadata, "Photo metadata");
                 var photo = Read<PhotoEvidence>(System.IO.Path.Combine(path, "photos", person.Id + ".json"));
+                if (!photo.Reused) RequireCompletedSource(sources, "photo", $"/users/{person.Id}/photo/$value");
                 Require(photo.DirectoryId == person.Id
                     && photo.Etag == Text(metadata["data"]!.AsObject(), "@odata.mediaEtag"), "Photo metadata changed.");
                 var bytes = File.ReadAllBytes(Within(photo.PhotoPath));
