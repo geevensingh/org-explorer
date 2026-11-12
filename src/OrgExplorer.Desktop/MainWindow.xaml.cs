@@ -16,9 +16,11 @@ public partial class MainWindow : Window
     private readonly HashSet<string> expandedPeople = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TreeViewItem, object> treeRestorers = new();
 
-    public MainWindow()
+    public MainWindow() : this(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener())) { }
+
+    internal MainWindow(IApplicationWorkflow application)
     {
-        workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()), workspaceSettings);
+        workflow = new(application, workspaceSettings);
         InitializeComponent();
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();

@@ -23,6 +23,8 @@ internal static partial class Program
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
                 return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
+            if (args.Length == 2 && args[1] == "--verify-update-yield")
+                return VerifyCompiledXaml(executable, verifyUpdateYield: true);
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {

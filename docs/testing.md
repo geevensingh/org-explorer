@@ -252,6 +252,21 @@ blocks handoff, retry and newer writing reach the controlled installer effect,
 and that effect observes the final file hash. These calls still never show/focus
 the window, create its native handle, or use an external UI Automation client;
 they do not replace the real hosted update-settings journey.
+`--verify-update-yield` is a non-UI compiled-window regression in the required
+desktop lane, within its existing budget. It requires the ephemeral
+trusted-update/effects build and does not replace a desktop scenario.
+It composes the actual window with the real file-backed workflow through an
+internal application-construction seam and the same held note publisher used
+by persistence tests. A dispatcher hook selects the real post-drain Background
+yield, admits one note save at Normal priority, and waits for publication to
+reach the hold. A ContextIdle observer requires the update to remain pending,
+with unchanged saved bytes and no early handoff, before releasing publication.
+The original single update action must then hand off the final durable bytes
+and matching file hash; there is no update retry. The shared work drain
+rechecks its gate after dispatcher settling and waits again for an admitted
+save, while existing failed-save, profile/draft and final restart guards remain
+active. This regression never shows/focuses a window or creates its native
+handle.
 The failed-note case also opens Settings and attempts Close once. Rejection must
 reveal the retained work area instead of leaving Settings over the failed editor,
 including after queued focus work settles. Owner, title, Markdown, actionable
