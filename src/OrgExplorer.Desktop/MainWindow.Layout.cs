@@ -97,9 +97,15 @@ public partial class MainWindow
         var column = people ? PeopleColumn : ProfileColumn;
         var grid = people ? ExplorerPanel : PersonBody;
         var maximum = grid.ActualWidth - DividerWidth - grid.ColumnDefinitions[2].MinWidth;
-        column.Width = new(Math.Clamp(column.ActualWidth + (e.Key == Key.Right ? 10 : -10), column.MinWidth, maximum));
-        grid.UpdateLayout();
-        PersistPaneBalance(divider);
+        // SizeChanged must not restore the previous ratio before the key's new balance is saved.
+        arrangingPanes = true;
+        try
+        {
+            column.Width = new(Math.Clamp(column.ActualWidth + (e.Key == Key.Right ? 10 : -10), column.MinWidth, maximum));
+            grid.UpdateLayout();
+            PersistPaneBalance(divider);
+        }
+        finally { arrangingPanes = false; }
         ArrangeWorkspace();
     }
 

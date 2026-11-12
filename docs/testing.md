@@ -250,6 +250,12 @@ while held and after completion. This locks down the mixed pixel/star column
 overflow reproduced without a native window; paired proportional columns keep
 both opposing minimums in WPF's shared resize constraint. It does not replace
 hosted physical gesture/hit-target or rendered-pixel acceptance.
+The same real control also receives routed Left/Right keys after the maximum
+drag, requiring the exact 10-DIP change to survive layout and preference
+publication. Its unshown input source has no rendering target: this tests the
+actual key handler, not physical focus or native input delivery. Pane layout
+callbacks must not restore the previous ratio during the key's layout/save
+transaction.
 It additionally drives actual compiled owned-Team create/read/designate/Other
 controls, an exact empty secondary note, a locked preference rejection and a
 failed secondary-note save with protected ongoing navigation and successful

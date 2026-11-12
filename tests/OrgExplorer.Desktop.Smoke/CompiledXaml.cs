@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
@@ -310,6 +311,21 @@ internal static partial class Program
             }
             Contained(stage + " completed");
         }
+        void ResizeWithKey(GridSplitter divider, FrameworkElement pane, Key key, double expectedDelta)
+        {
+            var before = pane.ActualWidth;
+            var input = new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, key)
+            {
+                RoutedEvent = Keyboard.PreviewKeyDownEvent
+            };
+            divider.RaiseEvent(input);
+            Layout();
+            Contained($"{divider.Name} {key}");
+            var actualDelta = pane.ActualWidth - before;
+            if (!input.Handled || Math.Abs(actualDelta - expectedDelta) > 1)
+                throw new InvalidOperationException($"Compiled {divider.Name} {key} did not resize by {expectedDelta} DIP: " +
+                    $"before={before}, after={pane.ActualWidth}, actualDelta={actualDelta}, handled={input.Handled}.");
+        }
         Layout();
         Contained("initial");
         Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
@@ -317,6 +333,8 @@ internal static partial class Program
         var content = (FrameworkElement)viewport.Content;
         var start = profileDivider.TransformToAncestor(content).Transform(new Point(0, 0)).X;
         Drag(profileDivider, viewport.ViewportWidth - 20 - start, "profile maximum");
+        ResizeWithKey(profileDivider, profile, Key.Left, -10);
+        ResizeWithKey(peopleDivider, people, Key.Right, 10);
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");
         Drag(profileDivider, (profile.ActualWidth + notes.ActualWidth) * .36 - profile.ActualWidth, "profile 36%");
         if (Math.Abs(profile.ActualWidth / (profile.ActualWidth + notes.ActualWidth) - .36) > .01)
@@ -324,7 +342,15 @@ internal static partial class Program
         Drag(peopleDivider, host.ActualWidth - people.ActualWidth, "People maximum");
         Layout(1100, 900);
         Contained("narrower wide viewport");
-        Console.WriteLine("PASS: real compiled splitter drags keep both panes/divider inside the viewport through minimum, maximum, outer resize and 36% recovery; no visible window/native handle.");
+        Console.WriteLine("PASS: real compiled splitter drags and 10-DIP routed keys retain both panes/divider inside the viewport through minimum, maximum, outer resize and 36% recovery; no visible window/native handle.");
+    }
+
+    private sealed class UnshownInputSource : PresentationSource
+    {
+        public override Visual RootVisual { get; set; } = new DrawingVisual();
+        public override bool IsDisposed => false;
+        protected override CompositionTarget GetCompositionTargetCore() =>
+            throw new InvalidOperationException("The non-UI routed-key fixture must not create a rendering target.");
     }
 
     private static void VerifyOwnedTeamPresentation(Window window, string folder)
