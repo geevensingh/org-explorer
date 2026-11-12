@@ -104,6 +104,7 @@ only after a verified identity match, the Person and lookup time. An earlier
 success cannot resolve a newer failure. A replacement file can resolve matched-Person
 failures when its lookup time is at least as recent as their latest failed lookup.
 Without a verified identity or lookup time, correct the original input path.
+Reusing that path for another Person cannot resolve a failure with a verified identity.
 Correcting a mismatched identity resolves that input, not an unrelated Person.
 A successful correction preserves other successes and their lookup timestamps/
 evidence. Freshness still requires actual evidence from this run, not restamped

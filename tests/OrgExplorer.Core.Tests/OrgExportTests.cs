@@ -589,6 +589,70 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 1)]
+    public async Task Reusing_a_failed_input_for_another_person_preserves_the_verified_failure(bool cli, int laterSeconds)
+    {
+        var path = Seed();
+        string rootInput;
+        string childInput;
+        using (var session = ExportSession.Open(path))
+        {
+            Ingest(session,
+                (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+                (ExportSession.ReportsPath(ChildId), Empty()),
+                (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")),
+                (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
+            var people = session.Plan().People;
+            rootInput = ProfileInput(people.Single(person => person.Id == RootId));
+            childInput = ProfileInput(people.Single(person => person.Id == ChildId));
+            session.Profile(RootId, rootInput);
+            session.Profile(ChildId, childInput);
+        }
+        var original = File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json"));
+        var rootObservation = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(rootInput), ExportSession.Json)!;
+        var childObservation = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(childInput), ExportSession.Json)!;
+        var failedObservation = rootObservation with
+        {
+            ObservedAt = childObservation.ObservedAt.AddSeconds(1),
+            Error = "Newer lookup for the root Person failed."
+        };
+        var reusedInput = Path.Combine(root, "reused-input.json");
+        var batch = Path.Combine(root, "reused-input-batch.json");
+        Save(reusedInput, failedObservation);
+        Save(batch, new[] { reusedInput });
+        var failed = await ProfilesAtSeam(cli, path, batch, 1);
+        Assert.Equal(1, failed.Failed);
+
+        Save(reusedInput, childObservation with { ObservedAt = failedObservation.ObservedAt.AddSeconds(laterSeconds) });
+        var unrelatedSuccess = await ProfilesAtSeam(cli, path, batch, 0);
+
+        Assert.Equal(1, unrelatedSuccess.Succeeded);
+        Assert.Equal(0, unrelatedSuccess.Failed);
+        Assert.Equal(ChildId, unrelatedSuccess.Items.Single().DirectoryId);
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json")));
+        var savedChild = File.ReadAllBytes(Path.Combine(path, "profiles", ChildId + ".json"));
+        using (var session = ExportSession.Open(path, publishing: true))
+        {
+            var rejection = Assert.Throws<InvalidOperationException>(() => session.Publish());
+            Assert.Contains("Unresolved profile inputs", rejection.Message);
+        }
+
+        var correctedInput = Path.Combine(root, "corrected-root.json");
+        Save(correctedInput, failedObservation with { Error = null });
+        Save(batch, new[] { correctedInput });
+        var corrected = await ProfilesAtSeam(cli, path, batch, 0);
+        Assert.Equal(1, corrected.Succeeded);
+        Assert.Equal(0, corrected.Failed);
+        Assert.Equal(savedChild, File.ReadAllBytes(Path.Combine(path, "profiles", ChildId + ".json")));
+        using var reopened = ExportSession.Open(path, publishing: true);
+        var import = JsonSerializer.SerializeToNode(reopened.Publish())!["importPath"]!.GetValue<string>();
+        Assert.Equal(2, JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray().Count);
+    }
+
+    [Theory]
     [InlineData("NORTH/001.2", "NORTH", "001.2")]
     [InlineData("NORTH/Mobile", "NORTH", null)]
     [InlineData("2/REDMND", "2", null)]

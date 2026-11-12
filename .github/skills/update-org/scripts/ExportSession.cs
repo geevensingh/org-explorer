@@ -301,6 +301,7 @@ public sealed class ExportSession : IDisposable
                 foreach (var file in related)
                 {
                     var previous = Read<ProfileFailure>(file);
+                    if (previous.DirectoryId is not null && previous.DirectoryId != person.Id) continue;
                     var sameInput = file.EndsWith("-" + inputKey + ".json", StringComparison.OrdinalIgnoreCase);
                     // A replacement cannot resolve a failure with no verified lookup time.
                     if (!sameInput && previous.ObservedAt is null) continue;
