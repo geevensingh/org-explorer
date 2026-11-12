@@ -230,6 +230,18 @@ also satisfy overlapping protected-byte comparisons. Other roots, seals and
 transaction files are still freshly checked; no captured set survives into the
 next deletion-boundary check.
 
+Within the same serialized writer operation, the root census reuses the final
+complete recovery snapshot validated after recovery-selector publication.
+It does not reread and reinterpret that snapshot merely to construct the same
+protected-byte expectations. All publication validations remain in place, and
+every deletion boundary still compares freshly read actual bytes, seals,
+selectors and transaction membership with those exact expectations.
+Read-only inventory classification needs no additional full guard scan before
+the first deletion-boundary check. The final successful pass revalidation also
+serves as the immediately following pending-plan deletion's before-check.
+Each deletion target receives its fresh ancestry and digest checks after the
+batch's root guard, not before a potentially lengthy full-state scan.
+
 Removing an inventory only after processing its payload/stage is incremental
 deletion progress; a missing file is idempotent on restart. Changed payloads are
 preserved as unknown, not repeatedly reclaimed. Inventories for protected files

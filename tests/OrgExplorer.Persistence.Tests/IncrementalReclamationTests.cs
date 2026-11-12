@@ -267,8 +267,11 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         }
     }
 
-    [Fact]
-    public void Recovery_selector_delivery_after_validation_cannot_be_blessed_by_the_cleanup_root_census()
+    [Theory]
+    [InlineData("selector")]
+    [InlineData("object")]
+    [InlineData("seal")]
+    public void Recovery_delivery_after_validation_cannot_be_blessed_by_the_cleanup_root_census(string delivery)
     {
         var current = Path.Combine(folder, "current");
         var publisher = new InspectingPublisher();
@@ -280,9 +283,14 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         var selected = Path.Combine(current, "recovery", "current.json");
         var priorSelector = File.ReadAllBytes(selected);
         var priorBytes = SelectedClosure(current).ToDictionary(path => path, File.ReadAllBytes);
+        var deliveredPath = delivery == "selector" ? selected :
+            Directory.GetFiles(Path.Combine(current, "recovery", "documents", "acceptedBatches"), "*.json").Single() +
+                (delivery == "seal" ? ".sha256" : "");
+        var originalBytes = File.ReadAllBytes(deliveredPath);
+        var deliveredBytes = delivery == "selector" ? priorSelector : originalBytes.Concat(new byte[] { 32 }).ToArray();
         publisher.BeforePublish = (_, destination) =>
         {
-            if (Path.GetFileName(destination) == "retired.json") File.WriteAllBytes(selected, priorSelector);
+            if (Path.GetFileName(destination) == "retired.json") File.WriteAllBytes(deliveredPath, deliveredBytes);
         };
         observer.Effects.Clear();
         Assert.True(app.EditPreferredName("avery@example.com", "Second"), app.Status);
@@ -290,8 +298,10 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
         Assert.Contains("storage maintenance incomplete", app.LocalSaveError);
         Assert.False(app.CanSafelyClose);
         Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Delete);
-        foreach (var (path, bytes) in priorBytes) Assert.Equal(bytes, File.ReadAllBytes(path));
+        foreach (var (path, bytes) in priorBytes)
+            Assert.Equal(path == deliveredPath ? deliveredBytes : bytes, File.ReadAllBytes(path));
         Assert.Equal("Second", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        File.WriteAllBytes(deliveredPath, originalBytes);
         Assert.True(app.RetryStorageMaintenance(), app.Status);
         Assert.True(app.CanSafelyClose, app.LocalSaveError);
         Assert.True(app.RecoverWorkspace(Path.Combine(folder, "restored")), app.Status);

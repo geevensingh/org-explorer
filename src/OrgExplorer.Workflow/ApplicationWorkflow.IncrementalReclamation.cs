@@ -32,7 +32,7 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] string RecoveryDigest);
 
     // Called with the local I/O gate and writer lease, only after recovery selection.
-    private void ReclaimIncrementalStorage(PreparedRecovery prepared)
+    private void ReclaimIncrementalStorage(PreparedRecovery prepared, ValidatedRecovery selected)
     {
         var current = CaptureWorkspaceBytes();
         using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
@@ -42,7 +42,6 @@ public sealed partial class ApplicationWorkflow
             throw new IOException("Current delivery changed; storage reclamation is deferred.");
         var selectedPath = Path.Combine(workspace!, "recovery", "current.json");
         var selectedBytes = ReadWorkspaceBytesUncached(selectedPath);
-        var selected = ValidateRecovery(prepared.Root, selectedBytes, true);
         if (selected.Metadata.SourceRevision != accepted || !selectedBytes.AsSpan().SequenceEqual(prepared.Selector))
             throw new IOException("Recovery selection changed; storage reclamation is deferred.");
 
@@ -205,12 +204,12 @@ public sealed partial class ApplicationWorkflow
             });
         }
         var batchSize = 0;
-        void DeleteRecorded(string path, string digest)
+        void DeleteRecorded(string path, string digest, bool rootsAlreadyChecked = false)
         {
             if (!File.Exists(path)) return;
+            if (batchSize == 0 && !rootsAlreadyChecked) Recheck();
             RejectStoragePathLinks(path);
             if (ByteDigest(ReadWorkspaceBytesUncached(path)) != digest) return;
-            if (batchSize == 0) Recheck();
             DeleteWorkspaceFile(path);
             knownFiles.Remove(path);
             guards.Remove(path);
@@ -221,7 +220,6 @@ public sealed partial class ApplicationWorkflow
             }
         }
 
-        Recheck();
         foreach (var (transaction, retirement) in retired)
         {
             var inventories = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>();
@@ -265,7 +263,7 @@ public sealed partial class ApplicationWorkflow
             }
         }
         Recheck();
-        DeleteRecorded(pending, ByteDigest(pendingBytes));
+        DeleteRecorded(pending, ByteDigest(pendingBytes), rootsAlreadyChecked: true);
         if (File.Exists(pending))
             throw new IOException("Reclamation plan changed before completion; storage maintenance remains incomplete.");
         storageReclamationDeferred = transactions.Any(transaction => Directory.Exists(transaction) &&

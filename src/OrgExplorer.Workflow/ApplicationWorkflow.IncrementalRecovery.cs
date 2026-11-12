@@ -37,6 +37,7 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] RecoveryPublication? Publication);
 
     private sealed record PreparedRecovery(string Root, string Transaction, byte[] Selector, RecoverySelector Metadata);
+    private sealed record ValidatedRecovery(RecoverySelector Metadata, Dictionary<string, byte[]> Bytes, byte[]? Receipt);
     private PreparedRecovery? pendingRecovery;
     private string? verifiedRecoveryPath;
 
@@ -177,7 +178,7 @@ public sealed partial class ApplicationWorkflow
         return graph;
     }
 
-    private (RecoverySelector Metadata, Dictionary<string, byte[]> Bytes, byte[]? Receipt) ValidateRecovery(string root, byte[] selector,
+    private ValidatedRecovery ValidateRecovery(string root, byte[] selector,
         bool requireReceipt)
     {
         RejectWorkspaceLink(root);
@@ -227,10 +228,10 @@ public sealed partial class ApplicationWorkflow
         bytes[Path.Combine(root, "workspace.json")] = JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions);
         using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root };
         validation.ReadIncrementalWorkspaceData(bytes);
-        return (metadata, bytes, receiptBytes);
+        return new(metadata, bytes, receiptBytes);
     }
 
-    private void CompleteRecovery(PreparedRecovery prepared)
+    private ValidatedRecovery CompleteRecovery(PreparedRecovery prepared)
     {
         ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: false);
         var receipt = JsonSerializer.SerializeToUtf8Bytes(new RecoveryReceipt(1, prepared.Metadata.Transaction,
@@ -255,26 +256,28 @@ public sealed partial class ApplicationWorkflow
             Path.Combine(prepared.Transaction, "recovery.previous.json"));
         if (!ReadWorkspaceBytesUncached(Path.Combine(prepared.Root, "current.json")).AsSpan().SequenceEqual(prepared.Selector))
             throw new IOException("Recovery selection changed during publication.");
-        ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: true);
+        var selected = ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: true);
         verifiedRecoveryPath = prepared.Root;
         compatibility = compatibility with { RecoveryPath = prepared.Root };
         pendingRecovery = null;
         failedSaves.Remove("storage-maintenance");
+        return selected;
     }
 
     private void FinishCommittedRecovery(PreparedRecovery prepared)
     {
         pendingRecovery = prepared;
+        ValidatedRecovery selected;
         try
         {
-            CompleteRecovery(prepared);
+            selected = CompleteRecovery(prepared);
         }
         catch (Exception ex) when (StorageError(ex))
         {
             SaveFailed("storage-maintenance", "Saved locally; recovery maintenance incomplete: " + ex.Message);
             return;
         }
-        try { ReclaimIncrementalStorage(prepared); }
+        try { ReclaimIncrementalStorage(prepared, selected); }
         catch (Exception ex) when (StorageError(ex))
         {
             SaveFailed("storage-maintenance", "Saved locally; storage maintenance incomplete: " + ex.Message);
@@ -336,11 +339,9 @@ public sealed partial class ApplicationWorkflow
                     ? prepared : PrepareRecovery(current, BeginRecoveryTransaction("accepted-current", currentRevision));
                 if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
                     throw new IOException("Current delivery changed during recovery capture; no recovery selected.");
-                CompleteRecovery(candidate);
+                var selected = CompleteRecovery(candidate);
                 recoveryCompleted = true;
-                if (WorkspaceFingerprint() != candidate.Metadata.SourceRevision)
-                    throw new IOException("Current delivery changed during recovery selection; protection remains incomplete.");
-                ReclaimIncrementalStorage(candidate);
+                ReclaimIncrementalStorage(candidate, selected);
                 Status = "Storage maintenance completed; no current mutation was replayed.";
                 return true;
             }
