@@ -153,6 +153,9 @@ internal static partial class Program
             ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
             Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
             AssertNoteView(window, "Team", editing: false);
+            // Archival feedback requires a recorded choice, not implicit sole-note reading.
+            Click(window, "UseAsOngoingTeamNote");
+            Await(() => Find(window, "TeamNoteKind").Current.Name == "Ongoing Team note");
             Click(window, "ConfirmTeamNote");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Confirmed"));
             Click(window, "ArchiveTeamNote");
