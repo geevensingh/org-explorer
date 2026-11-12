@@ -225,7 +225,7 @@ public partial class TeamNotesControl : UserControl
         InheritedSummary.Text = inherited.Count == 0 ? "No current inherited Team notes." :
             string.Join("\n", inherited.Select(n => $"{n.Note.Title} — {n.Owner.Heading} ({n.Owner.Email}): {n.Note.ReviewStatus}"));
         ReviewOwners.Children.Clear();
-        var document = new FlowDocument();
+        var document = PrivateMarkdownReading.Create("", OpenExternalLink);
         foreach (var context in inherited)
         {
             document.Blocks.Add(new Paragraph(new Bold(new Run($"{context.Note.Title} — owned by {context.Owner.Heading} ({context.Owner.Email})"))));
@@ -238,7 +238,11 @@ public partial class TeamNotesControl : UserControl
             }
             var button = new Button
             {
-                Content = $"Read / review '{context.Note.Title}' on {context.Owner.Heading}'s profile",
+                Content = new TextBlock
+                {
+                    Text = $"Read / review '{context.Note.Title}' on {context.Owner.Heading}'s profile",
+                    TextWrapping = TextWrapping.Wrap
+                },
                 HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
             };
             AutomationProperties.SetAutomationId(button, "ReviewTeamNote-" + context.Owner.Email);

@@ -23,7 +23,9 @@ internal static partial class Program
              "managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
-            """, 1));
+            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
+                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
+                """)), 1));
         try
         {
             process = Launch(executable);
@@ -42,6 +44,8 @@ internal static partial class Program
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
             AssertNoteView(window, "Person", editing: false);
+            var paneBalance = AssertAdaptiveWorkspace(window);
+            AssertSearchBrowsingRestoration(window);
             if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
                 throw new InvalidOperationException("Search did not open the saved Person note for reading.");
             Click(window, "ArchivePersonNote");
@@ -104,6 +108,8 @@ internal static partial class Program
             window = Window(process);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
+            Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance.PeoplePercent) < .5 &&
+                Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
             SelectFavorite(window, "avery@example.com");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
@@ -146,6 +152,7 @@ internal static partial class Program
     private static void SelectFavorite(AutomationElement window, string email)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         AutomationElement? result = null;
         Await(() => (result = Find(window, "Favorites").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

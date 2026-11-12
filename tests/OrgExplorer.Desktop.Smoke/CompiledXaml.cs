@@ -60,6 +60,18 @@ internal static partial class Program
                 failures.Add("Search must remain directly accessible outside the People view.");
             if (window.FindName("DiscardImportButton") is not Button)
                 failures.Add("Failed Import has no independent discard control.");
+            if (window.FindName("OpenPeopleButton") is not Button people ||
+                System.Windows.Automation.AutomationProperties.GetName(people) != "People" || !people.Focusable)
+                failures.Add("Compact People navigation needs a labelled keyboard-accessible entry.");
+            foreach (var name in new[] { "PeopleDivider", "ProfileDivider" })
+                if (window.FindName(name) is not GridSplitter { Focusable: true } divider ||
+                    string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(divider)))
+                    failures.Add($"{name}: proportional dividers must expose a meaningful keyboard-accessible control.");
+            foreach (var name in new[] { "WorkspaceSurface", "PeoplePanel", "ProfileSummary", "NotesPane" })
+                if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
+                    failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
+            if (KeyboardNavigation.GetTabNavigation((DependencyObject)window.FindName("PeoplePanel")) == KeyboardNavigationMode.Cycle)
+                failures.Add("People must not trap Tab navigation when no compact overlay is open.");
             var personNotes = (FrameworkElement)window.FindName("PersonNotes");
             var noteList = (ListBox)personNotes.FindName("NotesList");
             var surfacePeer = UIElementAutomationPeer.CreatePeerForElement(personNotes);

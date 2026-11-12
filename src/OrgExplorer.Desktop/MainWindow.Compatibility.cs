@@ -9,6 +9,11 @@ public partial class MainWindow
     private void ToggleSettings(object sender, RoutedEventArgs e)
     {
         SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        if (SettingsPanel.Visibility == Visibility.Visible && workflow.PeopleNavigation.OverlayOpen)
+        {
+            if (workflow.PeopleNavigation.IsBrowsing) RememberPeopleBrowsing();
+            workflow.ShowPeopleOverlay(false);
+        }
         UpdateMainViews();
         if (SettingsPanel.Visibility == Visibility.Visible)
         {

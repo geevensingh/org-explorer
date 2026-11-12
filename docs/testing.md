@@ -111,6 +111,30 @@ secondary search, empty invitation, unavailable choice and visible preference
 and note-save failures. Those assertions require hosted Windows; non-UI success
 does not constitute their execution.
 
+Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
+and its navigation/query/browsing operations. Focused cases preserve an exact
+secondary note and frozen search destination, and retain owner/editor, expansion,
+scroll position, overlay and actionable feedback on rejected navigation.
+`WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
+canonical per-Workspace identity, interleaved designation/startup writes, unchanged
+Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
+These do not prove WPF geometry.
+
+The existing search/Favorites hosted journey measures the adaptive host at
+700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
+959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport
+bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
+600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
+divider effects, wide/compact/wide and actual reopen proportions, and real
+reporting-tree expansion/scroll restoration during persistent and overlay search.
+The draft-navigation journey additionally rejects one compact People destination
+with the exact failed Person-note editor retained and actionable feedback.
+Selection helpers deliberately open compact browsing when needed; they do not
+treat a hidden tree or a closed panel as successful navigation. Existing exact
+current/archived/frozen destinations and independent draft assertions remain.
+Only hosted Windows execution supplies this presentation evidence; the size
+matrix is not a new suite or a substitute for complete explicit UI-scale work.
+
 ## Moving coverage
 
 1. Read the actual assertions at both layers before removing a desktop check.
