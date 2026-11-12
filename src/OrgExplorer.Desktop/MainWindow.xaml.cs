@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     {
         workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()), workspaceSettings);
         InitializeComponent();
+        PreviewKeyDown += EscapePeople;
         InitializeUpdates();
         preferredNameSaveTimer.Tick += SavePreferredNameDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
@@ -125,6 +126,11 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
+        loading = true;
+        SearchQuery.Text = "";
+        loading = false;
+        queryDirty = true;
+        ArrangeWorkspace();
         ClearPersonEditors();
         ClearPersonArchival();
         ShowProfileTimeline(null);
@@ -172,8 +178,14 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
+        var overlay = workflow.PeopleNavigation.OverlayOpen;
+        RememberPeopleBrowsing();
         if (!OpenPerson(node.Person)) RestorePersonSelection();
-        else RefreshArchivedPeople();
+        else
+        {
+            RefreshArchivedPeople();
+            if (overlay) FocusPersonAfterOverlay();
+        }
     }
     private void RestorePersonSelection()
     {
@@ -199,20 +211,25 @@ public partial class MainWindow : Window
         }
         finally { loading = false; }
     }
-    private bool OpenPerson(PersonProfile person)
+    private bool OpenPerson(PersonProfile person, bool navigation = true)
     {
         if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) && !TryLeaveLocalEdits())
             return false;
+        if (navigation && !workflow.NavigatePerson(person.Email))
+        {
+            ShowNavigationBlocked(workflow.Status);
+            return false;
+        }
         if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
             ProfileDetails.IsExpanded = false;
         selectedEmail = person.Email;
-        if (selectedMatch is not null && !string.Equals(selectedMatch.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
-            ClearSearchContext();
+        if (navigation) ClearSearchContext();
         LoadPersonEditors(person);
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
         RefreshSearchAndFavorites();
+        UpdatePeopleNavigation();
         return true;
     }
     private void RefreshPeople()
@@ -223,7 +240,7 @@ public partial class MainWindow : Window
         RefreshArchivedPeople();
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
-            OpenPerson(context.Person);
+            OpenPerson(context.Person, navigation: false);
         else if (selectedEmail is not null && workflow.CanSafelyClose)
         {
             selectedEmail = null;
@@ -270,17 +287,17 @@ public partial class MainWindow : Window
     {
         if (!loading && ReportsList.SelectedItem is PersonProfile report) NavigateTo(report.Email);
     }
-    private bool NavigateTo(string email)
+    private bool NavigateTo(string email, bool searchNavigation = false)
     {
         var context = workflow.GetRelationships(email);
         if (context is null) return false;
-        if (!OpenPerson(context.Person))
+        if (!OpenPerson(context.Person, navigation: !searchNavigation))
         {
             RefreshPeople();
             return false;
         }
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        while (context.Manager is { } manager && visited.Add(manager.Email))
+        while (workflow.PeopleNavigation.IsBrowsing && context.Manager is { } manager && visited.Add(manager.Email))
         {
             expandedPeople.Add(manager.Email);
             context = workflow.GetRelationships(manager.Email)!;
@@ -309,8 +326,14 @@ public partial class MainWindow : Window
             treeRestorers.Add(item, new object());
             item.DataContextChanged += (_, _) => RestoreTreeItem(item, null!);
         }
-        item.IsExpanded = expandedPeople.Contains(node.Person.Email);
-        item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
+        var wasLoading = loading;
+        loading = true;
+        try
+        {
+            item.IsExpanded = expandedPeople.Contains(node.Person.Email);
+            item.IsSelected = string.Equals(node.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { loading = wasLoading; }
     }
     private void ExpandPerson(object sender, RoutedEventArgs e)
     {
@@ -344,6 +367,7 @@ public partial class MainWindow : Window
     private void ShowStatus()
     {
         ShowWorkspaceStartup();
+        ShowPanePreferenceStatus();
         var path = workflow.Compatibility.WorkspacePath;
         WorkspaceName.Text = path is null ? "No Workspace open" : new DirectoryInfo(path).Name;
         WorkspaceName.ToolTip = WorkspaceName.Text;
@@ -382,6 +406,8 @@ public partial class MainWindow : Window
         var settingsOpen = SettingsPanel.Visibility == Visibility.Visible;
         ImportPanel.Visibility = !settingsOpen && workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
         ExplorerPanel.Visibility = !settingsOpen && !workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
+        WorkspaceSurface.Visibility = ExplorerPanel.Visibility;
+        UpdatePeopleNavigation();
     }
 
     private bool TryLeaveLocalEdits()

@@ -169,6 +169,7 @@ internal static partial class Program
     internal static void OpenPerson(AutomationElement window, params string[] ancestors)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         foreach (var email in ancestors)
         {
             AutomationElement? ancestor = null;

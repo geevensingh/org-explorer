@@ -109,6 +109,7 @@ internal static partial class Program
                 Click(window, $"New{kind}Note");
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
+                if (kind == "Person") AssertProtectedPeopleOverlay(window);
                 BeginProfileEditing(window);
                 Set(window, "DirectoryNameEditor", "Discard this profile only");
                 Click(window, "OpenImport");

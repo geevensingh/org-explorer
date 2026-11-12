@@ -248,6 +248,7 @@ internal static partial class Program
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         AutomationElement? person = null;
         Await(() => (person = Find(window, "ArchivedPeople").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
@@ -282,6 +283,8 @@ internal static partial class Program
 
     private static void AssertSelectionMatchesProfile(AutomationElement window)
     {
+        var overlayClosed = IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation");
+        if (overlayClosed) Click(window, "OpenPeople");
         var email = Find(window, "Email").Current.Name;
         var showArchivedPeople = ((TogglePattern)Find(window, "ShowArchivedPeople")
             .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
@@ -290,5 +293,6 @@ internal static partial class Program
                 .Where(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
                     ((SelectionItemPattern)selected).Current.IsSelected)
                 .Select(element => element.Current.AutomationId));
+        if (overlayClosed) Click(window, "ClosePeople");
     }
 }

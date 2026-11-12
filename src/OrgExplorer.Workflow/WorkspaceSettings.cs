@@ -3,6 +3,15 @@ using System.Text.Json.Serialization;
 
 namespace OrgExplorer.Workflow;
 
+public sealed record PaneProportions(
+    [property: JsonRequired] double PeoplePercent,
+    [property: JsonRequired] double ProfilePercent)
+{
+    [JsonIgnore]
+    public bool IsValid => double.IsFinite(PeoplePercent) && PeoplePercent is > 0 and < 100 &&
+        double.IsFinite(ProfilePercent) && ProfilePercent is > 0 and < 100;
+}
+
 public sealed class WorkspaceSettings
 {
     private sealed record Preference(
@@ -11,7 +20,8 @@ public sealed class WorkspaceSettings
         WorkspacePreference[]? Workspaces = null);
     private sealed record WorkspacePreference(
         [property: JsonRequired] string Path,
-        [property: JsonRequired] OngoingDesignation[] OngoingNotes);
+        [property: JsonRequired] OngoingDesignation[] OngoingNotes,
+        PaneProportions? PaneProportions = null);
     private sealed record OngoingDesignation(
         [property: JsonRequired] NoteScope Scope,
         [property: JsonRequired] string OwnerEmail,
@@ -39,7 +49,7 @@ public sealed class WorkspaceSettings
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException)
         {
-            PreferenceError = "Workspace preferences could not be read; no remembered Workspace or ongoing choice was restored. " +
+            PreferenceError = "Workspace preferences could not be read; no remembered Workspace, ongoing choice or pane proportions were restored. " +
                 "Resolve local preference data/file access. Choosing a folder can still open the Workspace without replacing invalid preferences. " + error.Message;
         }
     }
@@ -67,6 +77,8 @@ public sealed class WorkspaceSettings
                 !Path.IsPathFullyQualified(workspace.Path) || !paths.Add(CanonicalPath(workspace.Path)) ||
                 workspace.OngoingNotes is null)
                 throw new FormatException("Workspace presentation preferences require unique absolute folders and ongoing-note entries.");
+            if (workspace.PaneProportions is { IsValid: false })
+                throw new FormatException("Pane proportions require finite percentages greater than zero and less than 100.");
             var owners = new HashSet<(NoteScope, string)>();
             foreach (var note in workspace.OngoingNotes)
                 if (note is null || !Enum.IsDefined(note.Scope) || string.IsNullOrWhiteSpace(note.OwnerEmail) ||
@@ -94,11 +106,28 @@ public sealed class WorkspaceSettings
             var notes = (index < 0 ? [] : workspaces[index].OngoingNotes)
                 .Where(n => n.Scope != scope || !n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase)).ToList();
             notes.Add(new(scope, ownerEmail.Trim().ToLowerInvariant(), noteId));
-            var updated = new WorkspacePreference(path, notes.ToArray());
+            var updated = new WorkspacePreference(path, notes.ToArray(),
+                index < 0 ? null : workspaces[index].PaneProportions);
             if (index < 0) workspaces.Add(updated);
             else workspaces[index] = updated;
             return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
         }, "Ongoing-note preference was NOT saved; the previous ongoing choice is unchanged.");
+
+    public PaneProportions? GetPaneProportions(string workspacePath) =>
+        preference?.Workspaces?.FirstOrDefault(w => SamePath(w.Path, workspacePath))?.PaneProportions;
+
+    public bool SetPaneProportions(string workspacePath, PaneProportions proportions) =>
+        SavePreference(current =>
+        {
+            if (!proportions.IsValid || !Path.IsPathFullyQualified(workspacePath))
+                throw new ArgumentException("Pane proportions require an absolute Workspace folder and finite percentages between zero and 100.");
+            var path = CanonicalPath(workspacePath);
+            var workspaces = (current?.Workspaces ?? []).ToList();
+            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
+            if (index < 0) workspaces.Add(new(path, [], proportions));
+            else workspaces[index] = workspaces[index] with { PaneProportions = proportions };
+            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+        }, "Pane proportions were NOT saved; the previous durable proportions are unchanged.");
 
     public bool RestoreWorkspace(IApplicationWorkflow workflow, string? restartWorkspace = null) =>
         (restartWorkspace ?? LastWorkspacePath) is { } path && OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.ExistingOnly);
