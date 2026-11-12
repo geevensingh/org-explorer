@@ -138,6 +138,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 00150");
+                ExpandCurrentTeamContext(window);
                 if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("person00000@example.com"))
                     throw new InvalidOperationException("The deep Reporting chain lost its root Team context.");
                 AwaitScale(() => CurrentReadingText(window).Contains("Cedar former context 0."));

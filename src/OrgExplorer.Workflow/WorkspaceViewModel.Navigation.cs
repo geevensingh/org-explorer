@@ -68,6 +68,18 @@ public sealed partial class WorkspaceViewModel
 
     public bool NavigatePerson(string email) => Observe(() => NavigatePeopleCore(email, null));
 
+    public bool NavigateInheritedTeamNote(Guid noteId) => Observe(() =>
+    {
+        var context = PeopleNavigation.SelectedEmail is { } email
+            ? workflow.GetInheritedTeamNotes(email).FirstOrDefault(n => n.Note.Id == noteId) : null;
+        if (context is null)
+        {
+            navigationError = "That inherited Team note is unavailable in the current reporting chain. No replacement was opened.";
+            return false;
+        }
+        return NavigatePeopleCore(context.Owner.Email, null) && OpenOwnedNote(NoteScope.Team, noteId);
+    });
+
     public bool NavigateSearchResult(SearchResult result) => Observe(() =>
     {
         var current = workflow.Search(PeopleNavigation.Query).FirstOrDefault(r => SameSearchDestination(r, result));

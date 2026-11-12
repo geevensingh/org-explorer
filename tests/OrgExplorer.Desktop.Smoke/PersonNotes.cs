@@ -259,12 +259,9 @@ internal static partial class Program
         if (!Find(window, $"{kind}NotesEmpty").Current.Name.StartsWith("No ", StringComparison.Ordinal) ||
             !Find(window, $"New{kind}Note").Current.IsEnabled)
             throw new InvalidOperationException($"Empty {kind} notes lost their message or New note action.");
-        if (kind == "Person")
-        {
-            var list = window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNotes"));
-            if (list is not null && !list.Current.IsOffscreen)
-                throw new InvalidOperationException("Empty Person notes retain a blank permanent picker.");
-        }
+        var list = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Notes"));
+        if (list is not null && !list.Current.IsOffscreen)
+            throw new InvalidOperationException($"Empty {kind} notes retain a blank permanent picker.");
     }
 }
