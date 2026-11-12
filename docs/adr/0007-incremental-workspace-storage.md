@@ -7,9 +7,13 @@ the new state rather than copying the population on every edit. Preserve the
 readable-file and provider-owned synchronization contract of
 [ADR 0001](0001-readable-files-external-sync.md).
 
-**Status:** Accepted design, not yet implemented. The
-[Workspace format](../workspace-format.md) still documents the current
-full-generation implementation.
+**Status:** Implemented in Workspace version 3 (#41-#47). The normal shipping
+workflow creates and opens this format; no opt-in factory or old-generation
+writer remains. See the [Workspace format](../workspace-format.md).
+
+The combined [storage safety protocol](../incremental-workspace-storage-protocol.md)
+defines incremental roots, current/recovery publication, interruption states and
+reclamation safeguards used by the shipping implementation.
 
 ## Consequences
 
@@ -39,14 +43,41 @@ full-generation implementation.
 - Automatically reclaim redundant app-owned versions only when current data,
   recovery, retained history, and interrupted operations no longer need them.
   Do not delete unknown files or provider conflict copies. Publication, recovery
-  selection, and reclamation ordering remain implementation design work and must
-  be verified against interrupted saves and partial/out-of-order synchronization;
+  selection, and reclamation ordering are guarded by durable receipts,
+  exact validated roots and inventoried byte digests, including interrupted saves
+  and partial/out-of-order synchronization;
   local unreachability alone does not justify immediate deletion.
 - Use an explicitly new Workspace format. For this change, reject older formats
   with clear guidance rather than silently converting or overwriting them.
   Migration and cleanup of accumulated legacy generations are out of scope: the
   owner will recreate the sole installed Workspace. Do not delete that Workspace
   as part of implementation.
+
+## Approved publication-conflict amendment (2026-11-12)
+
+The owner approved durable postpublication conflict handling with stated capture
+limits and explicit external resolution. This deliberately supersedes #44's
+unconditional precommit rejection/preservation promise for a provider racing the
+last check and publication; it is not evidence that the old guarantee was met.
+Earlier stale-base/draft rejection remains unchanged.
+
+Use expected-presence-aware publication, unique displaced-file backups, durable
+source roots and independently sealed bytes actually captured. Positively
+published conflicts and indeterminate outcomes remain distinct from unsaved
+refusals. They block further mutation/safe close/restart until explicit
+revision/conflict-bound external-resolution acknowledgment. Ordinary storage
+maintenance and draft discard cannot resolve them or replay the mutation.
+
+This keeps provider independence/direct editing, but does not serialize
+noncooperating writers, capture an atomic external graph or preserve unobserved
+versions. Windows replacement failures and power-loss namespace durability remain
+bounded by the actual OS contracts. Conflicting transactions may retain unbounded
+evidence/source resources. The unreleased v3 selector has a required fail-closed
+storage-protocol discriminator; record-family/Import versions remain unchanged.
+
+A stronger cooperative-writer transaction would require new restrictions on
+editors/providers. That alternative was not selected. See the combined protocol
+for the actual publication/evidence/resolution records and limits.
 
 ## Considered options
 

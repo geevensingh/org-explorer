@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
 using Xunit;
 
@@ -355,9 +356,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
 
     private string CurrentPersonFile(string email)
     {
-        var generation = JsonNode.Parse(File.ReadAllText(Path.Combine(Folder, "workspace.json")))!["generation"]!.GetValue<string>();
-        return Directory.GetFiles(Path.Combine(Folder, "generations", generation, "people"), "*.json")
-            .Single(path => JsonNode.Parse(File.ReadAllText(path))!["email"]!.GetValue<string>() == email);
+        return WorkspaceFixtures.IndexedDocuments(Folder)["people:" + email];
     }
 
     private void Deliver(string email, string field, string value)

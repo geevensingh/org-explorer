@@ -2,6 +2,12 @@ namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
+    private static IEnumerable<string> NoteDocumentPaths(string directory) =>
+        workspaceReadSnapshot.Value is { } snapshot
+            ? snapshot.Keys.Where(path => Path.GetDirectoryName(path)!.Equals(directory, StringComparison.OrdinalIgnoreCase) &&
+                Path.GetExtension(path).Equals(".md", StringComparison.OrdinalIgnoreCase))
+            : Directory.GetFiles(directory, "*.md");
+
     private static readonly AsyncLocal<IReadOnlyDictionary<string, byte[]>?> workspaceReadSnapshot = new();
 
     private sealed class WorkspaceReadScope(IReadOnlyDictionary<string, byte[]> bytes) : IDisposable
@@ -12,12 +18,17 @@ public sealed partial class ApplicationWorkflow
         public void Dispose() { if (active) workspaceReadSnapshot.Value = previous; }
     }
 
-    private Dictionary<string, byte[]> CaptureWorkspaceBytes(bool allGenerations = false)
+    private Dictionary<string, byte[]> CaptureWorkspaceBytes()
     {
-        var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        var paths = EnumerateWorkspaceFiles(workspace!, allGenerations)
+        var indexes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var paths = EnumerateIncrementalWorkspaceFiles(workspace!, indexes)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).ToArray();
-        RunBoundedFileIo(paths, path => bytes[path] = ReadWorkspaceBytesUncached(path));
+        var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(indexes, StringComparer.OrdinalIgnoreCase);
+        RunBoundedFileIo(paths.Where(path => !indexes.ContainsKey(path)), path =>
+        {
+            RejectStoragePathLinks(path);
+            bytes[path] = ReadWorkspaceBytesUncached(path);
+        });
         return new Dictionary<string, byte[]>(bytes, StringComparer.OrdinalIgnoreCase);
     }
 

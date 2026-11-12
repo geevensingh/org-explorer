@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -43,6 +44,9 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteMarkdown", "# Saved owned Team context");
             NavigateToManager(window, "casey@example.com");
+            BeginProfileEditing(window);
+            Set(window, "JobTitle", "Original manager role");
+            SaveProfileEditing(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Saved inherited Team context");
@@ -52,10 +56,9 @@ internal static partial class Program
             var teamFiles = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md");
             var ownedTeamFile = teamFiles.Single(p => File.ReadAllText(p).Contains("avery@example.com"));
             var inheritedTeamFile = teamFiles.Single(p => File.ReadAllText(p).Contains("casey@example.com"));
-            var teamMetadataFile = Directory.GetFiles(folder, "team-context.json", SearchOption.AllDirectories).Single();
-            var personFile = Directory.GetFiles(folder, "*.json", SearchOption.AllDirectories)
-                .Single(p => p.Contains(Path.DirectorySeparatorChar + "people" + Path.DirectorySeparatorChar)
-                    && JsonNode.Parse(File.ReadAllText(p))?["email"]?.GetValue<string>() == "avery@example.com");
+            var documents = WorkspaceFixtures.IndexedDocuments(folder);
+            var teamMetadataFile = documents["teamContext:casey@example.com"];
+            var personFile = documents["people:avery@example.com"];
             var person = JsonNode.Parse(File.ReadAllText(personFile))!;
             person["preferredName"] = "External Avery";
             File.WriteAllText(personFile, person.ToJsonString());
@@ -72,7 +75,7 @@ internal static partial class Program
             Await(() => Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"));
             Await(() => ((TextPattern)Find(window, "InheritedTeamReading")
                 .GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1).Contains("External inherited Team context"));
-            var image = Directory.GetFiles(folder, person["photoPath"]!.GetValue<string>(), SearchOption.AllDirectories).Single();
+            var image = documents["photos:" + person["photoPath"]!.GetValue<string>()];
             var timestamp = File.GetLastWriteTimeUtc(image);
             byte[] greenPixels = [0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255];
             var encoder = new PngBitmapEncoder();
@@ -237,6 +240,7 @@ internal static partial class Program
         if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
     }
+
 
     private static void AssertRejectedRetry(AutomationElement window, string button, string savingActivity,
         Func<bool> isRejected)

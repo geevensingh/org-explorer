@@ -76,6 +76,7 @@ public partial class MainWindow
         unsavedPreferredNameEdits[field] = value;
         if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
         preferredNameSaveTimer.Stop();
+        if (workflow.GetWorkspaceConflicts().Count != 0) { ShowStatus(); return; }
         preferredNameSaveTimer.Start();
         MarkDraftPending();
         ApplyButton.IsEnabled = false;
@@ -88,6 +89,7 @@ public partial class MainWindow
     private async Task FlushPreferredNameDraft()
     {
         preferredNameSaveTimer.Stop();
+        if (workflow.GetWorkspaceConflicts().Count != 0) { ShowStatus(); return; }
         if (selectedEmail is null || unsavedPreferredNameEdits.Count == 0) return;
         if (workPending) { preferredNameSaveTimer.Start(); return; }
         var failed = false;
@@ -109,7 +111,7 @@ public partial class MainWindow
         }
         if (unsavedPreferredNameEdits.Count == 0) RefreshPeople();
         ShowStatus();
-        if (!failed && unsavedPreferredNameEdits.Count > 0)
+        if (!failed && unsavedPreferredNameEdits.Count > 0 && workflow.GetWorkspaceConflicts().Count == 0)
         {
             preferredNameSaveTimer.Start();
             MarkDraftPending();

@@ -17,7 +17,7 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Complete_profile_reporting_move_and_replay_survive_reopening_without_field_loss()
     {
-        using var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         var initial = Batch("""
             {"email":"report@example.com","displayName":"Report","preferredName":"Reference",
@@ -37,7 +37,7 @@ public sealed class ReportingPersistenceTests : IDisposable
         Assert.True(update.CanApply, app.Status);
         Assert.True(app.ApplyImport(update.Id), app.Status);
         var expected = before with { ManagerEmail = null, OfficeNumber = "0009C", Department = null };
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(expected, Assert.Single(reopened.ReportingRoots).Person);
         Assert.True(reopened.GetRelationships("manager@example.com")!.Person.Archived);
@@ -61,7 +61,7 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Whole_graph_apply_is_durable_and_invalid_batch_never_changes_reopened_state()
     {
-        using var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(Report + "," + Manager)).Id), app.Status);
         var invalid = app.PreviewImport(Batch("""
@@ -70,7 +70,7 @@ public sealed class ReportingPersistenceTests : IDisposable
             """, 2));
         Assert.False(invalid.CanApply);
         Assert.False(app.ApplyImport(invalid.Id));
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(2, reopened.People.Count);
         Assert.Equal("manager@example.com", reopened.GetRelationships("report@example.com")!.Manager!.Email);
@@ -90,11 +90,11 @@ public sealed class ReportingPersistenceTests : IDisposable
     [Fact]
     public void Accepted_batch_identity_survives_reopen_and_logical_retry_does_not_undo_later_edit()
     {
-        using var app = ApplicationWorkflow.CreateFileBacked();
+        using var app = CreateWorkflow();
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(Report + "," + Manager)).Id));
         Assert.True(app.EditPreferredName("report@example.com", "Reference name"));
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(folder));
         var retry = reopened.PreviewImport(Batch(Manager + ",\n   " + Report));
         Assert.True(retry.CanApply, reopened.Status);
@@ -129,4 +129,6 @@ public sealed class ReportingPersistenceTests : IDisposable
     {
         if (Directory.Exists(folder)) Directory.Delete(folder, true);
     }
+
+    private static IApplicationWorkflow CreateWorkflow() => ApplicationWorkflow.CreateFileBacked();
 }

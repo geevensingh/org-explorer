@@ -69,36 +69,6 @@ public sealed partial class ApplicationWorkflow
         return ReadPhotoResource(Path.GetDirectoryName(fullPath)!, Path.GetFileName(fullPath), $"{email}.photoPath");
     }
 
-    private static Dictionary<string, byte[]> LoadPhotos(string directory, Dictionary<string, PersonProfile> loaded)
-    {
-        var loadedPhotos = new Dictionary<string, byte[]>();
-        foreach (var person in loaded.Values.Where(p => p.PhotoPath is not null))
-        {
-            var name = person.PhotoPath!;
-            if (!Regex.IsMatch(name, @"^[a-f0-9]{64}\.(png|jpg)$"))
-                throw new FormatException($"{person.Email}.photoPath: invalid Workspace image reference.");
-            if (!loadedPhotos.ContainsKey(name))
-            {
-                var resource = ReadPhotoResource(directory, Path.Combine("photos", name), $"{person.Email}.photoPath");
-                loadedPhotos[name] = resource.Bytes;
-            }
-        }
-        return loadedPhotos;
-    }
-
-    private static void SavePhotos(string generation, Dictionary<string, PersonProfile> proposed,
-        Dictionary<string, byte[]> proposedPhotos, System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
-    {
-        var names = proposed.Values.Select(p => p.PhotoPath).OfType<string>().Distinct().ToArray();
-        if (names.Length == 0) return;
-        var directory = Path.Combine(generation, "photos");
-        Directory.CreateDirectory(directory);
-        foreach (var name in names)
-        {
-            WriteDurablyBytes(Path.Combine(directory, name), proposedPhotos[name], published);
-        }
-    }
-
     private static bool PhotoResourcesUnchanged(IReadOnlyList<PhotoResource> resources) =>
         resources.All(resource => ReadPhotoResource(resource.Directory, resource.RelativePath, resource.Field).Hash == resource.Hash);
 

@@ -105,6 +105,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
     }

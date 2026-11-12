@@ -18,7 +18,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         using var fixture = new SignedReleaseFixture { Package = Package() };
         var release = (await fixture.Checker().CheckAsync()).Release!;
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(workspace), app.Status);
         Assert.True(app.EditPreferredName("avery@example.com", "Saved before automatic restart"), app.Status);
@@ -126,7 +126,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         using var fixture = new SignedReleaseFixture { Package = Package() };
         var release = (await fixture.Checker().CheckAsync()).Release!;
         var workspace = Path.Combine(root, "failed-save");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(workspace), app.Status);
         var note = team ? app.CreateTeamNote("avery@example.com", "Context", "Saved writing")!.Id
@@ -239,7 +239,7 @@ public sealed class AutomaticUpdateTests : IDisposable
             Path.Combine(root, "staging"), new Version("0.1.0"));
         using var app = ApplicationWorkflow.CreateFileBacked();
         var workspace = Path.Combine(root, "http-workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         Assert.True(app.OpenWorkspace(workspace), app.Status);
 
         await installer.InstallAsync(release, restart => Task.Run(() => app.RestartWhenSafe(restart)));
@@ -255,17 +255,24 @@ public sealed class AutomaticUpdateTests : IDisposable
         Assert.True(app.EditPreferredName("avery@example.com", "Locally usable after HTTP"), app.Status);
     }
 
-    [Fact]
-    public async Task Unsupported_Workspace_can_update_and_restart_without_writes_and_recovery_keeps_upgrade_guidance()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(99)]
+    public async Task Unsupported_Workspace_can_update_and_restart_without_writes_and_recovery_keeps_upgrade_guidance(int version)
     {
         using var fixture = new SignedReleaseFixture { Package = Package() };
         var release = (await fixture.Checker().CheckAsync()).Release!;
         var workspace = Path.Combine(root, "unsupported");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        if (version < 3) WorkspaceFixtures.CopyVersion(version, workspace);
+        else WorkspaceFixtures.CopyCurrent(workspace);
         var pointer = Path.Combine(workspace, "workspace.json");
-        File.WriteAllText(pointer, File.ReadAllText(pointer).Replace("\"schemaVersion\": 1", "\"schemaVersion\": 99"));
+        var unsupported = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(pointer))!;
+        unsupported["schemaVersion"] = version;
+        File.WriteAllText(pointer, unsupported.ToJsonString());
         var original = Directory.GetFiles(workspace, "*", SearchOption.AllDirectories)
             .ToDictionary(file => file, File.ReadAllBytes);
+        var directories = Directory.GetDirectories(workspace, "*", SearchOption.AllDirectories).Order().ToArray();
         using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.False(app.OpenWorkspace(workspace));
         Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
@@ -283,6 +290,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         Assert.Contains("Settings and updates remain available", journal.Message);
         Assert.Equal(original.Keys.Order(), Directory.GetFiles(workspace, "*", SearchOption.AllDirectories).Order());
         foreach (var (file, bytes) in original) Assert.Equal(bytes, File.ReadAllBytes(file));
+        Assert.Equal(directories, Directory.GetDirectories(workspace, "*", SearchOption.AllDirectories).Order());
     }
 
     private sealed class ControlledRoute(Uri endpoint) : DelegatingHandler(new HttpClientHandler())
@@ -307,15 +315,14 @@ public sealed class AutomaticUpdateTests : IDisposable
         public bool Hold { get; set; }
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ManualResetEventSlim Release { get; } = new();
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             if (Hold)
             {
                 Entered.TrySetResult();
                 if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
             }
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 
@@ -330,12 +337,12 @@ public sealed class AutomaticUpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task Restart_receipt_reopens_and_migrates_workspace_and_an_unconfirmed_restart_never_retries_in_a_loop()
+    public async Task Restart_receipt_reopens_current_workspace_and_an_unconfirmed_restart_never_retries_in_a_loop()
     {
         using var fixture = new SignedReleaseFixture();
         var release = (await fixture.Checker().CheckAsync()).Release!;
-        var workspace = Path.Combine(root, "legacy");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        var workspace = Path.Combine(root, "current");
+        WorkspaceFixtures.CopyCurrent(workspace);
         var originalPointer = File.ReadAllBytes(Path.Combine(workspace, "workspace.json"));
         var path = Path.Combine(root, "update-attempt.json");
         new UpdateRestartJournal(path).Begin(release, workspace);
@@ -347,9 +354,8 @@ public sealed class AutomaticUpdateTests : IDisposable
         Assert.False(oldJournal.AllowAutomatic(release));
         Assert.Contains("not confirmed", oldJournal.Message, StringComparison.OrdinalIgnoreCase);
         Assert.NotEmpty(oldApp.People);
-        Assert.Contains("automatically converted", oldApp.Status);
-        Assert.NotNull(oldApp.Compatibility.RecoveryPath);
-        Assert.Equal(originalPointer, File.ReadAllBytes(Path.Combine(oldApp.Compatibility.RecoveryPath, "workspace.json")));
+        Assert.Equal(WorkspaceCompatibilityState.Compatible, oldApp.Compatibility.State);
+        Assert.Equal(originalPointer, File.ReadAllBytes(Path.Combine(workspace, "workspace.json")));
         new UpdateRestartJournal(path).Begin(release, workspace);
         using var newApp = ApplicationWorkflow.CreateFileBacked();
         var newJournal = new UpdateRestartJournal(path);

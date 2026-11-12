@@ -76,7 +76,7 @@ internal static partial class Program
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            var noteFile = Directory.GetFiles(workspace, "*.md", SearchOption.AllDirectories).Single();
+            var noteFile = Directory.GetFiles(Path.Combine(workspace, "notes"), "*.md").Single();
             using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Set(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");

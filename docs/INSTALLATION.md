@@ -49,7 +49,7 @@ replacement, or uninstall. Installer hooks do not flush another running app's
 drafts, and forcibly terminating it is not a safe automatic-update policy.
 
 An installation replacement changes app binaries, **not** Workspace format or
-Workspace migration history. Installer rollback is not Workspace rollback.
+Workspace recovery state. Installer rollback is not Workspace rollback.
 External folder providers still own synchronization and conflicts.
 
 ## What is and is not released here
@@ -90,7 +90,8 @@ Resolve its visible retry/discard guidance, then check again. External folder
 sync does not delay a safe local update.
 
 The app reopens the same independent Workspace and uses its normal supported
-automatic conversions/recovery originals. An unsupported Workspace remains
+version-3 validation and independent committed recovery; older versions are
+rejected without migration or mutation. An unsupported Workspace remains
 write-blocked with Settings/update access. Download, installer-start and recovery
 failures stay visible. A durable restart receipt confirms the running target
 version, not merely an installer launch; an unconfirmed old-version restart

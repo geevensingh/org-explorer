@@ -16,7 +16,7 @@ public sealed class WorkspaceCompatibilityTests
         app.PropertyChanged += (_, e) => notifications.Add(e.PropertyName);
         Assert.True(app.OpenWorkspace("fictitious"));
         Assert.Equal(WorkspaceCompatibilityState.Compatible, app.Compatibility.State);
-        Assert.Equal(2, app.Compatibility.SupportedWorkspaceVersion);
+        Assert.Equal(3, app.Compatibility.SupportedWorkspaceVersion);
         Assert.Contains(nameof(app.Compatibility), notifications);
     }
 
@@ -51,24 +51,31 @@ public sealed class WorkspaceCompatibilityTests
 
     [Fact]
     [Trait("Category", "Filesystem")]
-    public void View_model_reports_failed_conversion_and_validated_retry_without_fabricating_loaded_state()
+    public void View_model_reports_older_data_without_conversion_or_fabricating_loaded_state_on_retry()
     {
         var folder = FixturePath();
         try
         {
             WorkspaceFixtures.CopyVersionOne(folder);
+            var before = WorkspaceFixtures.Bytes(folder);
             using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
             using (File.Open(Path.Combine(folder, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Assert.False(app.OpenWorkspace(folder));
-                Assert.Equal(WorkspaceCompatibilityState.RecoveryRequired, app.Compatibility.State);
-                Assert.NotNull(app.Compatibility.RecoveryPath);
+                Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
+                Assert.Null(app.Compatibility.RecoveryPath);
                 Assert.False(app.IsWorkspaceCurrent);
                 Assert.Empty(app.People);
             }
-            Assert.True(app.RefreshWorkspace(), app.Status);
-            Assert.Equal(WorkspaceCompatibilityState.Compatible, app.Compatibility.State);
-            Assert.Equal("Ave", app.GetRelationships("avery@example.com")!.Person.Heading);
+            Assert.False(app.RefreshWorkspace());
+            Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
+            Assert.Contains("does not migrate", app.Compatibility.Guidance);
+            Assert.Contains("Settings", app.Compatibility.Guidance);
+            Assert.Empty(app.People);
+            var after = WorkspaceFixtures.Bytes(folder);
+            Assert.Equal(before.Keys.Order(), after.Keys.Order());
+            foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
+            Assert.False(File.Exists(Path.Combine(folder, ".workspace.lock")));
         }
         finally { Directory.Delete(folder, true); }
     }

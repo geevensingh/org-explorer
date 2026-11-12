@@ -32,7 +32,7 @@ public sealed class VelopackRestartTests : IDisposable
             new VelopackUpdateRestart(journal, locator), Path.Combine(root, "staging"), new Version("0.1.0"));
         using var workflow = ApplicationWorkflow.CreateFileBacked();
         var workspace = Path.Combine(root, "workspace with spaces");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         Assert.True(workflow.OpenWorkspace(workspace), workflow.Status);
 
         await installer.InstallAsync(release, restart => Task.Run(() => workflow.RestartWhenSafe(restart)));

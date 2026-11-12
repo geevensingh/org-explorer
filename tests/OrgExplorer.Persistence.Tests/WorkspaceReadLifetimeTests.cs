@@ -29,6 +29,7 @@ public sealed class WorkspaceReadLifetimeTests
             File.WriteAllText(outside, "External file must never be truncated.");
             var link = Path.Combine(folder, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+            File.Delete(link);
             File.CreateSymbolicLink(link, outside);
             Assert.False(app.RefreshWorkspace());
             Assert.False(reopened.OpenWorkspace(folder));
@@ -132,7 +133,7 @@ public sealed class WorkspaceReadLifetimeTests
             Assert.True(app.ApplyImport(preview.Id), app.Status);
             var path = Path.Combine(folder, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            using var staging = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            using var staging = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
             staging.Write("Uncommitted partial document, not a Person or note"u8);
             staging.Flush(true);
             Assert.True(app.RefreshWorkspace(), app.Status);

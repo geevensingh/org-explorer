@@ -14,7 +14,6 @@ public sealed partial class ApplicationWorkflow
     private bool disposed;
     private bool workspaceCurrent;
     private long refreshNotBefore;
-    private volatile string? liveGeneration;
     private string? saveErrorSnapshot;
     private bool failedImportSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
@@ -57,7 +56,8 @@ public sealed partial class ApplicationWorkflow
             }
             else
             {
-                failedSaves.Clear();
+                foreach (var key in failedSaves.Keys.Where(key => key is not ("storage-maintenance" or "publication-conflict")).ToArray())
+                    failedSaves.Remove(key);
                 unsavedNoteBases.Clear();
             }
             Status = "Unsaved local changes deliberately discarded.";
@@ -91,16 +91,6 @@ public sealed partial class ApplicationWorkflow
     {
         if (e is not null && workspace is { } root && (IsWorkspacePublicationFile(root, e.FullPath) ||
             e.FullPath.StartsWith(Path.Combine(root, "recovery") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) return;
-        if (e is not null && workspace is { } currentRoot && Volatile.Read(ref workspaceCurrent))
-        {
-            var prefix = Path.Combine(currentRoot, "generations") + Path.DirectorySeparatorChar;
-            if (e.FullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                var relative = e.FullPath[prefix.Length..];
-                var generation = relative.Split(Path.DirectorySeparatorChar)[0];
-                if (!generation.Equals(liveGeneration, StringComparison.OrdinalIgnoreCase)) return;
-            }
-        }
         lock (watcherGate)
             if (!disposed)
             {
@@ -187,10 +177,11 @@ public sealed partial class ApplicationWorkflow
         try
         {
             using var access = CoordinateWorkspaceIo(workspace);
+            LoadPublicationConflicts();
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
-            ReadAndAcceptWorkspace();
+            ReadAndAcceptWorkspace(protectAcceptedDelivery: true);
             pending = null;
-            Status = conversionMessage ?? "Workspace refreshed from validated local files.";
+            Status = "Workspace refreshed from validated local files.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
@@ -202,165 +193,28 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void ReadAndAcceptWorkspace()
+    private void ReadAndAcceptWorkspace(bool protectAcceptedDelivery = false)
     {
         using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
-        conversionMessage = null;
         if (!memory)
         {
-            var pointerPath = Path.Combine(workspace!, "workspace.json");
-            if (File.Exists(pointerPath))
-            {
-                RejectWorkspaceLink(pointerPath);
-                using var pointer = JsonDocument.Parse(ReadWorkspaceText(pointerPath));
-                ReadWorkspaceMetadata(pointer.RootElement);
-            }
+            OpenIncrementalWorkspace(protectAcceptedDelivery);
+            return;
         }
-        var bytes = memory ? null : CaptureWorkspaceBytes();
-        int version;
-        using (var read = bytes is null ? null : new WorkspaceReadScope(bytes))
-            version = memory ? 2 : InspectWorkspaceVersions();
-        if (version == 1)
-        {
-            ConvertVersionOneWorkspace();
-            bytes = null;
-        }
-        ReadAndAcceptWorkspaceData(snapshot: bytes);
-        compatibility = new(WorkspaceCompatibilityState.Compatible,
-            conversionMessage ?? "Current validated Workspace. Settings remain available.",
-            workspace, 2, compatibility.RecoveryPath);
-    }
-
-    private void ReadAndAcceptWorkspaceData(WorkspaceMetadata? conversionCandidate = null,
-        IReadOnlyDictionary<string, byte[]>? snapshot = null, bool allGenerations = false)
-    {
-        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
-        snapshot ??= memory ? null : CaptureWorkspaceBytes(allGenerations);
-        using var read = snapshot is null ? null : new WorkspaceReadScope(snapshot);
-        var current = memory ? null : WorkspaceFingerprint(snapshot: snapshot);
-        var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
-        var accepted = new Dictionary<string, AcceptedBatch>();
-        var loadedPhotos = new Dictionary<string, byte[]>();
-        var loadedTeamContexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
-        var historicalContexts = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
-        string? loadedGeneration = null;
-        if (!memory)
-        {
-            var metadataPath = Path.Combine(workspace!, "workspace.json");
-            if (File.Exists(metadataPath))
-            {
-                using var pointer = JsonDocument.Parse(ReadWorkspaceText(metadataPath));
-                var metadata = conversionCandidate ?? ReadWorkspaceMetadata(pointer.RootElement);
-                loadedGeneration = metadata.Generation;
-                var generation = Path.Combine(workspace!, "generations", metadata.Generation);
-                if (metadata.Files is { } files)
-                {
-                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var relative in files)
-                    {
-                        if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative.Contains(':') ||
-                            relative.Split(['\\', '/']).Any(segment => segment is ".." or "" or ".") || !seen.Add(relative))
-                            throw new FormatException("Invalid or duplicate Workspace generation file reference.");
-                        if (!File.Exists(Path.Combine(generation, relative)))
-                            throw new IOException($"Workspace generation file {relative} is unavailable; waiting for complete delivery.");
-                    }
-                }
-                foreach (var file in Directory.GetFiles(Path.Combine(generation, "people"), "*.json"))
-                {
-                    using var document = JsonDocument.Parse(ReadWorkspaceText(file));
-                    var root = document.RootElement;
-                    CheckRecordVersion(root, "Person", metadata.SchemaVersion);
-                    CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
-                        "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-                        "managerEmail", "archived", "isFavorite", "photoPath", "heading"], Path.GetFileName(file));
-                    var email = Email(Required(root, "email", "Person"), "Person.email");
-                    Required(root, "directoryName", email);
-                    var manager = Required(root, "managerEmail", email);
-                    if (manager.ValueKind != JsonValueKind.Null) Email(manager, $"{email}.managerEmail");
-                    var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email.ToLowerInvariant()))).ToLowerInvariant();
-                    if (!Path.GetFileName(file).Equals(key + ".json", StringComparison.OrdinalIgnoreCase))
-                        throw new FormatException($"{email}: conflicting Person filename; resolve provider copies outside the app.");
-                    var person = DeserializeVersionedRecord<PersonProfile>(root)
-                        ?? throw new FormatException("Invalid Person data.");
-                    Email(JsonSerializer.SerializeToElement(person.Email), "email");
-                    foreach (var (field, property, _) in TextFields)
-                        ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
-                    if (!loaded.TryAdd(person.Email, person)) throw new FormatException("Duplicate Person identity in Workspace.");
-                }
-                ValidateGraph(loaded);
-                loadedTeamContexts = LoadTeamContextRevisions(generation, loaded);
-                using var batchDocument = JsonDocument.Parse(ReadWorkspaceText(Path.Combine(generation, "batches.json")));
-                CheckProperties(batchDocument.RootElement, batchDocument.RootElement.ValueKind == JsonValueKind.Object
-                    ? batchDocument.RootElement.EnumerateObject().Select(p => p.Name).ToArray() : [], "Accepted batches");
-                accepted = batchDocument.RootElement.Deserialize<Dictionary<string, AcceptedBatch>>(JsonOptions)
-                    ?? throw new FormatException("Invalid accepted batch data.");
-                foreach (var (id, batch) in accepted)
-                {
-                    if (!Guid.TryParseExact(id, "D", out _) || batch is null ||
-                        batch.Fingerprint is null || !Regex.IsMatch(batch.Fingerprint, "^[A-F0-9]{64}$") ||
-                        batch.Source.ValueKind != JsonValueKind.Object ||
-                        !batch.Source.TryGetProperty("batchId", out var batchId) || batchId.ValueKind != JsonValueKind.String ||
-                        !Guid.TryParse(batchId.GetString(), out var sourceId) || sourceId.ToString() != id ||
-                        batch.AppliedAt == default || batch.AppliedAt.Offset != TimeSpan.Zero)
-                        throw new FormatException("Invalid accepted batch identity, source evidence, fingerprint, or application time.");
-                    ValidateAcceptedSource(batch.Source);
-                }
-                loadedPhotos = LoadPhotos(generation, loaded);
-                history = ReadProfileHistory(generation, loaded, metadata.SchemaVersion);
-                historicalContexts = ReadHistoricalTeamContexts(generation, loaded);
-            }
-            else if (Directory.EnumerateFileSystemEntries(workspace!).Any())
-                throw new IOException("Missing Workspace pointer or unrecognized folder; current data is unavailable.");
-        }
-        var loadedNotes = memory ? [] : LoadPersonNotes(workspace!, loaded);
-        var loadedTeamNotes = memory ? new TeamNoteDocuments([], []) : LoadTeamNotes(workspace!, loaded);
-        if (!memory && WorkspaceFingerprint(allGenerations: allGenerations) != current)
-            throw new IOException("Workspace delivery changed while reading; waiting for complete local files.");
-        people = loaded;
-        batches = accepted;
-        personNotes = loadedNotes;
-        teamNotes = loadedTeamNotes.Notes;
-        teamNoteConfirmations = loadedTeamNotes.Confirmations;
-        teamContextRevisions = loadedTeamContexts;
-        photos = loadedPhotos;
-        profileHistory = history;
-        historicalTeamContexts = historicalContexts;
-        liveGeneration = loadedGeneration;
+        people = new(StringComparer.OrdinalIgnoreCase);
+        batches = [];
+        personNotes = [];
+        teamNotes = [];
+        teamNoteConfirmations = [];
+        teamContextRevisions = new(StringComparer.OrdinalIgnoreCase);
+        photos = [];
+        profileHistory = new(StringComparer.OrdinalIgnoreCase);
+        historicalTeamContexts = new(StringComparer.OrdinalIgnoreCase);
         InvalidateProjections();
-        revision = current;
+        revision = null;
         workspaceCurrent = true;
-    }
-
-    private static IEnumerable<string> EnumerateWorkspaceFiles(string root, bool allGenerations = false)
-    {
-        string? currentGeneration = null;
-        var generations = Path.Combine(root, "generations");
-        if (!allGenerations && File.Exists(Path.Combine(root, "workspace.json")))
-        {
-            using var pointer = JsonDocument.Parse(ReadWorkspaceBytesUncached(Path.Combine(root, "workspace.json")));
-            currentGeneration = ReadWorkspaceMetadata(pointer.RootElement).Generation;
-        }
-        var directories = new Stack<string>();
-        directories.Push(root);
-        while (directories.TryPop(out var directory))
-        {
-            RejectWorkspaceLink(directory);
-            foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
-            {
-                if (IsWorkspacePublicationFile(root, entry))
-                {
-                    RejectWorkspaceLink(entry);
-                    continue;
-                }
-                if (directory == root && Path.GetFileName(entry).Equals("recovery", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!allGenerations && directory.Equals(generations, StringComparison.OrdinalIgnoreCase) &&
-                    !Path.GetFileName(entry).Equals(currentGeneration, StringComparison.OrdinalIgnoreCase)) continue;
-                RejectWorkspaceLink(entry);
-                if (Directory.Exists(entry)) directories.Push(entry);
-                else yield return entry;
-            }
-        }
+        compatibility = new(WorkspaceCompatibilityState.Compatible,
+            "Current Workspace. Settings remain available.", workspace, 3);
     }
 
     private static void ValidateAcceptedSource(JsonElement source)
@@ -374,9 +228,40 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private static void RejectWorkspaceLink(string path)
+    private static PersonProfile ReadPersonRecord(JsonElement root, int workspaceVersion)
     {
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        CheckRecordVersion(root, "Person", workspaceVersion);
+        CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
+            "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
+            "managerEmail", "archived", "isFavorite", "photoPath", "heading"], "Person");
+        var email = Email(Required(root, "email", "Person"), "Person.email");
+        Required(root, "directoryName", email);
+        var manager = Required(root, "managerEmail", email);
+        if (manager.ValueKind != JsonValueKind.Null) Email(manager, $"{email}.managerEmail");
+        var person = DeserializeVersionedRecord<PersonProfile>(root) ?? throw new FormatException("Invalid Person data.");
+        foreach (var (field, property, _) in TextFields)
+            ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
+        return person;
+    }
+
+    private static void ValidateAcceptedBatch(string id, AcceptedBatch? batch)
+    {
+        if (!Guid.TryParseExact(id, "D", out _) || batch is null ||
+            batch.Fingerprint is null || !Regex.IsMatch(batch.Fingerprint, "^[A-F0-9]{64}$") ||
+            batch.Source.ValueKind != JsonValueKind.Object ||
+            !batch.Source.TryGetProperty("batchId", out var batchId) || batchId.ValueKind != JsonValueKind.String ||
+            !Guid.TryParse(batchId.GetString(), out var sourceId) || sourceId.ToString() != id ||
+            batch.AppliedAt == default || batch.AppliedAt.Offset != TimeSpan.Zero)
+            throw new FormatException("Invalid accepted batch identity, source evidence, fingerprint, or application time.");
+        ValidateAcceptedSource(batch.Source);
+    }
+
+    private static void RejectWorkspaceLink(string path, bool allowMissing = false)
+    {
+        // A new FileInfo captures attributes and absence in one query, including directories.
+        var attributes = allowMissing ? new FileInfo(path).Attributes : File.GetAttributes(path);
+        if (allowMissing && attributes == (FileAttributes)(-1)) return;
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
     }
 

@@ -142,34 +142,14 @@ public sealed partial class ApplicationWorkflow
                     "Review before Apply; this does not establish an exact effective date.");
     }
 
-    private static void WriteProfileHistory(string generation, Dictionary<string, PersonHistory> history,
-        Dictionary<string, PersonHistory> previous, string? sourceGeneration, IReadOnlyDictionary<string, byte[]> sourceBytes,
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> published)
-    {
-        var directory = Path.Combine(generation, "profile-history");
-        Directory.CreateDirectory(directory);
-        RunBoundedFileIo(history.Values, person =>
-        {
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-            var target = Path.Combine(directory, key + ".json");
-            var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "profile-history", key + ".json");
-            if (ReferenceEquals(previous.GetValueOrDefault(person.Email), person) &&
-                source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                WriteDurablyBytes(target, bytes, published);
-            else WriteVersionedRecord(target, person, published);
-        });
-    }
-
-    private static Dictionary<string, PersonHistory> ReadProfileHistory(string generation,
-        Dictionary<string, PersonProfile> people, int workspaceVersion)
+    private static Dictionary<string, PersonHistory> ReadProfileHistory(
+        Dictionary<string, PersonProfile> people, IEnumerable<string> files)
     {
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
-        var directory = Path.Combine(generation, "profile-history");
-        if (!Directory.Exists(directory)) return history;
-        foreach (var file in Directory.GetFiles(directory, "*.json"))
+        foreach (var file in files)
         {
             using var document = JsonDocument.Parse(ReadWorkspaceText(file));
-            CheckRecordVersion(document.RootElement, "Profile history", workspaceVersion);
+            CheckRecordVersion(document.RootElement, "Profile history", 2);
             CheckProperties(document.RootElement, ["schemaVersion", "email", "changes", "observations"], "Profile history");
             var person = DeserializeVersionedRecord<PersonHistory>(document.RootElement)
                 ?? throw new FormatException("Invalid Profile history.");

@@ -36,7 +36,16 @@ public partial class PersonNotesControl : UserControl
         };
     }
 
-    public bool TryLeave() => draft.TryLeave();
+    public bool TryLeave()
+    {
+        if (workflow is { } current && current.GetWorkspaceConflicts().Count != 0)
+        {
+            NoteStatus.Text = current.Status;
+            ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(current.Status);
+            return false;
+        }
+        return draft.TryLeave();
+    }
 
     public void OpenPerson(string? email)
     {
@@ -139,6 +148,7 @@ public partial class PersonNotesControl : UserControl
     private async Task SaveNoteDraftAsync()
     {
         if (workflow is null || selected is not { } id || noteBase is not { } basis) return;
+        if (workflow.GetWorkspaceConflicts().Count != 0) { draft.Stop(); ShowStatus(); return; }
         if (!draft.TryBeginSave()) return;
         var title = NoteTitle.Text;
         var markdown = MarkdownEditor.Text;
@@ -158,7 +168,7 @@ public partial class PersonNotesControl : UserControl
         }
         Render();
         ShowStatus();
-        draft.ResumeNewerEdits(saved);
+        draft.ResumeNewerEdits(saved && workflow.GetWorkspaceConflicts().Count == 0);
     }
 
     private async void ArchiveNote(object sender, RoutedEventArgs e)

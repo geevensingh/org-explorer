@@ -51,9 +51,9 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         var move = Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2, "2026-11-06T17:00:00Z");
         Apply(app, move);
         var before = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        Assert.True(app.EditTeamNote(note.Id, "New title", "# Changed later"));
-        Assert.True(app.ArchiveTeamNote(note.Id));
-        Assert.True(app.EditPreferredName("casey@example.com", "Later name"));
+        Assert.True(app.EditTeamNote(note.Id, "New title", "# Changed later"), app.Status);
+        Assert.True(app.ArchiveTeamNote(note.Id), app.Status);
+        Assert.True(app.EditPreferredName("casey@example.com", "Later name"), app.Status);
         Apply(app, move);
         foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
             File.SetLastWriteTimeUtc(file, new DateTime(2000, 1, 1));
@@ -74,10 +74,7 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
 
     private string CaptureFile()
     {
-        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        var directory = Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "historical-team-context");
-        return Directory.GetFiles(directory, "*.json").Single(f =>
-            JsonNode.Parse(File.ReadAllText(f))!["email"]!.GetValue<string>() == "avery@example.com");
+        return OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["historicalTeamContext:avery@example.com"];
     }
 
     [Theory]
@@ -163,15 +160,17 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Legacy_unknown_confirmation_does_not_fabricate_observed_transfer_bounds()
+    public void Unknown_confirmation_does_not_fabricate_observed_transfer_bounds()
     {
         var app = Seed();
         app.Dispose();
-        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        var generation = Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>());
-        Directory.Delete(Path.Combine(generation, "profile-history"), true);
-        Directory.Delete(Path.Combine(generation, "historical-team-context"), true);
-        OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
+        foreach (var file in OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)
+            .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value))
+        {
+            var history = JsonNode.Parse(File.ReadAllText(file))!;
+            history["observations"] = new JsonArray();
+            File.WriteAllText(file, history.ToJsonString());
+        }
         var legacy = Open();
         Assert.Empty(legacy.GetHistoricalTeamContexts("avery@example.com"));
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 2));
@@ -194,7 +193,7 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
-        Assert.Contains("waiting for complete delivery", reopened.Status);
+        Assert.Equal(WorkspaceCompatibilityState.Unavailable, reopened.Compatibility.State);
         File.WriteAllText(file, original);
         Assert.True(app.RefreshWorkspace(), app.Status);
         Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
