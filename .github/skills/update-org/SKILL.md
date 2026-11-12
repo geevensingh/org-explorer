@@ -29,7 +29,10 @@ Use current source results, not any previous conversation or employee fixture.
 
 ## 2. Establish the complete reporting subtree
 
-Use helper-generated pending paths and ingest complete structured WorkIQ results.
+Use helper-generated pending paths and the shared
+[capture sequence](collection.md#capture-one-source-call) to ingest original
+structured WorkIQ results. Use the same capture path for profile evidence and
+photo downloads; normal output is counts and local references, not source payloads.
 Claim and finish every source call through the shared
 [source coordination gate](collection.md#source-coordination), including the
 coordinator's directory reads.
@@ -62,7 +65,9 @@ counts, local paths and errors. Neither image payloads nor employee lists belong
 in coordinator messages, Git, issues, Libraries or shared attachments.
 
 Completion: every job finishes, every retained person has a fresh accounted-for
-profile observation, and each photo has bytes or a confirmed `ImageNotFound`.
+profile observation with no unresolved batch item, and each photo has bytes or a
+confirmed `ImageNotFound`. Use the protocol's complete batch outcomes to establish
+coverage, including when a helper invocation exits nonzero after retaining successes.
 
 ## 4. Recover or stop
 
@@ -71,6 +76,8 @@ Use `source-status` to settle every active claim before the coordinator consumes
 retry delays; follow its granted targets rather than re-running whole batches.
 Retain local successes and deferred first reads. An interrupted worker requires
 the explicit stopped-worker handoff in the collection protocol.
+For mixed profile batches, correct and resubmit only failed inputs according to
+the collection protocol; retained successes need no repeated lookup or resubmission.
 Authentication/access/policy denial stops this invocation without alternate
 paths, tools, agents, strategies or providers. Notify the coordinator immediately;
 it stops active workers' further source calls and queued dispatch. Report the
