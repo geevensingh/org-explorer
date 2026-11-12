@@ -209,6 +209,11 @@ blocks handoff, retry and newer writing reach the controlled installer effect,
 and that effect observes the final file hash. These calls still never show/focus
 the window, create its native handle, or use an external UI Automation client;
 they do not replace the real hosted update-settings journey.
+The temporary `[DEBUG-59-UPDATE]` diagnostic candidate records the actual
+safe-point guard and rejection-time work/draft state in the existing update
+feedback, including the note flush's own failure snapshot. This is not a later
+settled-state observation or a safety-policy change. Remove the tagged
+instrumentation once the recurring hosted failure is diagnosed and verified.
 The failed-note case also opens Settings and attempts Close once. Rejection must
 reveal the retained work area instead of leaving Settings over the failed editor,
 including after queued focus work settles. Owner, title, Markdown, actionable

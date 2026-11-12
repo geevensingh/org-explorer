@@ -11,7 +11,10 @@ internal sealed class NoteDraftState
     private readonly Action<string> showStatus;
     private readonly Action<string> showNavigationBlocked;
     private bool saveFailed;
+    private string? lastFlushFailure;
     public bool HasUnsavedChanges { get; private set; }
+    internal string UpdateDiagnostic =>
+        $"unsaved={HasUnsavedChanges}, saveFailed={saveFailed}, workPending={workPending()}, lastFlushFailure={lastFlushFailure ?? "none"}";
 
     public NoteDraftState(string kind, EventHandler save, Func<bool> workPending,
         Action markPending, Action<string> showStatus, Action<string> showNavigationBlocked)
@@ -37,8 +40,14 @@ internal sealed class NoteDraftState
 
     public async Task<bool> FlushPendingAsync(Func<Task> save)
     {
-        if (saveFailed) return false;
+        lastFlushFailure = null;
+        if (saveFailed)
+        {
+            lastFlushFailure = "rejected before save: " + UpdateDiagnostic;
+            return false;
+        }
         if (HasUnsavedChanges) await save();
+        if (HasUnsavedChanges) lastFlushFailure = "still unsaved after save returned: " + UpdateDiagnostic;
         return !HasUnsavedChanges;
     }
 
@@ -75,7 +84,7 @@ internal sealed class NoteDraftState
     }
 
     public void Stop() => timer.Stop();
-    public void Reset() { timer.Stop(); HasUnsavedChanges = saveFailed = false; }
+    public void Reset() { timer.Stop(); HasUnsavedChanges = saveFailed = false; lastFlushFailure = null; }
 
     public async Task DiscardAsync(Func<Task<bool>> refresh, Action discard, Action reload, Func<string> status)
     {

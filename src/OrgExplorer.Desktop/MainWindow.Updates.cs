@@ -22,6 +22,7 @@ public partial class MainWindow
     private UpdateRestartJournal? updateJournal;
     private Version? installedVersion;
     private string? updateRecoveryError;
+    private string? safeUpdateRejection;
 
     private void InitializeUpdates()
     {
@@ -74,6 +75,7 @@ public partial class MainWindow
         updateCheckPending = true;
         manualUpdateCheck = manual;
         showInstallProgress = false;
+        safeUpdateRejection = null;
         ShowUpdates();
         // HTTP/cryptographic work never owns the Workspace work gate or dispatcher.
         var lifetime = updateLifetime.Token;
@@ -97,12 +99,16 @@ public partial class MainWindow
             try
             {
                 await WaitForLocalWork();
-                if (workflow.ProfileEdit is { IsDirty: true } || workflow.LocalSaveError is not null || HasUnsavedRelationship) return false;
+                if (workflow.ProfileEdit is { IsDirty: true }) return RejectSafeUpdate("profile-draft");
+                if (workflow.LocalSaveError is { } saveError) return RejectSafeUpdate("local-save-error", saveError);
+                if (HasUnsavedRelationship) return RejectSafeUpdate("relationship-draft");
                 await FlushPreferredNameDraft();
-                if (unsavedPreferredNameEdits.Count != 0 ||
-                    !await PersonNotes.FlushPendingDraftAsync() || !await TeamNotes.FlushPendingDraftAsync()) return false;
-                if (!TryLeaveLocalEdits()) return false;
+                if (unsavedPreferredNameEdits.Count != 0) return RejectSafeUpdate("preferred-name-flush");
+                if (!await PersonNotes.FlushPendingDraftAsync()) return RejectSafeUpdate("person-note-flush");
+                if (!await TeamNotes.FlushPendingDraftAsync()) return RejectSafeUpdate("team-note-flush");
+                if (!TryLeaveLocalEdits()) return RejectSafeUpdate("leave-local-edits");
                 accepted = await Task.Run(() => workflow.RestartWhenSafe(restart));
+                if (!accepted) return RejectSafeUpdate("workflow-restart");
                 return accepted;
             }
             finally
@@ -112,6 +118,16 @@ public partial class MainWindow
                 ShowStatus();
             }
         }).Task.Unwrap();
+    }
+
+    private bool RejectSafeUpdate(string guard, string? observed = null)
+    {
+        safeUpdateRejection = $"[DEBUG-59-UPDATE] guard={guard}; observed={observed ?? "none"}; " +
+            $"workPending={workPending}; canSafelyClose={workflow.CanSafelyClose}; " +
+            $"profileDirty={workflow.ProfileEdit is { IsDirty: true }}; preferredPending={unsavedPreferredNameEdits.Count}; relationshipDirty={HasUnsavedRelationship}; " +
+            $"localSaveError={workflow.LocalSaveError ?? "none"}; " +
+            $"person=[{PersonNotes.UpdateDraftDiagnostic}]; team=[{TeamNotes.UpdateDraftDiagnostic}]; status={workflow.Status}";
+        return false;
     }
 
     private void SetUpdateWorkEnabled(bool enabled)
@@ -138,6 +154,6 @@ public partial class MainWindow
             ? "Checking project-authorized updates… Local browsing and editing remain available."
             : updates?.Result.Message;
         UpdateSummary.Text = UpdateGuidance.Text = updateConfigurationError ??
-            string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message }.Where(text => !string.IsNullOrEmpty(text)));
+            string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message, safeUpdateRejection }.Where(text => !string.IsNullOrEmpty(text)));
     }
 }

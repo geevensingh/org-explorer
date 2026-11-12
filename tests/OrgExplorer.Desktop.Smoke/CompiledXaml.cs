@@ -326,6 +326,8 @@ internal static partial class Program
             SetSettings(true);
             Invoke(check);
             PumpUntil(() => check.IsEnabled && updateStatus.Text.Contains("Automatic update paused", StringComparison.Ordinal));
+            if (!updateStatus.Text.Contains("[DEBUG-59-UPDATE] guard=local-save-error", StringComparison.Ordinal))
+                throw new InvalidOperationException("The update failure must retain the actual rejecting guard: " + updateStatus.Text);
             SetSettings(false);
         }
         Invoke((Button)notes.FindName("RetryButton"));
