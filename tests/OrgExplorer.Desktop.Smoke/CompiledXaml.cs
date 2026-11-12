@@ -244,6 +244,29 @@ internal static partial class Program
             PumpUntil(() => rejected.IsCompleted);
             if (rejected.GetAwaiter().GetResult() || !File.ReadAllBytes(file).SequenceEqual(saved))
                 throw new InvalidOperationException("Failed Person-note writing must block an update flush without changing durable bytes.");
+            var retainedTitle = NoteControl<TextBox>("NoteTitle").Text;
+            var retainedOwner = NoteControl<TextBlock>("Ownership").Text;
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Visible)
+                throw new InvalidOperationException("The rejected-close regression must begin in Settings, with the note editor hidden.");
+            var closingRejected = false;
+            CancelEventHandler observeClose = (_, e) => closingRejected = e.Cancel;
+            window.Closing += observeClose;
+            try { window.Close(); }
+            finally { window.Closing -= observeClose; }
+            var closeSettled = false;
+            window.Dispatcher.BeginInvoke(() => closeSettled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => closeSettled);
+            if (!closingRejected ||
+                NoteControl<TextBox>("MarkdownEditor").Text != "Retained failing update draft" ||
+                NoteControl<TextBox>("NoteTitle").Text != retainedTitle ||
+                NoteControl<TextBlock>("Ownership").Text != retainedOwner ||
+                !NoteControl<TextBlock>("NoteStatus").Text.Contains("before leaving or closing", StringComparison.Ordinal) ||
+                !File.ReadAllBytes(file).SequenceEqual(saved))
+                throw new InvalidOperationException("Close must be rejected with its exact retained Person-note draft, failure text and unchanged saved writing.");
+            if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Collapsed ||
+                ((FrameworkElement)window.FindName("ExplorerPanel")).Visibility != Visibility.Visible)
+                throw new InvalidOperationException("Close was correctly rejected and its draft/error retained, but Settings still hides the Person-note editor.");
         }
         NoteControl<Button>("RetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         WaitForSave();
