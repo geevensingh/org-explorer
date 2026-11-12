@@ -103,7 +103,8 @@ public partial class MainWindow
 
     private void ShowWorkspaceStartup()
     {
-        WorkspaceStartupStatus.Text = string.Join("\n", new[] { startupRestoreError, workspaceSettings.PreferenceError }
+        WorkspaceStartupStatus.Text = string.Join("\n", new[] { startupRestoreError,
+                workspaceSettings.PreferenceError == workflow.LayoutPreferenceFeedback ? null : workspaceSettings.PreferenceError }
             .Where(text => !string.IsNullOrEmpty(text)));
         WorkspaceStartupPanel.Visibility = WorkspaceStartupStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         RetryStartupWorkspaceButton.Visibility = startupRestorePath is null ? Visibility.Collapsed : Visibility.Visible;

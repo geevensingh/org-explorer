@@ -173,9 +173,52 @@ previous preferences or mutate note documents. The shared observable owned-note
 interaction and designation storage support the subsequent owned-Team slice.
 
 This status covers Person notes and shared designation support only. Owned-Team
-presentation, adaptive layout and exact startup-view restoration remain separate
+presentation and exact startup-view restoration remain separate
 delivery work; it does not declare the entire redesign implemented or hosted
 WPF acceptance complete.
+
+### Implemented adaptive host
+
+The host retains the existing compact identity, profile editing and independent
+note surfaces. At wide widths the summary sits beside notes/context; below the
+breakpoint it stacks above full-width notes in the same vertical reading area.
+People becomes a labelled overlay, not a squeezed column. Escape/Close returns
+focus to People; accepted destinations close the overlay, while rejected
+navigation retains its panel, owner, exact writing and actionable feedback.
+Search replaces Favorites/tree with a full-height result list. Clearing restores
+their in-session expansion and scroll position, including after overlay use.
+Exact current, archived and frozen search destinations remain distinct.
+
+The numeric implementation choices are:
+
+| Token | DIP value / behavior |
+|---|---|
+| Wide breakpoint | Available Workspace host width >= 960; this excludes native window chrome and the 20-DIP outer margin on each side |
+| Supported window | Minimum 700 x 500; initial 1100 x 900, unchanged |
+| Pane minimums | People 240; profile summary 240; notes/context 360 |
+| Wide Person allocation | At least 648, including summary/notes, divider and allowance for padding/scrollbar |
+| Default proportions | People 25% of navigation/Person space; profile 35% of summary/notes space, excluding each divider |
+| Dividers | 8 wide; mouse drag and 10-DIP keyboard arrow steps, constrained to usable minimums |
+| Compact People overlay | Up to 360 wide, over the unchanged Person viewport |
+| Typography | Segoe UI 14 for ordinary text and Markdown; identity 24; note-section headings 18; no compact type reduction |
+| Spacing | Outer 20; pane/content separation 12; ordinary field spacing 4/8/12 |
+| Note reading limit | 600-wide reading surface, with 12-DIP Markdown page padding; applies to Person, owned/inherited Team, historical and search reading |
+
+Percentages extend the same optional per-Workspace version-1 app-local settings
+entry as ongoing designations. Divider writes preserve other Workspaces,
+designations and the startup folder, use the existing lock/atomic publication,
+and report failure without claiming durability or changing the last valid
+balance. Resize/minimum clamps are not preference writes; compact transitions
+never save over wide choices. No synchronized Workspace schema changes.
+
+The hosted search/Favorites journey measures actual bounds/text at 700 x 500,
+1100 x 900, maximized, and available host widths 959/960/961, then exercises
+mouse/keyboard dividers, minimums, bounded prose, resize/reopen balance and
+search/clear restoration. The existing draft-navigation journey adds a real
+protected compact-overlay rejection. These are implemented assertions, not a
+claim that hosted acceptance has run for this candidate; compiled/invisible
+local checks do not prove these rendered numeric choices. Exact startup-view
+restoration and the remaining Team presentation slice are not completed here.
 
 ## Team context and history
 
@@ -227,12 +270,11 @@ navigation are not new features.
 
 Resolve these details before their dependent implementation:
 
-- Actual layout breakpoints, minimum pane widths, spacing/type tokens, and
-  readable note-width limits, based on rendered WPF layouts rather than guessed
-  screen-size labels.
-- Where and how selection, proportional sizing, and ongoing-note preferences
-  persist, including their device/Workspace scope and compatibility treatment.
-  This design does not select a storage schema or mandate a Workspace migration.
+- Hosted acceptance of the adaptive numeric choices above against rendered WPF,
+  rather than treating compilation or a computed mode as usable-layout evidence.
+- Exact selection/restoration persistence, including compatibility treatment.
+  Device-local per-Workspace scope is agreed; proportions and ongoing choices
+  already extend app-local settings without a Workspace migration.
 - Explicit handling of a remembered or designated note that becomes unavailable
   or archived, preserving user choice, existing writing, and clear feedback
   rather than silently selecting or creating a different ongoing note.

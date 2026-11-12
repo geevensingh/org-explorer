@@ -38,8 +38,11 @@
       <DockPanel Margin="0,0,0,12">
         <Button x:Name="OpenSettingsButton" DockPanel.Dock="Right" Content="_Settings" AutomationProperties.AutomationId="OpenSettings"
                 Click="ToggleSettings" HorizontalAlignment="Right"/>
+        <Button x:Name="OpenPeopleButton" DockPanel.Dock="Left" Content="_People" Visibility="Collapsed"
+                AutomationProperties.AutomationId="OpenPeople" AutomationProperties.Name="People"
+                Click="TogglePeople" Margin="0,0,12,0"/>
         <TextBlock x:Name="WorkspaceName" AutomationProperties.AutomationId="WorkspaceName" Text="No Workspace open"
-                   Foreground="DimGray" Width="150" Margin="0,0,16,0" VerticalAlignment="Center"
+                   Foreground="DimGray" MaxWidth="150" Margin="0,0,16,0" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis"/>
         <StackPanel Margin="0,0,16,0">
           <TextBlock Text="Search local information" Foreground="DimGray"/>
@@ -127,13 +130,26 @@
         </ListBox>
       </DockPanel>
     </Grid>
-    <Grid x:Name="ExplorerPanel" Grid.Row="2">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-          <TextBlock x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount" Text="Enter text to search local information." TextWrapping="Wrap"/>
-          <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" MaxHeight="150"
-                   SelectionChanged="SelectSearchResult" Visibility="Collapsed" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+    <GroupBox x:Name="WorkspaceSurface" Grid.Row="2"
+              AutomationProperties.AutomationId="AdaptiveWorkspace" AutomationProperties.Name="Adaptive Person workspace">
+      <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
+    <Grid x:Name="ExplorerPanel" SizeChanged="ResizeWorkspace">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition x:Name="PeopleColumn" Width="25*"/>
+        <ColumnDefinition x:Name="PeopleDividerColumn" Width="8"/>
+        <ColumnDefinition Width="75*"/>
+      </Grid.ColumnDefinitions>
+      <GroupBox x:Name="PeoplePanel" Header="People" BorderThickness="0" Padding="0" Background="#FAFBFC"
+                AutomationProperties.AutomationId="PeopleNavigation" KeyboardNavigation.TabNavigation="Cycle">
+      <Grid Margin="0,0,8,0">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Button x:Name="ClosePeopleButton" Content="Close People" HorizontalAlignment="Right"
+                AutomationProperties.AutomationId="ClosePeople" Click="ClosePeople" Visibility="Collapsed" Margin="0,0,0,8"/>
+        <DockPanel x:Name="SearchPanel" Grid.Row="1" Visibility="Collapsed">
+          <TextBlock DockPanel.Dock="Top" x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount"
+                     Text="Enter text to search local information." TextWrapping="Wrap" Margin="0,0,0,8"/>
+          <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" AutomationProperties.Name="Local search results"
+                   SelectionChanged="SelectSearchResult" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemContainerStyle>
               <Style TargetType="ListBoxItem">
                 <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
@@ -149,8 +165,11 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
+        </DockPanel>
+        <DockPanel x:Name="BrowsingPanel" Grid.Row="1">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
           <TextBlock x:Name="FavoriteCount" AutomationProperties.AutomationId="FavoriteCount" Text="Favorites: 0" FontWeight="SemiBold" Margin="0,8,0,4"/>
-          <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" MaxHeight="90"
+          <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" AutomationProperties.Name="Favorites" MaxHeight="90"
                    DisplayMemberPath="Label" SelectionChanged="SelectFavoritePerson">
             <ListBox.ItemContainerStyle>
               <Style TargetType="ListBoxItem">
@@ -176,12 +195,20 @@
             </ListBox.ItemContainerStyle>
           </ListBox>
         </StackPanel>
-        <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People"
+        <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People" AutomationProperties.Name="Imported reporting population"
                   VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                   ScrollViewer.CanContentScroll="True"
                   ItemContainerStyle="{StaticResource ReportingItem}" SelectedItemChanged="SelectPerson"/>
-      </DockPanel>
-      <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
+        </DockPanel>
+      </Grid>
+      </GroupBox>
+      <GridSplitter x:Name="PeopleDivider" Grid.Column="1" Width="8" HorizontalAlignment="Stretch"
+                    Background="#EAECEF" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                    Focusable="True" KeyboardIncrement="10" DragStarted="BeginPaneResize" DragCompleted="SavePaneBalance"
+                    PreviewKeyDown="ResizePaneWithKeyboard"
+                    AutomationProperties.AutomationId="PeopleDivider" AutomationProperties.Name="Resize People and Person workspace"/>
+      <ScrollViewer x:Name="PersonScroll" Grid.Column="2" AutomationProperties.AutomationId="ProfileScroll"
+                    Padding="12,0,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
         <Grid x:Name="PersonIdentity">
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -234,17 +261,16 @@
                        Text="Select a Person." Foreground="DimGray" TextWrapping="Wrap"/>
           </StackPanel>
         </Grid>
-        <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
-          <StackPanel Margin="8">
-            <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
-                    Click="CloseSearchContext" HorizontalAlignment="Right"/>
-            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
-              <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"/>
-            </ScrollViewer>
-            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"
-                                      Height="160" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto"/>
-          </StackPanel>
-        </GroupBox>
+        <Grid x:Name="PersonBody" Margin="0,12,0,0" SizeChanged="ResizePersonBody">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="ProfileColumn" Width="35*"/>
+            <ColumnDefinition x:Name="ProfileDividerColumn" Width="8"/>
+            <ColumnDefinition Width="65*"/>
+          </Grid.ColumnDefinitions>
+        <GroupBox x:Name="ProfileSummary" Header="Profile summary" BorderThickness="0" Padding="0"
+                  VerticalAlignment="Top" AutomationProperties.AutomationId="ProfileSummary">
+        <StackPanel>
         <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
                    Text="Select a Person." TextWrapping="Wrap" Margin="0,8">
           <TextBlock.Style>
@@ -394,6 +420,29 @@
           <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
                    AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
         </StackPanel>
+        </StackPanel>
+        </GroupBox>
+        <GridSplitter x:Name="ProfileDivider" Grid.Column="1" Width="8" HorizontalAlignment="Stretch"
+                      Background="#EAECEF" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                      Focusable="True" KeyboardIncrement="10" DragStarted="BeginPaneResize" DragCompleted="SavePaneBalance"
+                      PreviewKeyDown="ResizePaneWithKeyboard"
+                      AutomationProperties.AutomationId="ProfileDivider" AutomationProperties.Name="Resize profile summary and notes"/>
+        <GroupBox x:Name="NotesPane" Grid.Column="2" Header="Notes and context" BorderThickness="0" Padding="0"
+                  VerticalAlignment="Top" AutomationProperties.AutomationId="NotesPane">
+        <StackPanel Margin="12,0,0,0">
+        <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
+          <StackPanel Margin="8">
+            <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
+                    Click="CloseSearchContext" HorizontalAlignment="Right"/>
+            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
+              <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"
+                         Focusable="True" KeyboardNavigation.IsTabStop="False"/>
+            </ScrollViewer>
+            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"
+                                      MaxWidth="600"
+                                      Height="160" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto"/>
+          </StackPanel>
+        </GroupBox>
         <local:PersonNotesControl x:Name="PersonNotes" AutomationProperties.AutomationId="PersonNotesSurface" Margin="0,16,0,0"/>
         <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
         <GroupBox Header="Structured Profile timeline — most recent recording first" Margin="0,16,0,0">
@@ -420,14 +469,23 @@
             </ScrollViewer>
             <TextBlock Text="Frozen Team-note reading — read-only, attributable local captures" Margin="0,8,0,4" TextWrapping="Wrap"/>
             <FlowDocumentScrollViewer x:Name="HistoricalTeamReading" AutomationProperties.AutomationId="HistoricalTeamReading"
-                                      IsToolBarVisible="False" VerticalScrollBarVisibility="Auto" Height="280"
+                                      MaxWidth="600" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto" Height="280"
                                       AutomationProperties.Name="Historical frozen Team notes; never current inheritance"/>
           </StackPanel>
         </GroupBox>
+        </StackPanel>
+        </GroupBox>
+        </Grid>
       </StackPanel>
       </ScrollViewer>
+      <Button x:Name="PeopleDismissSurface" Grid.ColumnSpan="3" Panel.ZIndex="10" Visibility="Collapsed"
+              Background="#33000000" BorderThickness="0" Focusable="False" IsTabStop="False"
+              AutomationProperties.Name="Close People overlay" Click="ClosePeople"/>
     </Grid>
+    </GroupBox>
     <StackPanel Grid.Row="3" Margin="0,16,0,0">
+      <TextBlock x:Name="PanePreferenceStatus" AutomationProperties.AutomationId="PanePreferenceStatus"
+                 TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Visibility="Collapsed"/>
       <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready">
         <TextBlock.Style>
           <Style TargetType="TextBlock">

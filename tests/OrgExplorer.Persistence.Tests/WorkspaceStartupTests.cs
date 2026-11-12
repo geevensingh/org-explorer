@@ -12,6 +12,81 @@ public sealed class WorkspaceStartupTests : IDisposable
     private string Preferences => Path.Combine(root, "app-settings", "workspace-settings.json");
 
     [Fact]
+    public void Pane_percentages_reopen_per_Workspace_and_survive_interleaved_ongoing_and_startup_updates()
+    {
+        var first = Path.Combine(root, "first");
+        var second = Path.Combine(root, "second");
+        WorkspaceFixtures.CopyVersionOne(first);
+        WorkspaceFixtures.CopyVersionOne(second);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, first));
+        var note = app.CreatePersonNote("avery@example.com", "Continuing", "Unchanged writing")!;
+        var before = WorkspaceFixtures.Bytes(first);
+        Assert.True(app.SavePaneProportions(28, 38));
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, note.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, note.Id));
+        Assert.True(settings.OpenWorkspace(app, second));
+        Assert.Equal(new PaneProportions(25, 35), app.PaneProportions);
+        Assert.True(app.SavePaneProportions(31, 40));
+        Assert.True(settings.RestoreWorkspace(app, first));
+        Assert.Equal(new PaneProportions(28, 38), app.PaneProportions);
+        Assert.True(app.SavePaneProportions(27, 37));
+        var reopened = new WorkspaceSettings(Preferences);
+        Assert.Equal(new PaneProportions(27, 37), reopened.GetPaneProportions(first.ToUpperInvariant() + "\\"));
+        Assert.Equal(new PaneProportions(31, 40), reopened.GetPaneProportions(second));
+        Assert.Equal(note.Id, reopened.GetOngoingNote(first, NoteScope.Person, note.OwnerEmail));
+        Assert.Equal(Path.GetFullPath(first), reopened.LastWorkspacePath);
+        AssertWorkspaceBytes(first, before);
+    }
+
+    [Theory]
+    [InlineData("locked")]
+    [InlineData("corrupt")]
+    [InlineData("version")]
+    [InlineData("percent")]
+    [InlineData("missing-percent")]
+    public void Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(string failure)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace));
+        Assert.True(app.SavePaneProportions(28, 38));
+        var valid = File.ReadAllBytes(Preferences);
+        var before = WorkspaceFixtures.Bytes(workspace);
+        if (failure != "locked")
+        {
+            var json = JsonNode.Parse(valid)!;
+            if (failure == "version") json["schemaVersion"] = 99;
+            if (failure == "percent") json["workspaces"]![0]!["paneProportions"]!["peoplePercent"] = 100;
+            if (failure == "missing-percent")
+                json["workspaces"]![0]!["paneProportions"]!.AsObject().Remove("profilePercent");
+            File.WriteAllText(Preferences, failure == "corrupt" ? "{broken" : json.ToJsonString());
+            var invalid = new WorkspaceSettings(Preferences);
+            Assert.Contains("pane proportions", invalid.PreferenceError);
+            Assert.Null(invalid.GetPaneProportions(workspace));
+        }
+        var rejected = File.ReadAllBytes(Preferences);
+        using (var held = failure == "locked" ? File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+        {
+            Assert.False(app.SavePaneProportions(30, 40));
+            Assert.Contains("NOT saved", app.LayoutPreferenceFeedback);
+            Assert.Contains("retry", app.LayoutPreferenceFeedback);
+            Assert.Equal(new PaneProportions(28, 38), app.PaneProportions);
+            Assert.Equal(rejected, File.ReadAllBytes(Preferences));
+            AssertWorkspaceBytes(workspace, before);
+        }
+        File.WriteAllBytes(Preferences, valid);
+        Assert.True(app.SavePaneProportions(30, 40));
+        Assert.Null(app.LayoutPreferenceFeedback);
+        Assert.Equal(new PaneProportions(30, 40), new WorkspaceSettings(Preferences).GetPaneProportions(workspace));
+        Assert.False(app.SavePaneProportions(double.NaN, 35));
+        Assert.Equal(new PaneProportions(30, 40), new WorkspaceSettings(Preferences).GetPaneProportions(workspace));
+    }
+
+    [Fact]
     public void Unreadable_preferences_keep_manual_Workspace_access_without_claiming_an_ongoing_choice_was_restored()
     {
         var workspace = Path.Combine(root, "workspace");

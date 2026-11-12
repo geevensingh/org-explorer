@@ -72,6 +72,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             {
                 IsImportOpen = false;
                 noteViews.Clear();
+                PeopleNavigation = new("", false, null, null, [], 0);
+                LayoutPreferenceFeedback = null;
             }
             return opened;
         });
@@ -115,5 +117,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PersonNotesView)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TeamNotesView)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PeopleNavigation)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PaneProportions)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LayoutPreferenceFeedback)));
     }
 }

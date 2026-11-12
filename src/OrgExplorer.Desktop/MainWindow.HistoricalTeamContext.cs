@@ -16,7 +16,7 @@ public partial class MainWindow
                 FormerChain(c) + "\n" + c.DisplayProvenance + "\n" +
                 (c.TeamNotes.Count == 0 ? "No active Team notes were locally known for this former chain." :
                     string.Join("\n", c.TeamNotes.Select(n => FrozenNoteLabel(c, n))))));
-        var document = new FlowDocument();
+        var document = PrivateMarkdownReading.Create("", OpenHistoricalLink);
         foreach (var capture in captures.Reverse())
         {
             document.Blocks.Add(new Paragraph(new Bold(new Run(FormerChain(capture)))));

@@ -5,6 +5,82 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class SearchFavoriteTests
 {
+    [Fact]
+    public void People_search_replaces_browsing_and_restores_its_position_after_exact_secondary_navigation()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var ongoing = app.CreatePersonNote("avery@example.com", "Continuing", "Ordinary writing")!;
+        var secondary = app.CreatePersonNote("avery@example.com", "Orchid secondary", "")!;
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, ongoing.Id));
+        app.RememberPeopleBrowsing(["morgan@example.com"], 12);
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery("Orchid");
+        Assert.False(app.PeopleNavigation.IsBrowsing);
+        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.True(app.NavigateSearchResult(result));
+        Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.PeopleNavigation.OverlayOpen);
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        app.ChangePeopleQuery("");
+        Assert.True(app.PeopleNavigation.IsBrowsing);
+        Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal(12, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote.Id);
+    }
+
+    [Fact]
+    public void Rejected_overlay_search_retains_owner_exact_note_editor_browsing_and_actionable_explanation()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreatePersonNote("avery@example.com", "Exact secondary", "Saved")!;
+        app.CreatePersonNote("avery@example.com", "Other", "Untouched");
+        Assert.True(app.NavigatePerson(note.OwnerEmail));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id, editing: true));
+        var basis = app.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id)!;
+        app.RetainNoteDraft(basis);
+        app.RememberPeopleBrowsing(["morgan@example.com"], 9);
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery("alex@example");
+        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.False(app.NavigateSearchResult(result));
+        Assert.False(app.NavigatePerson("morgan@example.com"));
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.Equal(note.OwnerEmail, app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.PersonNotesView.IsEditing);
+        Assert.Contains("retry or discard", app.Status);
+        app.ChangePeopleQuery("");
+        Assert.Equal(9, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Contains("retry or discard", app.Status);
+        Assert.NotNull(app.SaveNoteDraft(basis, note.Title, "Saved deliberately"));
+        Assert.True(app.NavigatePerson("alex@example.com"));
+        Assert.False(app.PeopleNavigation.OverlayOpen);
+    }
+
+    [Fact]
+    public void Overlay_search_opens_the_exact_frozen_capture_not_the_later_current_note()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreateTeamNote("morgan@example.com", "Cedar", "Cedar original")!;
+        Assert.True(app.EditPersonManager("avery@example.com", "alex@example.com"));
+        var capture = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
+        Assert.True(app.EditTeamNote(note.Id, "Later", "Willow current"));
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery("cedar");
+        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("cedar"))));
+        var destination = app.PeopleNavigation.SelectedResult!;
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(capture.Id, destination.HistoricalContextId);
+        Assert.Equal(note.Id, destination.NoteId);
+        Assert.Equal("Cedar original", destination.MatchText);
+        Assert.Equal("Cedar original", Assert.Single(destination.HistoricalContext!.TeamNotes).Markdown);
+        Assert.False(app.PeopleNavigation.OverlayOpen);
+    }
+
     private static string Batch(string records, int id) => $$"""
         {"schemaVersion":1,"batchId":"10000000-0013-4000-8000-{{id:000000000000}}",
          "observedAt":"2026-11-06T17:00:00Z","people":[{{records}}]}
