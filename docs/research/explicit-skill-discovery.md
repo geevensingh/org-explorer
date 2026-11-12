@@ -3,8 +3,8 @@
 Bounded investigation of
 [issue #50](https://github.com/geevensingh/org-explorer/issues/50), written
 2026-11-11. It used first-party public sources, one locally generated synthetic
-fixture, and no workplace service, employee data, desktop automation or external
-filing. It changes no product, test, CI, skill, frontmatter or always-loaded
+fixture, and no workplace service, employee data, completed desktop interaction
+or external filing. It changes no product, test, CI, skill, frontmatter or always-loaded
 instruction file, and it makes no product validation claim. Its host-routing
 conclusions do not depend on this repository's app test suites.
 
@@ -23,7 +23,8 @@ being conflated:
 documented user-only declaration in `.github/skills/update-org/SKILL.md`. Whether
 the desktop app routed the user's typed `/update-org from ...` is **not
 established either way**: issue #50 records the tool result but not whether skill
-context had already been supplied, and desktop automation was not authorized.
+context had already been supplied. A later authorized desktop inspection was
+blocked by the automation tool's built-in safety policy, as recorded below.
 
 Routing belongs to the Copilot app/CLI runtime, not to this repository. There is
 no repository correction, no product .NET TDD seam (this is neither workflow nor
@@ -207,10 +208,31 @@ This is an operator/agent procedure, not a repository change:
 - Do not enable automatic invocation, change global flags, or add the skill body
   to `AGENTS.md` or other always-loaded instructions.
 
-## Future manual app check
+## Authorized desktop attempt
 
-Not run: it needs an authorized, isolated desktop environment, and no desktop
-automation was performed. Use only generated synthetic content:
+After publication on 2026-11-11, the user explicitly confirmed that this
+workstation's desktop was isolated and authorized for the synthetic check.
+Computer Use could list windows, but binding the observed GitHub Copilot window
+failed before returning its accessibility state:
+
+```text
+Computer Use getApp failed
+action rejected
+reason: actions are blocked for this application by built-in safety policy
+native call: getAXState failed
+```
+
+No app inspection or interaction completed, no synthetic app session was
+created, and no test prompt was sent. Desktop skill routing therefore remains
+**unverified**, not failed or passed. The blocker is tool policy, not missing
+user authorization or a repository defect. This session did not retry through
+another automation tool, shell, or app API.
+
+## Future human-performed app check
+
+Not run. The procedure below is for a human-performed reproduction, not an
+alternate automation route around the refusal. Use an authorized, isolated
+desktop and only generated synthetic content:
 
 1. In a disposable local folder outside this repository and cloud sync, create
    `.github/skills/route-probe-user-only/SKILL.md` (`name`, `description` with a
@@ -234,8 +256,9 @@ automation was performed. Use only generated synthetic content:
 - **Intentional vs broken:** model-tool exclusion is intended; explicit app routing
   is unproven in both directions for `/update-org`.
 - **User-only preserved; owner/handoff/workaround:** see the sections above.
-- **Coverage prerequisite:** a safe app-level check needs the isolated desktop
-  environment described above.
+- **Coverage prerequisite:** the authorized desktop attempt was blocked by the
+  automation tool's per-application safety policy. A human-performed check can
+  supply the missing evidence; authorization alone does not remove that policy.
 
 ## Sources
 
