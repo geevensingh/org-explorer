@@ -9,7 +9,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow : Window
 {
-    private readonly WorkspaceViewModel workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()));
+    private readonly WorkspaceViewModel workflow;
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -18,6 +18,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        workflow = new(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener()), workspaceSettings);
         InitializeComponent();
         InitializeUpdates();
         preferredNameSaveTimer.Tick += SavePreferredNameDraft;
@@ -332,6 +333,7 @@ public partial class MainWindow : Window
 
     private void ShowStatus()
     {
+        ShowWorkspaceStartup();
         ImportPanel.Visibility = workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
         ExplorerPanel.Visibility = workflow.IsImportOpen ? Visibility.Collapsed : Visibility.Visible;
         RefreshSearchAndFavorites();

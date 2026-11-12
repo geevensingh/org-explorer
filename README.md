@@ -10,7 +10,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 ## Specifications
 
 - [Agreed v1 design](docs/design.md)
-- [Agreed adaptive UI redesign (planned, not implemented)](docs/ui-design.md)
+- [Agreed adaptive UI redesign (delivery in progress)](docs/ui-design.md)
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
 - [Workspace versions and recovery](docs/workspace-format.md)
@@ -118,13 +118,33 @@ Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
 before restoring files externally.
 
-Profiles also offer multiple private **Person notes**. Existing notes open in
+Profiles offer a direct ongoing **Person note**, with **Other notes** retaining
+all separately titled documents, including empty-body and archived notes.
+When several active notes exist without a recorded choice, select one through
+Other notes and **Use as ongoing**; the app never guesses from title, recency or
+list order. A sole active note can be read directly without recording a choice.
+The designation remains changeable and never edits, merges or deletes writing.
+Search and Other notes open their exact target; **Open ongoing note** returns
+deliberately to the continuing document. Existing notes open in
 native rendered **Read** mode; one-click **Edit** reveals their autosaved title
 and Markdown editors, and **Read** hides both editors again. **New Person note**
 opens directly for writing. Empty note sections retain a message and New action,
 and notes with empty bodies remain readable and editable. Notes show their Person owner and
 never inherit to reports. **Archive note** preserves writing; **Show archived
-notes** allows reading and restoring it. The app watches local folder events and automatically reflects valid external
+notes** inside Other notes allows reading and restoring it.
+
+Ongoing choices are device-local, per Workspace, in the existing app-local
+`workspace-settings.json` lifecycle, not in synchronized Workspace documents.
+The version-1 startup format accepts an optional `workspaces` extension keyed by
+canonical folder (case-insensitive on Windows), note scope, stable owner email
+and existing note GUID. Renaming a note does not change the choice. Other
+Workspace entries and the successful startup folder are preserved when a choice
+changes. Missing/archived ongoing targets retain the recorded choice and show
+explicit recovery/re-selection guidance; no replacement is created or chosen.
+Invalid/unsupported preferences are not overwritten, and read/write failures
+remain visible without claiming that a new choice was remembered.
+
+The app watches local folder events and automatically reflects valid external
 Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
 location. Whole-Workspace/graph validation precedes acceptance. Incomplete,
 unsupported, or invalid deliveries visibly mark all retained information

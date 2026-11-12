@@ -92,6 +92,25 @@ dirty profile, independent quick changes, saved bytes and the successful
 preference until an explicit leave decision. These are filesystem/settings
 assertions, not WPF evidence or a second profile-mode policy.
 
+Person-note presentation is observed through `WorkspaceViewModel.PersonNotesView`
+and the shared owned-note commands, not a control-specific test adapter.
+Person-note cases cover explicit ambiguous designation, a changed choice without
+note mutation, exact Other notes/search targets (including empty bodies), direct
+Read versus new-note editing, observable secondary access, independent profile
+writing and rejected retained-draft navigation. `WorkspaceStartupTests` extends
+the real settings/reopen seam with version-1 preference compatibility, canonical
+Workspace/owner/scope identity, retained unavailable/archived choices, locked or
+corrupt preference rejection and byte-for-byte unchanged note documents.
+Invalid preferences are preserved until deliberately repaired outside that
+failed write; manually opening a Workspace is not permission to overwrite them.
+`NoteDraftPersistenceTests` retains a failed secondary draft and its exact editor
+while ongoing navigation is rejected, including subsequent external delivery.
+The existing Person-note desktop journey additionally observes the collapsed
+Other notes picker, direct rendered Read/Edit, ambiguous designation, exact
+secondary search, empty invitation, unavailable choice and visible preference
+and note-save failures. Those assertions require hosted Windows; non-UI success
+does not constitute their execution.
+
 ## Moving coverage
 
 1. Read the actual assertions at both layers before removing a desktop check.

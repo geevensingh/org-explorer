@@ -7,13 +7,24 @@ public sealed class WorkspaceSettings
 {
     private sealed record Preference(
         [property: JsonRequired] int SchemaVersion,
-        [property: JsonRequired] string LastWorkspacePath);
+        [property: JsonRequired] string LastWorkspacePath,
+        WorkspacePreference[]? Workspaces = null);
+    private sealed record WorkspacePreference(
+        [property: JsonRequired] string Path,
+        [property: JsonRequired] OngoingDesignation[] OngoingNotes);
+    private sealed record OngoingDesignation(
+        [property: JsonRequired] NoteScope Scope,
+        [property: JsonRequired] string OwnerEmail,
+        [property: JsonRequired] Guid NoteId);
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter<NoteScope>(allowIntegerValues: false) }
     };
     private readonly string preferencePath;
+    private Preference? preference;
 
     public string? LastWorkspacePath { get; private set; }
     public string? PreferenceError { get; private set; }
@@ -23,19 +34,71 @@ public sealed class WorkspaceSettings
         this.preferencePath = preferencePath;
         try
         {
-            var preference = JsonSerializer.Deserialize<Preference>(File.ReadAllBytes(preferencePath), Json)
-                ?? throw new FormatException("Workspace preferences are empty.");
-            if (preference.SchemaVersion != 1 || string.IsNullOrWhiteSpace(preference.LastWorkspacePath) ||
-                !Path.IsPathFullyQualified(preference.LastWorkspacePath))
-                throw new FormatException("Workspace preferences require version 1 and an absolute Workspace folder.");
-            LastWorkspacePath = Path.GetFullPath(preference.LastWorkspacePath);
+            preference = ReadPreference();
+            LastWorkspacePath = preference?.LastWorkspacePath;
         }
-        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException)
         {
-            PreferenceError = "Workspace preferences could not be read; no remembered Workspace was restored. Choose a folder. " + error.Message;
+            PreferenceError = "Workspace preferences could not be read; no remembered Workspace or ongoing choice was restored. " +
+                "Resolve local preference data/file access. Choosing a folder can still open the Workspace without replacing invalid preferences. " + error.Message;
         }
     }
+
+    private static string CanonicalPath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    private static bool SamePath(string left, string right) =>
+        string.Equals(CanonicalPath(left), CanonicalPath(right), StringComparison.OrdinalIgnoreCase);
+
+    private Preference? ReadPreference()
+    {
+        Preference value;
+        try
+        {
+            value = JsonSerializer.Deserialize<Preference>(File.ReadAllBytes(preferencePath), Json)
+                ?? throw new FormatException("Workspace preferences are empty.");
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        if (value.SchemaVersion != 1 || string.IsNullOrWhiteSpace(value.LastWorkspacePath) ||
+            !Path.IsPathFullyQualified(value.LastWorkspacePath))
+            throw new FormatException("Workspace preferences require version 1 and an absolute Workspace folder.");
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var workspace in value.Workspaces ?? [])
+        {
+            if (workspace is null || string.IsNullOrWhiteSpace(workspace.Path) ||
+                !Path.IsPathFullyQualified(workspace.Path) || !paths.Add(CanonicalPath(workspace.Path)) ||
+                workspace.OngoingNotes is null)
+                throw new FormatException("Workspace presentation preferences require unique absolute folders and ongoing-note entries.");
+            var owners = new HashSet<(NoteScope, string)>();
+            foreach (var note in workspace.OngoingNotes)
+                if (note is null || !Enum.IsDefined(note.Scope) || string.IsNullOrWhiteSpace(note.OwnerEmail) ||
+                    !ApplicationWorkflow.IsPlainEmail(note.OwnerEmail) || note.NoteId == Guid.Empty ||
+                    !owners.Add((note.Scope, note.OwnerEmail.ToUpperInvariant())))
+                    throw new FormatException("Ongoing-note preferences require unique scope/owner identities and existing note GUIDs.");
+        }
+        return value with { LastWorkspacePath = CanonicalPath(value.LastWorkspacePath) };
+    }
+
+    public Guid? GetOngoingNote(string workspacePath, NoteScope scope, string ownerEmail) =>
+        preference?.Workspaces?.FirstOrDefault(w => SamePath(w.Path, workspacePath))?.OngoingNotes
+            .FirstOrDefault(n => n.Scope == scope && n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase))?.NoteId;
+
+    public bool SetOngoingNote(string workspacePath, NoteScope scope, string ownerEmail, Guid noteId) =>
+        SavePreference(current =>
+        {
+            if (!Enum.IsDefined(scope) || string.IsNullOrWhiteSpace(ownerEmail) ||
+                !ApplicationWorkflow.IsPlainEmail(ownerEmail) || noteId == Guid.Empty ||
+                !Path.IsPathFullyQualified(workspacePath))
+                throw new ArgumentException("An ongoing note requires a scope, owner email and existing note GUID.");
+            var path = CanonicalPath(workspacePath);
+            var workspaces = (current?.Workspaces ?? []).ToList();
+            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
+            var notes = (index < 0 ? [] : workspaces[index].OngoingNotes)
+                .Where(n => n.Scope != scope || !n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase)).ToList();
+            notes.Add(new(scope, ownerEmail.Trim().ToLowerInvariant(), noteId));
+            var updated = new WorkspacePreference(path, notes.ToArray());
+            if (index < 0) workspaces.Add(updated);
+            else workspaces[index] = updated;
+            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+        }, "Ongoing-note preference was NOT saved; the previous ongoing choice is unchanged.");
 
     public bool RestoreWorkspace(IApplicationWorkflow workflow, string? restartWorkspace = null) =>
         (restartWorkspace ?? LastWorkspacePath) is { } path && OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.ExistingOnly);
@@ -46,29 +109,36 @@ public sealed class WorkspaceSettings
     private bool OpenWorkspaceCore(IApplicationWorkflow workflow, string path, WorkspaceOpenMode mode)
     {
         if (!workflow.OpenWorkspace(path, mode)) return false;
-        RememberWorkspace(workflow.Compatibility.WorkspacePath!);
+        var canonical = CanonicalPath(workflow.Compatibility.WorkspacePath!);
+        SavePreference(current => new(1, canonical, current?.Workspaces),
+            "Workspace opened, but its startup preference was NOT saved; the previous startup preference is unchanged.");
         return true;
     }
 
-    private void RememberWorkspace(string path)
+    private bool SavePreference(Func<Preference?, Preference> update, string failure)
     {
         string? pending = null;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(preferencePath))!);
+            using var guard = new FileStream(preferencePath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var next = update(ReadPreference());
             pending = preferencePath + "." + Guid.NewGuid().ToString("N") + ".pending";
             using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                JsonSerializer.Serialize(file, new Preference(1, path), Json);
+                JsonSerializer.Serialize(file, next, Json);
                 file.Flush(true);
             }
             File.Move(pending, preferencePath, true);
-            LastWorkspacePath = path;
+            preference = next;
+            LastWorkspacePath = next.LastWorkspacePath;
             PreferenceError = null;
+            return true;
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or JsonException or FormatException)
         {
-            PreferenceError = "Workspace opened, but its startup preference was NOT saved; the previous startup preference is unchanged. Retry opening after resolving local file access. " + error.Message;
+            PreferenceError = failure + " Resolve local preference data/file access and retry. " + error.Message;
+            return false;
         }
         finally
         {

@@ -12,6 +12,176 @@ public sealed class WorkspaceStartupTests : IDisposable
     private string Preferences => Path.Combine(root, "app-settings", "workspace-settings.json");
 
     [Fact]
+    public void Unreadable_preferences_keep_manual_Workspace_access_without_claiming_an_ongoing_choice_was_restored()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using (var seed = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
+        {
+            Assert.True(settings.OpenWorkspace(seed, workspace));
+            var first = seed.CreatePersonNote("avery@example.com", "First", "Saved")!;
+            seed.CreatePersonNote("avery@example.com", "Other", "");
+            Assert.True(seed.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+            Assert.True(seed.DesignateOngoingNote(NoteScope.Person, first.Id));
+        }
+        var preference = File.ReadAllBytes(Preferences);
+        var notes = WorkspaceFixtures.Bytes(workspace);
+        using (File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var unreadable = new WorkspaceSettings(Preferences);
+            Assert.Contains("could not be read", unreadable.PreferenceError);
+            Assert.Null(unreadable.LastWorkspacePath);
+            using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), unreadable);
+            Assert.False(unreadable.RestoreWorkspace(app));
+            Assert.True(unreadable.OpenWorkspace(app, workspace));
+            Assert.True(app.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+            Assert.Null(app.PersonNotesView.OngoingNoteId);
+            Assert.Null(app.PersonNotesView.SelectedNote);
+            Assert.Contains("NOT saved", app.PersonNotesView.Feedback);
+            Assert.True(app.OpenOwnedNote(NoteScope.Person, app.PersonNotesView.Notes[0].Id));
+        }
+        Assert.Equal(preference, File.ReadAllBytes(Preferences));
+        AssertWorkspaceBytes(workspace, notes);
+    }
+
+    [Theory]
+    [InlineData("locked")]
+    [InlineData("corrupt")]
+    [InlineData("version")]
+    [InlineData("invalid-entry")]
+    [InlineData("owner")]
+    public void Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(string failure)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace));
+        var first = app.CreatePersonNote("avery@example.com", "Continuing", "Saved")!;
+        var other = app.CreatePersonNote("avery@example.com", "Other", "")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, first.Id));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
+        var valid = File.ReadAllBytes(Preferences);
+        var workspaceBytes = WorkspaceFixtures.Bytes(workspace);
+        if (failure != "locked")
+        {
+            var json = JsonNode.Parse(valid)!;
+            if (failure == "version") json["schemaVersion"] = 99;
+            if (failure == "invalid-entry") json["workspaces"]![0]!["ongoingNotes"]![0]!["noteId"] = Guid.Empty.ToString();
+            if (failure == "owner") json["workspaces"]![0]!["ongoingNotes"]![0]!["ownerEmail"] = "Someone <avery@example.com>";
+            File.WriteAllText(Preferences, failure == "corrupt" ? "{broken" : json.ToJsonString());
+        }
+        var rejected = File.ReadAllBytes(Preferences);
+        using (var held = failure == "locked" ? File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
+        {
+            Assert.False(app.DesignateOngoingNote(NoteScope.Person, other.Id));
+            Assert.Equal(other.Id, app.PersonNotesView.SelectedNote!.Id);
+            Assert.Equal(first.Id, app.PersonNotesView.OngoingNoteId);
+            Assert.Contains("NOT saved", app.PersonNotesView.Feedback);
+            Assert.Equal(rejected, File.ReadAllBytes(Preferences));
+            AssertWorkspaceBytes(workspace, workspaceBytes);
+        }
+        File.WriteAllBytes(Preferences, valid);
+        using (var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(Preferences)))
+        {
+            Assert.True(reopened.OpenWorkspace(workspace));
+            Assert.True(reopened.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+            Assert.Equal(first.Id, reopened.PersonNotesView.SelectedNote!.Id);
+        }
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, other.Id), app.PersonNotesView.Feedback);
+        Assert.Equal(other.Id, new WorkspaceSettings(Preferences).GetOngoingNote(workspace, NoteScope.Person, first.OwnerEmail));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(bool archived)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyVersionOne(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace));
+        var note = app.CreatePersonNote("avery@example.com", "Continuing", "Retained")!;
+        var other = app.CreatePersonNote("avery@example.com", "Other", "")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, note.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, note.Id));
+        var preference = File.ReadAllBytes(Preferences);
+        if (archived) Assert.True(app.ArchivePersonNote(note.Id));
+        else
+        {
+            File.Delete(Path.Combine(workspace, "notes", note.Id + ".md"));
+            Assert.True(app.RefreshPersonNotes(), app.Status);
+        }
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Contains("unavailable or archived", app.PersonNotesView.Feedback);
+        Assert.Equal(note.Id, settings.GetOngoingNote(workspace, NoteScope.Person, note.OwnerEmail));
+        Assert.Equal(preference, File.ReadAllBytes(Preferences));
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(Preferences));
+        Assert.True(reopened.OpenWorkspace(workspace), reopened.Status);
+        Assert.True(reopened.OpenOwnedNotes(NoteScope.Person, note.OwnerEmail));
+        Assert.Null(reopened.PersonNotesView.SelectedNote);
+        Assert.Contains("unavailable or archived", reopened.PersonNotesView.Feedback);
+        Assert.True(reopened.OpenOwnedNote(NoteScope.Person, other.Id));
+        Assert.False(reopened.PersonNotesView.IsOngoing);
+        if (archived)
+        {
+            Assert.True(reopened.OpenOwnedNote(NoteScope.Person, note.Id));
+            Assert.True(reopened.PersonNotesView.SelectedNote!.Archived);
+            Assert.True(reopened.ArchivePersonNote(note.Id, false));
+            Assert.True(reopened.OpenOngoingNote(NoteScope.Person));
+            Assert.Equal(note.Id, reopened.PersonNotesView.SelectedNote!.Id);
+        }
+        Assert.True(reopened.DesignateOngoingNote(NoteScope.Person, other.Id));
+        Assert.Equal(other, Assert.Single(reopened.GetPersonNotes(note.OwnerEmail), n => n.Id == other.Id));
+    }
+
+    [Fact]
+    public void Ongoing_designation_extends_legacy_preferences_and_reopens_by_identity_without_changing_Workspace_writing()
+    {
+        var first = Path.Combine(root, "first");
+        var second = Path.Combine(root, "second");
+        WorkspaceFixtures.CopyVersionOne(first);
+        WorkspaceFixtures.CopyVersionOne(second);
+        Directory.CreateDirectory(Path.GetDirectoryName(Preferences)!);
+        File.WriteAllText(Preferences, new JsonObject { ["schemaVersion"] = 1, ["lastWorkspacePath"] = first }.ToJsonString());
+        var settings = new WorkspaceSettings(Preferences);
+        Guid ongoing;
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
+        {
+            Assert.True(settings.RestoreWorkspace(app), app.Status);
+            var note = app.CreatePersonNote("avery@example.com", "Ongoing", "Retained **writing**")!;
+            var other = app.CreatePersonNote("avery@example.com", "Other", "")!;
+            ongoing = note.Id;
+            var before = WorkspaceFixtures.Bytes(first);
+            Assert.True(app.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+            Assert.True(app.DesignateOngoingNote(NoteScope.Person, note.Id), app.PersonNotesView.Feedback);
+            AssertWorkspaceBytes(first, before);
+            Assert.True(settings.OpenWorkspace(app, second), app.Status);
+            var secondNote = app.CreatePersonNote("avery@example.com", "Different Workspace", "")!;
+            Assert.True(app.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+            Assert.True(app.DesignateOngoingNote(NoteScope.Person, secondNote.Id));
+            Assert.True(settings.RestoreWorkspace(app, first), app.Status);
+            Assert.True(app.OpenOwnedNotes(NoteScope.Person, "AVERY@example.com"));
+            Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+            Assert.True(app.EditPersonNote(note.Id, "Renamed without re-designation", note.Markdown));
+            Assert.Equal(other, Assert.Single(app.GetPersonNotes("avery@example.com"), n => n.Id == other.Id));
+        }
+        var reopenedSettings = new WorkspaceSettings(Preferences);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
+        Assert.True(reopenedSettings.RestoreWorkspace(reopened), reopened.Status);
+        Assert.True(reopened.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+        Assert.Equal(ongoing, reopened.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal("Renamed without re-designation", reopened.PersonNotesView.SelectedNote.Title);
+        Assert.Equal(ongoing, reopenedSettings.GetOngoingNote(first.ToUpperInvariant() + Path.DirectorySeparatorChar,
+            NoteScope.Person, "AVERY@example.com"));
+        Assert.Null(reopenedSettings.GetOngoingNote(first, NoteScope.Team, "avery@example.com"));
+        Assert.Null(reopenedSettings.GetOngoingNote(first, NoteScope.Person, "casey@example.com"));
+    }
+
+    [Fact]
     public void First_run_stays_unopened_and_successful_open_is_restored_after_settings_and_app_reopen()
     {
         var settings = new WorkspaceSettings(Preferences);
@@ -141,6 +311,10 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.Equal(corrupt, File.ReadAllText(Preferences));
 
         var first = Path.Combine(root, "first");
+        Assert.True(settings.OpenWorkspace(app, first), app.Status);
+        Assert.Contains("NOT saved", settings.PreferenceError);
+        Assert.Equal(corrupt, File.ReadAllText(Preferences));
+        File.Delete(Preferences);
         Assert.True(settings.OpenWorkspace(app, first), app.Status);
         Assert.Null(settings.PreferenceError);
         var accepted = File.ReadAllBytes(Preferences);

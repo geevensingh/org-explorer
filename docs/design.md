@@ -6,7 +6,8 @@ The concrete producer-facing file contract is in [Import format](import-format.m
 
 The [agreed adaptive UI redesign](ui-design.md) refines the presentation described
 here and adds ongoing-note designation and remembered view preferences. It is
-planned, not implemented. Where presentation differs, use that refinement while
+being delivered in slices; see its implementation-status section. Where
+presentation differs, use that refinement while
 preserving the ownership, inheritance, import, editing, and data-safety rules here.
 
 ## Product and platform

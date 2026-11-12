@@ -5,6 +5,128 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class PersonNoteTests
 {
+    [Fact]
+    public void Independent_profile_draft_does_not_prevent_reading_or_creating_notes_for_the_same_owner()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        var first = app.CreatePersonNote("avery@example.com", "First", "Saved")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+        Assert.True(app.BeginProfileEdit(first.OwnerEmail));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained profile draft"));
+        var profile = app.ProfileEdit;
+        var created = app.CreatePersonNote(first.OwnerEmail, "Independent new writing", "")!;
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, created.Id, editing: true));
+        Assert.True(app.PersonNotesView.IsEditing);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, first.Id));
+        Assert.Same(profile, app.ProfileEdit);
+        Assert.False(app.CanSafelyClose);
+    }
+
+    [Fact]
+    public void A_second_existing_note_does_not_turn_the_first_listed_note_into_an_implicit_designation()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        var first = app.CreatePersonNote("avery@example.com", "First", "Saved")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+        Assert.Equal(first.Id, app.PersonNotesView.SelectedNote!.Id);
+        app.CreatePersonNote(first.OwnerEmail, "Another existing note", "");
+        Assert.Null(app.PersonNotesView.OngoingNoteId);
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Contains("Choose", app.PersonNotesView.Feedback);
+    }
+
+    [Fact]
+    public void Empty_invitation_new_writing_and_secondary_access_are_observable_without_a_permanent_picker()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        var notifications = new List<string?>();
+        app.PropertyChanged += (_, e) => notifications.Add(e.PropertyName);
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+        Assert.Contains("Write a new note", app.PersonNotesView.Feedback);
+        Assert.Empty(app.PersonNotesView.Notes);
+        Assert.False(app.PersonNotesView.OtherNotesOpen);
+        var created = app.CreatePersonNote("avery@example.com", "New Person note", "")!;
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, created.Id, editing: true));
+        Assert.True(app.PersonNotesView.IsEditing);
+        app.ShowOtherNotes(NoteScope.Person, true);
+        Assert.True(app.PersonNotesView.OtherNotesOpen);
+        Assert.Equal(created.Id, Assert.Single(app.PersonNotesView.Notes).Id);
+        app.ShowOtherNotes(NoteScope.Person, false);
+        Assert.True(app.OpenOngoingNote(NoteScope.Person));
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.PersonNotesView.OtherNotesOpen);
+        Assert.Contains(nameof(app.PersonNotesView), notifications);
+    }
+
+    [Fact]
+    public void Retained_note_draft_rejects_secondary_ongoing_and_owner_navigation_without_changing_the_editor()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        var first = app.CreatePersonNote("avery@example.com", "Continuing", "Saved")!;
+        var other = app.CreatePersonNote("avery@example.com", "Other", "")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, first.Id));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, first.Id, editing: true));
+        var basis = app.BeginNoteDraft(NoteScope.Person, first.OwnerEmail, first.Id)!;
+        app.RetainNoteDraft(basis);
+
+        Assert.False(app.OpenOwnedNote(NoteScope.Person, other.Id));
+        Assert.False(app.OpenOwnedNotes(NoteScope.Person, null));
+        Assert.False(app.DesignateOngoingNote(NoteScope.Person, other.Id));
+        Assert.False(app.OpenOngoingNote(NoteScope.Person));
+        Assert.Equal(first.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal(first.OwnerEmail, app.PersonNotesView.OwnerEmail);
+        Assert.True(app.PersonNotesView.IsEditing);
+        Assert.Contains("Retry or discard", app.PersonNotesView.Feedback);
+        Assert.False(app.CanSafelyClose);
+        Assert.NotNull(app.SaveNoteDraft(basis, first.Title, "Deliberately saved"));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
+    }
+
+    [Fact]
+    public void Ambiguous_ongoing_choice_is_explicit_and_other_notes_and_search_open_the_exact_document()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        var first = app.CreatePersonNote("avery@example.com", "Continuing context", "Private writing")!;
+        var other = app.CreatePersonNote("avery@example.com", "Separately titled empty note", "")!;
+        var before = app.GetPersonNotes("avery@example.com").ToArray();
+
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, "AVERY@example.com"));
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Contains("Choose", app.PersonNotesView.Feedback);
+        Assert.Equal(2, app.PersonNotesView.Notes.Count);
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, first.Id));
+        Assert.Equal(first.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.PersonNotesView.OtherNotesOpen);
+
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
+        Assert.Equal(other.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal("", app.PersonNotesView.SelectedNote.Markdown);
+        Assert.False(app.PersonNotesView.IsOngoing);
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, "avery@example.com"));
+        Assert.Equal(other.Id, app.PersonNotesView.SelectedNote.Id);
+        Assert.True(app.OpenOngoingNote(NoteScope.Person));
+        Assert.Equal(first.Id, app.PersonNotesView.SelectedNote!.Id);
+
+        var match = Assert.Single(app.Search("Separately titled"), r => r.Source == SearchSource.PersonNote);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, match.NoteId!.Value));
+        Assert.Equal(other.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, other.Id));
+        Assert.Equal(other.Id, app.PersonNotesView.OngoingNoteId);
+        Assert.Equal(before, app.GetPersonNotes("avery@example.com"));
+    }
+
     [Theory]
     [InlineData("notes")]
     [InlineData("personNotes")]

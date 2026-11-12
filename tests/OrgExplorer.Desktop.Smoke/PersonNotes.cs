@@ -49,21 +49,31 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
             AssertNoteView(window, "Person", editing: true);
-            if (Find(window, "PersonNotes", ControlType.List).Current.Name != "Person notes" ||
-                Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
+            if (Find(window, "PersonNoteTitle").Current.Name != "Person note title" ||
                 Find(window, "PersonNoteMarkdown").Current.Name != "Person note Markdown")
                 throw new InvalidOperationException("Person note title and writing lack distinct accessible names.");
             Set(window, "PersonNoteTitle", "Private meeting");
             AwaitLocalWorkIdle(window);
             NavigateToManager(window, "casey@example.com");
             OpenPerson(window, "casey@example.com");
-            SelectNote(window, "Private meeting");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
+            AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
             SelectTab(window, "PersonNoteEditTab");
             AssertNoteView(window, "Person", editing: true);
             AssertValue(window, "PersonNoteMarkdown", "");
             Set(window, "PersonNoteMarkdown", markdown);
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
+            Click(window, "NewPersonNote");
+            Set(window, "PersonNoteTitle", "Secondary empty note");
+            AwaitLocalWorkIdle(window);
+            NavigateToManager(window, "casey@example.com");
+            OpenPerson(window, "casey@example.com");
+            Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("Choose an ongoing note"));
+            AssertOtherPersonNotesCollapsed(window);
+            SelectNote(window, "Private meeting");
+            Click(window, "UseAsOngoingPersonNote");
+            AssertOtherPersonNotesCollapsed(window);
             SelectTab(window, "PersonNoteReadTab");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Private context") && ReadingText(window).Contains("Meeting with Avery."));
@@ -76,11 +86,15 @@ internal static partial class Program
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            var noteFile = Directory.GetFiles(workspace, "*.md", SearchOption.AllDirectories).Single();
+            var noteFile = Directory.GetFiles(workspace, "*.md", SearchOption.AllDirectories)
+                .Single(file => File.ReadAllText(file).Contains("# Private context", StringComparison.Ordinal));
             using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Set(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
+                Click(window, "UseAsOngoingPersonNote");
+                AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
+                AssertNoteView(window, "Person", editing: true);
                 Click(window, "NavigateManager");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 SelectTreePerson(window, "casey@example.com", expectNavigation: false);
@@ -99,17 +113,37 @@ internal static partial class Program
             Click(window, "RetryPersonNoteSave");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
             markdown += "\nRecovered draft.";
+            SelectNote(window, "Secondary empty note");
+            var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var previousPreference = File.ReadAllBytes(preferences);
+            using (File.Open(preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Click(window, "UseAsOngoingPersonNote");
+                Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("NOT saved"));
+                if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note") ||
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference))
+                    throw new InvalidOperationException("Failed designation falsely changed the ongoing note.");
+            }
+            SelectNote(window, "Private meeting");
+            Click(window, "UseAsOngoingPersonNote");
+            AssertOtherPersonNotesCollapsed(window);
+            QueryAndSelect(window, "Secondary empty note", "avery@example.com", "Current", "Person note");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Secondary empty note");
+            AssertNoteView(window, "Person", editing: false);
+            if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
+                throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
+            Click(window, "OpenOngoingPersonNote");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");
-            if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com") ||
-                Find(window, "PersonNotes").FindAll(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Count != 0)
+            if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com"))
                 throw new InvalidOperationException("Manager navigation inherited the report's private Person notes.");
             var ownerReport = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
                 ?? throw new InvalidOperationException("Manager lost the note owner's imported report.");
             ((SelectionItemPattern)ownerReport.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
-            SelectNote(window, "Private meeting");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
+            AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteMarkdown", markdown);
@@ -119,11 +153,14 @@ internal static partial class Program
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenPerson(window, "casey@example.com");
-            SelectNote(window, "Private meeting");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
+            AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Meeting with Avery."));
             Click(window, "ArchivePersonNote");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("archived locally"));
+            Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
+            ExpandOtherPersonNotes(window);
             ((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectNote(window, "Private meeting");
             SelectTab(window, "PersonNoteEditTab");
@@ -143,6 +180,7 @@ internal static partial class Program
     private static void SelectNote(AutomationElement window, string title)
     {
         AwaitLocalWorkIdle(window);
+        ExpandOtherPersonNotes(window);
         AutomationElement? item = null;
         Await(() =>
         {
@@ -153,6 +191,22 @@ internal static partial class Program
         });
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
         Await(() => Find(window, "PersonNoteHeading").Current.Name == title);
+    }
+
+    private static void ExpandOtherPersonNotes(AutomationElement window)
+    {
+        var expander = (ExpandCollapsePattern)Find(window, "OtherPersonNotes").GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expander.Current.ExpandCollapseState != ExpandCollapseState.Expanded) expander.Expand();
+    }
+
+    private static void AssertOtherPersonNotesCollapsed(AutomationElement window)
+    {
+        Await(() => ((ExpandCollapsePattern)Find(window, "OtherPersonNotes").GetCurrentPattern(ExpandCollapsePattern.Pattern))
+            .Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        var list = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNotes"));
+        if (list is not null && !list.Current.IsOffscreen)
+            throw new InvalidOperationException("Ordinary Person-note reading still requires a permanent title list.");
     }
 
     private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
@@ -204,5 +258,12 @@ internal static partial class Program
         if (!Find(window, $"{kind}NotesEmpty").Current.Name.StartsWith("No ", StringComparison.Ordinal) ||
             !Find(window, $"New{kind}Note").Current.IsEnabled)
             throw new InvalidOperationException($"Empty {kind} notes lost their message or New note action.");
+        if (kind == "Person")
+        {
+            var list = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNotes"));
+            if (list is not null && !list.Current.IsOffscreen)
+                throw new InvalidOperationException("Empty Person notes retain a blank permanent picker.");
+        }
     }
 }
