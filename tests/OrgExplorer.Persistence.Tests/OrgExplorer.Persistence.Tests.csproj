@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
+    <Compile Include="..\HeldNotePublisher.cs" Link="HeldNotePublisher.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\LocalReleaseServer.cs" Link="LocalReleaseServer.cs" />
     <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />

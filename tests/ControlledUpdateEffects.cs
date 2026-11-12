@@ -17,6 +17,9 @@ internal static class UpdateEffects
 
     public static IReleasePackageTransport Transport(HttpClient http) => new ControlledTransport();
     public static IUpdateRestart Restart(UpdateRestartJournal journal) => new ObservedRestart(journal);
+    public static void RecordSafePointRejection(string diagnostic) =>
+        File.AppendAllText(Path.Combine(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ?? Fixture,
+            "safe-point-rejections.log"), diagnostic + Environment.NewLine);
 
     private sealed class ControlledTransport : IReleasePackageTransport
     {

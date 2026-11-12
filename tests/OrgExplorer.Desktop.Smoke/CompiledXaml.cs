@@ -17,9 +17,10 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false)
+    private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
-        if (verifyProfileRefresh) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (verifyProfileRefresh || verifyUpdateYield) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        using var heldPublisher = verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
         Assembly? Resolve(AssemblyLoadContext context, AssemblyName name) =>
@@ -35,10 +36,13 @@ internal static partial class Program
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            if (verifyProfileRefresh)
+            if (verifyProfileRefresh || verifyUpdateYield)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
-            var window = (Window)Activator.CreateInstance(type)!;
+            var window = verifyUpdateYield
+                ? (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher)], null)!
+                : (Window)Activator.CreateInstance(type)!;
             var failures = new List<string>();
             var settingsPanel = (FrameworkElement)window.FindName("SettingsPanel");
             static bool Contains(DependencyObject parent, DependencyObject? child)
@@ -104,6 +108,7 @@ internal static partial class Program
                 VerifySettingsFocus(window);
                 VerifyProfileSaveRefresh(window, settings);
             }
+            if (verifyUpdateYield) VerifyUpdateYield(window, settings, heldPublisher!);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("The compiled-XAML check must never show the window or create its native handle.");
             window.Close();
@@ -434,8 +439,10 @@ internal static partial class Program
             SetSettings(true);
             Invoke(check);
             PumpUntil(() => check.IsEnabled && updateStatus.Text.Contains("Automatic update paused", StringComparison.Ordinal));
-            if (!updateStatus.Text.Contains("[DEBUG-59-UPDATE] guard=local-save-error", StringComparison.Ordinal))
-                throw new InvalidOperationException("The update failure must retain the actual rejecting guard: " + updateStatus.Text);
+            var guardLog = Path.Combine(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ?? fixtureDirectory,
+                "safe-point-rejections.log");
+            if (!File.ReadAllText(guardLog).Contains("[DEBUG-59-UPDATE] guard=local-save-error", StringComparison.Ordinal))
+                throw new InvalidOperationException("The update failure must retain the actual rejecting guard outside the live UI.");
             SetSettings(false);
         }
         Invoke((Button)notes.FindName("RetryButton"));

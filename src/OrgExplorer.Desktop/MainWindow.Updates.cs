@@ -127,6 +127,7 @@ public partial class MainWindow
             $"profileDirty={workflow.ProfileEdit is { IsDirty: true }}; preferredPending={unsavedPreferredNameEdits.Count}; relationshipDirty={HasUnsavedRelationship}; " +
             $"localSaveError={workflow.LocalSaveError ?? "none"}; " +
             $"person=[{PersonNotes.UpdateDraftDiagnostic}]; team=[{TeamNotes.UpdateDraftDiagnostic}]; status={workflow.Status}";
+        UpdateEffects.RecordSafePointRejection(safeUpdateRejection);
         return false;
     }
 
@@ -154,6 +155,6 @@ public partial class MainWindow
             ? "Checking project-authorized updates… Local browsing and editing remain available."
             : updates?.Result.Message;
         UpdateSummary.Text = UpdateGuidance.Text = updateConfigurationError ??
-            string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message, safeUpdateRejection }.Where(text => !string.IsNullOrEmpty(text)));
+            string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message }.Where(text => !string.IsNullOrEmpty(text)));
     }
 }
