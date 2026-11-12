@@ -2,6 +2,13 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal static void AwaitExpanded(bool initializeBranch, Func<bool> isExpanded, Action expand,
+        Action<Func<bool>> awaitState)
+    {
+        if (initializeBranch && !isExpanded()) expand();
+        awaitState(isExpanded);
+    }
+
     internal static T AwaitVisible<T>(Func<T?> find, Action<T> realize, Func<T, bool> isVisible,
         Action<Func<bool>> awaitState) where T : class
     {

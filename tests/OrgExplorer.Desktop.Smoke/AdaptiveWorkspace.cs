@@ -295,32 +295,9 @@ internal static partial class Program
             EnsurePeopleBrowsing(window);
             var manager = Find(Find(window, "People"), "morgan@example.com");
             var branch = (ExpandCollapsePattern)manager.GetCurrentPattern(ExpandCollapsePattern.Pattern);
-            var beforeExpansion = branch.Current.ExpandCollapseState;
-            string BrowseState()
-            {
-                var tree = window.FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, "People"));
-                var selection = tree is null ? "tree absent" : string.Join(",", tree.FindAll(TreeScope.Descendants,
-                    new PropertyCondition(SelectionItemPattern.IsSelectedProperty, true)).Cast<AutomationElement>()
-                    .Select(item => item.Current.AutomationId));
-                var focus = AutomationElement.FocusedElement;
-                return $"query={Value(window, "SearchQuery")}; owner={Find(window, "Email").Current.Name}; " +
-                    $"selection={selection}; peopleVisible={IsVisible(window, "PeopleNavigation")}; " +
-                    $"treeVisible={tree is not null && !tree.Current.IsOffscreen}; " +
-                    $"focus={focus?.Current.AutomationId}/{focus?.Current.ControlType.ProgrammaticName}; " +
-                    $"windowPx={window.Current.BoundingRectangle}; hostPx={Find(window, "AdaptiveWorkspace").Current.BoundingRectangle}";
-            }
-            var before = BrowseState();
-            branch.Expand();
-            AutomationElement people;
-            try { people = Find(window, "People"); }
-            catch (InvalidOperationException error) when (error.Message == "Missing actual UI control: People")
-            {
-                throw new InvalidOperationException("People browsing disappeared after the single Morgan Expand, before search/scroll restoration. " +
-                    $"compactIteration={compact}; beforeExpansion={beforeExpansion}; before=[{before}]; after=[{BrowseState()}]. " +
-                    "No navigation, overlay or expansion action was retried.", error);
-            }
-            var scroll = (ScrollPattern)people.GetCurrentPattern(ScrollPattern.Pattern);
+            TreeItemRealization.AwaitExpanded(initializeBranch: !compact,
+                () => branch.Current.ExpandCollapseState == ExpandCollapseState.Expanded, branch.Expand, Await);
+            var scroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
             if (!scroll.Current.VerticallyScrollable)
                 throw new InvalidOperationException("The representative browse fixture did not exercise a real reporting-tree viewport.");
             scroll.SetScrollPercent(ScrollPattern.NoScroll, 70);
