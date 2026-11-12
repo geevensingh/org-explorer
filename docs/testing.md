@@ -209,6 +209,11 @@ blocks handoff, retry and newer writing reach the controlled installer effect,
 and that effect observes the final file hash. These calls still never show/focus
 the window, create its native handle, or use an external UI Automation client;
 they do not replace the real hosted update-settings journey.
+The failed-note case also opens Settings and attempts Close once. Rejection must
+reveal the retained work area instead of leaving Settings over the failed editor,
+including after queued focus work settles. Owner, title, Markdown, actionable
+failure text and saved file bytes must remain intact. The hosted Person-note
+journey retains its original Close action and visible failure/content assertions.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
