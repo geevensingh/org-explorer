@@ -243,6 +243,8 @@ public sealed partial class ApplicationWorkflow
                         retainInventory = true;
                         continue;
                     }
+                    RejectStoragePathLinks(path);
+                    RejectStoragePathLinks(staged);
                     if (File.Exists(path) && new FileInfo(path).Length == inventory.Bytes)
                         DeleteRecorded(path, inventory.Digest);
                     if (File.Exists(staged) && new FileInfo(staged).Length == inventory.Bytes)
@@ -358,7 +360,6 @@ public sealed partial class ApplicationWorkflow
             path = IncrementalReference(root, local.Replace('\\', '/'), parts[1]);
         }
         path += seal ? ".sha256" : "";
-        RejectStoragePathLinks(path);
         return path;
     }
 
@@ -374,7 +375,6 @@ public sealed partial class ApplicationWorkflow
         if (!Regex.IsMatch(local, "^(" + locations + @")\.next$"))
             throw new FormatException("Invalid inventoried staging path.");
         var path = Path.Combine(workspace!, relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
-        RejectStoragePathLinks(path);
         return path;
     }
 

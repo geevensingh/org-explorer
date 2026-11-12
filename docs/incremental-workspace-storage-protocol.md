@@ -170,6 +170,11 @@ while any entry remains protected. Already removed entries may name absent files
 on retry. The inventory is released only when no entry needs protection; partial
 progress never rewrites ownership evidence. Individual file deletion still uses
 the same complete guarded boundaries of at most 32 deletions.
+Inventory classification validates recorded reference syntax without touching
+protected objects or their unused stages. Their live roots have already been
+captured and validated. Unprotected final/staging paths receive fresh physical
+ancestry checks before inspecting their files, and deletion still rechecks the
+actual bytes and complete protected snapshots.
 
 Retirement releases that transaction's candidate and recovery-transition roots,
 not any current or selected-recovery objects. Every pass recomputes:
