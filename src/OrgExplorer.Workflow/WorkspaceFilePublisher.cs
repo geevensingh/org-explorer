@@ -2,6 +2,7 @@ namespace OrgExplorer.Workflow;
 
 public interface IWorkspaceFilePublisher
 {
+    // Independent immutable objects may publish concurrently; selectors remain serialized.
     void Publish(string staged, string destination, string? backup);
 }
 

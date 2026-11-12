@@ -69,6 +69,7 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
+            CompleteStorageMaintenance(window);
             SelectTeamNote(window, "New Team note");
             AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("External owned Team context"));

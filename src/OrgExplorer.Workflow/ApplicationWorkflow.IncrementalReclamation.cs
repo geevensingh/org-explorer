@@ -80,7 +80,7 @@ public sealed partial class ApplicationWorkflow
         var guards = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         void Guard(string path, byte[]? expected = null)
         {
-            RejectStoragePathLinks(path);
+            if (expected is null) RejectStoragePathLinks(path);
             var digest = ByteDigest(expected ?? ReadWorkspaceBytesUncached(path));
             if (guards.TryGetValue(path, out var prior) && prior != digest)
                 throw new IOException("Protected storage changed during root capture; storage reclamation is deferred.");
@@ -177,7 +177,8 @@ public sealed partial class ApplicationWorkflow
 
         void Recheck()
         {
-            if (WorkspaceFingerprint() != accepted ||
+            var actual = CaptureWorkspaceBytes();
+            if (WorkspaceFingerprint(snapshot: actual) != accepted ||
                 (File.Exists(previous) ? ByteDigest(ReadWorkspaceBytesUncached(previous)) : null) != previousDigest ||
                 !Directory.GetDirectories(transactionsRoot).ToHashSet(StringComparer.OrdinalIgnoreCase)
                     .SetEquals(transactions.Where(Directory.Exists)) ||
@@ -186,7 +187,14 @@ public sealed partial class ApplicationWorkflow
                 throw new IOException("Workspace or transaction delivery changed; storage reclamation is deferred.");
             RunBoundedFileIo(guards, guard =>
             {
-                if (ByteDigest(ReadWorkspaceBytesUncached(guard.Key)) != guard.Value)
+                byte[] bytes;
+                if (actual.TryGetValue(guard.Key, out var captured)) bytes = captured;
+                else
+                {
+                    RejectStoragePathLinks(guard.Key);
+                    bytes = ReadWorkspaceBytesUncached(guard.Key);
+                }
+                if (ByteDigest(bytes) != guard.Value)
                     throw new IOException("Protected storage changed; storage reclamation is deferred.");
             });
         }

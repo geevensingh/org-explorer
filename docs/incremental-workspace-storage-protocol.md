@@ -33,6 +33,14 @@ version-1 document and Person/Team Markdown stays independently atomic.
 Photos have unique physical locations and their existing logical resource
 identities; current bytes, rather than a filename hash promise, are validated.
 
+Interpreting a captured byte set reuses those bytes within the serialized
+operation, including index references and recovery comparisons. Reference syntax
+is always checked; filesystem ancestry is checked when physical bytes are
+captured or compared, not repeatedly while parsing the same captured bytes.
+Publication and deletion boundaries still capture and compare complete actual
+bytes and reject links. No timestamps or cross-operation validation cache
+substitute for those checks.
+
 `SaveIncrementally` writes a durable transaction intent before creating
 objects. Each new document/index node has its own durable creation inventory
 record (relative location, byte length and digest). It flushes and validates
@@ -42,6 +50,12 @@ the validated base plus the operation's own bytes, not a post-publication reread
 A post-publication committed receipt is separate from the intent. Receipt
 failure reports saved locally with incomplete maintenance and blocks safe close,
 rather than inviting the edit to be repeated as if it were unsaved.
+
+Independent object inventories and staged payloads use bounded parallel I/O.
+Each inventory is durable before its own payload is created. All required
+staging finishes before bounded parallel immutable-object publication;
+complete candidate validation still precedes serialized selector publication.
+Recovery objects and their independently inventoried seals use the same ordering.
 
 Unreferenced staged/retired objects and transactions do not become current data
 on reopen. Failed attempts are deliberately preserved for later classification;
@@ -177,6 +191,10 @@ Guards use the exact validated selector, receipt, object and seal snapshots,
 not fresh reads that could bless delivery between validation and root capture.
 Previous/current candidates are likewise resolved against a captured object
 snapshot before their paths become protected roots.
+Within each fresh guard check, current bytes captured for the revision check
+also satisfy overlapping protected-byte comparisons. Other roots, seals and
+transaction files are still freshly checked; no captured set survives into the
+next deletion-boundary check.
 
 Removing an inventory only after processing its payload/stage is incremental
 deletion progress; a missing file is idempotent on restart. Changed payloads are

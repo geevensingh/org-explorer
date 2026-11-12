@@ -44,7 +44,8 @@ public partial class MainWindow : Window
                 e.Cancel = true;
                 StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
                     workPending ? "Local work is still pending; closing waits for it to finish." :
-                    workflow.Status + "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
+                    "Unsaved local changes prevent safe closing.\n" + workflow.Status +
+                    "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
             }
         };
         Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };

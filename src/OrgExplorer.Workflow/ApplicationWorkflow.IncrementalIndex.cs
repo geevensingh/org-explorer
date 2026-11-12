@@ -45,23 +45,32 @@ public sealed partial class ApplicationWorkflow
     private static string IndexKeyHash(string key) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
 
-    private static string IncrementalPath(string root, string relative, string? family = null)
+    private static string IncrementalPath(string root, string relative, string? family = null,
+        IReadOnlyDictionary<string, byte[]>? bytes = null)
     {
-        var pattern = family is null ? @"^index[/\\][a-f0-9]{32}\.json$" :
-            @"^documents[/\\]" + Regex.Escape(family) + @"[/\\][a-f0-9]{32}\." +
-            (family == "photos" ? "(png|jpg)$" : family is "personNotes" or "teamNotes" ? "md$" : "json$");
-        if (relative is null || !Regex.IsMatch(relative, pattern))
-            throw new FormatException("Invalid incremental Workspace file reference.");
-        var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+        var path = IncrementalReference(root, relative, family);
+        // Captured bytes are interpreted without consulting a newer filesystem state.
+        if ((bytes ?? workspaceReadSnapshot.Value)?.ContainsKey(path) == true) return path;
         for (var current = path; !current.Equals(root, StringComparison.OrdinalIgnoreCase);
              current = Path.GetDirectoryName(current)!)
             if (File.Exists(current) || Directory.Exists(current)) RejectWorkspaceLink(current);
         return path;
     }
 
+    private static string IncrementalReference(string root, string relative, string? family = null)
+    {
+        var pattern = family is null ? @"^index[/\\][a-f0-9]{32}\.json$" :
+            @"^documents[/\\]" + Regex.Escape(family) + @"[/\\][a-f0-9]{32}\." +
+            (family == "photos" ? "(png|jpg)$" : family is "personNotes" or "teamNotes" ? "md$" : "json$");
+        if (relative is null || !Regex.IsMatch(relative, pattern))
+            throw new FormatException("Invalid incremental Workspace file reference.");
+        return Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
+
     private static IndexNode ReadIndexNode(string root, string relative, string family, string prefix,
         IReadOnlyDictionary<string, byte[]>? bytes = null)
     {
+        using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
         var path = IncrementalPath(root, relative);
         using var json = JsonDocument.Parse(bytes is null ? ReadWorkspaceBytesUncached(path) :
             bytes.TryGetValue(path, out var value) ? value : throw new IOException("Workspace index is unavailable."));
@@ -81,7 +90,7 @@ public sealed partial class ApplicationWorkflow
                 if (string.IsNullOrWhiteSpace(key) || key.Length > 512 || key != key.ToLowerInvariant() ||
                     !IndexKeyHash(key).StartsWith(prefix, StringComparison.Ordinal))
                     throw new FormatException("Invalid Workspace index identity or partition.");
-                IncrementalPath(root, document, family);
+                IncrementalReference(root, document, family);
             }
         }
         if (node.Children is { } children)
@@ -90,7 +99,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var (edge, child) in children)
             {
                 if (!Regex.IsMatch(edge, "^[a-f0-9]$")) throw new FormatException("Invalid Workspace index edge.");
-                IncrementalPath(root, child);
+                IncrementalReference(root, child);
             }
         }
         return node;
@@ -102,6 +111,7 @@ public sealed partial class ApplicationWorkflow
     private static IncrementalGraph ResolveIncrementalGraph(string root, byte[] selector,
         IReadOnlyDictionary<string, byte[]>? bytes = null)
     {
+        using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
         var metadata = ReadIncrementalMetadata(selector);
         var graph = new IncrementalGraph(metadata, [], new(StringComparer.OrdinalIgnoreCase));
         foreach (var (family, reference) in metadata.Roots)
@@ -112,14 +122,14 @@ public sealed partial class ApplicationWorkflow
 
             void Visit(string relative, string prefix)
             {
-                var path = IncrementalPath(root, relative);
+                var path = IncrementalReference(root, relative);
                 if (!graph.Paths.Add(path)) throw new FormatException("Duplicate or cyclic Workspace index reference.");
                 var node = ReadIndexNode(root, relative, family, prefix, bytes);
                 if (node.Entries is { } entries)
                     foreach (var (key, document) in entries)
                     {
                         if (!documents.TryAdd(key, document)) throw new FormatException("Duplicate Workspace identity.");
-                        var documentPath = IncrementalPath(root, document, family);
+                        var documentPath = IncrementalReference(root, document, family);
                         if (!graph.Paths.Add(documentPath)) throw new FormatException("Duplicate Workspace document reference.");
                     }
                 else

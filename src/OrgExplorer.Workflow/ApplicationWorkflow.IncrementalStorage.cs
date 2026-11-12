@@ -199,26 +199,19 @@ public sealed partial class ApplicationWorkflow
                 JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, commit, baseRevision = revision }, JsonOptions));
             var available = new Dictionary<string, byte[]>(source, StringComparer.OrdinalIgnoreCase);
             var updates = IndexedFamilies.ToDictionary(f => f, _ => new Dictionary<string, string>());
-            var inventory = 0;
+            var writes = new List<(string Relative, string StagingPath, byte[] Bytes)>();
             void WriteObject(string relative, byte[] bytes)
             {
                 var path = Path.Combine(workspace!, relative);
                 var stagingPath = Path.ChangeExtension(relative, ".next");
-                WriteDurablyBytes(Path.Combine(transaction, $"created-{inventory++:D8}.json"), JsonSerializer.SerializeToUtf8Bytes(new
-                {
-                    schemaVersion = 1, path = relative, stagingPath, bytes = bytes.LongLength,
-                    digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))
-                }, IncrementalJsonOptions));
-                CreateIncrementalDirectory(Path.GetDirectoryName(path)!);
-                WriteDurablyBytes(Path.Combine(workspace!, stagingPath), bytes);
-                PublishWorkspaceFile(Path.Combine(workspace!, stagingPath), path, null);
+                writes.Add((relative, stagingPath, bytes));
                 available[path] = bytes;
             }
             void SetDocument(string family, string key, byte[] bytes, string extension = ".json")
             {
                 key = key.ToLowerInvariant();
                 if (documents[family].TryGetValue(key, out var prior) &&
-                    source[IncrementalPath(workspace!, prior, family)].AsSpan().SequenceEqual(bytes)) return;
+                    source[IncrementalPath(workspace!, prior, family, source)].AsSpan().SequenceEqual(bytes)) return;
                 var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
                 WriteObject(relative, bytes);
                 updates[family][key] = relative;
@@ -247,6 +240,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var (family, changes) in updates)
                 if (changes.Count > 0)
                     roots[family] = UpdateIndexBatch(roots[family], family, changes, "", available, WriteObject);
+            WriteIncrementalObjects(transaction, "created", writes);
             var candidate = JsonSerializer.SerializeToUtf8Bytes(new IncrementalMetadata(3, commit, roots,
                 new(CurrentRecordVersions)), JsonOptions);
             var staged = Path.Combine(transaction, "selector.next");
@@ -257,9 +251,12 @@ public sealed partial class ApplicationWorkflow
                     !e.Key.StartsWith(Path.Combine(workspace!, "index") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
                     !e.Key.StartsWith(Path.Combine(workspace!, "documents") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
-            foreach (var (path, bytes) in expected)
-                if (path != destination && !ReadWorkspaceBytesUncached(path).AsSpan().SequenceEqual(bytes))
+            RunBoundedFileIo(expected.Where(e => e.Key != destination), entry =>
+            {
+                RejectStoragePathLinks(entry.Key);
+                if (!ReadWorkspaceBytesUncached(entry.Key).AsSpan().SequenceEqual(entry.Value))
                     throw new IOException("Workspace candidate changed while validating staged data.");
+            });
             using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
                 validation.ReadIncrementalWorkspaceData(expected);
             var recovery = PrepareRecovery(expected, transaction,
@@ -285,6 +282,26 @@ public sealed partial class ApplicationWorkflow
         var record = JsonSerializer.SerializeToNode(value, JsonOptions)!.AsObject();
         record["schemaVersion"] = 2;
         return JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
+    }
+
+    private void WriteIncrementalObjects(string transaction, string inventoryPrefix,
+        IReadOnlyList<(string Relative, string StagingPath, byte[] Bytes)> objects)
+    {
+        RunBoundedFileIo(objects.Select((value, index) => (value, index)), entry =>
+        {
+            var (value, index) = entry;
+            WriteDurablyBytes(Path.Combine(transaction, $"{inventoryPrefix}-{index:D8}.json"),
+                JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    schemaVersion = 1, path = value.Relative, stagingPath = value.StagingPath,
+                    bytes = value.Bytes.LongLength, digest = ByteDigest(value.Bytes)
+                }, IncrementalJsonOptions));
+            CreateIncrementalDirectory(Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!);
+            WriteDurablyBytes(Path.Combine(workspace!, value.StagingPath), value.Bytes);
+        });
+        RunBoundedFileIo(objects, value =>
+            PublishWorkspaceFile(Path.Combine(workspace!, value.StagingPath),
+                Path.Combine(workspace!, value.Relative), null));
     }
 
     private void CreateIncrementalDirectory(string directory)

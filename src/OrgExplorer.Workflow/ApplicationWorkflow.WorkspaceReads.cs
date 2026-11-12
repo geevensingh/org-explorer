@@ -23,7 +23,11 @@ public sealed partial class ApplicationWorkflow
         var bytes = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var paths = EnumerateIncrementalWorkspaceFiles(workspace!)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase)).ToArray();
-        RunBoundedFileIo(paths, path => bytes[path] = ReadWorkspaceBytesUncached(path));
+        RunBoundedFileIo(paths, path =>
+        {
+            RejectStoragePathLinks(path);
+            bytes[path] = ReadWorkspaceBytesUncached(path);
+        });
         return new Dictionary<string, byte[]>(bytes, StringComparer.OrdinalIgnoreCase);
     }
 

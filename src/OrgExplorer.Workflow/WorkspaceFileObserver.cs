@@ -12,5 +12,6 @@ public sealed record WorkspaceFileEffect(WorkspaceFileEffectKind Kind, string Pa
 /// </summary>
 public interface IWorkspaceFileObserver
 {
+    // Bounded object I/O may report concurrent effects.
     void Observe(WorkspaceFileEffect effect);
 }

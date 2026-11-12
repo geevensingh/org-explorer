@@ -65,28 +65,29 @@ public sealed partial class ApplicationWorkflow
         var oldGraph = previous is null ? null : RecoveryDocuments(root, previous, previousBytes);
         var oldDocuments = oldGraph?.Documents ?? new Dictionary<string, Dictionary<string, string>>();
         var available = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        var inventory = 0;
+        var writes = new List<(string Relative, string StagingPath, byte[] Bytes)>();
         if (oldGraph is not null)
             foreach (var path in oldGraph.Paths)
                 available[path] = previousBytes![path];
 
         void Write(string relative, byte[] bytes)
         {
-            WriteRecoveryObject(transaction, ref inventory, Path.Combine("recovery", relative), bytes);
-            WriteRecoveryObject(transaction, ref inventory, Path.Combine("recovery", relative + ".sha256"),
-                Encoding.ASCII.GetBytes(ByteDigest(bytes)));
+            writes.Add((Path.Combine("recovery", relative),
+                Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next"), bytes));
+            writes.Add((Path.Combine("recovery", relative + ".sha256"),
+                Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next"), Encoding.ASCII.GetBytes(ByteDigest(bytes))));
             available[Path.Combine(root, relative)] = bytes;
         }
         string? Set(string family, string key, byte[] bytes, string extension)
         {
             if (oldDocuments.TryGetValue(family, out var documents) && documents.TryGetValue(key, out var prior) &&
-                available[IncrementalPath(root, prior, family)].AsSpan().SequenceEqual(bytes)) return null;
+                available[IncrementalPath(root, prior, family, available)].AsSpan().SequenceEqual(bytes)) return null;
             var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
             Write(relative, bytes);
             return relative;
         }
         var sourceDocuments = sourceGraph.Documents.ToDictionary(e => e.Key, e => e.Value.ToDictionary(
-            document => document.Key, document => current[IncrementalPath(workspace!, document.Value, e.Key)]));
+            document => document.Key, document => current[IncrementalPath(workspace!, document.Value, e.Key, current)]));
         foreach (var (family, directory) in new[] { ("personNotes", "notes"), ("teamNotes", "team-notes") })
             sourceDocuments[family] = current.Where(e =>
                 Path.GetDirectoryName(e.Key)!.Equals(Path.Combine(workspace!, directory), StringComparison.OrdinalIgnoreCase) &&
@@ -106,6 +107,7 @@ public sealed partial class ApplicationWorkflow
             if (updates.Count != 0)
                 familyRoots[family] = UpdateIndexBatch(familyRoots[family], family, updates, "", available, Write, root);
         }
+        WriteIncrementalObjects(transaction, "created-recovery", writes);
         var metadata = new RecoverySelector(1, Guid.ParseExact(Path.GetFileName(transaction), "N"),
             WorkspaceFingerprint(snapshot: current), sourceGraph.Metadata with { Roots = roots }, noteRoots, publication);
         var selector = JsonSerializer.SerializeToUtf8Bytes(metadata, JsonOptions);
@@ -146,6 +148,7 @@ public sealed partial class ApplicationWorkflow
     private static IncrementalGraph RecoveryDocuments(string root, RecoverySelector metadata,
         IReadOnlyDictionary<string, byte[]>? bytes = null)
     {
+        using var read = bytes is null ? null : new WorkspaceReadScope(bytes);
         var graph = ResolveIncrementalGraph(root, JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions), bytes);
         if (!metadata.NoteRoots.Keys.Order().SequenceEqual(new[] { "personNotes", "teamNotes" }))
             throw new FormatException("Incomplete recovery note roots.");
@@ -156,14 +159,14 @@ public sealed partial class ApplicationWorkflow
             if (reference is not null) Visit(reference, "");
             void Visit(string relative, string prefix)
             {
-                if (!graph.Paths.Add(IncrementalPath(root, relative)))
+                if (!graph.Paths.Add(IncrementalReference(root, relative)))
                     throw new FormatException("Duplicate recovery index reference.");
                 var node = ReadIndexNode(root, relative, family, prefix, bytes);
                 if (node.Entries is { } entries)
                     foreach (var (key, value) in entries)
                     {
                         if (!Guid.TryParseExact(key, "D", out var id) || id == Guid.Empty ||
-                            !documents.TryAdd(key, value) || !graph.Paths.Add(IncrementalPath(root, value, family)))
+                            !documents.TryAdd(key, value) || !graph.Paths.Add(IncrementalReference(root, value, family)))
                             throw new FormatException("Invalid or duplicate recovery note identity.");
                     }
                 else
@@ -207,6 +210,7 @@ public sealed partial class ApplicationWorkflow
         var captured = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         RunBoundedFileIo(graph.Paths, path =>
         {
+            RejectStoragePathLinks(path);
             var data = ReadWorkspaceBytesUncached(path);
             var seal = path + ".sha256";
             RejectWorkspaceLink(seal);
@@ -218,7 +222,7 @@ public sealed partial class ApplicationWorkflow
         graph = RecoveryDocuments(root, metadata, bytes);
         foreach (var (family, directory) in new[] { ("personNotes", "notes"), ("teamNotes", "team-notes") })
             foreach (var (key, relative) in graph.Documents[family])
-                bytes[Path.Combine(root, directory, key + ".md")] = bytes[IncrementalPath(root, relative, family)];
+                bytes[Path.Combine(root, directory, key + ".md")] = bytes[IncrementalPath(root, relative, family, bytes)];
         bytes[Path.Combine(root, "workspace.json")] = JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions);
         using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root };
         validation.ReadIncrementalWorkspaceData(bytes);
@@ -344,20 +348,6 @@ public sealed partial class ApplicationWorkflow
         WriteDurablyBytes(Path.Combine(transaction, "intent.json"),
             JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, commit = id, baseRevision, operation }, JsonOptions));
         return transaction;
-    }
-
-    private void WriteRecoveryObject(string transaction, ref int inventory, string relative, byte[] bytes)
-    {
-        var staged = Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next");
-        WriteDurablyBytes(Path.Combine(transaction, $"created-recovery-{inventory++:D8}.json"),
-            JsonSerializer.SerializeToUtf8Bytes(new
-            {
-                schemaVersion = 1, path = relative, stagingPath = staged, bytes = bytes.LongLength, digest = ByteDigest(bytes)
-            }, IncrementalJsonOptions));
-        var path = Path.Combine(workspace!, relative);
-        CreateIncrementalDirectory(Path.GetDirectoryName(path)!);
-        WriteDurablyBytes(Path.Combine(workspace!, staged), bytes);
-        PublishWorkspaceFile(Path.Combine(workspace!, staged), path, null);
     }
 
     public bool RecoverWorkspace(string destinationPath)
