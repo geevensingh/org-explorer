@@ -192,6 +192,10 @@ The same invisible-control regression exercises the essential profile summary,
 collapsed/populated More details, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also drives the actual Settings button through the WPF dispatcher and checks
+logical focus on the folder, including closure before a queued focus request.
+The focus request waits behind layout and the current input event; the unchanged
+hosted Space-key/`HasKeyboardFocus` assertion remains the physical-focus proof.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.

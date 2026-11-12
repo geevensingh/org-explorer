@@ -38,7 +38,16 @@ internal static partial class Program
                 throw new InvalidOperationException("Settings lacks a meaningful, keyboard-accessible action.");
             settings.SetFocus();
             PressCopyKey(0x20);
-            Await(() => Find(window, "WorkspacePath").Current.HasKeyboardFocus);
+            try { Await(() => Find(window, "WorkspacePath").Current.HasKeyboardFocus); }
+            catch (TimeoutException error)
+            {
+                var path = Find(window, "WorkspacePath").Current;
+                var focused = AutomationElement.FocusedElement.Current;
+                throw new TimeoutException(
+                    "Settings opened but Workspace folder did not receive keyboard focus. " +
+                    $"Folder: enabled={path.IsEnabled}, focusable={path.IsKeyboardFocusable}, offscreen={path.IsOffscreen}, bounds={path.BoundingRectangle}. " +
+                    $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
+            }
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             AwaitLocalWorkIdle(window);
