@@ -56,12 +56,9 @@ public sealed partial class ApplicationWorkflow
     private static bool IsPublicationMetadata(string name) => name is "publication.json" or
         "publication.base.json" or "publication.outcome.json" or "publication.checked.json" or
         "publication.displaced" or "publication.stage.json";
-    private IReadOnlyList<WorkspaceConflict> workspaceConflicts = Array.Empty<WorkspaceConflict>();
+    private volatile IReadOnlyList<WorkspaceConflict> workspaceConflicts = Array.Empty<WorkspaceConflict>();
     public WorkspacePublicationOutcome PublicationOutcome => publicationOutcome;
-    public IReadOnlyList<WorkspaceConflict> GetWorkspaceConflicts()
-    {
-        lock (workspaceGate) return workspaceConflicts;
-    }
+    public IReadOnlyList<WorkspaceConflict> GetWorkspaceConflicts() => workspaceConflicts;
 
     private void CheckPublicationConflictsBeforeWrite()
     {

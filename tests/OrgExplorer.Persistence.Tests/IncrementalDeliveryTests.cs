@@ -576,6 +576,42 @@ public sealed class IncrementalDeliveryTests : IDisposable
         Assert.Single(app.GetWorkspaceConflicts());
     }
 
+    [Fact]
+    public async Task Review_regression_conflict_snapshot_reads_do_not_wait_for_publication()
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var delivery = PrepareProfileDelivery(Email, PersonTextField.PreferredName, "Delivered Avery");
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        publisher.Deliver = () =>
+        {
+            entered.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(30)), "Publication was not released.");
+            Deliver(delivery);
+        };
+        var save = Task.Factory.StartNew(() => app.EditPreferredName(Email, "Local Avery"),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task<IReadOnlyList<WorkspaceConflict>>? read = null;
+        var saved = false;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(30)), "Save did not reach publication.");
+            read = Task.Factory.StartNew(app.GetWorkspaceConflicts,
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Assert.Empty(await read.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            release.Set();
+            saved = await save;
+            if (read is not null) await read;
+        }
+        Assert.True(saved, app.Status);
+        Assert.Single(app.GetWorkspaceConflicts());
+        Assert.Empty(await read!);
+    }
+
     [Theory]
     [InlineData("profile")]
     [InlineData("person-note")]

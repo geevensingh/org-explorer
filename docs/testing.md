@@ -179,6 +179,8 @@ normal storage errors. Reviewed base/displaced provenance includes absence; late
 changes require another review. Resolved interrupted note stages remain intact while
 new intentional edits use distinct inventoried paths, and verified sibling resolution
 clears only the conflict error while retaining independent drafts.
+A barrier-held real publication also proves dispatcher-facing conflict snapshots
+return without waiting on the save's I/O gate and remain immutable after publication.
 
 `OrgExportTests` covers the local producer's public capture and
 Ingest/Profile/Photo seams using fictitious session events and synthetic PNG bytes.
