@@ -99,11 +99,15 @@ $result = ($output -join "`n") | ConvertFrom-Json
 
 Per-item failures persist under `profile-errors` and block `publish`, including
 when a previous successful observation for that Person remains on disk. Correct
-and resubmit only failed observations; a successful correction clears that Person's
-failure without rewriting other successes or their lookup timestamps/evidence.
-If the failed file was unreadable and its Person could not be identified, correct
-and resubmit that exact input path. Keep existing successful source results;
-freshness still requires actual evidence from this run, not restamped old payloads.
+and resubmit only failed observations. Failures correlate to the input path and,
+only after a verified identity match, the Person and lookup time. An earlier
+success cannot resolve a newer failure. A replacement file can resolve matched-Person
+failures when its lookup time is at least as recent as their latest failed lookup.
+Without a verified identity or lookup time, correct the original input path.
+Correcting a mismatched identity resolves that input, not an unrelated Person.
+A successful correction preserves other successes and their lookup timestamps/
+evidence. Freshness still requires actual evidence from this run, not restamped
+old payloads.
 
 ## Worker protocol
 

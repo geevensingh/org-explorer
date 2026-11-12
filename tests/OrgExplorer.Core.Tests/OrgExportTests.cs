@@ -497,6 +497,98 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Earlier_success_cannot_resolve_a_newer_failed_observation_even_at_the_failed_input_path(bool cli)
+    {
+        var path = Seed();
+        string earlierInput;
+        using (var session = ExportSession.Open(path))
+        {
+            Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+            earlierInput = ProfileInput(session.Plan().People.Single());
+            session.Profile(RootId, earlierInput);
+        }
+        var earlier = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(earlierInput), ExportSession.Json)!;
+        var saved = File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json"));
+        var newer = earlier with { ObservedAt = earlier.ObservedAt.AddSeconds(1), Error = "Newer source lookup failed." };
+        var failedInput = Path.Combine(root, "newer-failure.json");
+        Save(failedInput, newer);
+        var batch = Path.Combine(root, "ordered-profiles.json");
+        Save(batch, new[] { failedInput, earlierInput });
+
+        var failed = await ProfilesAtSeam(cli, path, batch, 1);
+
+        Assert.Equal(0, failed.Succeeded);
+        Assert.Equal(2, failed.Failed);
+        Assert.Contains("earlier", failed.Items[1].Error);
+        Assert.Equal(saved, File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json")));
+        using (var session = ExportSession.Open(path, publishing: true))
+            Assert.Throws<InvalidOperationException>(() => session.Publish());
+
+        Save(failedInput, earlier);
+        Save(batch, new[] { failedInput });
+        var replayed = await ProfilesAtSeam(cli, path, batch, 1);
+        Assert.Equal(1, replayed.Failed);
+        Assert.Contains("earlier", replayed.Items.Single().Error);
+        using (var session = ExportSession.Open(path, publishing: true))
+            Assert.Throws<InvalidOperationException>(() => session.Publish());
+
+        var correctedInput = Path.Combine(root, "corrected-replacement.json");
+        Save(correctedInput, newer with { Error = null });
+        Save(batch, new[] { correctedInput });
+        var corrected = await ProfilesAtSeam(cli, path, batch, 0);
+        Assert.Equal(1, corrected.Succeeded);
+        Assert.Equal(0, corrected.Failed);
+        using var reopened = ExportSession.Open(path, publishing: true);
+        Assert.NotNull(JsonSerializer.SerializeToNode(reopened.Publish())!["importPath"]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Correcting_an_identity_mismatch_resolves_its_input_without_replaying_other_successes(bool cli)
+    {
+        var path = Seed();
+        string rootInput;
+        using (var session = ExportSession.Open(path))
+        {
+            Ingest(session,
+                (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+                (ExportSession.ReportsPath(ChildId), Empty()),
+                (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")),
+                (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
+            var people = session.Plan().People;
+            rootInput = ProfileInput(people.Single(person => person.Id == RootId));
+            session.Profile(RootId, rootInput);
+            session.Profile(ChildId, ProfileInput(people.Single(person => person.Id == ChildId)));
+        }
+        var other = File.ReadAllBytes(Path.Combine(path, "profiles", ChildId + ".json"));
+        var sources = Directory.GetFiles(Path.Combine(path, "sources")).ToDictionary(file => Path.GetFileName(file), File.ReadAllBytes);
+        var correct = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(rootInput), ExportSession.Json)!;
+        var failedInput = Path.Combine(root, "mismatched-identity.json");
+        Save(failedInput, correct with { DirectoryId = ChildId });
+        var batch = Path.Combine(root, "identity-correction.json");
+        Save(batch, new[] { failedInput });
+
+        var failed = await ProfilesAtSeam(cli, path, batch, 1);
+
+        Assert.Equal(1, failed.Failed);
+        Assert.Contains("identity", failed.Items.Single().Error);
+        using (var session = ExportSession.Open(path, publishing: true))
+            Assert.Throws<InvalidOperationException>(() => session.Publish());
+        Save(failedInput, correct);
+        var corrected = await ProfilesAtSeam(cli, path, batch, 0);
+        Assert.Equal(1, corrected.Succeeded);
+        Assert.Equal(0, corrected.Failed);
+        Assert.Equal(other, File.ReadAllBytes(Path.Combine(path, "profiles", ChildId + ".json")));
+        using var reopened = ExportSession.Open(path, publishing: true);
+        var import = JsonSerializer.SerializeToNode(reopened.Publish())!["importPath"]!.GetValue<string>();
+        foreach (var (file, bytes) in sources)
+            Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(import)!, "sources", file)));
+    }
+
+    [Theory]
     [InlineData("NORTH/001.2", "NORTH", "001.2")]
     [InlineData("NORTH/Mobile", "NORTH", null)]
     [InlineData("2/REDMND", "2", null)]
@@ -541,11 +633,7 @@ public sealed class OrgExportTests : IDisposable
     private void RecordProfile(ExportSession session)
     {
         var person = session.Plan().People.Single();
-        var evidence = Path.Combine(root, Guid.NewGuid() + ".json");
-        Save(evidence, new { directoryId = person.Id, workPosition = new { city = "Fictitious city" } });
-        var input = Path.Combine(root, Guid.NewGuid() + ".json");
-        Save(input, new ExportSession.Observation(person.Id, person.Email, UnknownFields(), [evidence], [], null, DateTimeOffset.UtcNow));
-        session.Profile(person.Id, input);
+        session.Profile(person.Id, ProfileInput(person));
     }
     private string ProfileInput(ExportSession.Person person)
     {
@@ -578,6 +666,19 @@ public sealed class OrgExportTests : IDisposable
         {
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
         }
+    }
+    private static async Task<ExportSession.ProfileBatchResult> ProfilesAtSeam(
+        bool cli, string path, string batch, int expectedExitCode)
+    {
+        if (!cli)
+        {
+            using var session = ExportSession.Open(path);
+            return session.Profiles(batch);
+        }
+        var result = await RunCli("profiles", path, batch);
+        Assert.Equal(expectedExitCode, result.ExitCode);
+        Assert.Empty(result.Error);
+        return JsonSerializer.Deserialize<ExportSession.ProfileBatchResult>(result.Output, ExportSession.Json)!;
     }
     private static Dictionary<string, ExportSession.Field> UnknownFields() => new()
     {

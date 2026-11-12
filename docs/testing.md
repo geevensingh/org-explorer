@@ -26,7 +26,8 @@ use in-memory workflow state. Classify dependencies by what a test actually does
 `OrgExportTests` also run in the core lane with isolated fictitious files. They
 exercise the shared `ExportSession` and the actual compiled producer CLI through
 a project reference: mixed profile outcomes, corrected-input recovery, retained
-evidence, publication rejection, JSON array cardinality and process exit status.
+evidence, publication rejection, earlier-success rejection, identity correction,
+JSON array cardinality and process exit status.
 No live M365 connection or desktop automation is involved.
 
 Use independent expected values at the agreed public surfaces. Keep parsing,
