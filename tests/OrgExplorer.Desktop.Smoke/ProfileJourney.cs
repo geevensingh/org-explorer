@@ -44,7 +44,7 @@ internal static partial class Program
                 var path = Find(window, "WorkspacePath").Current;
                 var focused = AutomationElement.FocusedElement.Current;
                 throw new TimeoutException(
-                    $"[DEBUG-58-focus] Settings opened but Workspace folder did not receive keyboard focus. " +
+                    "Settings opened but Workspace folder did not receive keyboard focus. " +
                     $"Folder: enabled={path.IsEnabled}, focusable={path.IsKeyboardFocusable}, offscreen={path.IsOffscreen}, bounds={path.BoundingRectangle}. " +
                     $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
             }

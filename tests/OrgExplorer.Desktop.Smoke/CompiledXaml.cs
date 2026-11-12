@@ -64,7 +64,11 @@ internal static partial class Program
                     failures.Add($"{name}: View-mode Copy must be reachable by keyboard.");
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-            if (verifyProfileRefresh) VerifyProfileSaveRefresh(window, settings);
+            if (verifyProfileRefresh)
+            {
+                VerifySettingsFocus(window);
+                VerifyProfileSaveRefresh(window, settings);
+            }
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("The compiled-XAML check must never show the window or create its native handle.");
             window.Close();
@@ -79,6 +83,31 @@ internal static partial class Program
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
             Directory.Delete(settings, true);
         }
+    }
+
+    private static void VerifySettingsFocus(Window window)
+    {
+        var settings = (Button)window.FindName("OpenSettingsButton");
+        var folder = (TextBox)window.FindName("WorkspacePath");
+        void Toggle() => settings.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        void Settle()
+        {
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+        }
+
+        Toggle();
+        Settle();
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), folder))
+            throw new InvalidOperationException("Opening Settings did not establish the Workspace folder as its logical focus destination.");
+        Toggle();
+        Toggle();
+        Toggle();
+        Settle();
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), settings))
+            throw new InvalidOperationException("A queued Settings focus request stole logical focus after Settings closed.");
+        Console.WriteLine("PASS: Settings logical focus settles on its folder and stale requests cannot focus closed Settings; physical keyboard focus still requires hosted WPF.");
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings)
