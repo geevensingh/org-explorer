@@ -486,7 +486,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     {
         try
         {
-            Parallel.ForEach(values, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 4) }, write);
+            Parallel.ForEach(values, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) }, write);
         }
         catch (AggregateException error) when (error.Flatten().InnerExceptions.All(StorageError))
         {

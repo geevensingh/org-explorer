@@ -463,7 +463,10 @@ interactive Windows job, with a fresh rich 10,000-Person fixture per scenario:
   file-backed profile mutation is pending; explicit navigation rejection retains
   the owner and explains waiting; favorite mutation, complete reviewed import,
   external note delivery/rendering, and durable profile/Manager/favorite/photo
-  reopening.
+  reopening. After external delivery, explicitly complete recovery maintenance
+  through Settings and observe successful maintenance plus Ready activity before
+  the ordinary safe-close/reopen assertions. Rendering delivered bytes alone
+  does not prove they are independently protected.
 
 The same shared `ScaleFixture` preserves 9,900 active/100 Archived people, the
 complete 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes,

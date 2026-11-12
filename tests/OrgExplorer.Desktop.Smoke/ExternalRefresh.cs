@@ -245,11 +245,12 @@ internal static partial class Program
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
     }
 
-    private static void CompleteStorageMaintenance(AutomationElement window)
+    private static void CompleteStorageMaintenance(AutomationElement window, Action<Func<bool>>? awaitCompletion = null)
     {
         Click(window, "OpenSettings");
         Click(window, "RetryWorkspace");
-        Await(() => Find(window, "Status").Current.Name.Contains("Storage maintenance completed"));
+        (awaitCompletion ?? Await)(() => Find(window, "Status").Current.Name.Contains("Storage maintenance completed") &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready");
         Click(window, "OpenSettings");
     }
 
