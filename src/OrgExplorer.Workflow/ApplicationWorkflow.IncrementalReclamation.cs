@@ -159,9 +159,9 @@ public sealed partial class ApplicationWorkflow
             deferObjects |= files.Length != 0 && !File.Exists(Path.Combine(transaction, "recovery.next"));
             foreach (var file in files.Where(path => IsCreationInventory(Path.GetFileName(path))))
             {
-                var inventory = ReadCreationInventory(ReadWorkspaceBytesUncached(file));
-                protectedPaths.Add(InventoryObjectPath(inventory.Path));
-                protectedPaths.Add(InventoryStagePath(inventory.StagingPath));
+                var (_, path, staged) = ReadCreationInventory(ReadWorkspaceBytesUncached(file));
+                protectedPaths.Add(path);
+                protectedPaths.Add(staged);
             }
             foreach (var file in files)
             {
@@ -233,9 +233,7 @@ public sealed partial class ApplicationWorkflow
                 var record = Path.Combine(transaction, name);
                 if (!inventories.TryGetValue(name, out var recordBytes)) continue;
                 if (ByteDigest(recordBytes) != digest) continue;
-                var inventory = ReadCreationInventory(recordBytes);
-                var path = InventoryObjectPath(inventory.Path);
-                var staged = InventoryStagePath(inventory.StagingPath);
+                var (inventory, path, staged) = ReadCreationInventory(recordBytes);
                 if (deferObjects || protectedPaths.Contains(path) || protectedPaths.Contains(staged)) continue;
                 if (File.Exists(path) && new FileInfo(path).Length == inventory.Bytes)
                     DeleteRecorded(path, inventory.Digest);
@@ -291,7 +289,7 @@ public sealed partial class ApplicationWorkflow
         return retirement;
     }
 
-    private CreationInventory ReadCreationInventory(byte[] bytes)
+    private (CreationInventory Inventory, string Path, string Staged) ReadCreationInventory(byte[] bytes)
     {
         using var json = JsonDocument.Parse(bytes);
         CheckProperties(json.RootElement, ["schemaVersion", "path", "stagingPath", "bytes", "digest"], "Creation inventory");
@@ -299,9 +297,7 @@ public sealed partial class ApplicationWorkflow
             ?? throw new FormatException("Invalid creation inventory.");
         if (inventory.SchemaVersion != 1 || inventory.Bytes < 0 || !ValidDigest(inventory.Digest))
             throw new FormatException("Invalid creation inventory provenance.");
-        InventoryObjectPath(inventory.Path);
-        InventoryStagePath(inventory.StagingPath);
-        return inventory;
+        return (inventory, InventoryObjectPath(inventory.Path), InventoryStagePath(inventory.StagingPath));
     }
 
     private static bool ValidDigest(string value) => value is not null && Regex.IsMatch(value, "^[A-F0-9]{64}$");
@@ -316,14 +312,14 @@ public sealed partial class ApplicationWorkflow
         var seal = recovery && local.EndsWith(".sha256", StringComparison.Ordinal);
         if (seal) local = local[..^".sha256".Length];
         string path;
-        if (local.StartsWith("index\\", StringComparison.Ordinal)) path = IncrementalPath(root, local.Replace('\\', '/'));
+        if (local.StartsWith("index\\", StringComparison.Ordinal)) path = IncrementalReference(root, local.Replace('\\', '/'));
         else
         {
             var parts = local.Split('\\');
             var families = recovery ? IndexedFamilies.Concat(["personNotes", "teamNotes"]) : IndexedFamilies;
             if (parts.Length != 3 || !families.Contains(parts[1]))
                 throw new FormatException("Invalid inventoried document family.");
-            path = IncrementalPath(root, local.Replace('\\', '/'), parts[1]);
+            path = IncrementalReference(root, local.Replace('\\', '/'), parts[1]);
         }
         path += seal ? ".sha256" : "";
         RejectStoragePathLinks(path);
@@ -332,20 +328,25 @@ public sealed partial class ApplicationWorkflow
 
     private string InventoryStagePath(string relative)
     {
-        if (relative is null || !Regex.IsMatch(relative,
-                @"^(recovery[/\\][a-f0-9]{32}|index[/\\][a-f0-9]{32}|documents[/\\](" +
-                string.Join("|", IndexedFamilies) + @")[/\\][a-f0-9]{32})\.next$"))
+        if (relative is null) throw new FormatException("Missing inventoried staging path.");
+        var local = relative.Replace('/', '\\');
+        var recovery = local.StartsWith("recovery\\", StringComparison.Ordinal);
+        if (recovery) local = local["recovery\\".Length..];
+        var families = recovery ? IndexedFamilies.Concat(["personNotes", "teamNotes"]) : IndexedFamilies;
+        var locations = @"index\\[a-f0-9]{32}|documents\\(" + string.Join("|", families) + @")\\[a-f0-9]{32}";
+        if (recovery) locations += @"|[a-f0-9]{32}";
+        if (!Regex.IsMatch(local, "^(" + locations + @")\.next$"))
             throw new FormatException("Invalid inventoried staging path.");
         var path = Path.Combine(workspace!, relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
         RejectStoragePathLinks(path);
         return path;
     }
 
-    private void RejectStoragePathLinks(string path)
+    private void RejectStoragePathLinks(string path, bool allowMissing = true)
     {
         for (var entry = path; !entry.Equals(workspace, StringComparison.OrdinalIgnoreCase);
              entry = Path.GetDirectoryName(entry)!)
-            RejectWorkspaceLink(entry, allowMissing: true);
+            RejectWorkspaceLink(entry, allowMissing);
         RejectWorkspaceLink(workspace!);
     }
 }

@@ -58,6 +58,9 @@ payload stages rather than accumulating the population in a staging directory.
 All required objects finish and complete candidate validation still precedes
 serialized selector publication.
 Recovery objects and their independently inventoried seals use the same ordering.
+Destination directories are created once per object batch. Each worker still
+checks their actual ancestry afresh before writing; directory removal or links
+fail explicitly rather than reusing a cached validation.
 
 Unreferenced staged/retired objects and transactions do not become current data
 on reopen. Failed attempts are deliberately preserved for later classification;
@@ -134,8 +137,10 @@ Current inventories remain `created-<number>.json`. Recovery inventories are
 written before the corresponding staged payload. Both locations are relative
 to the Workspace, including the `recovery` prefix. Recovery documents, nodes and
 seal files each have their own record. Selector/receipt stages remain inside
-their owning transaction; payloads stage at unique `recovery\<id>.next` paths
-recorded in those inventories. No population-wide inventory is rewritten.
+their owning transaction; payloads stage at unique `.next` paths beside their
+final recovery documents/indexes, as recorded in their inventories. Previously
+recorded `recovery\<id>.next` stages remain protected and classifiable.
+No population-wide inventory is rewritten.
 
 ## Automatic reclamation implementation (#46)
 
@@ -182,6 +187,9 @@ locations and separately inventoried seals. Only byte-identical, length-matching
 inventoried files from durably retired transactions, outside all protected roots,
 are deleted. Unknown files, provider conflict copies and changed superseded bytes
 remain untouched, even inside transaction directories. Links are rejected.
+Inventory interpretation checks each target/staging path once and returns those
+validated paths for that classification step. Actual deletion still performs
+fresh ancestry and byte-digest checks; classification is not a deletion guard.
 
 Deletion runs in batches of at most 32 individual file deletions. Before each
 batch and after it, maintenance rechecks the accepted actual-byte revision,

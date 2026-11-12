@@ -289,6 +289,9 @@ public sealed partial class ApplicationWorkflow
     {
         using var phase = Storage47Probe.Scope("WriteIncrementalObjects " + inventoryPrefix);
         using var objectPhase = Storage47Probe.Scope("StageAndPublishObjects " + objects.Count);
+        foreach (var directory in objects.Select(value => Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+            CreateIncrementalDirectory(directory);
         RunBoundedFileIo(objects.Select((value, index) => (value, index)), entry =>
         {
             var (value, index) = entry;
@@ -300,7 +303,7 @@ public sealed partial class ApplicationWorkflow
                     bytes = value.Bytes.LongLength, digest = ByteDigest(value.Bytes)
                 }, IncrementalJsonOptions));
             using (Storage47Probe.Measure(Storage47Probe.Operation.Directory))
-            CreateIncrementalDirectory(Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!);
+            RejectStoragePathLinks(Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!, allowMissing: false);
             using (Storage47Probe.Measure(value.Relative.EndsWith(".sha256", StringComparison.Ordinal)
                 ? Storage47Probe.Operation.Seal : Storage47Probe.Operation.Payload))
             WriteDurablyBytes(Path.Combine(workspace!, value.StagingPath), value.Bytes);

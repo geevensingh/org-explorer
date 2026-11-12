@@ -73,10 +73,11 @@ public sealed partial class ApplicationWorkflow
 
         void Write(string relative, byte[] bytes)
         {
+            var directory = Path.Combine("recovery", Path.GetDirectoryName(relative)!);
             writes.Add((Path.Combine("recovery", relative),
-                Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next"), bytes));
+                Path.Combine(directory, Guid.NewGuid().ToString("N") + ".next"), bytes));
             writes.Add((Path.Combine("recovery", relative + ".sha256"),
-                Path.Combine("recovery", Guid.NewGuid().ToString("N") + ".next"), Encoding.ASCII.GetBytes(ByteDigest(bytes))));
+                Path.Combine(directory, Guid.NewGuid().ToString("N") + ".next"), Encoding.ASCII.GetBytes(ByteDigest(bytes))));
             available[Path.Combine(root, relative)] = bytes;
         }
         string? Set(string family, string key, byte[] bytes, string extension)
