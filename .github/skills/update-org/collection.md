@@ -21,9 +21,10 @@ $run = (& dotnet $tool init $rootDisplayName $rootDirectoryId $connectedUserId) 
 dotnet $tool plan $run
 ```
 
-Nonzero exit means failure with a JSON diagnostic on stderr. Do not pipe human
-progress into helper input. JSON input files and tool payloads go under `$run`
-or the host's local temporary output area, not the checkout.
+Nonzero exit means failure. Command-level errors produce a JSON diagnostic on
+stderr; `profiles` reports individual failures in its complete stdout result
+instead. Do not pipe human progress into helper input. JSON input files and tool
+payloads go under `$run` or the host's local temporary output area, not the checkout.
 
 | Command after `dotnet $tool` | Input/output |
 |---|---|
@@ -31,7 +32,7 @@ or the host's local temporary output area, not the checkout.
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
-| `profiles RUN FILES.json` | Records a batch; input is an array of observation file paths. |
+| `profiles RUN FILES.json` | Processes every observation file path; returns [counts and correlated item outcomes](#profile-batch-outcomes), exiting nonzero if any fail. |
 | `cache RUN DIRECTORY-ID` | Reuses photo bytes only with matching fresh metadata, connected-user identity and byte hash. A miss returns `reused:false`. |
 | `cached-photos RUN IDS.json` | Runs cache checks for an array of assigned directory IDs. |
 | `photo RUN DIRECTORY-ID BLOB.json` | Materializes the full successful `fetch_blob` JSON response, verifying MIME/magic and decoded length. |
@@ -54,6 +55,56 @@ not the complete payload: pass the actual host-saved file to the helper. For a
 small inline result, materialize its complete JSON safely as data. Never copy a
 preview, manually reconstruct base64 or execute retrieved content.
 
+### Profile batch outcomes
+
+`profiles` accepts a JSON array of nonempty observation file paths. `[]` is a
+successful no-op: `{"succeeded":0,"failed":0,"items":[]}`. A single input still
+returns a one-element `items` array; multiple inputs retain their input order.
+Counts are per input, including repeated paths, not distinct People.
+Invalid batch JSON, a non-array/null document, or a non-string/null/empty path
+rejects the command before processing any members, with a diagnostic on stderr.
+
+Each item has a zero-based `index`, the supplied `inputFile`, `directoryId`
+(null if the observation could not be read), `recorded`, and `error`. A recorded
+item has null `error`; a failed item has a diagnostic and `recorded:false`.
+For example, a valid-failed-valid batch returns:
+
+```json
+{
+  "succeeded": 2,
+  "failed": 1,
+  "items": [
+    {"index": 0, "inputFile": "first.json", "directoryId": "first-id", "recorded": true, "error": null},
+    {"index": 1, "inputFile": "failed.json", "directoryId": "failed-id", "recorded": false, "error": "Source lookup failed."},
+    {"index": 2, "inputFile": "last.json", "directoryId": "last-id", "recorded": true, "error": null}
+  ]
+}
+```
+
+This result is on stdout with exit code 1, not a successful command or a rolled-back
+batch. Valid observations and their evidence are persisted even after a failure.
+Exit code 0 requires every item to succeed. Inspect both exit status and item
+outcomes; do not infer success from the presence of stdout.
+
+Use explicit PowerShell arrays at the JSON boundary, including zero/one inputs:
+
+```powershell
+[string[]]$observationFiles = @($firstObservation, $secondObservation)
+ConvertTo-Json -InputObject $observationFiles | Set-Content -LiteralPath $filesJson -Encoding utf8
+$output = & dotnet $tool profiles $run $filesJson
+$exitCode = $LASTEXITCODE
+$result = ($output -join "`n") | ConvertFrom-Json
+# Retain $result.items and report $exitCode plus every failed item to the coordinator.
+```
+
+Per-item failures persist under `profile-errors` and block `publish`, including
+when a previous successful observation for that Person remains on disk. Correct
+and resubmit only failed observations; a successful correction clears that Person's
+failure without rewriting other successes or their lookup timestamps/evidence.
+If the failed file was unreadable and its Person could not be identified, correct
+and resubmit that exact input path. Keep existing successful source results;
+freshness still requires actual evidence from this run, not restamped old payloads.
+
 ## Worker protocol
 
 Read only the assigned job file. All workers share the compiled helper read-only;
@@ -71,7 +122,9 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    profile evidence in its searched scope, record explicit unknowns with that evidence. Failed
    reads instead remain errors; send failed paths/delays to the coordinator for
    its shared recovery decision. Do not independently retry or expand providers.
-3. Use `profiles` to persist observations in one helper call per batch. Use
+3. Use `profiles` to persist observations in one helper call per batch. Inspect
+   the complete [batch outcome](#profile-batch-outcomes), retain its successes,
+   and report every failed item for coordinated correction/recovery. Use
    `cached-photos`; download only cache misses whose fresh metadata succeeded.
    Confirmed `ImageNotFound` needs no binary call and omits `photoPath`. Other 404s,
    nulls, denied reads and service errors are not photo absence.

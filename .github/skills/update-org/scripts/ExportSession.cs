@@ -36,6 +36,9 @@ public sealed class ExportSession : IDisposable
     public sealed record Person(string Id, string Email, string Name, string? ManagerId, JsonObject Directory);
     public sealed record Collection(Person[] People, string[] Pending, string[] Errors, string[] Excluded,
         int SubtreeCount, Dictionary<string, Receipt> Receipts);
+    public sealed record ProfileOutcome(int Index, string InputFile, string? DirectoryId, bool Recorded, string? Error);
+    public sealed record ProfileBatchResult(int Succeeded, int Failed, ProfileOutcome[] Items);
+    private sealed record ProfileFailure(string InputFile, string? DirectoryId, string Error);
 
     private ExportSession(string path, Run run, FileStream lease)
         => (this.path, this.run, this.lease) = (path, run, lease);
@@ -242,8 +245,15 @@ public sealed class ExportSession : IDisposable
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
-    public object Profiles(string inputsFile) => Read<string[]>(inputsFile)
-        .Select(file => Profile(Read<Observation>(file).DirectoryId, file)).ToArray();
+    public ProfileBatchResult Profiles(string inputsFile)
+    {
+        var inputs = Read<string[]>(inputsFile);
+        Require(inputs.All(file => !string.IsNullOrWhiteSpace(file)),
+            "Expected an array of nonempty observation file paths.");
+        var items = inputs.Select((file, index) => RecordProfile(index, null, file)).ToArray();
+        var succeeded = items.Count(item => item.Recorded);
+        return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
+    }
 
     public object CachedPhotos(string idsFile) => Read<string[]>(idsFile).Select(ReusePhoto).ToArray();
 
@@ -253,24 +263,54 @@ public sealed class ExportSession : IDisposable
 
     public object Profile(string id, string input)
     {
-        var person = Complete().People.Single(p => p.Id == id);
-        var observation = Read<Observation>(input);
-        CheckObservation(observation, person);
-        var evidence = observation.EvidenceFiles.Select(source =>
-        {
-            var full = System.IO.Path.GetFullPath(source);
-            Require(full.StartsWith(path + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                || full.StartsWith(System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
-                "Evidence must be a staged source or a host-saved temporary tool result.");
-            FreshPayload(full);
-            var bytes = File.ReadAllBytes(full);
-            var relative = "sources\\" + Hash(bytes) + ".json";
-            Immutable(System.IO.Path.Combine(path, relative), bytes);
-            return relative;
-        }).ToArray();
-        Save(System.IO.Path.Combine(path, "profiles", id + ".json"), observation with { EvidenceFiles = evidence });
-        Require(observation.Error is null, person.Email + ": " + observation.Error);
+        var outcome = RecordProfile(0, id, input);
+        Require(outcome.Recorded, outcome.Error!);
         return new { directoryId = id, recorded = true };
+    }
+
+    private ProfileOutcome RecordProfile(int index, string? id, string input)
+    {
+        var errors = System.IO.Path.Combine(path, "profile-errors");
+        var inputError = System.IO.Path.Combine(errors, "input-" + Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(input))) + ".json");
+        var failureFile = inputError;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(input)) throw new ArgumentException("An observation file path is required.");
+            var observation = Read<Observation>(input);
+            id ??= observation.DirectoryId;
+            var person = Complete().People.SingleOrDefault(p => p.Id == id)
+                ?? throw new InvalidOperationException("Profile is outside the retained population: " + id);
+            failureFile = System.IO.Path.Combine(errors, person.Id + ".json");
+            CheckObservation(observation, person);
+            Require(observation.Error is null, person.Email + ": " + observation.Error);
+            var evidence = observation.EvidenceFiles.Select(source =>
+            {
+                var full = System.IO.Path.GetFullPath(source);
+                Require(full.StartsWith(path + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    || full.StartsWith(System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()), StringComparison.OrdinalIgnoreCase),
+                    "Evidence must be a staged source or a host-saved temporary tool result.");
+                FreshPayload(full);
+                var bytes = File.ReadAllBytes(full);
+                var relative = "sources\\" + Hash(bytes) + ".json";
+                Immutable(System.IO.Path.Combine(path, relative), bytes);
+                return relative;
+            }).ToArray();
+            Save(System.IO.Path.Combine(path, "profiles", person.Id + ".json"), observation with { EvidenceFiles = evidence });
+            if (Directory.Exists(errors))
+            {
+                File.Delete(failureFile);
+                File.Delete(inputError);
+            }
+            return new ProfileOutcome(index, input, id, true, null);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException
+            or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException)
+        {
+            Local(errors);
+            Directory.CreateDirectory(errors);
+            Save(failureFile, new ProfileFailure(input, id, error.Message));
+            return new ProfileOutcome(index, input, id, false, error.Message);
+        }
     }
 
     private void CheckObservation(Observation observation, Person person)
@@ -286,6 +326,7 @@ public sealed class ExportSession : IDisposable
         foreach (var (name, field) in observation.Fields)
         {
             Require(EnrichedFields.Contains(name), "Not a producer-managed field: " + name);
+            if (field is null) throw new InvalidOperationException("A field observation cannot be null: " + name);
             Require(field.State is "value" or "clear" or "unknown", "Invalid field observation state.");
             Require(!string.IsNullOrWhiteSpace(field.Reason), "A field needs source attribution or an uncertainty reason.");
             Require(field.State == "value" ? !string.IsNullOrWhiteSpace(field.Value) : field.Value is null,
@@ -362,6 +403,9 @@ public sealed class ExportSession : IDisposable
     public object Publish()
     {
         var collection = Complete();
+        var errors = System.IO.Path.Combine(path, "profile-errors");
+        var failures = Directory.Exists(errors) ? Directory.GetFiles(errors, "*.json").Select(Read<ProfileFailure>).ToArray() : [];
+        Require(failures.Length == 0, "Unresolved profile inputs: " + JsonSerializer.Serialize(failures, Json));
         var byId = collection.People.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var people = new List<Dictionary<string, object?>>();
         var warnings = new List<string>();

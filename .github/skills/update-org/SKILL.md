@@ -57,14 +57,18 @@ counts, local paths and errors. Neither image payloads nor employee lists belong
 in coordinator messages, Git, issues, Libraries or shared attachments.
 
 Completion: every job finishes, every retained person has a fresh accounted-for
-profile observation, and each photo has bytes or a confirmed `ImageNotFound`.
+profile observation with no unresolved batch item, and each photo has bytes or a
+confirmed `ImageNotFound`. Use the protocol's complete batch outcomes to establish
+coverage, including when a helper invocation exits nonzero after retaining successes.
 
 ## 4. Recover or stop
 
 The WorkIQ recovery allowance is **one failed-read recovery pass for this whole
 invocation**, not one per worker or phase. Coordinate it centrally, retain successes,
 honor returned delays and retry only eligible failed reads. Record failures and
-recovery decisions in the private run. An early recovery does not reset the
+recovery decisions in the private run. For mixed profile batches, correct and
+resubmit only failed inputs according to the collection protocol; retained successes
+need no repeated lookup or resubmission. An early recovery does not reset the
 allowance for later failures. Authentication/access/policy denial stops the
 affected source workflow without alternate paths, tools or agents. Notify the
 coordinator immediately; it tells all active workers to stop source reads and

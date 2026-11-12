@@ -29,7 +29,7 @@ try
         };
     }
     Console.WriteLine(JsonSerializer.Serialize(result, ExportSession.Json));
-    return 0;
+    return result is ExportSession.ProfileBatchResult { Failed: > 0 } ? 1 : 0;
 }
 catch (Exception error) when (error is ArgumentException or InvalidOperationException
     or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException)

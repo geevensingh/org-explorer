@@ -6,6 +6,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
     <ProjectReference Include="..\OrgExplorer.Installer.ProcessFixture\OrgExplorer.Installer.ProcessFixture.csproj" />
+    <ProjectReference Include="..\..\.github\skills\update-org\scripts\OrgExport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\DesktopScenarios.json" Link="DesktopScenarios.json" CopyToOutputDirectory="PreserveNewest" />
@@ -21,7 +22,6 @@
     <Compile Include="..\OrgExplorer.Installer.Smoke\UninstallProcess.cs" Link="UninstallProcess.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
-    <Compile Include="..\..\.github\skills\update-org\scripts\ExportSession.cs" Link="OrgExport\ExportSession.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
