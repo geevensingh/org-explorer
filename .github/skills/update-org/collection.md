@@ -32,6 +32,11 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
 | `capture RUN TICKET.json` | Returns original response/request file references, tool-call identity, source-result counts and outer tool outcome. Incomplete/ambiguous capture fails explicitly. |
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
+| `source-status RUN` | Returns the persistent invocation-wide source record, including active claims, failures, deferred first reads, saved result paths and recovery consumption. |
+| `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
+| `source-finish RUN CLAIM-ID RESULTS.json` | Records and returns only this claim's outcomes plus invocation recovery/stop flags; retains the result file for handoff. Use `source-status` for the full ledger. |
+| `source-recover RUN` | Coordinator only: consumes the single failed-read recovery pass after all active claims settle. |
+| `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
 | `profiles RUN FILES.json` | Processes every observation file path; returns [counts and correlated item outcomes](#profile-batch-outcomes), exiting nonzero if any fail. |
@@ -65,7 +70,8 @@ not any worker. If the host does not expose a complete local event stream and
 worker identity, report that prerequisite as a blocker; use no transcript search
 or hand-written payload substitute.
 
-1. Write a descriptor under your private worker folder, containing only the
+1. Claim the source call through the [shared gate](#source-coordination).
+   If granted, write a descriptor under your private worker folder, containing only the
    exact configured `toolName`, complete `arguments` you will invoke, and optional
    worker scope. Load tool definitions first. Example shape:
    `{"toolName":"<configured WorkIQ fetch name>","arguments":{"entityUrls":["<pending path>"]}}`.
@@ -80,7 +86,10 @@ or hand-written payload substitute.
    the source read. Changed session history, ambiguous identity, unsupported
    transport and incomplete payloads are explicit blockers. Preserve the ticket
    and diagnostic locally; never repair or reconstruct source bytes.
-4. For directory/photo-metadata reads, pass `$capture.requestsFile` and
+4. Record the captured outcomes with `source-finish` before any further source
+   call. Create its result array by local JSON parsing of the captured response,
+   preserving ordered results, nested statuses and errors without passing payloads
+   through the model. For directory/photo-metadata reads, pass `$capture.requestsFile` and
    `$capture.responseFile` to `ingest`. For photo bytes, pass the response file
    directly to `photo`/`photos`. Profile observations reference the response file
    in `evidenceFiles`. Use a file reader only on the captured evidence needed
@@ -168,14 +177,78 @@ A successful correction preserves other successes and their lookup timestamps/
 evidence. Freshness still requires actual evidence from this run, not restamped
 old payloads.
 
+## Source coordination
+
+The private `source-coordination.json` is shared by the coordinator and every
+worker for this invocation. The helper serializes updates across processes.
+Before each WorkIQ call, write a target array and run `source-claim`:
+
+- `structured`: 1-50 exact relative directory or photo-metadata paths.
+- `profile`: 1-4 assigned directory IDs per grounded People query.
+- `photo`: one `/users/{exact-directory-id}/photo/$value` path.
+
+At most two claims are source-active across all workers and phases, including
+the coordinator. These are conservative local defaults informed by the failed
+parallel run, not WorkIQ service ceilings. A worker holds only one claim at a time.
+Use only a granted claim's returned targets: successful reads are removed.
+`claimId:null` authorizes no call. Inspect its blocker and `source-status`:
+capacity-deferred targets still have zero attempts and are first reads, not retries.
+Do not dispatch queued jobs while a source failure or denial is unresolved.
+
+Use the [capture sequence](#capture-one-source-call) before `source-finish`. Its input is an
+array of `{"target":"exact claimed target","response":{...}}`, one per target.
+Structured and photo responses retain the actual status and nested errors. For a
+grounded People query, associate each identity's actual result with that ID; wrap
+a successful tool completion as `{"statusCode":200,"data":FULL_RESULT}` where
+necessary. Preserve nested failures rather than assigning a success wrapper to
+an unresolved identity. A call-wide error applies to every affected target.
+Record all partial successes and errors, then ingest complete structured batches,
+including failed receipts; materialize only successful profile/photo results
+through the existing helper commands. A completed search with no evidence
+is a success with explicit uncertainty; a failed search cannot become unknown.
+Failed binary downloads cannot become `ImageNotFound`.
+
+The coordinator pauses dispatch on failure, awaits active calls, then runs
+`source-recover` once if recovery is appropriate. This snapshots eligible transient
+failures; workers cannot enroll later failures or consume another pass. A failure's
+second attempt is its only retry. While failures remain, only those eligible
+recovery reads can be claimed. The latest actual returned retry delay applies to
+the whole invocation; wait until the returned `retryAt`, never substitute a shorter
+delay. Once recovery succeeds, queued targets with zero attempts remain first
+reads. A later failure, non-retryable error or failed recovery is a reported
+publication blocker.
+
+Nested authentication/access/policy denials or forbidden responses persist a
+stop reason: no further source claims, recovery or queued dispatch in this run.
+Tell the user the prerequisite and retain diagnostics; use no alternate tools,
+paths, agents, strategies or providers to get around the denial.
+
+Claims do not expire automatically: a timeout cannot prove the remote call
+stopped. After confirming an interrupted worker has stopped, the coordinator
+first checks for a saved complete result and finishes it if available. Otherwise,
+use `source-interrupt` with the reason. This releases capacity without silently
+reclassifying uncertain work as an unattempted read or resetting recovery. Late
+results for interrupted claims are rejected; an interrupted retry remains blocked.
+A replacement worker reads `source-status` and the retained `resultFile` paths
+(relative to the run), materializing local successes without another source call.
+An unreconciled claim is an explicit blocker, not an instruction to poll forever.
+
+Keep the record intact across handoffs. Publication requires all tracked reads
+completed, plus completed source coverage for directory receipts, every profile
+and each non-reused photo download. Missing records cannot reset recovery.
+The helper remains local-only orchestration and storage; WorkIQ is the sole
+authenticated source client.
+
 ## Worker protocol
 
-Read only the assigned job file. All workers share the compiled helper read-only;
+Use only the identities in the assigned job file; the shared source record is
+coordination, not additional assignments. All workers share the compiled helper read-only;
 write individual inputs/evidence under your own `$run\workers\<batch-id>` folder.
 Only the coordinator collects directory/photo-metadata receipts and publishes.
 
-1. Invoke `workiq`; search fresh indexed **M365 People work-profile evidence** for
-   the assigned identities with explicit grounding. Batch known names/emails.
+1. Invoke `workiq`; claim source calls through the shared gate above. Search fresh
+   indexed **M365 People work-profile evidence** with explicit grounding, using
+   at most four assigned identities per granted query.
    Verify each hit against its exact directory ID/email; similar names are not
    identity evidence. Retain relevant company/work-position location evidence,
    actual returned citations and uncertainty qualifiers, not unrelated personal
@@ -183,7 +256,7 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
 2. Derive fields using the source hierarchy below, then write one observation per
    assigned Person. If a successful, bounded source search finds no indexed
    profile evidence in its searched scope, record explicit unknowns with that evidence. Failed
-   reads instead remain errors; send failed paths/delays to the coordinator for
+   reads instead remain errors in `source-finish`; notify the coordinator for
    its shared recovery decision. Do not independently retry or expand providers.
 3. Use `profiles` to persist observations in one helper call per batch. Inspect
    the complete [batch outcome](#profile-batch-outcomes), retain its successes,
@@ -191,7 +264,7 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    `cached-photos`; download only cache misses whose fresh metadata succeeded.
    Confirmed `ImageNotFound` needs no binary call and omits `photoPath`. Other 404s,
    nulls, denied reads and service errors are not photo absence.
-4. Capture remaining `/users/{exact-directory-id}/photo/$value` reads through
+4. Claim and capture remaining `/users/{exact-directory-id}/photo/$value` reads through
    WorkIQ's configured `fetch_blob` tool using the shared capture sequence.
    Keep supplied image resolution; pass captured response files to `photo`/`photos`.
    Return counts, file paths and errors, never base64. An invalid cache is a

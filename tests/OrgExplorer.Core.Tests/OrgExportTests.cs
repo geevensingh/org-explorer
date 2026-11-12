@@ -26,6 +26,7 @@ public sealed class OrgExportTests : IDisposable
         var events = Path.Combine(root, "coordinator.jsonl");
         File.WriteAllText(events, "");
         var requests = new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId) };
+        var claim = session.ClaimSource("coordinator", "structured", requests);
         var arguments = new JsonObject { ["entityUrls"] = JsonSerializer.SerializeToNode(requests) };
         var requestFile = Path.Combine(root, "request.json");
         Save(requestFile, new { toolName = "workiq-fetch", arguments });
@@ -48,6 +49,14 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
         Assert.Equal(requests, JsonSerializer.Deserialize<string[]>(File.ReadAllText(capture.RequestsFile!)));
         Assert.Contains("One source failed", File.ReadAllText(capture.CompletionFile));
+        var capturedResults = JsonNode.Parse(File.ReadAllText(capture.ResponseFile))!["results"]!.AsArray();
+        var resultsFile = Path.Combine(root, "source-results.json");
+        Save(resultsFile, requests.Select((request, index) =>
+            new ExportSession.SourceResult(request, capturedResults[index]!.AsObject())).ToArray());
+        session.FinishSource(claim.ClaimId!.Value, resultsFile);
+        Assert.Equal("completed", session.SourceStatus().Reads.Single(read => read.Target == requests[0]).State);
+        Assert.Equal("failed", session.SourceStatus().Reads.Single(read => read.Target == requests[1]).State);
+        Assert.Null(session.ClaimSource("queued-worker", "profile", [ChildId]).ClaimId);
         session.Ingest(capture.RequestsFile!, capture.ResponseFile);
         var receipts = session.Plan().Receipts;
         Assert.Equal(200, receipts[requests[0]].Response["statusCode"]!.GetValue<int>());
@@ -289,10 +298,12 @@ public sealed class OrgExportTests : IDisposable
         var input = Path.Combine(root, "captured-observation.json");
         Save(input, new ExportSession.Observation(RootId, "person1@example.test", UnknownFields(),
             [captured.ResponseFile], [], null, DateTimeOffset.UtcNow));
+        var previousSources = Directory.GetFiles(Path.Combine(path, "sources"));
 
         session.Profile(RootId, input);
 
-        Assert.Equal(payload, File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(path, "sources")))));
+        Assert.Equal(payload, File.ReadAllText(Assert.Single(
+            Directory.GetFiles(Path.Combine(path, "sources")).Except(previousSources))));
         Assert.Throws<InvalidOperationException>(() => session.Capture(overlapping));
         Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(overlapping)!, "response.json")));
     }
@@ -385,6 +396,81 @@ public sealed class OrgExportTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => session.Publish());
     }
 
+    [Fact]
+    public void Shared_source_failures_block_an_otherwise_complete_export_until_recovered_without_replaying_successes()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path, publishing: true);
+        RecordProfile(session);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        var claim = session.ClaimSource("extra-evidence", "profile", [RootId, AltId]);
+        Assert.Equal([AltId], claim.Targets);
+        FinishSource(session, claim, new JsonObject
+        {
+            ["statusCode"] = 429, ["error"] = new JsonObject { ["code"] = "TooManyRequests" }
+        });
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        session.BeginSourceRecovery();
+        var recovery = session.ClaimSource("replacement", "profile", [RootId, AltId]);
+        Assert.Equal([AltId], recovery.Targets);
+        FinishSource(session, recovery, Ok(new JsonObject()));
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Kind == "profile" && read.Target == RootId).Attempts);
+        var import = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
+        Assert.True(File.Exists(import));
+    }
+
+    [Fact]
+    public void Complete_observations_cannot_bypass_the_shared_source_record()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path, publishing: true);
+        RecordProfile(session, sourceCompleted: false);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        Assert.Contains("Source read is not completed", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cli_source_finish_reports_only_its_claim_while_status_retains_all_reads(bool recovery)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        foreach (var id in new[] { RootId, ChildId })
+        {
+            var previous = session.ClaimSource("photo-worker", "photo", [$"/users/{id}/photo/$value"]);
+            FinishSource(session, previous, Ok(new JsonObject()));
+        }
+        var target = $"/users/{AltId}/photo/$value";
+        var claim = session.ClaimSource("photo-worker", "photo", [target]);
+        if (recovery)
+        {
+            FinishSource(session, claim, new JsonObject
+            {
+                ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" }
+            });
+            session.BeginSourceRecovery();
+            claim = session.ClaimSource("replacement", "photo", [target]);
+        }
+        var results = Path.Combine(root, "finish-results.json");
+        Save(results, new[] { new ExportSession.SourceResult(target, Ok(new JsonObject())) });
+
+        var result = await RunCli("source-finish", path, claim.ClaimId!.Value.ToString(), results);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        var output = JsonNode.Parse(result.Output)!;
+        var read = Assert.Single(output["reads"]!.AsArray());
+        Assert.Equal(target, read!["target"]!.GetValue<string>());
+        Assert.Equal("completed", read["state"]!.GetValue<string>());
+        Assert.Equal(claim.ClaimId.Value, output["claimId"]!.GetValue<Guid>());
+        Assert.Equal(recovery, output["recoveryConsumed"]!.GetValue<bool>());
+        Assert.Null(output["stopReason"]);
+        var ledger = session.SourceStatus();
+        Assert.Equal(3, ledger.Reads.Count);
+        Assert.All(ledger.Reads, item => Assert.Equal("completed", item.State));
+    }
+
     [Theory]
     [InlineData("HOME OFFICE")]
     [InlineData("NO WORKSPACE")]
@@ -449,6 +535,7 @@ public sealed class OrgExportTests : IDisposable
         Save(input, new ExportSession.Observation(RootId, "person1@example.test", fields,
             [evidence], [], null, DateTimeOffset.UtcNow));
         session.Profile(RootId, input);
+        CompleteSource(session, "profile", RootId, Ok(new JsonObject()));
         Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
         var jsonPath = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
         var person = JsonNode.Parse(File.ReadAllText(jsonPath))!["people"]!.AsArray().Single()!.AsObject();
@@ -473,6 +560,7 @@ public sealed class OrgExportTests : IDisposable
         Save(input, new ExportSession.Observation(RootId, "person1@example.test", fields,
             [evidence], [], null, DateTimeOffset.UtcNow));
         session.Profile(RootId, input);
+        CompleteSource(session, "profile", RootId, Ok(new JsonObject()));
         Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
         var jsonPath = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
         var person = JsonNode.Parse(File.ReadAllText(jsonPath))!["people"]!.AsArray().Single()!.AsObject();
@@ -493,6 +581,7 @@ public sealed class OrgExportTests : IDisposable
             Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("v1")));
             Assert.False(JsonSerializer.SerializeToNode(session.ReusePhoto(RootId))!["reused"]!.GetValue<bool>());
             session.Photo(RootId, Blob());
+            CompleteSource(session, "photo", $"/users/{RootId}/photo/$value", Ok(new JsonObject()));
             completed = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
         }
         var priorBytes = File.ReadAllBytes(completed);
@@ -560,6 +649,7 @@ public sealed class OrgExportTests : IDisposable
     public void Current_observation_cannot_relabel_stale_profile_source_as_fresh(string state, string? value)
     {
         var path = Seed();
+        var originalSources = Directory.GetFiles(Path.Combine(path, "sources")).Order().ToArray();
         using var session = ExportSession.Open(path);
         var evidence = Path.Combine(root, "previous-profile-source.json");
         Save(evidence, new { directoryId = RootId, workPosition = new { building = value } });
@@ -572,7 +662,7 @@ public sealed class OrgExportTests : IDisposable
         var error = Assert.Throws<InvalidOperationException>(() => session.Profile(RootId, input));
         Assert.Contains("previous run", error.Message);
         Assert.Empty(Directory.GetFiles(Path.Combine(path, "profiles")));
-        Assert.Empty(Directory.GetFiles(Path.Combine(path, "sources")));
+        Assert.Equal(originalSources, Directory.GetFiles(Path.Combine(path, "sources")).Order().ToArray());
     }
 
     [Fact]
@@ -632,7 +722,7 @@ public sealed class OrgExportTests : IDisposable
                 (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")),
                 (ExportSession.PhotoPath(AltId), Missing("ImageNotFound")));
             var people = session.Plan().People;
-            var inputs = people.Select(person => ProfileInput(person)).ToArray();
+            var inputs = people.Select(person => ProfileInput(session, person)).ToArray();
             var failed = people[failedIndex];
             var original = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(inputs[failedIndex]), ExportSession.Json)!;
             if (failure == "malformed") File.WriteAllText(inputs[failedIndex], "{invalid");
@@ -647,6 +737,7 @@ public sealed class OrgExportTests : IDisposable
             });
             var batch = Path.Combine(root, "profile-batch.json");
             Save(batch, inputs);
+            var previousSources = Directory.GetFiles(Path.Combine(path, "sources")).Length;
 
             var result = session.Profiles(batch);
 
@@ -667,7 +758,7 @@ public sealed class OrgExportTests : IDisposable
                 person => person.Id, person => File.ReadAllBytes(Path.Combine(path, "profiles", person.Id + ".json")));
             var evidence = Directory.GetFiles(Path.Combine(path, "sources")).ToDictionary(file => file, File.ReadAllBytes);
             Assert.Equal(2, successes.Count);
-            Assert.Equal(2, evidence.Count);
+            Assert.Equal(previousSources + 2, evidence.Count);
             Assert.Throws<InvalidOperationException>(() => session.Publish());
 
             Save(inputs[failedIndex], original);
@@ -703,8 +794,8 @@ public sealed class OrgExportTests : IDisposable
                 (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")),
                 (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
             var people = session.Plan().People;
-            failedInput = ProfileInput(people.Single(person => person.Id == RootId));
-            successfulInput = ProfileInput(people.Single(person => person.Id == ChildId));
+            failedInput = ProfileInput(session, people.Single(person => person.Id == RootId));
+            successfulInput = ProfileInput(session, people.Single(person => person.Id == ChildId));
             session.Profile(RootId, failedInput);
             earlier = File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json"));
         }
@@ -766,7 +857,7 @@ public sealed class OrgExportTests : IDisposable
     {
         var path = Seed();
         string input;
-        using (var session = ExportSession.Open(path)) input = ProfileInput(session.Plan().People.Single());
+        using (var session = ExportSession.Open(path)) input = ProfileInput(session, session.Plan().People.Single());
         var batch = Path.Combine(root, "cardinality.json");
         Save(batch, Enumerable.Repeat(input, count).ToArray());
 
@@ -803,7 +894,7 @@ public sealed class OrgExportTests : IDisposable
         if (JsonNode.Parse(content) is JsonArray array)
         {
             using var session = ExportSession.Open(path);
-            array.Insert(0, JsonValue.Create(ProfileInput(session.Plan().People.Single())));
+            array.Insert(0, JsonValue.Create(ProfileInput(session, session.Plan().People.Single())));
             content = array.ToJsonString();
         }
         File.WriteAllText(batch, content);
@@ -826,7 +917,7 @@ public sealed class OrgExportTests : IDisposable
         using (var session = ExportSession.Open(path))
         {
             Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
-            earlierInput = ProfileInput(session.Plan().People.Single());
+            earlierInput = ProfileInput(session, session.Plan().People.Single());
             session.Profile(RootId, earlierInput);
         }
         var earlier = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(earlierInput), ExportSession.Json)!;
@@ -879,9 +970,9 @@ public sealed class OrgExportTests : IDisposable
                 (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")),
                 (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
             var people = session.Plan().People;
-            rootInput = ProfileInput(people.Single(person => person.Id == RootId));
+            rootInput = ProfileInput(session, people.Single(person => person.Id == RootId));
             session.Profile(RootId, rootInput);
-            session.Profile(ChildId, ProfileInput(people.Single(person => person.Id == ChildId)));
+            session.Profile(ChildId, ProfileInput(session, people.Single(person => person.Id == ChildId)));
         }
         var other = File.ReadAllBytes(Path.Combine(path, "profiles", ChildId + ".json"));
         var sources = Directory.GetFiles(Path.Combine(path, "sources")).ToDictionary(file => Path.GetFileName(file), File.ReadAllBytes);
@@ -926,8 +1017,8 @@ public sealed class OrgExportTests : IDisposable
                 (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")),
                 (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
             var people = session.Plan().People;
-            rootInput = ProfileInput(people.Single(person => person.Id == RootId));
-            childInput = ProfileInput(people.Single(person => person.Id == ChildId));
+            rootInput = ProfileInput(session, people.Single(person => person.Id == RootId));
+            childInput = ProfileInput(session, people.Single(person => person.Id == ChildId));
             session.Profile(RootId, rootInput);
             session.Profile(ChildId, childInput);
         }
@@ -1013,19 +1104,35 @@ public sealed class OrgExportTests : IDisposable
         var results = new JsonArray(values.Select(v => (JsonNode?)v.Response).ToArray());
         Save(response, new JsonObject { ["results"] = results });
         session.Ingest(requests, response);
+        foreach (var value in values)
+            CompleteSource(session, "structured", value.Path, value.Response);
     }
-    private void RecordProfile(ExportSession session)
+    private void RecordProfile(ExportSession session, bool sourceCompleted = true)
     {
         var person = session.Plan().People.Single();
-        session.Profile(person.Id, ProfileInput(person));
+        session.Profile(person.Id, ProfileInput(session, person, sourceCompleted));
     }
-    private string ProfileInput(ExportSession.Person person)
+    private string ProfileInput(ExportSession session, ExportSession.Person person, bool sourceCompleted = true)
     {
         var evidence = Path.Combine(root, Guid.NewGuid() + ".json");
         Save(evidence, new { directoryId = person.Id, workPosition = new { city = "Fictitious city" } });
         var input = Path.Combine(root, Guid.NewGuid() + ".json");
         Save(input, new ExportSession.Observation(person.Id, person.Email, UnknownFields(), [evidence], [], null, DateTimeOffset.UtcNow));
+        if (sourceCompleted) CompleteSource(session, "profile", person.Id, Ok(new JsonObject()));
         return input;
+    }
+    private void CompleteSource(ExportSession session, string kind, string target, JsonObject response)
+    {
+        // Existing payload fixtures may deliberately re-ingest a changed result without making another source call.
+        if (session.SourceStatus().Reads.Any(read => read.Kind == kind && read.Target == target && read.State == "completed")) return;
+        var claim = session.ClaimSource("fixture", kind, [target]);
+        if (claim.ClaimId is not null) FinishSource(session, claim, response);
+    }
+    private void FinishSource(ExportSession session, ExportSession.SourceClaim claim, JsonObject response)
+    {
+        var results = Path.Combine(root, Guid.NewGuid() + ".json");
+        Save(results, new[] { new ExportSession.SourceResult(claim.Targets.Single(), response) });
+        session.FinishSource(claim.ClaimId!.Value, results);
     }
     private static async Task<(int ExitCode, string Output, string Error)> RunCli(params string[] arguments)
     {

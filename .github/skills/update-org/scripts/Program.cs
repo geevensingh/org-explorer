@@ -6,7 +6,7 @@ try
     if (!OperatingSystem.IsWindows())
         throw new PlatformNotSupportedException("Run this producer in a local Windows session.");
     if (args.Length == 0)
-        throw new ArgumentException("Expected init, capture-start, capture, ingest, plan, profile, cache, photo, or publish. See collection.md.");
+        throw new ArgumentException("Expected init, capture-start, capture, a source-* command, ingest, plan, profile, cache, photo, or publish. See collection.md.");
     object result;
     if (args[0] == "init" && args.Length == 4)
         result = ExportSession.Create(args[1], args[2], args[3]);
@@ -16,6 +16,11 @@ try
         using var session = ExportSession.Open(args[1], publishing: args[0] == "publish");
         result = args[0] switch
         {
+            "source-status" when args.Length == 2 => session.SourceStatus(),
+            "source-claim" when args.Length == 5 => session.ClaimSource(args[2], args[3], args[4]),
+            "source-finish" when args.Length == 4 => session.FinishSource(Guid.Parse(args[2]), args[3]),
+            "source-recover" when args.Length == 2 => session.BeginSourceRecovery(),
+            "source-interrupt" when args.Length == 4 => session.InterruptSource(Guid.Parse(args[2]), args[3]),
             "capture-start" when args.Length == 4 => session.BeginCapture(args[2], args[3]),
             "capture" when args.Length == 3 => session.Capture(args[2]),
             "ingest" when args.Length == 4 => session.Ingest(args[2], args[3]),
