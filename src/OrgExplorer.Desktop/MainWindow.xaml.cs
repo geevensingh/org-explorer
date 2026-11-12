@@ -63,6 +63,8 @@ public partial class MainWindow : Window
     }
     private void OpenImportView(object sender, RoutedEventArgs e)
     {
+        SettingsPanel.Visibility = Visibility.Collapsed;
+        UpdateMainViews();
         if (workflow.IsImportOpen || !TryLeaveLocalEdits()) return;
         if (!workflow.TryOpenImport())
         {
@@ -105,7 +107,11 @@ public partial class MainWindow : Window
         ShowStatus();
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
-        => await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+    {
+        SettingsPanel.Visibility = Visibility.Collapsed;
+        UpdateMainViews();
+        await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+    }
 
     private void PresentWorkspaceOpen()
     {
@@ -195,6 +201,8 @@ public partial class MainWindow : Window
     {
         if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) && !TryLeaveLocalEdits())
             return false;
+        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
+            ProfileDetails.IsExpanded = false;
         selectedEmail = person.Email;
         if (selectedMatch is not null && !string.Equals(selectedMatch.Person.Email, selectedEmail, StringComparison.OrdinalIgnoreCase))
             ClearSearchContext();
@@ -334,8 +342,11 @@ public partial class MainWindow : Window
     private void ShowStatus()
     {
         ShowWorkspaceStartup();
-        ImportPanel.Visibility = workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
-        ExplorerPanel.Visibility = workflow.IsImportOpen ? Visibility.Collapsed : Visibility.Visible;
+        var path = workflow.Compatibility.WorkspacePath;
+        WorkspaceName.Text = path is null ? "No Workspace open" : new DirectoryInfo(path).Name;
+        WorkspaceName.ToolTip = WorkspaceName.Text;
+        System.Windows.Automation.AutomationProperties.SetHelpText(WorkspaceName, path ?? "");
+        UpdateMainViews();
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         if (!workPending)
@@ -362,6 +373,13 @@ public partial class MainWindow : Window
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }
+    }
+
+    private void UpdateMainViews()
+    {
+        var settingsOpen = SettingsPanel.Visibility == Visibility.Visible;
+        ImportPanel.Visibility = !settingsOpen && workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerPanel.Visibility = !settingsOpen && !workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private bool TryLeaveLocalEdits()

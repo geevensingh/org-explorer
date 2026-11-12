@@ -31,9 +31,12 @@ On Windows 11 x64 with the .NET 10 SDK:
 dotnet run --project src\OrgExplorer.Desktop
 ```
 
-Choose an empty local folder outside the installation, then **Open Workspace**.
-Open **Import...** without entering Edit profile, choose a version-1 JSON file,
-review **Preview import**, and deliberately **Apply reviewed import**.
+Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
+label. In **Settings**, choose an empty local folder outside the installation,
+then **Open Workspace**. The full folder path and folder-opening controls live
+there rather than in the everyday toolbar.
+Choose **Settings → Import...** without entering Edit profile, choose a version-1
+JSON file, review **Preview import**, and deliberately **Apply reviewed import**.
 **Back to people** returns to reading; file selection, preview and Apply controls
 are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
@@ -43,8 +46,11 @@ changes or a profile draft; any other unsaved writing still blocks close/restart
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Profiles open in **View** mode with populated, readable values; right-click a
-value to copy it, or Tab to it and use the context-menu key / Shift+F10.
+Profiles open in **View** mode with photo, identity and principal actions together.
+Role, department, Manager, location and email are immediately readable.
+**More details** reveals populated Alias, office number and LinkedIn URL fields;
+the saved LinkedIn link still opens only through an explicit action.
+Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
 Empty optional rows are omitted. **Edit profile** reveals all
 ordinary fields and stages text, Manager and photo changes together.
 **Save profile** validates and publishes the complete change; **Cancel**
@@ -56,8 +62,8 @@ saved data. The app does not upload Workspace data.
 
 After a successful open, the app remembers that Workspace in app-local settings
 and reopens it on the next launch through the same validation/conversion flow.
-First launch stays empty with folder-opening controls. If the previous folder
-cannot be reopened, the app stays empty, explains the failure, and offers
+First launch stays empty with folder-opening controls available in **Settings**.
+If the previous folder cannot be reopened, the app stays empty, explains the failure, and offers
 **Retry previous Workspace** or **Choose another folder**. Automatic reopening
 never creates a missing replacement folder; intentional manual open/create
 remains available. Failed opens never replace the remembered successful folder.
@@ -101,7 +107,7 @@ unavailable data, never an app-owned repair. Conversion failure keeps the
 original pointer authoritative and reports recoverable originals, when available.
 Resolve the local failure and retry; do not treat staged output as committed.
 
-**Settings and upgrade guidance** is always accessible, including before choosing
+**Settings** is always accessible, including before choosing
 a Workspace or after incompatible data/conversion failure. **Retry Workspace
 validation / conversion** retries local loading without enabling invalid edits.
 **Check for updates** verifies project-key signed releases, and startup checks

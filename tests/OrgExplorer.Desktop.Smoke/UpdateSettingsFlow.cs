@@ -43,6 +43,7 @@ internal static partial class Program
                 Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Editable during update check");
                 Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+                SetSettingsVisible(window, true);
                 if (!Find(window, "UpdateGuidance").Current.Name.Contains("Checking"))
                     throw new InvalidOperationException("The controlled pending feed did not remain pending during the local save.");
                 held.SetResult();
@@ -99,6 +100,7 @@ internal static partial class Program
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Editable after update failure");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            SetSettingsVisible(window, true);
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();
             AwaitStartupPreference(window, ToggleState.On);
@@ -162,6 +164,7 @@ internal static partial class Program
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
             Click(window, "CheckForUpdates");
             Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Automatic update paused"));
+            SetSettingsVisible(window, false);
             AssertValue(window, "PersonNoteMarkdown", "Retained failing update draft");
             if (File.Exists(handoff))
                 throw new InvalidOperationException("An unsaved real WPF draft reached the installer boundary.");
@@ -173,9 +176,11 @@ internal static partial class Program
         Click(window, "CheckForUpdates");
         Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Checking"));
         Set(window, "PersonNoteMarkdown", "Final private writing flushed before update");
+        SetSettingsVisible(window, true);
         held.TrySetResult();
         server.HoldResponse = null;
         Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Controlled installer process boundary"));
+        SetSettingsVisible(window, false);
         AssertValue(window, "PersonNoteMarkdown", "Final private writing flushed before update");
         using var request = JsonDocument.Parse(File.ReadAllText(handoff));
         if (request.RootElement.GetProperty("workspace").GetString() != workspace ||

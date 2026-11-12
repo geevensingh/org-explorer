@@ -174,6 +174,10 @@ dispatcher; startup restore/update Loaded handlers and UI Automation are not run
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 It also checks that all ten profile Copy targets accept focus and Tab navigation.
+The compiled chrome contract keeps folder management and Import inside Settings,
+the quiet Workspace name non-interactive, and search outside the People-only view.
+Settings occupies the bounded main work area rather than growing above it;
+operational feedback and startup recovery stay outside that scrolling view.
 
 The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
@@ -184,6 +188,10 @@ delivery refresh and dirty-note retention. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
+The same invisible-control regression exercises the essential profile summary,
+collapsed/populated More details, full editing of an empty field and Cancel,
+and Settings-to-Import rejection retaining independent failed Person-note writing
+and delivered bytes. It is not rendered-layout or actual keyboard evidence.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
@@ -227,6 +235,8 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
+  essential summary and populated More details,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
@@ -355,6 +365,10 @@ no selected Person or visible recovery error is accepted. Its headless replay
 covers the collapsed-label hosted failure and rejects wrong-folder, pending and
 stale observations without retrying Open. Failed-startup smoke still requires
 the actual visible error and enabled Retry/Choose recovery controls.
+The exact opened folder is read from the quiet Workspace label's accessibility
+description; the visible full-path editor remains in Settings. Restore checks
+still require the exact folder and live current-data/owner/recovery observations
+within the same bounded wait, not just a successful folder-name match.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,

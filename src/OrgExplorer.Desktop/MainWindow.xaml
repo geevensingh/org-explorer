@@ -3,8 +3,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:workflow="clr-namespace:OrgExplorer.Workflow;assembly=OrgExplorer.Workflow"
         xmlns:local="clr-namespace:OrgExplorer.Desktop"
-        Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500">
+        Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500"
+        FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="10,5"/>
+      <Setter Property="Background" Value="#F6F8FA"/>
+      <Setter Property="BorderBrush" Value="#D0D7DE"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="BorderBrush" Value="#D0D7DE"/>
+    </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
       <Setter Property="AutomationProperties.Name" Value="{Binding Person.Heading}"/>
@@ -26,11 +36,16 @@
     </Grid.RowDefinitions>
     <StackPanel>
       <DockPanel Margin="0,0,0,12">
-        <Button DockPanel.Dock="Right" Content="_Settings and upgrade guidance" AutomationProperties.AutomationId="OpenSettings"
+        <Button x:Name="OpenSettingsButton" DockPanel.Dock="Right" Content="_Settings" AutomationProperties.AutomationId="OpenSettings"
                 Click="ToggleSettings" HorizontalAlignment="Right"/>
-        <Button x:Name="OpenImportButton" DockPanel.Dock="Right" Content="_Import..."
-                AutomationProperties.AutomationId="OpenImport" Click="OpenImportView" Margin="0,0,12,0"/>
-        <TextBlock Text="Private offline Workspace" FontSize="24"/>
+        <TextBlock x:Name="WorkspaceName" AutomationProperties.AutomationId="WorkspaceName" Text="No Workspace open"
+                   Foreground="DimGray" Width="150" Margin="0,0,16,0" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis"/>
+        <StackPanel Margin="0,0,16,0">
+          <TextBlock Text="Search local information" Foreground="DimGray"/>
+          <TextBox x:Name="SearchQuery" AutomationProperties.AutomationId="SearchQuery" AutomationProperties.Name="Local search"
+                   TextChanged="ChangeSearchQuery" ToolTip="Search profiles and private notes, including archived and historical context"/>
+        </StackPanel>
       </DockPanel>
       <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
                  TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
@@ -44,33 +59,45 @@
                   Click="ChooseAnotherWorkspace"/>
         </WrapPanel>
       </StackPanel>
-      <Border x:Name="SettingsPanel" Visibility="Collapsed" BorderBrush="Gray" BorderThickness="1" Padding="12" Margin="0,0,0,12">
-        <StackPanel>
-          <TextBlock Text="Settings — Workspace compatibility and recovery" FontWeight="SemiBold"/>
-          <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,8"/>
-          <WrapPanel Margin="0,8">
-            <Button x:Name="CheckForUpdatesButton" Content="Check for updates" AutomationProperties.AutomationId="CheckForUpdates"
-                    Click="CheckForUpdates" Margin="0,0,12,0"/>
-            <CheckBox x:Name="StartupUpdateChecks" Content="Check for updates on startup" IsChecked="True"
-                      AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center"
-                      Checked="ChangeStartupUpdateChecks" Unchecked="ChangeStartupUpdateChecks"/>
-          </WrapPanel>
-          <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap"/>
-          <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
-          <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
-                     TextWrapping="Wrap"/>
-          <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
-                     TextWrapping="Wrap" Margin="0,8"/>
-          <Button Content="Retry Workspace validation / conversion" AutomationProperties.AutomationId="RetryWorkspace"
-                  Click="RetryWorkspace" HorizontalAlignment="Left"/>
-        </StackPanel>
-      </Border>
     </StackPanel>
-    <DockPanel x:Name="WorkspaceControls" Grid.Row="1" Margin="0,0,0,8">
-      <Button x:Name="OpenWorkspaceButton" DockPanel.Dock="Right" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
-      <Button DockPanel.Dock="Right" Content="Choose folder…" Click="ChooseWorkspace" Margin="8,0"/>
-      <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath" ToolTip="Workspace folder, separate from installation"/>
-    </DockPanel>
+    <Border x:Name="SettingsPanel" Grid.Row="2" Visibility="Collapsed" BorderBrush="#D0D7DE" BorderThickness="0,1,0,0"
+            Background="White" Padding="12">
+      <DockPanel>
+        <TextBlock x:Name="SettingsTitle" DockPanel.Dock="Top" Text="Settings" FontSize="20" FontWeight="SemiBold"
+                   AutomationProperties.AutomationId="SettingsTitle"/>
+        <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <TextBlock Text="Workspace folder" Margin="0,8,0,4"/>
+            <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath"
+                     AutomationProperties.Name="Workspace folder" ToolTip="Workspace folder, separate from installation"/>
+            <WrapPanel x:Name="WorkspaceControls" Margin="0,8">
+              <Button Content="Choose folder…" AutomationProperties.AutomationId="ChooseWorkspace" Click="ChooseWorkspace" Margin="0,0,8,0"/>
+              <Button x:Name="OpenWorkspaceButton" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
+              <Button x:Name="OpenImportButton" Content="_Import..." AutomationProperties.AutomationId="OpenImport"
+                      Click="OpenImportView" Margin="16,0,0,0"/>
+            </WrapPanel>
+            <TextBlock Text="Import opens a separate preview and review. Nothing changes until Apply." TextWrapping="Wrap" Foreground="DimGray"/>
+            <TextBlock Text="Workspace compatibility and recovery" FontWeight="SemiBold" Margin="0,12,0,0"/>
+            <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,8"/>
+            <WrapPanel Margin="0,8">
+              <Button x:Name="CheckForUpdatesButton" Content="Check for updates" AutomationProperties.AutomationId="CheckForUpdates"
+                      Click="CheckForUpdates" Margin="0,0,12,0"/>
+              <CheckBox x:Name="StartupUpdateChecks" Content="Check for updates on startup" IsChecked="True"
+                        AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center"
+                        Checked="ChangeStartupUpdateChecks" Unchecked="ChangeStartupUpdateChecks"/>
+            </WrapPanel>
+            <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap"/>
+            <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
+            <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
+                       TextWrapping="Wrap"/>
+            <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
+                       TextWrapping="Wrap" Margin="0,8"/>
+            <Button Content="Retry Workspace validation / conversion" AutomationProperties.AutomationId="RetryWorkspace"
+                    Click="RetryWorkspace" HorizontalAlignment="Left"/>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
     <Grid x:Name="ImportPanel" Grid.Row="2" Visibility="Collapsed" AutomationProperties.AutomationId="ImportView">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
@@ -104,9 +131,6 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-          <TextBlock Text="Local search — profiles and private note context" TextWrapping="Wrap" FontWeight="SemiBold"/>
-          <TextBox x:Name="SearchQuery" AutomationProperties.AutomationId="SearchQuery" AutomationProperties.Name="Local search"
-                   TextChanged="ChangeSearchQuery" ToolTip="Case-insensitive text search, including retained archived and historical context" Margin="0,4"/>
           <TextBlock x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount" Text="Enter text to search local information." TextWrapping="Wrap"/>
           <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" MaxHeight="150"
                    SelectionChanged="SelectSearchResult" Visibility="Collapsed" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -159,22 +183,57 @@
       </DockPanel>
       <ScrollViewer Grid.Column="1" AutomationProperties.AutomationId="ProfileScroll" Margin="20,0,0,0" VerticalScrollBarVisibility="Auto">
       <StackPanel>
-        <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"/>
-        <WrapPanel Margin="0,8">
-          <Button x:Name="FavoriteButton" Content="Mark favorite" AutomationProperties.AutomationId="ToggleFavorite"
-                  Click="ChangeFavorite" IsEnabled="False"/>
-          <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
-                     Text="Select a Person." Margin="8,0" VerticalAlignment="Center"/>
-          <Menu VerticalAlignment="Center" Margin="8,0" Background="Transparent">
-            <MenuItem x:Name="PersonMoreMenu" Header="More" AutomationProperties.AutomationId="PersonMore"
-                      IsEnabled="False">
-              <MenuItem x:Name="ArchivePersonMenuItem" Header="Archive Person…" AutomationProperties.AutomationId="ArchivePerson"
-                        Click="ArchivePerson"/>
-              <MenuItem x:Name="ReactivatePersonMenuItem" Header="Reactivate Person…" AutomationProperties.AutomationId="ReactivatePerson"
-                        Click="ReactivatePerson" Visibility="Collapsed"/>
-            </MenuItem>
-          </Menu>
-        </WrapPanel>
+        <Grid x:Name="PersonIdentity">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <local:PersonPhotoControl x:Name="Photo" Margin="0,0,16,0" VerticalAlignment="Top"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"
+                       FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="Directory name" Foreground="DimGray" Margin="0,4,0,0"/>
+            <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName" TextWrapping="Wrap"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+            <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,4" TextWrapping="Wrap"
+                       ToolTip="Stable email identity; not editable" Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+            <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,4">
+              <TextBlock Text="Preferred name" Foreground="DimGray"/>
+              <WrapPanel x:Name="PreferredNameReadPanel">
+                <TextBlock x:Name="PreferredNameValue" AutomationProperties.AutomationId="PreferredNameValue"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button x:Name="EditPreferredNameButton" Content="Add preferred name"
+                        AutomationProperties.AutomationId="EditPreferredName" Click="EditPreferredName"/>
+              </WrapPanel>
+              <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed">
+                <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
+                         AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
+                <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
+                           Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
+                <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
+                        Click="ReadPreferredName" HorizontalAlignment="Left"/>
+              </StackPanel>
+            </StackPanel>
+            <WrapPanel Margin="0,4">
+              <Button x:Name="EditProfileButton" Content="Edit profile" AutomationProperties.AutomationId="EditProfile"
+                      Click="BeginProfileEdit" IsEnabled="False" Margin="0,0,8,4"/>
+              <Button x:Name="FavoriteButton" Content="Mark favorite" AutomationProperties.AutomationId="ToggleFavorite"
+                      Click="ChangeFavorite" IsEnabled="False" Margin="0,0,0,4"/>
+              <Menu VerticalAlignment="Center" Margin="8,0" Background="Transparent">
+                <MenuItem x:Name="PersonMoreMenu" Header="More" AutomationProperties.AutomationId="PersonMore"
+                          IsEnabled="False">
+                  <MenuItem x:Name="ArchivePersonMenuItem" Header="Archive Person…" AutomationProperties.AutomationId="ArchivePerson"
+                            Click="ArchivePerson"/>
+                  <MenuItem x:Name="ReactivatePersonMenuItem" Header="Reactivate Person…" AutomationProperties.AutomationId="ReactivatePerson"
+                            Click="ReactivatePerson" Visibility="Collapsed"/>
+                </MenuItem>
+              </Menu>
+            </WrapPanel>
+            <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
+                       Text="Select a Person." Foreground="DimGray" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Grid>
         <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
           <StackPanel Margin="8">
             <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
@@ -187,50 +246,81 @@
           </StackPanel>
         </GroupBox>
         <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
-                   Text="Select a Person." TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
-        <local:PersonPhotoControl x:Name="Photo"/>
+                   Text="Select a Person." TextWrapping="Wrap" Margin="0,8">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Setter Property="Foreground" Value="#8A3B12"/>
+              <Setter Property="FontWeight" Value="SemiBold"/>
+              <Style.Triggers>
+                <Trigger Property="Text" Value="Active — included in the current imported org.">
+                  <Setter Property="Foreground" Value="DimGray"/>
+                  <Setter Property="FontWeight" Value="Normal"/>
+                </Trigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
         <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
                    Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>
-        <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName"
-                   Focusable="True" KeyboardNavigation.IsTabStop="True">
-          <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-        </TextBlock>
-        <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,8" ToolTip="Stable email identity; not editable"
-                   Focusable="True" KeyboardNavigation.IsTabStop="True">
-          <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-        </TextBlock>
-        <Button x:Name="EditProfileButton" Content="Edit profile" AutomationProperties.AutomationId="EditProfile"
-                Click="BeginProfileEdit" HorizontalAlignment="Left" IsEnabled="False"/>
         <WrapPanel x:Name="ProfileSessionActions" Visibility="Collapsed" Margin="0,8">
           <Button x:Name="SaveProfileButton" Content="Save profile" AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
           <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile" Click="CancelProfileEdit" Margin="8,0"/>
           <TextBlock Text="Unsaved until Save. Cancel discards profile text, Manager and photo only." TextWrapping="Wrap" Margin="8,0"/>
         </WrapPanel>
+        <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
+                HorizontalAlignment="Left" Margin="0,4,0,8" IsEnabled="False">
+          <Button.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Button.ContentTemplate>
+        </Button>
         <StackPanel x:Name="ProfileValues">
-          <StackPanel x:Name="AliasValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="Alias" Foreground="DimGray"/>
-            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="JobTitleValueRow" Margin="0,6" Visibility="Collapsed">
+          <WrapPanel>
+            <WrapPanel.Resources>
+              <Style TargetType="StackPanel">
+                <Setter Property="Width" Value="200"/>
+                <Setter Property="Margin" Value="0,4,12,4"/>
+              </Style>
+            </WrapPanel.Resources>
+          <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed">
             <TextBlock Text="Job title" Foreground="DimGray"/>
             <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-          <StackPanel x:Name="DepartmentValueRow" Margin="0,6" Visibility="Collapsed">
+          <StackPanel x:Name="DepartmentValueRow" Visibility="Collapsed">
             <TextBlock Text="Department" Foreground="DimGray"/>
             <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-          <StackPanel x:Name="OfficeBuildingValueRow" Margin="0,6" Visibility="Collapsed">
+          <StackPanel x:Name="OfficeBuildingValueRow" Visibility="Collapsed">
             <TextBlock Text="Office building" Foreground="DimGray"/>
             <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel x:Name="OfficeStateValueRow" Visibility="Collapsed">
+            <TextBlock Text="Office state / province" Foreground="DimGray"/>
+            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel x:Name="OfficeCountryValueRow" Visibility="Collapsed">
+            <TextBlock Text="Office country" Foreground="DimGray"/>
+            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          </WrapPanel>
+          <Expander x:Name="ProfileDetails" Header="More details" AutomationProperties.AutomationId="ProfileDetails"
+                    AutomationProperties.Name="More profile details" Margin="0,6">
+            <StackPanel Margin="12,4,0,0">
+          <StackPanel x:Name="AliasValueRow" Margin="0,6" Visibility="Collapsed">
+            <TextBlock Text="Alias" Foreground="DimGray"/>
+            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
@@ -242,20 +332,6 @@
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-          <StackPanel x:Name="OfficeStateValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="Office state / province" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="OfficeCountryValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="Office country" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
           <StackPanel x:Name="LinkedInProfileUrlValueRow" Margin="0,6" Visibility="Collapsed">
             <TextBlock Text="LinkedIn profile URL" Foreground="DimGray"/>
             <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
@@ -263,28 +339,11 @@
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
+            </StackPanel>
+          </Expander>
         </StackPanel>
         <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False" Visibility="Collapsed"
                 AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
-        <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,8">
-          <TextBlock Text="Preferred name" Margin="0,0,0,4"/>
-          <WrapPanel x:Name="PreferredNameReadPanel">
-            <TextBlock x:Name="PreferredNameValue" AutomationProperties.AutomationId="PreferredNameValue"
-                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <Button x:Name="EditPreferredNameButton" Content="Add preferred name"
-                    AutomationProperties.AutomationId="EditPreferredName" Click="EditPreferredName"/>
-          </WrapPanel>
-          <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed">
-            <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
-                     AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
-            <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
-                       Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
-            <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
-                    Click="ReadPreferredName" HorizontalAlignment="Left"/>
-          </StackPanel>
-        </StackPanel>
-        <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
-                HorizontalAlignment="Left" Margin="0,12" IsEnabled="False"/>
         <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed" Margin="0,0,0,12">
           <TextBlock Text="Manager in this profile draft (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
           <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
@@ -335,6 +394,8 @@
           <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
                    AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
         </StackPanel>
+        <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
+        <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
         <GroupBox Header="Structured Profile timeline — most recent recording first" Margin="0,16,0,0">
           <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
             <TextBlock x:Name="ProfileTimelineText" AutomationProperties.AutomationId="ProfileTimeline"
@@ -351,8 +412,6 @@
                        TextWrapping="Wrap" Margin="8"/>
           </ScrollViewer>
         </Expander>
-        <local:PersonNotesControl x:Name="PersonNotes" Margin="0,16,0,0"/>
-        <local:TeamNotesControl x:Name="TeamNotes" Margin="0,16,0,0"/>
         <GroupBox Header="Historical team context — frozen former context, not current inheritance" Margin="0,16,0,0">
           <StackPanel Margin="8">
             <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
@@ -369,8 +428,34 @@
       </ScrollViewer>
     </Grid>
     <StackPanel Grid.Row="3" Margin="0,16,0,0">
-      <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready"/>
-      <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap" FontWeight="SemiBold"/>
+      <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#8A3B12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+              <Trigger Property="Text" Value="Ready">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
+      <TextBlock x:Name="WorkspaceFreshness" AutomationProperties.AutomationId="WorkspaceFreshness" TextWrapping="Wrap">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#8A3B12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+              <Trigger Property="Text" Value="Current validated local Workspace.">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
       <WrapPanel>
         <Button x:Name="DiscardImportButton" Content="Discard failed Import (not other drafts)" Click="DiscardImportChanges"
                 AutomationProperties.AutomationId="DiscardImport" Visibility="Collapsed" IsEnabled="False" Margin="0,0,8,0"/>
@@ -379,7 +464,28 @@
         <Button x:Name="DiscardProfileButton" Content="Discard profile / quick draft (not notes)" Click="DiscardProfileDraft"
                 AutomationProperties.AutomationId="DiscardProfileDraft" IsEnabled="False" Margin="8,0"/>
       </WrapPanel>
-      <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Text="Choose a Workspace."/>
+      <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Text="Choose a Workspace.">
+        <TextBlock.Style>
+          <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#8A3B12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+              <Trigger Property="Text" Value="Workspace opened.">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+              <Trigger Property="Text" Value="Saved locally.">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+              <Trigger Property="Text" Value="Profile saved locally.">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </TextBlock.Style>
+      </TextBlock>
     </StackPanel>
   </Grid>
 </Window>
