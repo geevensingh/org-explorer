@@ -52,9 +52,11 @@ failure reports saved locally with incomplete maintenance and blocks safe close,
 rather than inviting the edit to be repeated as if it were unsaved.
 
 Independent object inventories and staged payloads use bounded parallel I/O.
-Each inventory is durable before its own payload is created. All required
-staging finishes before bounded parallel immutable-object publication;
-complete candidate validation still precedes serialized selector publication.
+Each worker durably records its inventory, flushes its staged payload and
+publishes that immutable object before starting another. This bounds outstanding
+payload stages rather than accumulating the population in a staging directory.
+All required objects finish and complete candidate validation still precedes
+serialized selector publication.
 Recovery objects and their independently inventoried seals use the same ordering.
 
 Unreferenced staged/retired objects and transactions do not become current data

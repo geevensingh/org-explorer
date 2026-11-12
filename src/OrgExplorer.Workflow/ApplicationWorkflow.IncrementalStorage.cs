@@ -288,8 +288,7 @@ public sealed partial class ApplicationWorkflow
         IReadOnlyList<(string Relative, string StagingPath, byte[] Bytes)> objects)
     {
         using var phase = Storage47Probe.Scope("WriteIncrementalObjects " + inventoryPrefix);
-        using (Storage47Probe.Scope("StageObjects " + objects.Count))
-        {
+        using var objectPhase = Storage47Probe.Scope("StageAndPublishObjects " + objects.Count);
         RunBoundedFileIo(objects.Select((value, index) => (value, index)), entry =>
         {
             var (value, index) = entry;
@@ -301,12 +300,9 @@ public sealed partial class ApplicationWorkflow
                 }, IncrementalJsonOptions));
             CreateIncrementalDirectory(Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!);
             WriteDurablyBytes(Path.Combine(workspace!, value.StagingPath), value.Bytes);
-        });
-        }
-        using var publication = Storage47Probe.Scope("PublishObjects " + objects.Count);
-        RunBoundedFileIo(objects, value =>
             PublishWorkspaceFile(Path.Combine(workspace!, value.StagingPath),
-                Path.Combine(workspace!, value.Relative), null));
+                Path.Combine(workspace!, value.Relative), null);
+        });
     }
 
     private void CreateIncrementalDirectory(string directory)

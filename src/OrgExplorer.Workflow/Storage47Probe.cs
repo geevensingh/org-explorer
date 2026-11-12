@@ -16,7 +16,11 @@ internal static class Storage47Probe
         for (var phase = Current.Value; phase is not null; phase = phase.Parent)
             if (Interlocked.Increment(ref phase.Writes) % 20000 == 0) phase.Progress();
     }
-    internal static void Publish() { for (var phase = Current.Value; phase is not null; phase = phase.Parent) Interlocked.Increment(ref phase.Publications); }
+    internal static void Publish()
+    {
+        for (var phase = Current.Value; phase is not null; phase = phase.Parent)
+            if (Interlocked.Increment(ref phase.Publications) % 20000 == 0) phase.Progress();
+    }
     private static void Log(string message) { lock (Gate) File.AppendAllText(Path!, "[DEBUG-storage47] " + message + Environment.NewLine); }
     internal sealed class Phase : IDisposable
     {

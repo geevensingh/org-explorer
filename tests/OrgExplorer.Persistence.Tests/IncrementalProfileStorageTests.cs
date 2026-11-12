@@ -393,18 +393,26 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             var before = WorkspaceFixtures.Bytes(root);
             var recoveryBefore = WorkspaceFixtures.RecoveryDocuments(root);
             observer.Effects.Clear();
-            publisher.BeforePublish = (staged, _) =>
+            publisher.BeforePublish = (staged, destination) =>
             {
                 var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
                 Assert.NotEmpty(writes);
                 // This is a byte bound on real writes, including transient stages, not surviving size.
                 Assert.True(writes.Sum(e => e.Bytes) < 32768, $"Profile publication staged {writes.Sum(e => e.Bytes)} bytes.");
-                Assert.All(writes, write => Assert.Contains(observer.Effects,
-                    e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
+                Assert.Contains(writes, write => write.Path == staged);
+                Assert.Contains(observer.Effects,
+                    e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == staged);
+                if (destination == Path.Combine(root, "workspace.json") ||
+                    destination == Path.Combine(root, "recovery", "current.json"))
+                    Assert.All(writes, write => Assert.Contains(observer.Effects,
+                        e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
             };
             Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
             publisher.BeforePublish = null;
             var written = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
+            Assert.True(written.Sum(e => e.Bytes) < 32768, $"Profile save wrote {written.Sum(e => e.Bytes)} bytes.");
+            Assert.All(written, write => Assert.Contains(observer.Effects,
+                e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
             foreach (var group in written.GroupBy(e => Path.GetRelativePath(root, e.Path).Split(Path.DirectorySeparatorChar)[0]))
                 output.WriteLine($"{unrelatedCount + 2} People: {group.Key} = {group.Sum(e => e.Bytes)} bytes.");
             var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)

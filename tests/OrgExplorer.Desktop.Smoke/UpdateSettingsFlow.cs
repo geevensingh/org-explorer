@@ -105,7 +105,7 @@ internal static partial class Program
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
                 if (!saved.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||
-                    saved.GetRelationships("casey@example.com")!.Person.PreferredName != "Editable after update failure" ||
+                    saved.GetRelationships("avery@example.com")!.Person.PreferredName != "Editable after update failure" ||
                     !saved.CanSafelyClose)
                     throw new InvalidOperationException("The post-update-failure edit was not durably saved: " + saved.Status);
             }
