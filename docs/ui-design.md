@@ -1,6 +1,6 @@
 # Agreed adaptive UI redesign
 
-Status: agreed design, not implemented. Recorded after the November 11, 2026
+Status: agreed design, delivery in progress. Recorded after the November 11, 2026
 design interview and review of conceptual wide/compact mockups.
 
 This refines [the v1 design](design.md), not the product's identity, supported
@@ -153,6 +153,29 @@ document, not a collection-management screen.
 Empty note areas need a compact, purposeful invitation to write, not a fixed-height
 empty list plus disabled controls. Notes with empty bodies remain accessible.
 Concealing secondary actions must not conceal unsaved drafts or failures.
+
+### Implemented Person-note slice
+
+The Person-note host now opens its ongoing document directly and puts the
+collection behind Other notes. Multiple active candidates require explicit
+Use as ongoing; a sole active note may be read without recording a designation.
+Search and Other notes open the exact selected document in Read mode; new notes
+start editing. An unavailable or archived designated note keeps its recorded
+choice, gives visible recovery guidance and never selects replacement writing.
+
+Designations extend version-1 app-local WorkspaceSettings with optional
+per-Workspace entries, not synchronized Workspace data or a format migration.
+Workspace paths are canonical and matched case-insensitively on Windows; keys
+include stable owner email, Person/Team scope and the existing note GUID.
+Preference writes preserve other Workspace entries and publish atomically.
+Invalid data/versions and read/write failures are explicit and cannot overwrite
+previous preferences or mutate note documents. The shared observable owned-note
+interaction and designation storage support the subsequent owned-Team slice.
+
+This status covers Person notes and shared designation support only. Owned-Team
+presentation, adaptive layout and exact startup-view restoration remain separate
+delivery work; it does not declare the entire redesign implemented or hosted
+WPF acceptance complete.
 
 ## Team context and history
 

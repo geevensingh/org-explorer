@@ -562,12 +562,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private static string Email(JsonElement value, string field)
     {
         var email = Text(value, field, false)!;
-        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+$") || !MailAddress.TryCreate(email, out var parsed) || parsed.Address != email ||
-            !email[(email.LastIndexOf('@') + 1)..].Split('.').All(label =>
-                Regex.IsMatch(label, @"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")))
+        if (!IsPlainEmail(email))
             throw new FormatException($"{field}: expected a plain email mailbox.");
         return email;
     }
+    internal static bool IsPlainEmail(string email) =>
+        Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+$") && MailAddress.TryCreate(email, out var parsed) && parsed.Address == email &&
+        email[(email.LastIndexOf('@') + 1)..].Split('.').All(label =>
+            Regex.IsMatch(label, @"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$"));
     private static bool Boolean(JsonElement value, string field) =>
         value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean()
             : throw new FormatException($"{field}: expected Boolean true or false; omission preserves the value.");

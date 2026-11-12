@@ -14,6 +14,39 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null}]}
         """;
 
+    [Fact]
+    public void Failed_secondary_draft_retains_exact_owner_and_editor_when_ongoing_navigation_is_rejected()
+    {
+        using var app = Open();
+        var ongoing = app.CreatePersonNote(Owner, "Ongoing", "Continuing writing")!;
+        var secondary = app.CreatePersonNote(Owner, "Secondary", "Original secondary writing")!;
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, Owner));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, ongoing.Id));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, secondary.Id, editing: true));
+        var draft = app.BeginNoteDraft(NoteScope.Person, Owner, secondary.Id)!;
+        var file = Path.Combine(folder, "notes", secondary.Id + ".md");
+        app.RetainNoteDraft(draft);
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Null(app.SaveNoteDraft(draft, "Retained secondary draft", "Unsaved writing"));
+        Assert.False(app.OpenOngoingNote(NoteScope.Person));
+        Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal(Owner, app.PersonNotesView.OwnerEmail);
+        Assert.True(app.PersonNotesView.IsEditing);
+        Assert.Contains("Retry or discard", app.PersonNotesView.Feedback);
+        File.WriteAllText(file, File.ReadAllText(file).Replace("Original secondary writing", "Delivered secondary writing"));
+        var delivered = File.ReadAllBytes(file);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Null(app.SaveNoteDraft(draft, "Retained secondary draft", "Unsaved writing"));
+        Assert.Equal(delivered, File.ReadAllBytes(file));
+        Assert.Equal("Original secondary writing", draft.Markdown);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges(secondary.Id);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, secondary.Id));
+        Assert.Equal("Delivered secondary writing", app.PersonNotesView.SelectedNote!.Markdown);
+        Assert.True(app.OpenOngoingNote(NoteScope.Person));
+        Assert.Equal(ongoing.Id, app.PersonNotesView.SelectedNote!.Id);
+    }
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]

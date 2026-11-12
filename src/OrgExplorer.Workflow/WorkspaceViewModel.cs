@@ -5,10 +5,12 @@ namespace OrgExplorer.Workflow;
 public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
     private readonly IApplicationWorkflow workflow;
+    private readonly WorkspaceSettings? settings;
     private string? navigationError;
-    public WorkspaceViewModel(IApplicationWorkflow workflow)
+    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null)
     {
         this.workflow = workflow;
+        this.settings = settings;
         workflow.WorkspaceChanged += ForwardWorkspaceChange;
     }
     public event EventHandler? WorkspaceChanged;
@@ -66,7 +68,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         Observe(() =>
         {
             var opened = workflow.OpenWorkspace(path, mode);
-            if (opened) IsImportOpen = false;
+            if (opened)
+            {
+                IsImportOpen = false;
+                noteViews.Clear();
+            }
             return opened;
         });
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
@@ -107,5 +113,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PersonNotesView)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TeamNotesView)));
     }
 }

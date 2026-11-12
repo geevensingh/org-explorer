@@ -13,4 +13,6 @@ public sealed partial class WorkspaceViewModel
         workflow.RetainNoteDraft(draft);
         PropertyChanged?.Invoke(this, new(nameof(CanSafelyClose)));
     }
+
+    public bool HasUnsavedNoteDraft(NoteScope scope, Guid noteId) => workflow.HasUnsavedNoteDraft(scope, noteId);
 }
