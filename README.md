@@ -10,6 +10,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 ## Specifications
 
 - [Agreed v1 design](docs/design.md)
+- [Agreed adaptive UI redesign (planned, not implemented)](docs/ui-design.md)
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
 - [Workspace versions and recovery](docs/workspace-format.md)

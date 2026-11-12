@@ -61,6 +61,11 @@ A private note owned by a manager that supplies context for people in that
 manager's current reporting subtree.
 _Avoid_: Shared note, permanent-team note
 
+**Ongoing note**:
+A Person note or Team note designated as its owner's main continuing note of
+that kind, without replacing the owner's other notes or changing its scope.
+_Avoid_: Only note, merged note
+
 **Historical team context**:
 A preserved former reporting chain and the team notes known when that context
 was closed; subsequent note edits do not change this historical context.
