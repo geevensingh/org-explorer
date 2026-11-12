@@ -6,7 +6,7 @@ try
     if (!OperatingSystem.IsWindows())
         throw new PlatformNotSupportedException("Run this producer in a local Windows session.");
     if (args.Length == 0)
-        throw new ArgumentException("Expected init, ingest, plan, profile, cache, photo, or publish. See collection.md.");
+        throw new ArgumentException("Expected init, capture-start, capture, ingest, plan, profile, cache, photo, or publish. See collection.md.");
     object result;
     if (args[0] == "init" && args.Length == 4)
         result = ExportSession.Create(args[1], args[2], args[3]);
@@ -16,6 +16,8 @@ try
         using var session = ExportSession.Open(args[1], publishing: args[0] == "publish");
         result = args[0] switch
         {
+            "capture-start" when args.Length == 4 => session.BeginCapture(args[2], args[3]),
+            "capture" when args.Length == 3 => session.Capture(args[2]),
             "ingest" when args.Length == 4 => session.Ingest(args[2], args[3]),
             "plan" when args.Length == 2 => session.Jobs(),
             "profile" when args.Length == 4 => session.Profile(args[2], args[3]),
