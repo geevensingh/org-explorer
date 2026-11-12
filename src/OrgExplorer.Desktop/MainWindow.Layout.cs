@@ -40,9 +40,10 @@ public partial class MainWindow
             PeopleColumn.MinWidth = wide ? PeopleMinimum : 0;
             ExplorerPanel.ColumnDefinitions[2].MinWidth = wide ? ProfileMinimum + NotesMinimum + DividerWidth + 40 : 0;
             PeopleDividerColumn.Width = new(wide ? DividerWidth : 0);
-            PeopleColumn.Width = new(wide ? Math.Clamp(
-                (ExplorerPanel.ActualWidth - DividerWidth) * workflow.PaneProportions.PeoplePercent / 100,
-                PeopleMinimum, ExplorerPanel.ActualWidth - DividerWidth - ExplorerPanel.ColumnDefinitions[2].MinWidth) : 0);
+            var proportions = workflow.PaneProportions;
+            // Mixed pixel/star splitter resizing can grow content beyond the viewport instead of constraining both panes.
+            PeopleColumn.Width = wide ? new(proportions.PeoplePercent, GridUnitType.Star) : new(0);
+            ExplorerPanel.ColumnDefinitions[2].Width = new(wide ? 100 - proportions.PeoplePercent : 100, GridUnitType.Star);
             PersonScroll.Padding = new Thickness(wide ? 12 : 0, 0, 0, 0);
             OpenPeopleButton.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
             PeopleDivider.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
@@ -64,13 +65,12 @@ public partial class MainWindow
         arrangingPanes = true;
         try
         {
-            var available = PersonBody.ActualWidth - DividerWidth;
             ProfileColumn.MinWidth = wideWorkspace ? ProfileMinimum : 0;
             PersonBody.ColumnDefinitions[2].MinWidth = wideWorkspace ? NotesMinimum : 0;
             ProfileDividerColumn.Width = new(wideWorkspace ? DividerWidth : 0);
-            ProfileColumn.Width = new(wideWorkspace && available >= ProfileMinimum + NotesMinimum
-                ? Math.Clamp(available * workflow.PaneProportions.ProfilePercent / 100,
-                    ProfileMinimum, available - NotesMinimum) : 0);
+            var proportions = workflow.PaneProportions;
+            ProfileColumn.Width = wideWorkspace ? new(proportions.ProfilePercent, GridUnitType.Star) : new(0);
+            PersonBody.ColumnDefinitions[2].Width = new(wideWorkspace ? 100 - proportions.ProfilePercent : 100, GridUnitType.Star);
         }
         finally { arrangingPanes = false; }
     }

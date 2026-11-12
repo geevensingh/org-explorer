@@ -47,21 +47,6 @@ internal static partial class Program
     [DllImport("user32.dll")]
     private static extern void mouse_event(uint flags, uint x, uint y, uint data, nuint extra);
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DividerGuiInfo
-    {
-        public int Size;
-        public uint Flags;
-        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
-        public ResizeRect CaretBounds;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool GetGUIThreadInfo(uint thread, ref DividerGuiInfo info);
-
     private static double DpiScale(AutomationElement window) =>
         GetDpiForWindow((IntPtr)window.Current.NativeWindowHandle) / 96d;
 
@@ -132,50 +117,20 @@ internal static partial class Program
         var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
         var x = (int)(bounds.Left + bounds.Width / 2);
         var y = (int)Math.Max(bounds.Top + 20, viewport.Top + 20);
+        if (id == "ProfileDivider" && (bounds.Left < viewport.Left - 1 || bounds.Right > viewport.Right + 1 ||
+            Find(window, "NotesPane").Current.BoundingRectangle.Right > viewport.Right + 1 ||
+            y < viewport.Top || y >= viewport.Bottom || targetX < viewport.Left || targetX >= viewport.Right))
+            throw new InvalidOperationException($"Rendered profile divider/content is not reachable inside its viewport: divider={bounds}, viewport={viewport}, start={x},{y}, targetX={targetX}.");
         if (!SetCursorPos(x, y))
             throw new InvalidOperationException("The hosted interactive desktop could not position the divider pointer.");
-        Console.WriteLine($"[DEBUG-responsive-divider] before-down: id={id}; startPx={x},{y}; targetPx={(int)targetX},{y}; " +
-            $"startHit={DividerHit(new Point(x, y))}; targetHit={DividerHit(new Point((int)targetX, y))}; {DividerState(window)}");
         mouse_event(2, 0, 0, 0, 0);
         try
         {
             Thread.Sleep(100);
             if (!SetCursorPos((int)targetX, y)) throw new InvalidOperationException("Hosted divider drag could not move.");
             Thread.Sleep(100);
-            Console.WriteLine($"[DEBUG-responsive-divider] held-after-move: id={id}; {DividerState(window)}");
         }
         finally { mouse_event(4, 0, 0, 0, 0); }
-        Console.WriteLine($"[DEBUG-responsive-divider] after-up: id={id}; {DividerState(window)}");
-    }
-
-    private static string DividerHit(Point point)
-    {
-        var element = AutomationElement.FromPoint(point);
-        var path = new List<string>();
-        for (var depth = 0; element is not null && depth < 6; depth++, element = TreeWalker.ControlViewWalker.GetParent(element))
-            path.Add($"{element.Current.AutomationId}:{element.Current.ClassName}");
-        return string.Join(" > ", path);
-    }
-
-    private static string DividerState(AutomationElement window)
-    {
-        var handle = (IntPtr)window.Current.NativeWindowHandle;
-        var thread = GetWindowThreadProcessId(handle, out _);
-        var gui = new DividerGuiInfo { Size = Marshal.SizeOf<DividerGuiInfo>() };
-        var capture = GetGUIThreadInfo(thread, ref gui)
-            ? $"capture={gui.Capture != IntPtr.Zero}; focusHwnd={gui.Focus}"
-            : $"GUI state unavailable (Win32={Marshal.GetLastWin32Error()})";
-        var directory = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")
-            ?? throw new InvalidOperationException("Divider diagnostics require the scenario's isolated settings.");
-        var settings = new WorkspaceSettings(System.IO.Path.Combine(directory, "workspace-settings.json"));
-        var workspace = Find(window, "WorkspaceName").Current.HelpText;
-        var durable = settings.GetPaneProportions(workspace);
-        return $"peoplePx={Find(window, "PeopleNavigation").Current.BoundingRectangle}; " +
-            $"profilePx={Find(window, "ProfileSummary").Current.BoundingRectangle}; notesPx={Find(window, "NotesPane").Current.BoundingRectangle}; " +
-            $"peopleDividerPx={Find(window, "PeopleDivider").Current.BoundingRectangle}; " +
-            $"profileDividerPx={Find(window, "ProfileDivider").Current.BoundingRectangle}; " +
-            $"viewportPx={Find(window, "ProfileScroll").Current.BoundingRectangle}; actual={RenderedPaneProportions(window)}; " +
-            $"durable={(durable is null ? "no saved proportions" : durable.ToString())}; preferenceError={settings.PreferenceError ?? "none"}; {capture}";
     }
 
     private static PaneProportions AssertAdaptiveWorkspace(AutomationElement window)
@@ -201,6 +156,7 @@ internal static partial class Program
             {
                 if (!Visible("People") || profile.Width / scale < 239 || notes.Width / scale < 359 ||
                     profile.Right > notes.Left + 1 || Math.Abs(profile.Top - notes.Top) > 2 ||
+                    notes.Right > Bounds("ProfileScroll").Right + 1 ||
                     identity.Top >= profile.Top ||
                     Math.Abs((notes.Left - profile.Right) / scale - 8) > 1 ||
                     Math.Abs((Bounds("ProfileScroll").Left - Bounds("PeopleNavigation").Right) / scale - 8) > 1)
@@ -295,9 +251,10 @@ internal static partial class Program
         }
         catch (TimeoutException error)
         {
-            throw new TimeoutException($"[DEBUG-responsive-divider] Profile drag did not reach36% (unchanged tolerance1%, single gesture,20s). " +
+            throw new TimeoutException($"Profile drag did not reach 36% (tolerance 1%, single gesture, 20 s). " +
                 $"lastProfilePercent={observedProfilePercent}; startProfilePx={profile}; startNotesPx={notes}; " +
-                $"targetXPx={(int)(profile.Left + (profile.Width + notes.Width) * .36)}; {DividerState(window)}", error);
+                $"targetXPx={(int)(profile.Left + (profile.Width + notes.Width) * .36)}; " +
+                $"profilePx={Bounds("ProfileSummary")}; notesPx={Bounds("NotesPane")}; viewportPx={Bounds("ProfileScroll")}", error);
         }
         var preferred = RenderedPaneProportions(window);
         var widePeopleWidth = Bounds("PeopleNavigation").Width;

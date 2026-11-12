@@ -242,6 +242,14 @@ The same invisible-control regression exercises the essential profile summary,
 collapsed/populated More details, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also measures/arranges the actual compiled content and drives its real
+splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
+drags, an outer-pane change, 36% profile recovery and a narrower wide viewport.
+Both panes and the divider must remain inside the actual ScrollViewer viewport
+while held and after completion. This locks down the mixed pixel/star column
+overflow reproduced without a native window; paired proportional columns keep
+both opposing minimums in WPF's shared resize constraint. It does not replace
+hosted physical gesture/hit-target or rendered-pixel acceptance.
 It additionally drives actual compiled owned-Team create/read/designate/Other
 controls, an exact empty secondary note, a locked preference rejection and a
 failed secondary-note save with protected ongoing navigation and successful
