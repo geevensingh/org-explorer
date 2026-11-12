@@ -18,7 +18,10 @@ public sealed partial class ApplicationWorkflow
         public void Dispose() { if (active) workspaceReadSnapshot.Value = previous; }
     }
 
-    private Dictionary<string, byte[]> CaptureWorkspaceBytes()
+    private Dictionary<string, byte[]> CaptureWorkspaceBytes() =>
+        ObserveStoragePhase("storage.capture-current", CaptureWorkspaceBytesCore);
+
+    private Dictionary<string, byte[]> CaptureWorkspaceBytesCore()
     {
         var indexes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var paths = EnumerateIncrementalWorkspaceFiles(workspace!, indexes)

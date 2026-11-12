@@ -151,7 +151,8 @@ internal static partial class Program
                 if (!Find(window, "PersonArchivalStatus").Current.Name.Contains("Archived"))
                     throw new InvalidOperationException("The full population's final archived Person was not retained.");
             });
-            Close(process); process = null;
+            ScaleFixture.Measure("UI-close", () => Close(process));
+            process = null;
             Console.WriteLine("PASS: genuine 10,000-Person WPF realization/scrolling, navigation/search, photo pixels and current/frozen Markdown.");
         }
         finally
@@ -171,8 +172,11 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             Set(window, "WorkspacePath", fixture.Workspace);
-            Click(window, "OpenWorkspace");
-            AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+            ScaleFixture.Measure("UI-mutation-open", () =>
+            {
+                Click(window, "OpenWorkspace");
+                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+            });
             Set(window, "SearchQuery", "handle01000");
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
             SelectScaleResult(window);
@@ -203,27 +207,40 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "FavoriteStatus").Current.Name == "Not marked favorite");
             });
             var import = Path.Combine(fixture.Root, "refresh.json");
-            File.WriteAllText(import, ScaleFixture.Batch(Enumerable.Range(0, ScaleFixture.Population).Select(i =>
+            ScaleFixture.Measure("UI-import-file", () => File.WriteAllText(import, ScaleFixture.Batch(Enumerable.Range(0, ScaleFixture.Population).Select(i =>
             {
                 var update = new Dictionary<string, object?> { ["email"] = ScaleFixture.Email(i) };
                 if (i == 1000) update["managerEmail"] = ScaleFixture.Email(12);
                 return update;
-            }), 4));
-            OpenImportView(window);
-            Set(window, "ImportPath", import);
+            }), 4)));
+            ScaleFixture.Measure("UI-import-navigation", () =>
+            {
+                OpenImportView(window);
+                Set(window, "ImportPath", import);
+            });
             ScaleFixture.Measure("UI-validated-refresh", () =>
             {
-                Click(window, "PreviewImport");
-                AwaitScale(() => Find(window, "ApplyImport").Current.IsEnabled);
-                if (!Find(window, "Preview").Current.Name.Contains("person09999@example.com"))
-                    throw new InvalidOperationException("The 10,000-record review lost its final Person.");
-                Click(window, "ApplyImport");
-                AwaitScale(() => Find(window, "Status").Current.Name.Contains("Import applied"));
-                ReturnToPeople(window);
-                AwaitScale(() => Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"));
+                ScaleFixture.Measure("UI-import-preview", () =>
+                {
+                    Click(window, "PreviewImport");
+                    AwaitScale(() => Find(window, "ApplyImport").Current.IsEnabled);
+                    if (!Find(window, "Preview").Current.Name.Contains("person09999@example.com"))
+                        throw new InvalidOperationException("The 10,000-record review lost its final Person.");
+                });
+                ScaleFixture.Measure("UI-import-apply", () =>
+                {
+                    Click(window, "ApplyImport");
+                    AwaitScale(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+                });
+                ScaleFixture.Measure("UI-import-return", () =>
+                {
+                    ReturnToPeople(window);
+                    AwaitScale(() => Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"));
+                });
             });
-            var notePath = Directory.GetFiles(Path.Combine(fixture.Workspace, "notes"))
-                .First(p => File.ReadAllText(p).Contains("Orchid private writing 1000."));
+            var notePath = ScaleFixture.Measure("UI-note-location", () =>
+                Directory.GetFiles(Path.Combine(fixture.Workspace, "notes"))
+                    .First(p => File.ReadAllText(p).Contains("Orchid private writing 1000.")));
             ScaleFixture.Measure("UI-external-delivery", () =>
             {
                 File.WriteAllText(notePath, File.ReadAllText(notePath).Replace("Orchid private writing 1000.", "Delivered tulip 1000."));
@@ -233,7 +250,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
-            Close(process);
+            ScaleFixture.Measure("UI-close-before-reopen", () => Close(process));
             process = Launch(executable);
             window = Window(process);
             Set(window, "WorkspacePath", fixture.Workspace);
@@ -253,7 +270,8 @@ internal static partial class Program
                 if (Find(window, "FavoriteStatus").Current.Name != "Not marked favorite")
                     throw new InvalidOperationException("Durable scale favorite mutation was lost.");
             });
-            Close(process); process = null;
+            ScaleFixture.Measure("UI-close", () => Close(process));
+            process = null;
             Console.WriteLine("PASS: actual 10,000-Person WPF pending mutation responsiveness, rejection, favorite/import/refresh and durable reopen.");
         }
         finally
