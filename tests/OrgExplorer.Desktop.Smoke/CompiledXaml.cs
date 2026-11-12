@@ -439,10 +439,6 @@ internal static partial class Program
             SetSettings(true);
             Invoke(check);
             PumpUntil(() => check.IsEnabled && updateStatus.Text.Contains("Automatic update paused", StringComparison.Ordinal));
-            var guardLog = Path.Combine(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ?? fixtureDirectory,
-                "safe-point-rejections.log");
-            if (!File.ReadAllText(guardLog).Contains("[DEBUG-59-UPDATE] guard=local-save-error", StringComparison.Ordinal))
-                throw new InvalidOperationException("The update failure must retain the actual rejecting guard outside the live UI.");
             SetSettings(false);
         }
         Invoke((Button)notes.FindName("RetryButton"));

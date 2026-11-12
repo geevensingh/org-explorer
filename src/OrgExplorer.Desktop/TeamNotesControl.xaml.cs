@@ -158,7 +158,6 @@ public partial class TeamNotesControl : UserControl
     private async void SaveNoteDraft(object? sender, EventArgs e) => await SaveNoteDraftAsync();
 
     public Task<bool> FlushPendingDraftAsync() => draft.FlushPendingAsync(SaveNoteDraftAsync);
-    internal string UpdateDraftDiagnostic => draft.UpdateDiagnostic;
 
     private async Task SaveNoteDraftAsync()
     {

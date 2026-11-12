@@ -52,10 +52,7 @@ internal static partial class Program
             () => fixture.Sign(fixture.Manifest("9999.0.0")), endpoint.Port)).GetAwaiter().GetResult();
         var feedRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = feedRelease.Task;
-        var guardFile = Path.Combine(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ?? fixtureDirectory,
-            "safe-point-rejections.log");
         var handoff = Path.Combine(fixtureDirectory, "handoff.json");
-        File.Delete(guardFile);
         File.Delete(handoff);
 
         var guidance = Control<TextBlock>("UpdateGuidance");
@@ -65,7 +62,8 @@ internal static partial class Program
         var observed = false;
         var heldAtObservation = false;
         var bytesUnchanged = false;
-        var observedGuard = "";
+        var updatePendingAtObservation = false;
+        var noEarlyHandoff = false;
         Exception? experimentFailure = null;
         Task<bool>? saving = null;
         EventHandler arm = (_, _) =>
@@ -95,7 +93,8 @@ internal static partial class Program
                 {
                     try
                     {
-                        observedGuard = File.Exists(guardFile) ? File.ReadAllText(guardFile) : "";
+                        updatePendingAtObservation = !Control<Button>("CheckForUpdatesButton").IsEnabled;
+                        noEarlyHandoff = !File.Exists(handoff);
                         heldAtObservation = publisher.Entered.IsSet && !publisher.Release.IsSet && saving is { IsCompleted: false };
                         bytesUnchanged = File.ReadAllBytes(file).SequenceEqual(original);
                     }
@@ -122,7 +121,8 @@ internal static partial class Program
             PumpUntil(() => observed);
             if (experimentFailure is not null) throw experimentFailure;
             PumpUntil(() => saving is { IsCompleted: true } && Control<Button>("CheckForUpdatesButton").IsEnabled);
-            if (!saving!.GetAwaiter().GetResult() || !intercepted || !heldAtObservation || !bytesUnchanged)
+            if (!saving!.GetAwaiter().GetResult() || !intercepted || !heldAtObservation ||
+                !bytesUnchanged || !updatePendingAtObservation || !noEarlyHandoff)
                 throw new InvalidOperationException("The experiment did not preserve the intended yield/publication barriers.");
         }
         finally
@@ -138,11 +138,10 @@ internal static partial class Program
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The update-yield experiment must never show a window or create its native handle.");
         Console.WriteLine($"UPDATE-YIELD: intercepted={intercepted}; heldAtObservation={heldAtObservation}; " +
-            $"bytesUnchangedBeforeRelease={bytesUnchanged}; finalWritingDurable={durable}; handoff={handedOff}; nativeHandle=0");
-        Console.WriteLine(observedGuard.Length == 0 ? "UPDATE-YIELD: no rejecting guard before publication release." : observedGuard);
+            $"bytesUnchangedBeforeRelease={bytesUnchanged}; updatePendingBeforeRelease={updatePendingAtObservation}; " +
+            $"noEarlyHandoff={noEarlyHandoff}; finalWritingDurable={durable}; handoff={handedOff}; nativeHandle=0");
         if (!durable || !handedOff)
-            throw new InvalidOperationException("The single update action must wait for the note save admitted during its yield, then hand off the durable writing. " +
-                $"Observed guard: {observedGuard}");
+            throw new InvalidOperationException("The single update action must wait for the note save admitted during its yield, then hand off the durable writing.");
         using var request = JsonDocument.Parse(File.ReadAllText(handoff));
         var hash = request.RootElement.GetProperty("workspaceFiles").GetProperty(Path.GetRelativePath(folder, file)).GetString();
         if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))) != hash)
