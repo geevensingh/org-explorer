@@ -121,6 +121,8 @@ public sealed partial class ApplicationWorkflow
         catch (Exception ex) when (StorageError(ex))
         {
             RetainNoteBase(NoteScope.Person, note.Id);
+            if (ex is IndeterminatePublicationException)
+                return SaveFailed("publication-conflict", ex.Message);
             return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
         }
     }

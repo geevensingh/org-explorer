@@ -54,7 +54,7 @@ public sealed partial class ApplicationWorkflow
         }
         ValidateGraph(loaded);
         var historyFiles = DocumentPaths("profileHistory").ToArray();
-        var history = ReadProfileHistory(workspace!, loaded, 2, historyFiles);
+        var history = ReadProfileHistory(loaded, historyFiles);
         foreach (var (key, relative) in graph.Documents["profileHistory"])
         {
             using var json = JsonDocument.Parse(ReadWorkspaceBytes(IncrementalPath(workspace!, relative, "profileHistory")));
@@ -84,7 +84,7 @@ public sealed partial class ApplicationWorkflow
                 throw new FormatException("Invalid Team context revision.");
             contexts.Add(key, context);
         }
-        var historical = ReadHistoricalTeamContexts(workspace!, loaded, DocumentPaths("historicalTeamContext").ToArray());
+        var historical = ReadHistoricalTeamContexts(loaded, DocumentPaths("historicalTeamContext").ToArray());
         foreach (var (key, relative) in graph.Documents["historicalTeamContext"])
         {
             using var json = JsonDocument.Parse(ReadWorkspaceBytes(IncrementalPath(workspace!, relative, "historicalTeamContext")));
@@ -172,6 +172,7 @@ public sealed partial class ApplicationWorkflow
         Dictionary<string, Guid> nextTeamContexts, Dictionary<string, List<HistoricalTeamContext>> nextHistoricalContexts,
         string operation, IReadOnlyList<PhotoResource>? resources)
     {
+        if (workspaceConflicts.Count == 0) publicationOutcome = WorkspacePublicationOutcome.NotPublished;
         try
         {
             using var access = CoordinateWorkspaceIo(workspace!);
@@ -263,7 +264,7 @@ public sealed partial class ApplicationWorkflow
                 new("workspace.json", selector is null ? null : ByteDigest(selector), ByteDigest(candidate)));
             if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Workspace or supplied resources changed during staging. No changes published.");
-            PublishWorkspaceFile(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
+            PublishCurrent(staged, destination, source, expected, recovery, resources);
             AcceptWorkspaceRevision(expected);
             teamContextRevisions = nextTeamContexts;
             historicalTeamContexts = nextHistoricalContexts;
@@ -273,6 +274,8 @@ public sealed partial class ApplicationWorkflow
         }
         catch (Exception ex) when (StorageError(ex))
         {
+            if (ex is IndeterminatePublicationException)
+                return SaveFailed("publication-conflict", ex.Message);
             return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
         }
     }

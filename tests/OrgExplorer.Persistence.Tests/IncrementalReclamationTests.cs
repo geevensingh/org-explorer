@@ -185,8 +185,9 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
                 if (Path.GetFileName(destination) == "retired.json")
                 {
                     var protectedPaths = SelectedClosure(current);
+                    var commit = JsonNode.Parse(File.ReadAllBytes(Path.Combine(current, "workspace.json")))!["commit"]!.GetValue<Guid>();
                     AddIndexClosure(current, JsonNode.Parse(File.ReadAllBytes(
-                        Path.Combine(current, "workspace.previous.json")))!["roots"]!.AsObject(), protectedPaths);
+                        Path.Combine(current, "transactions", commit.ToString("N"), "publication.base.json")))!["roots"]!.AsObject(), protectedPaths);
                     obsolete = Directory.GetDirectories(Path.Combine(current, "transactions"))
                         .Where(path => File.Exists(Path.Combine(path, "retired.json")))
                         .SelectMany(path => Directory.GetFiles(path, "created-*.json"))
@@ -230,11 +231,10 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
     private sealed class InspectingPublisher : IWorkspaceFilePublisher
     {
         public Action<string, string>? BeforePublish { get; set; }
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             BeforePublish?.Invoke(staged, destination);
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 
@@ -449,6 +449,12 @@ public sealed class IncrementalReclamationTests(ITestOutputHelper output) : IDis
                     }
             }
             app.DiscardUnsavedChanges();
+            if (app.GetWorkspaceConflicts().Count != 0)
+            {
+                Assert.False(app.EditPreferredName("avery@example.com", "Must remain blocked"));
+                Assert.True(app.ResolveWorkspaceConflicts(app.ReviewWorkspaceConflicts()!), app.Status);
+                app.DiscardUnsavedChanges();
+            }
             Assert.True(app.EditPreferredName("avery@example.com", "Final"), app.Status);
             Assert.True(app.CanSafelyClose, app.LocalSaveError);
             Assert.True(app.RetryStorageMaintenance(), app.Status);

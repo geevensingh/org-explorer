@@ -13,6 +13,7 @@ unchanged.
 ```json
 {
   "schemaVersion": 3,
+  "storageProtocol": 1,
   "commit": "14000000-0000-4000-8000-000000000000",
   "roots": {
     "people": null,
@@ -43,6 +44,11 @@ an empty family. Unknown Workspace/family/record versions block writes; missing,
 duplicate or malformed metadata is unavailable data, not permission to guess.
 The [storage safety protocol](incremental-workspace-storage-protocol.md) specifies
 containment, indexes, transactions, recovery and reclamation in detail.
+
+The required `storageProtocol: 1` is the fail-closed discriminator for the
+owner-approved publication-conflict protocol in unreleased version 3. Older
+strict readers reject this unknown field; the new reader rejects its absence.
+There is no automatic conversion or supported mixed-protocol writing.
 
 Current documents have unique locations below `documents\<family>\`. App saves
 replace only affected documents and ancestor index nodes; unchanged documents
@@ -119,14 +125,18 @@ that lease. Flush durable intent/individual creation inventories before payloads
 write only changed documents and affected bounded index paths, and prepare
 independent recovery. Flush every write and validate the candidate graph and
 producer resources before atomically replacing `workspace.json`. Retain
-`workspace.previous.json` as a protected transition root. Multi-Person Imports
+the exact base selector and unique displaced-target backup in the publishing
+transaction as protected transition roots. Existing `workspace.previous.json`
+roots remain protected when present. Multi-Person Imports
 publish one coherent selector, never intermediate graph states. Exact accepted
 replay writes nothing. Current Person/Team Markdown remains independently atomic
 at its stable GUID location; it does not gain user-visible edit-version history.
 
 The accepted revision is the validated base plus the operation's exact written
 bytes, not an unconditional post-publication scan. Delivery inside the publisher
-boundary therefore remains detectable. Fresh complete byte fingerprints include
+boundary is checked separately against durable superseded-source roots and the
+actual displaced destination. Canonical fingerprints alone cannot detect edits
+to files the new selector no longer references. Fresh complete byte fingerprints include
 the selected current index/document closure and ordinary notes, not recovery,
 transactions or maintenance. Read snapshots never fall back to uncaptured bytes.
 Handles allow external write/delete sharing and close before local publication.
@@ -202,6 +212,37 @@ downgraded. Stages are not automatically applied after restart. Resolve competin
 provider versions externally; installation/upgrades must not remove this folder.
 Dispose file-backed workflows before releasing fixture/folder ownership: watcher
 reads finish under the same gate and cannot reenter after disposal.
+
+### Publication conflicts and explicit resolution
+
+The owner deliberately superseded the unconditional final-window precommit
+rejection guarantee with durable postpublication conflict handling. Prepublication
+stale checks remain. Expected absence uses create-only/no-overwrite; expected
+presence uses replace-only with a unique transaction backup, never a create
+fallback. A known refusal is unsaved. A positively published conflict is **saved
+locally; external conflict unresolved**. An unconfirmed/partial result is
+**publication outcome unknown**; an exception is not automatically a clean refusal.
+
+Transaction publication intent/outcome/check records, an exact base selector,
+displaced bytes and operation-sized local-writing references survive restart.
+Observed external bytes are independently copied exactly, individually sealed,
+and preceded by bounded durable inventories. Current/recovery files remain
+physically independent. A backup or retained reference alone is not an immutable
+snapshot; providers can rewrite/delete bytes before capture, and a selector
+backup does not contain its graph. Preservation covers bytes actually captured,
+not every intermediate external version. File flushes do not prove power-loss
+atomicity of the namespace/backup/receipt sequence.
+
+Settings exposes IDs, completeness and comparison paths. Review the current
+revision and captured evidence, choose complete current files outside the app,
+then explicitly acknowledge the exact reviewed IDs/revision. The workflow
+revalidates membership, seals and actual current bytes. Newer observed delivery
+requires another review. No automatic rollback, merge or mutation replay occurs.
+Unresolved state blocks mutation, autosave, safe close and updater restart;
+generic Discard/Refresh/storage retry cannot clear it. Submitted writing and newer
+typing remain distinct. Acknowledgment records survive restart, and retained
+conflict evidence/source resources are not automatically reclaimed. Ordinary
+bounded-overhead promises do not cover unresolved/conflicting transactions.
 
 ## Private Person notes
 

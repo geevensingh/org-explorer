@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -249,13 +250,10 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
-        foreach (var path in Directory.EnumerateFiles(folder, "*.json", SearchOption.AllDirectories))
-        {
-            var json = JsonNode.Parse(File.ReadAllText(path))!;
-            if (json["email"]?.GetValue<string>() != "avery@example.com") continue;
-            json[property] = invalidValue;
-            File.WriteAllText(path, json.ToJsonString());
-        }
+        var path = WorkspaceFixtures.IndexedDocuments(folder)["people:avery@example.com"];
+        var json = JsonNode.Parse(File.ReadAllText(path))!;
+        json[property] = invalidValue;
+        File.WriteAllText(path, json.ToJsonString());
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.False(reopened.OpenWorkspace(folder));
         Assert.Contains(property, reopened.Status);

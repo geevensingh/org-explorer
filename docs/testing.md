@@ -152,6 +152,21 @@ refresh, local-publication, live-generation, profile-session, text-draft and
 note-draft cases run through the same shipping factory.
 These are real-folder/workflow assertions, not desktop or cleanup evidence.
 
+The owner-approved publication-conflict extension deliberately replaces the old
+unconditional final-window rejection assertion. Real selector callbacks deliver
+same-Person/history changes; Person and Team note callbacks deliver writing at
+replacement. Assert positively published conflicts, exact independent sealed
+captured bytes, retained local writing/source roots, safe-close/restart blocking,
+generic-discard/maintenance nonresolution and restart survival. Explicit review
+and acknowledgment bind conflict IDs and the complete current byte revision;
+newer delivery and damaged evidence reject acknowledgment. Unconfirmed callbacks
+before/after replacement and actual partial file effects remain indeterminate,
+not clean refusals or automatically adopted recovery. Creation/deletion/backup
+collisions use the shipping publisher's explicit modes. Actual linked recovery
+selectors are never advertised or reused. These focused cases do not establish
+hardware power-loss durability, complete capture of noncooperating delivery,
+desktop interaction or supported-population scale.
+
 `WorkspaceStartupTests` uses app-local `WorkspaceSettings` and the real
 workflow/view-model with isolated folders. It covers first run, preference/app
 reopen, missing-folder noncreation and Retry, locked/invalid Workspace rejection,

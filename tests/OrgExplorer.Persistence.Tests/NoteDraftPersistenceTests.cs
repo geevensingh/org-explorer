@@ -258,7 +258,7 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         public ManualResetEventSlim Entered { get; } = new();
         public ManualResetEventSlim Release { get; } = new();
 
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             if (HoldNextNote && Path.GetExtension(destination) == ".md")
             {
@@ -266,8 +266,7 @@ public sealed class NoteDraftPersistenceTests : IDisposable
                 Entered.Set();
                 if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
             }
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
 
         public void Dispose() { Entered.Dispose(); Release.Dispose(); }

@@ -7,6 +7,80 @@ The shipping reader/writer uses [Workspace version 3](workspace-format.md),
 activated by #47. Older and future Workspace versions are rejected without
 mutation. There is no migration or legacy-folder cleanup.
 
+## Approved publication-conflict contract
+
+The owner explicitly approved durable postpublication conflict handling with
+capture limits and external resolution on 2026-11-12. This **supersedes**, rather
+than satisfies, #44's original unconditional precommit rejection/preservation
+promise for delivery racing the final check and publication. Prepublication stale
+base and draft checks remain required. Noncooperating writers are not serialized.
+
+The unreleased version-3 selector requires `storageProtocol: 1`. Older strict
+version-3 readers reject this unknown property before mutation; the new reader
+rejects its absence. This is not format 4, conversion, or a supported mixed-writer
+deployment. Person/history/note record versions and Import version 1 are unchanged.
+
+Before current publication, each transaction durably records `publication.json`
+(operation identity, target, expected before/after digests, base revision and
+operation-sized independent local-writing references), plus the exact base
+selector in `publication.base.json`. Existing independently sealed recovery
+candidate documents retain submitted writing, even when publication is unconfirmed.
+This does not make an orphan candidate accepted recovery.
+
+Expected absence uses create-only/no-overwrite publication; expected presence
+uses replace-only publication with unique `publication.displaced` in that
+transaction. Never recreate a disappeared target as a fallback. Check actual
+ancestry, same-volume placement and backup collisions at publication. The shipping
+publisher reports definite native refusals separately from unconfirmed failures.
+Partial replacement errors are not classified as clean rejections.
+
+After positive publication, `publication.outcome.json` records that fact.
+`publication.checked.json` records conflict/capture completeness and captured
+evidence. Compare the displaced destination and superseded source paths against
+the validated base, separately from canonical current-revision accounting.
+Changed observed bytes are copied exactly to `publication-evidence-<number>` with
+individual SHA-256 seals. A durable `publication-inventory-<number>.json` precedes
+each pair of payload/seal writes (two entries, within the 32-entry limit).
+No unrelated population documents are recopied. A missing outcome after an
+attempt, malformed journal, missing/changed evidence, or uncertain native result
+fails closed; matching current bytes alone never proves publication succeeded.
+
+`PublicationOutcome` distinguishes NotPublished, Published, PublishedConflict and
+Indeterminate. A positively published conflict is **saved locally; external
+conflict unresolved**, not unsaved. Indeterminate means **publication outcome
+unknown; writing/evidence retained**. Preserve submitted writing for comparison
+and newer typing separately. Autosave/replay, further mutation, safe close and
+updater restart remain blocked while a conflict is unresolved. Generic Discard,
+Refresh and `RetryStorageMaintenance` cannot acknowledge it.
+
+Settings lists conflict IDs, capture completeness, independent local-writing
+paths and external evidence. Review through `ReviewWorkspaceConflicts`, resolve
+complete current files outside the app, then explicitly confirm
+`ResolveWorkspaceConflicts` against the exact reviewed revision, conflict IDs and evidence revision.
+Evidence/seals, membership and actual current bytes are rechecked before
+acknowledgment. Newer observed delivery requires a new review. Resolution does not
+restore/merge files or replay the original mutation; normal maintenance protects
+the chosen validated state. `publication.resolved.json` is durable acknowledgment.
+Retained conflict transactions/evidence are not automatically deleted, and their
+ambiguous source resources defer object reclamation. Conflicting/interrupted
+cases therefore have no bounded-overhead promise.
+
+The backup preserves a displaced file, **not an immutable whole-graph snapshot**.
+Existing handles/aliases can still modify it; providers can rewrite or delete
+superseded Person/history paths before capture. A selector backup does not capture
+its graph. Only independently copied, sealed bytes actually observed are preserved;
+unobserved/intermediate external versions are not guaranteed. Missing/partial
+capture remains explicit. Subsequent competing delivery is never overwritten by
+automatic rollback. Unobserved namespace races cannot be excluded by these checks.
+
+Windows [ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew)
+documents partial-error states and does not support `REPLACEFILE_WRITE_THROUGH`.
+`Flush(true)` remains mandatory for payloads, seals, inventories and records, but
+does not establish an atomic power-loss guarantee for the entire namespace,
+backup and receipt sequence. A process interruption can leave an indeterminate
+transaction. This protocol does not claim complete serialization or preservation
+of every external writing version, and imposes no cooperative-provider restriction.
+
 ## Shipping reader and writer (#42, #47)
 
 `ApplicationWorkflow.CreateFileBacked` is the normal version-3 boundary for
@@ -46,7 +120,7 @@ objects. Each new document/index node has its own creation inventory entry
 (relative location, byte length and digest). At most 32 entries share one
 immutable, durably flushed inventory file. It flushes and validates
 the candidate, rechecks the complete base and producer resources, then publishes
-the staged selector through the existing publisher. The accepted revision is
+the staged selector through the mode-aware publisher. The accepted revision is
 the validated base plus the operation's own bytes, not a post-publication reread.
 A post-publication committed receipt is separate from the intent. Receipt
 failure reports saved locally with incomplete maintenance and blocks safe close,
@@ -134,8 +208,8 @@ still reports its existing maintenance problem rather than silently retrying it.
 ### Roots handed to reclamation
 
 The reclamation implementation protects the current `workspace.json`
-closure and captured ordinary notes; `workspace.previous.json` during current
-replacement; selected `recovery\current.json` and all its ordinary/extra note
+closure and captured ordinary notes; transaction-specific base/displaced selectors (and any existing
+`workspace.previous.json` transition); selected `recovery\current.json` and all its ordinary/extra note
 index closures plus seals; retained history/evidence/photo resources; and every
 unretired transaction. Transaction roots include `selector.next`, `recovery.next`,
 `recovery.previous.json`, receipts and all staged objects. Receipt absence is
@@ -282,8 +356,10 @@ delivered bytes untouched. Unknown/provider-conflict files are preserved, not
 selected as substitutes for missing indexed documents. Same-path photo changes
 are detected from bytes even with the original timestamp. Publication callbacks
 deliver notes, Person/history pairs and photos before or after actual selector
-replacement: the accepted revision remains the validated base plus local writes,
-so refresh must still validate the intervening delivery.
+replacement: canonical accounting remains the validated base plus local writes.
+Retained publication roots and durable conflict evidence cover superseded paths
+that are no longer in that canonical fingerprint, subject to the capture limits
+above. Refresh never silently acknowledges those conflicts.
 
 For the reclamation slice, suspend deletion when a newly observed selector is
 unvalidated, an index or document is missing/unsupported/malformed, a Person and
@@ -414,7 +490,7 @@ selector changed or add a permanent note-history feature.
    validate the complete C graph and the independent recovery candidate with the
    normal semantic reader. Verify recovery's seals and independence. Recheck B's
    byte revision and producer resources immediately before publication.
-5. Atomically publish the current selector through `IWorkspaceFilePublisher`
+5. Publish the current selector through `IWorkspaceFilePublisher`
    (or the independently atomic note replacement for a note operation). This is
    the local commit point. Before it succeeds, C and its recovery candidate are
    uncommitted, regardless of how complete their staged files look.
@@ -455,7 +531,9 @@ New maintenance can independently capture the validated current state instead.
 |---|---|
 | Intent/current/recovery staging or validation fails before current publication | B remains committed, R remains selected. Reject save; retain drafts/errors and block safe close/restart. Never adopt the staged candidate. |
 | Base or producer resources change before publication | Reject without replacing current files. Keep last validated view stale until complete delivery validates; require explicit retry/review/discard as today. |
-| Current publication throws | Report unsaved unless the publication boundary positively confirms success; do not infer success from leftover stages. Preserve B/R and unsaved writing. Test actual atomic replacement failures. |
+| Current publication definitely refuses without publishing | Report unsaved and retain writing. Native refusal must be established, not inferred from leftover stages. |
+| Current publication has an unconfirmed/partial result | Persist/retain an indeterminate transaction; report outcome unknown, preserve B/R/candidate/evidence, block replay and require explicit external resolution. |
+| Current publishes but displaced/superseded bytes differ or cannot be captured completely | C was published; report saved locally with an unresolved conflict, retain independent observed evidence/local writing and source roots. Do not retry the mutation or bless a reread. |
 | Current publishes, receipt or recovery maintenance fails | C is committed, R remains valid. Say **saved locally; recovery maintenance incomplete**, not "not saved" or "all protected". Retain a maintenance error and block safe restart/close until retry or an explicit acknowledged leave policy is implemented; never replay the mutation to retry maintenance. |
 | Recovery candidate or selector publication is interrupted | Select only a complete validated receipted snapshot. Old R remains protected until replacement; no half-updated recovery tree is accepted. |
 | Cleanup fails after C and recovery commit | Keep C and selected recovery; surface a maintenance failure separately from mutation failure. Retry deletion work idempotently, not the edit/Import. Do not silently report successful maintenance. |

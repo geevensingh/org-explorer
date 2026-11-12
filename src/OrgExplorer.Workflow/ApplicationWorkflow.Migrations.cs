@@ -35,6 +35,8 @@ public sealed partial class ApplicationWorkflow
 
     private void EnsureWorkspaceWritable()
     {
+        if (workspaceConflicts.Count != 0)
+            throw new IOException("Resolve the retained publication conflict before any further mutation.");
         try
         {
             if (workspace is null) throw new IOException("Open a Workspace first.");

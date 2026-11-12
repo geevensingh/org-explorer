@@ -142,16 +142,14 @@ public sealed partial class ApplicationWorkflow
                     "Review before Apply; this does not establish an exact effective date.");
     }
 
-    private static Dictionary<string, PersonHistory> ReadProfileHistory(string generation,
-        Dictionary<string, PersonProfile> people, int workspaceVersion, IEnumerable<string>? files = null)
+    private static Dictionary<string, PersonHistory> ReadProfileHistory(
+        Dictionary<string, PersonProfile> people, IEnumerable<string> files)
     {
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
-        var directory = Path.Combine(generation, "profile-history");
-        if (files is null && !Directory.Exists(directory)) return history;
-        foreach (var file in files ?? Directory.GetFiles(directory, "*.json"))
+        foreach (var file in files)
         {
             using var document = JsonDocument.Parse(ReadWorkspaceText(file));
-            CheckRecordVersion(document.RootElement, "Profile history", workspaceVersion);
+            CheckRecordVersion(document.RootElement, "Profile history", 2);
             CheckProperties(document.RootElement, ["schemaVersion", "email", "changes", "observations"], "Profile history");
             var person = DeserializeVersionedRecord<PersonHistory>(document.RootElement)
                 ?? throw new FormatException("Invalid Profile history.");

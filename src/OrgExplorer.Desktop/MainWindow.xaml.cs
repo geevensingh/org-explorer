@@ -338,8 +338,13 @@ public partial class MainWindow : Window
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         if (!workPending)
-            WorkflowActivity.Text = unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+            WorkflowActivity.Text = workflow.GetWorkspaceConflicts().Count != 0
+                ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
+                    ? "Publication outcome unknown - external resolution required"
+                    : "Saved locally - external conflict resolution required"
+                : unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
+        ShowPublicationConflicts();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."

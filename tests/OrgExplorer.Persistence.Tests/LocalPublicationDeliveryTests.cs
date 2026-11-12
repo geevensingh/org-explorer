@@ -124,13 +124,12 @@ public sealed class LocalPublicationDeliveryTests
     {
         public Action? Deliver { get; set; }
         public string? PublicationPath { get; set; }
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             var delivery = destination == PublicationPath ? Deliver : null;
             if (delivery is not null) Deliver = null;
             delivery?.Invoke();
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 }

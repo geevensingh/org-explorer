@@ -315,15 +315,14 @@ public sealed class AutomaticUpdateTests : IDisposable
         public bool Hold { get; set; }
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ManualResetEventSlim Release { get; } = new();
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             if (Hold)
             {
                 Entered.TrySetResult();
                 if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
             }
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 

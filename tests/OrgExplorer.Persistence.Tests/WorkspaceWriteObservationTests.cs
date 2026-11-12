@@ -100,7 +100,7 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
                 .Where(path => Path.GetFileName(path) != ".workspace.lock" &&
                     !before.ContainsKey(Path.GetRelativePath(folder, path))))
                 File.Delete(path);
-            throw new IOException("Controlled failure after deleting all staged payloads.");
+            throw new WorkspaceFilePublicationException("Controlled failure after deleting all staged payloads.", true);
         };
         Assert.False(app.EditPreferredName("avery@example.com", "Not committed"));
         Assert.False(app.EditPreferredName("avery@example.com", "Still not committed"));
@@ -162,7 +162,7 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
             if (destination != Path.Combine(folder, team ? "team-notes" : "notes", id + ".md")) return;
             Assert.Equal(stagedPath, staged);
             stagedBytes += File.ReadAllBytes(staged).LongLength;
-            throw new IOException("Controlled publication failure after the real write and flush.");
+            throw new WorkspaceFilePublicationException("Controlled publication failure after the real write and flush.", true);
         };
         Assert.False(Edit());
         Assert.False(File.Exists(stagedPath));
@@ -202,11 +202,10 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
     private sealed class InspectingPublisher : IWorkspaceFilePublisher
     {
         public Action<string, string>? BeforePublish { get; set; }
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             BeforePublish?.Invoke(staged, destination);
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 

@@ -386,6 +386,196 @@ public sealed class IncrementalDeliveryTests : IDisposable
         else Assert.Equal(OtherPng, reopened.GetPhoto(manager)!.Bytes.ToArray());
     }
 
+    [Fact]
+    public void Same_Person_delivery_inside_publication_is_a_durable_explicit_conflict()
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var basis = app.GetRelationships(Email)!.Person;
+        var delivery = PrepareProfileDelivery(Email, PersonTextField.PreferredName, "Delivered Avery");
+        publisher.Deliver = () => Deliver(delivery);
+
+        Assert.NotNull(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Local Avery"));
+
+        Assert.Equal(WorkspacePublicationOutcome.PublishedConflict, app.PublicationOutcome);
+        Assert.False(app.CanSafelyClose);
+        var conflict = Assert.Single(app.GetWorkspaceConflicts());
+        foreach (var (path, bytes) in delivery)
+        {
+            Assert.Equal(bytes, File.ReadAllBytes(path));
+            var evidence = Assert.Single(conflict.Evidence, value => value.OriginalPath == path);
+            Assert.Equal(bytes, File.ReadAllBytes(evidence.Path));
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal("Local Avery", app.GetRelationships(Email)!.Person.PreferredName);
+        app.DiscardUnsavedChanges();
+        Assert.False(app.CanSafelyClose);
+        using var reopened = Reopen();
+        Assert.Equal(WorkspacePublicationOutcome.PublishedConflict, reopened.PublicationOutcome);
+        Assert.Equal(conflict.Id, Assert.Single(reopened.GetWorkspaceConflicts()).Id);
+        Assert.False(reopened.CanSafelyClose);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Same_note_delivery_inside_publication_preserves_exact_captured_bytes_and_local_writing(NoteScope scope)
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Email)!, "Context", "Original writing")!;
+        var path = Path.Combine(Folder, scope == NoteScope.Person ? "notes" : "team-notes", original.Id + ".md");
+        var delivered = System.Text.Encoding.UTF8.GetBytes(File.ReadAllText(path).Replace("Original writing", "Delivered writing"));
+        publisher.DestinationFileName = Path.GetFileName(path);
+        publisher.Deliver = () => File.WriteAllBytes(path, delivered);
+
+        Assert.NotNull(app.SaveNoteDraft(original, "Local title", "Retained local writing"));
+
+        Assert.Equal(WorkspacePublicationOutcome.PublishedConflict, app.PublicationOutcome);
+        var conflict = Assert.Single(app.GetWorkspaceConflicts());
+        var evidence = Assert.Single(conflict.Evidence, value => value.OriginalPath == path);
+        Assert.Equal(delivered, File.ReadAllBytes(evidence.Path));
+        Assert.Equal("Retained local writing", app.BeginNoteDraft(scope, Email, original.Id)!.Markdown);
+        Assert.False(app.CanSafelyClose);
+        Assert.False(app.RetryStorageMaintenance());
+        app.DiscardUnsavedChanges(original.Id);
+        Assert.False(app.CanSafelyClose);
+        using var reopened = Reopen();
+        Assert.Equal("Retained local writing", reopened.BeginNoteDraft(scope, Email, original.Id)!.Markdown);
+        Assert.Equal(conflict.Id, Assert.Single(reopened.GetWorkspaceConflicts()).Id);
+        Assert.Equal(delivered, File.ReadAllBytes(Assert.Single(reopened.GetWorkspaceConflicts()).Evidence.Single().Path));
+        Assert.False(reopened.CanSafelyClose);
+    }
+
+    [Fact]
+    public void Conflict_acknowledgement_is_bound_to_the_exact_reviewed_revision_and_survives_restart()
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var original = app.CreatePersonNote(Email, "Context", "Original writing")!;
+        var path = Path.Combine(Folder, "notes", original.Id + ".md");
+        publisher.DestinationFileName = Path.GetFileName(path);
+        publisher.Deliver = () => File.WriteAllText(path, File.ReadAllText(path).Replace("Original writing", "Delivered writing"));
+        Assert.True(app.EditPersonNote(original.Id, "Local", "Local writing"), app.Status);
+        var evidence = Assert.Single(Assert.Single(app.GetWorkspaceConflicts()).Evidence).Path;
+        var review = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        File.WriteAllText(path, File.ReadAllText(path).Replace("Local writing", "Chosen newer writing"));
+
+        Assert.False(app.ResolveWorkspaceConflicts(review));
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("Delivered writing", File.ReadAllText(evidence));
+        var updated = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        Assert.True(app.ResolveWorkspaceConflicts(updated), app.Status);
+        Assert.Empty(app.GetWorkspaceConflicts());
+        Assert.True(app.CanSafelyClose, app.Status);
+        using var reopened = Reopen();
+        Assert.Empty(reopened.GetWorkspaceConflicts());
+        Assert.Equal("Chosen newer writing", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.True(reopened.CanSafelyClose, reopened.Status);
+        Assert.Contains("Delivered writing", File.ReadAllText(evidence));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Interrupted_publication_never_claims_clean_rejection_or_adopts_an_orphan_recovery(bool afterPublication)
+    {
+        var publisher = new DeliveringPublisher { AfterPublication = afterPublication };
+        using var app = Open(publisher);
+        var recovery = File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json"));
+        publisher.Deliver = () => throw new IOException("Unconfirmed publication interruption");
+
+        Assert.Null(app.SavePersonTextDraft(app.GetRelationships(Email)!.Person, PersonTextField.PreferredName, "Retained candidate"));
+
+        Assert.Equal(WorkspacePublicationOutcome.Indeterminate, app.PublicationOutcome);
+        Assert.Contains("outcome unknown", app.Status);
+        Assert.DoesNotContain("NOT saved", app.Status);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal(recovery, File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json")));
+        using var reopened = Reopen();
+        Assert.Equal(WorkspacePublicationOutcome.Indeterminate, reopened.PublicationOutcome);
+        Assert.False(reopened.CanSafelyClose);
+        Assert.Equal(afterPublication ? "Retained candidate" : null, reopened.GetRelationships(Email)!.Person.PreferredName);
+        Assert.False(reopened.RetryStorageMaintenance());
+        Assert.Equal(recovery, File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json")));
+    }
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("deleted")]
+    [InlineData("backup-collision")]
+    [InlineData("partial-replacement")]
+    public void Publication_modes_preserve_real_creation_deletion_collision_and_partial_failure_evidence(string boundary)
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var original = app.CreatePersonNote(Email, "Context", "Original writing")!;
+        var draft = app.BeginNoteDraft(NoteScope.Person, Email, boundary == "created" ? null : original.Id)!;
+        var path = Path.Combine(Folder, "notes", draft.Id + ".md");
+        var originalBytes = File.ReadAllBytes(Path.Combine(Folder, "notes", original.Id + ".md"));
+        var delivered = System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(originalBytes)
+            .Replace(original.Id.ToString(), draft.Id.ToString()).Replace("Original writing", "Delivered writing"));
+        var recovery = File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json"));
+        publisher.DestinationFileName = Path.GetFileName(path);
+        publisher.Deliver = () =>
+        {
+            if (boundary == "created") File.WriteAllBytes(path, delivered);
+            if (boundary == "deleted") File.Delete(path);
+            if (boundary == "backup-collision") File.WriteAllText(publisher.BackupPath!, "Provider collision bytes");
+            if (boundary == "partial-replacement")
+            {
+                File.Move(path, publisher.BackupPath!);
+                throw new IOException("Controlled partial replacement", unchecked((int)0x80070499));
+            }
+        };
+
+        Assert.Null(app.SaveNoteDraft(draft, "Retained title", "Retained stage writing"));
+
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal(recovery, File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json")));
+        if (boundary == "created") Assert.Equal(delivered, File.ReadAllBytes(path));
+        if (boundary == "deleted") Assert.False(File.Exists(path));
+        if (boundary == "backup-collision")
+        {
+            Assert.Equal(originalBytes, File.ReadAllBytes(path));
+            Assert.Equal("Provider collision bytes", File.ReadAllText(publisher.BackupPath!));
+        }
+        Assert.Equal(boundary == "partial-replacement" ? WorkspacePublicationOutcome.Indeterminate :
+            WorkspacePublicationOutcome.NotPublished, app.PublicationOutcome);
+        if (boundary == "partial-replacement")
+        {
+            using var reopened = Reopen();
+            var conflict = Assert.Single(reopened.GetWorkspaceConflicts());
+            Assert.Equal(WorkspacePublicationOutcome.Indeterminate, conflict.Outcome);
+            Assert.Contains(conflict.LocalWritingPaths, retained => File.ReadAllText(retained).Contains("Retained stage writing"));
+            Assert.Equal(originalBytes, File.ReadAllBytes(publisher.BackupPath!));
+            Assert.False(reopened.CanSafelyClose);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Changed_captured_evidence_blocks_acknowledgement_without_replacing_current_writing(bool replaceSeal)
+    {
+        var publisher = new DeliveringPublisher();
+        using var app = Open(publisher);
+        var delivery = PrepareProfileDelivery(Email, PersonTextField.PreferredName, "Delivered Avery");
+        publisher.Deliver = () => Deliver(delivery);
+        Assert.True(app.EditPreferredName(Email, "Local Avery"), app.Status);
+        var review = Assert.IsType<WorkspaceConflictReview>(app.ReviewWorkspaceConflicts());
+        var evidence = Assert.Single(app.GetWorkspaceConflicts()).Evidence[0];
+        File.WriteAllText(evidence.Path, "Damaged evidence");
+        if (replaceSeal)
+            File.WriteAllText(evidence.Path + ".sha256",
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(evidence.Path))));
+        Assert.False(app.ResolveWorkspaceConflicts(review));
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Local Avery", app.GetRelationships(Email)!.Person.PreferredName);
+        Assert.Equal("Damaged evidence", File.ReadAllText(evidence.Path));
+        Assert.Single(app.GetWorkspaceConflicts());
+    }
+
     private Dictionary<string, byte[]> PrepareProfileDelivery(string email, PersonTextField field, string value)
     {
         var producerFolder = Path.Combine(root, Guid.NewGuid().ToString("N"));
@@ -429,15 +619,16 @@ public sealed class IncrementalDeliveryTests : IDisposable
     private sealed class DeliveringPublisher : IWorkspaceFilePublisher
     {
         public bool AfterPublication { get; init; }
+        public string DestinationFileName { get; set; } = "workspace.json";
+        public string? BackupPath { get; private set; }
         public Action? Deliver { get; set; }
 
-        public void Publish(string staged, string destination, string? backup)
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
-            var delivery = Path.GetFileName(destination) == "workspace.json" ? Deliver : null;
-            if (delivery is not null) Deliver = null;
+            var delivery = Path.GetFileName(destination) == DestinationFileName ? Deliver : null;
+            if (delivery is not null) { Deliver = null; BackupPath = backup; }
             if (!AfterPublication) delivery?.Invoke();
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
             if (AfterPublication) delivery?.Invoke();
         }
     }

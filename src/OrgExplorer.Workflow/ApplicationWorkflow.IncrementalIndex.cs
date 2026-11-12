@@ -16,7 +16,8 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] int SchemaVersion,
         [property: JsonRequired] Guid Commit,
         [property: JsonRequired] Dictionary<string, string?> Roots,
-        [property: JsonRequired] Dictionary<string, int> RecordVersions);
+        [property: JsonRequired] Dictionary<string, int> RecordVersions,
+        [property: JsonRequired] int StorageProtocol = 1);
 
     private sealed record IndexNode(
         [property: JsonRequired] int SchemaVersion,
@@ -28,10 +29,10 @@ public sealed partial class ApplicationWorkflow
     {
         using var json = JsonDocument.Parse(bytes);
         RequireVersion(json.RootElement, "Workspace", [3]);
-        CheckProperties(json.RootElement, ["schemaVersion", "commit", "roots", "recordVersions"], "Workspace");
+        CheckProperties(json.RootElement, ["schemaVersion", "commit", "roots", "recordVersions", "storageProtocol"], "Workspace");
         var metadata = json.RootElement.Deserialize<IncrementalMetadata>(JsonOptions)
             ?? throw new FormatException("Invalid incremental Workspace selector.");
-        if (metadata.Commit == Guid.Empty || metadata.Roots is null ||
+        if (metadata.StorageProtocol != 1 || metadata.Commit == Guid.Empty || metadata.Roots is null ||
             !metadata.Roots.Keys.Order().SequenceEqual(IndexedFamilies.Order()) || metadata.RecordVersions is null ||
             !metadata.RecordVersions.Keys.Order().SequenceEqual(CurrentRecordVersions.Keys.Order()))
             throw new FormatException("Incomplete incremental Workspace selector.");
@@ -117,28 +118,33 @@ public sealed partial class ApplicationWorkflow
         var metadata = ReadIncrementalMetadata(selector);
         var graph = new IncrementalGraph(metadata, [], new(StringComparer.OrdinalIgnoreCase));
         foreach (var (family, reference) in metadata.Roots)
-        {
-            var documents = new Dictionary<string, string>(StringComparer.Ordinal);
-            graph.Documents.Add(family, documents);
-            if (reference is not null) Visit(reference, "");
-
-            void Visit(string relative, string prefix)
-            {
-                var path = IncrementalReference(root, relative);
-                if (!graph.Paths.Add(path)) throw new FormatException("Duplicate or cyclic Workspace index reference.");
-                var node = ReadIndexNode(root, relative, family, prefix, bytes, capturedIndexes);
-                if (node.Entries is { } entries)
-                    foreach (var (key, document) in entries)
-                    {
-                        if (!documents.TryAdd(key, document)) throw new FormatException("Duplicate Workspace identity.");
-                        var documentPath = IncrementalReference(root, document, family);
-                        if (!graph.Paths.Add(documentPath)) throw new FormatException("Duplicate Workspace document reference.");
-                    }
-                else
-                    foreach (var (edge, child) in node.Children!) Visit(child, prefix + edge);
-            }
-        }
+            ReadIndexFamily(root, reference, family, graph, bytes, capturedIndexes);
         return graph;
+    }
+
+    private static void ReadIndexFamily(string root, string? reference, string family, IncrementalGraph graph,
+        IReadOnlyDictionary<string, byte[]>? bytes, Dictionary<string, byte[]>? capturedIndexes,
+        Func<string, bool>? validIdentity = null)
+    {
+        var documents = new Dictionary<string, string>(StringComparer.Ordinal);
+        graph.Documents.Add(family, documents);
+        if (reference is not null) Visit(reference, "");
+        void Visit(string relative, string prefix)
+        {
+            var path = IncrementalReference(root, relative);
+            if (!graph.Paths.Add(path)) throw new FormatException("Duplicate or cyclic Workspace index reference.");
+            var node = ReadIndexNode(root, relative, family, prefix, bytes, capturedIndexes);
+            if (node.Entries is { } entries)
+                foreach (var (key, document) in entries)
+                {
+                    if (validIdentity is not null && !validIdentity(key) || !documents.TryAdd(key, document))
+                        throw new FormatException("Invalid or duplicate Workspace identity.");
+                    if (!graph.Paths.Add(IncrementalReference(root, document, family)))
+                        throw new FormatException("Duplicate Workspace document reference.");
+                }
+            else
+                foreach (var (edge, child) in node.Children!) Visit(child, prefix + edge);
+        }
     }
 
     private static IEnumerable<string> EnumerateIncrementalWorkspaceFiles(string root,

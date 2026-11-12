@@ -100,7 +100,7 @@ internal static class WorkspaceFixtures
         }
         File.WriteAllText(Path.Combine(destination, "workspace.json"), new JsonObject
         {
-            ["schemaVersion"] = 3, ["commit"] = Guid.NewGuid(), ["roots"] = roots,
+            ["schemaVersion"] = 3, ["storageProtocol"] = 1, ["commit"] = Guid.NewGuid(), ["roots"] = roots,
             ["recordVersions"] = JsonSerializer.SerializeToNode(new { people = 2, profileHistory = 2, acceptedBatches = 1,
                 personNotes = 1, teamNotes = 1, photos = 1, teamContext = 1, historicalTeamContext = 1 })
         }.ToJsonString());

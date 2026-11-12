@@ -16,6 +16,17 @@ data in these requests. Discovery downloads only the small signed envelope.
 An authorized newer result automatically starts the full-package workflow below;
 there is no second confirmation button or unsigned package-selection feed.
 
+Unresolved publication conflicts and indeterminate publication outcomes also
+block safe close and updater restart. A positively published conflict is not an
+unsaved edit; an unconfirmed outcome is not a clean rejection. Generic draft
+discard, Workspace refresh and storage maintenance cannot resolve either.
+Use Settings to review retained local writing/external evidence, resolve complete
+current files externally and explicitly acknowledge the exact reviewed conflict
+IDs/current revision. Newer observed delivery or changed evidence blocks that
+acknowledgment. The update path never replays an uncertain mutation or restores a
+backup over newer delivery. See the [storage protocol](incremental-workspace-storage-protocol.md)
+for the approved capture and durability limits.
+
 ## Owner-controlled trust
 
 The committed `src\OrgExplorer.Desktop\update-trust.json` contains the

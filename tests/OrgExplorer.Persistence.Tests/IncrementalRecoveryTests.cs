@@ -47,6 +47,58 @@ public sealed class IncrementalRecoveryTests : IDisposable
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
     }
 
+    [Fact]
+    public void Recovery_selector_links_are_never_advertised_or_reused_for_a_save()
+    {
+        var current = Path.Combine(folder, "current");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(seed.OpenWorkspace(current), seed.Status);
+            Assert.True(seed.ApplyImport(seed.PreviewImport(Import).Id), seed.Status);
+        }
+        var selector = Path.Combine(current, "recovery", "current.json");
+        var outside = Path.Combine(folder, "outside-recovery.json");
+        File.Copy(selector, outside);
+        var original = File.ReadAllBytes(outside);
+        File.Delete(selector);
+        File.CreateSymbolicLink(selector, outside);
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.Null(app.Compatibility.RecoveryPath);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("links", app.LocalSaveError);
+        Assert.False(app.EditPreferredName("avery@example.com", "Must not publish"));
+        Assert.Null(app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        Assert.Equal(original, File.ReadAllBytes(outside));
+        Assert.NotNull(new FileInfo(selector).LinkTarget);
+    }
+
+    [Fact]
+    public void Linked_selector_delivery_after_recovery_publication_revokes_verified_recovery()
+    {
+        var current = Path.Combine(folder, "current");
+        var publisher = new InspectingPublisher();
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        Assert.True(app.OpenWorkspace(current), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
+        var selected = Path.Combine(current, "recovery", "current.json");
+        var outside = Path.Combine(folder, "delivered-recovery.json");
+        publisher.AfterPublish = (_, destination) =>
+        {
+            if (destination != selected) return;
+            File.Move(selected, outside);
+            File.CreateSymbolicLink(selected, outside);
+        };
+        Assert.True(app.EditPreferredName("avery@example.com", "Locally committed"), app.Status);
+        Assert.Null(app.Compatibility.RecoveryPath);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("links", app.LocalSaveError);
+        Assert.Equal("Locally committed", app.GetRelationships("avery@example.com")!.Person.PreferredName);
+        var preserved = File.ReadAllBytes(outside);
+        Assert.False(app.RetryStorageMaintenance());
+        Assert.Equal(preserved, File.ReadAllBytes(outside));
+    }
+
     private static Guid Commit(string root)
     {
         using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "workspace.json")));
@@ -358,11 +410,12 @@ public sealed class IncrementalRecoveryTests : IDisposable
     private sealed class InspectingPublisher : IWorkspaceFilePublisher
     {
         public Action<string, string>? BeforePublish { get; set; }
-        public void Publish(string staged, string destination, string? backup)
+        public Action<string, string>? AfterPublish { get; set; }
+        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
             BeforePublish?.Invoke(staged, destination);
-            if (File.Exists(destination)) File.Replace(staged, destination, backup);
-            else File.Move(staged, destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+            AfterPublish?.Invoke(staged, destination);
         }
     }
 

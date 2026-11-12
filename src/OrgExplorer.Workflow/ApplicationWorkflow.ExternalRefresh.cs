@@ -56,7 +56,7 @@ public sealed partial class ApplicationWorkflow
             }
             else
             {
-                foreach (var key in failedSaves.Keys.Where(key => key != "storage-maintenance").ToArray())
+                foreach (var key in failedSaves.Keys.Where(key => key is not ("storage-maintenance" or "publication-conflict")).ToArray())
                     failedSaves.Remove(key);
                 unsavedNoteBases.Clear();
             }
@@ -177,6 +177,7 @@ public sealed partial class ApplicationWorkflow
         try
         {
             using var access = CoordinateWorkspaceIo(workspace);
+            LoadPublicationConflicts();
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
             ReadAndAcceptWorkspace(protectAcceptedDelivery: true);
             pending = null;

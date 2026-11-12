@@ -152,6 +152,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private bool OpenWorkspaceCore(string path, WorkspaceOpenMode mode)
     {
         if (disposed) return Fail("The Workspace workflow is closed.");
+        if (workspaceConflicts.Count != 0 && !string.Equals(path, workspace, StringComparison.OrdinalIgnoreCase))
+            return Fail("Resolve retained publication conflicts before switching Workspaces.");
         if (profileEdit is { IsDirty: true })
             return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
         CancelProfileEdit();
@@ -179,6 +181,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 else Directory.CreateDirectory(fullPath);
             }
             workspace = fullPath;
+            if (!memory) LoadPublicationConflicts();
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
             Status = "Workspace opened.";
@@ -472,9 +475,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         file.Flush(true);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
     }
-    private void PublishWorkspaceFile(string staged, string destination, string? backup)
+    private void PublishWorkspaceFile(string staged, string destination, string? backup,
+        WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
     {
-        filePublisher.Publish(staged, destination, backup);
+        filePublisher.Publish(staged, destination, backup, mode);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Publish, staged, Destination: destination, Backup: backup));
     }
     private void DeleteWorkspaceFile(string path)

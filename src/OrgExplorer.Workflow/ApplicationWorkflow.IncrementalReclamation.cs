@@ -34,6 +34,9 @@ public sealed partial class ApplicationWorkflow
     // Called with the local I/O gate and writer lease, only after recovery selection.
     private void ReclaimIncrementalStorage(PreparedRecovery prepared, ValidatedRecovery selected)
     {
+        LoadPublicationConflicts();
+        if (workspaceConflicts.Count != 0)
+            throw new IOException("Publication conflict evidence must remain protected until explicit resolution.");
         var current = CaptureWorkspaceBytes();
         using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
             validation.ReadIncrementalWorkspaceData(current);
@@ -41,7 +44,7 @@ public sealed partial class ApplicationWorkflow
         if (accepted != prepared.Metadata.SourceRevision)
             throw new IOException("Current delivery changed; storage reclamation is deferred.");
         var selectedPath = Path.Combine(workspace!, "recovery", "current.json");
-        var selectedBytes = ReadWorkspaceBytesUncached(selectedPath);
+        var selectedBytes = ReadRecoverySelectorBytes(prepared.Root);
         if (selected.Metadata.SourceRevision != accepted || !selectedBytes.AsSpan().SequenceEqual(prepared.Selector))
             throw new IOException("Recovery selection changed; storage reclamation is deferred.");
 
@@ -70,6 +73,7 @@ public sealed partial class ApplicationWorkflow
         {
             var files = TransactionFiles(prepared.Transaction)
                 .Where(path => IsCreationInventory(Path.GetFileName(path)) ||
+                    IsPublicationMetadata(Path.GetFileName(path)) ||
                     Path.GetFileName(path) is "intent.json" or "committed.json" or "selector.next" or
                         "recovery.next" or "recovery.previous.json")
                 .ToDictionary(path => Path.GetFileName(path), path => ByteDigest(ReadWorkspaceBytesUncached(path)), StringComparer.Ordinal);
@@ -128,6 +132,31 @@ public sealed partial class ApplicationWorkflow
             Guard(previous);
             ProtectCurrentCandidate(ReadWorkspaceBytesUncached(previous));
         }
+        ProtectPublicationRoots(prepared.Transaction);
+
+        void ProtectPublicationRoots(string transaction)
+        {
+            var baseline = Path.Combine(transaction, "publication.base.json");
+            byte[]? baselineBytes = null;
+            if (File.Exists(baseline))
+            {
+                RejectStoragePathLinks(baseline, false);
+                baselineBytes = ReadWorkspaceBytesUncached(baseline);
+                Guard(baseline, baselineBytes);
+                protectedPaths.Add(baseline);
+                ProtectCurrentCandidate(baselineBytes);
+            }
+            var displaced = Path.Combine(transaction, "publication.displaced");
+            if (!File.Exists(displaced)) return;
+            RejectStoragePathLinks(displaced, false);
+            var displacedBytes = ReadWorkspaceBytesUncached(displaced);
+            Guard(displaced, displacedBytes);
+            protectedPaths.Add(displaced);
+            var intent = ReadPublicationRecord<PublicationIntent>(Path.Combine(transaction, "publication.json"));
+            if (intent.Target == "workspace.json" &&
+                (baselineBytes is null || !baselineBytes.AsSpan().SequenceEqual(displacedBytes)))
+                ProtectCurrentCandidate(displacedBytes);
+        }
 
         var transactionsRoot = Path.Combine(workspace!, "transactions");
         RejectStoragePathLinks(transactionsRoot);
@@ -145,7 +174,7 @@ public sealed partial class ApplicationWorkflow
             {
                 var retirement = ReadStorageRetirement(retiredPath);
                 Guard(retiredPath);
-                foreach (var file in files.Where(path => Path.GetFileName(path) is
+                foreach (var file in files.Where(path => IsPublicationMetadata(Path.GetFileName(path)) || Path.GetFileName(path) is
                     "intent.json" or "committed.json" or "selector.next" or "recovery.next" or "recovery.previous.json"))
                 {
                     if (!retirement.Files.TryGetValue(Path.GetFileName(file), out var digest) ||
@@ -157,6 +186,13 @@ public sealed partial class ApplicationWorkflow
                 continue;
             }
             foreach (var file in files) Guard(file);
+            if (File.Exists(Path.Combine(transaction, "publication.resolved.json")))
+            {
+                // Explicitly acknowledged conflicts retain raw evidence and source objects, not a guessed closure.
+                deferObjects = true;
+                continue;
+            }
+            ProtectPublicationRoots(transaction);
             // Missing receipts do not prove abortion. Incomplete intents may still
             // need reused base objects for which no candidate has yet been written.
             deferObjects |= files.Length != 0 && !File.Exists(Path.Combine(transaction, "recovery.next"));
@@ -192,6 +228,7 @@ public sealed partial class ApplicationWorkflow
                 !transactions.Where(Directory.Exists).SelectMany(TransactionFiles)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(knownFiles))
                 throw new IOException("Workspace or transaction delivery changed; storage reclamation is deferred.");
+            actual[selectedPath] = ReadRecoverySelectorBytes(prepared.Root);
             RunBoundedFileIo(guards, guard =>
             {
                 byte[] bytes;
@@ -294,7 +331,7 @@ public sealed partial class ApplicationWorkflow
             retirement.Files is null || !ValidDigest(retirement.Revision) || !ValidDigest(retirement.RecoveryDigest))
             throw new FormatException("Invalid storage retirement provenance.");
         foreach (var (name, digest) in retirement.Files)
-            if ((!IsCreationInventory(name) && name is not ("intent.json" or "committed.json" or
+            if ((!IsCreationInventory(name) && !IsPublicationMetadata(name) && name is not ("intent.json" or "committed.json" or
                 "selector.next" or "recovery.next" or "recovery.previous.json")) || !ValidDigest(digest))
                 throw new FormatException("Invalid retired file identity.");
         return retirement;

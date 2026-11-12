@@ -36,7 +36,8 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] string RecoveryDigest,
         [property: JsonRequired] RecoveryPublication? Publication);
 
-    private sealed record PreparedRecovery(string Root, string Transaction, byte[] Selector, RecoverySelector Metadata);
+    private sealed record PreparedRecovery(string Root, string Transaction, byte[] Selector, RecoverySelector Metadata,
+        IReadOnlyDictionary<string, byte[]> CapturedBytes);
     private sealed record ValidatedRecovery(RecoverySelector Metadata, Dictionary<string, byte[]> Bytes, byte[]? Receipt);
     private PreparedRecovery? pendingRecovery;
     private string? verifiedRecoveryPath;
@@ -53,8 +54,7 @@ public sealed partial class ApplicationWorkflow
         var selected = Path.Combine(root, "current.json");
         if (File.Exists(selected))
         {
-            var old = ReadWorkspaceBytesUncached(selected);
-            var validated = ValidateRecovery(root, old, requireReceipt: true);
+            var (_, validated) = ReadSelectedRecovery(root);
             previous = validated.Metadata;
             previousBytes = validated.Bytes;
         }
@@ -116,8 +116,8 @@ public sealed partial class ApplicationWorkflow
         var staged = Path.Combine(transaction, "recovery.stage");
         WriteDurablyBytes(staged, selector);
         PublishWorkspaceFile(staged, Path.Combine(transaction, "recovery.next"), null);
-        ValidateRecovery(root, selector, requireReceipt: false);
-        return new(root, transaction, selector, metadata);
+        var candidateValidation = ValidateRecovery(root, selector, requireReceipt: false);
+        return new(root, transaction, selector, metadata, candidateValidation.Bytes);
     }
 
     private static string? RemoveRecoveryIndex(string root, string reference, string family, string key, string prefix,
@@ -157,26 +157,46 @@ public sealed partial class ApplicationWorkflow
             throw new FormatException("Incomplete recovery note roots.");
         foreach (var (family, reference) in metadata.NoteRoots)
         {
-            var documents = new Dictionary<string, string>();
-            graph.Documents.Add(family, documents);
-            if (reference is not null) Visit(reference, "");
-            void Visit(string relative, string prefix)
-            {
-                if (!graph.Paths.Add(IncrementalReference(root, relative)))
-                    throw new FormatException("Duplicate recovery index reference.");
-                var node = ReadIndexNode(root, relative, family, prefix, bytes, capturedIndexes);
-                if (node.Entries is { } entries)
-                    foreach (var (key, value) in entries)
-                    {
-                        if (!Guid.TryParseExact(key, "D", out var id) || id == Guid.Empty ||
-                            !documents.TryAdd(key, value) || !graph.Paths.Add(IncrementalReference(root, value, family)))
-                            throw new FormatException("Invalid or duplicate recovery note identity.");
-                    }
-                else
-                    foreach (var (edge, child) in node.Children!) Visit(child, prefix + edge);
-            }
+            ReadIndexFamily(root, reference, family, graph, bytes, capturedIndexes,
+                key => Guid.TryParseExact(key, "D", out var id) && id != Guid.Empty);
         }
         return graph;
+    }
+
+    private (byte[] Selector, ValidatedRecovery Recovery) ReadSelectedRecovery(string root)
+    {
+        try
+        {
+            var selector = ReadRecoverySelectorBytes(root);
+            var recovery = ValidateRecovery(root, selector, requireReceipt: true);
+            if (!ReadRecoverySelectorBytes(root).AsSpan().SequenceEqual(selector))
+                throw new IOException("Recovery selector changed during validation.");
+            return (selector, recovery);
+        }
+        catch (Exception error) when (StorageError(error))
+        {
+            verifiedRecoveryPath = null;
+            compatibility = compatibility with { RecoveryPath = null };
+            throw;
+        }
+    }
+
+    private byte[] ReadRecoverySelectorBytes(string root)
+    {
+        try
+        {
+            var path = Path.Combine(root, "current.json");
+            RejectStoragePathLinks(path, false);
+            var bytes = ReadWorkspaceBytesUncached(path);
+            RejectStoragePathLinks(path, false);
+            return bytes;
+        }
+        catch (Exception error) when (StorageError(error))
+        {
+            verifiedRecoveryPath = null;
+            compatibility = compatibility with { RecoveryPath = null };
+            throw;
+        }
     }
 
     private ValidatedRecovery ValidateRecovery(string root, byte[] selector,
@@ -256,9 +276,9 @@ public sealed partial class ApplicationWorkflow
         WriteDurablyBytes(staged, prepared.Selector);
         PublishWorkspaceFile(staged, Path.Combine(prepared.Root, "current.json"),
             Path.Combine(prepared.Transaction, "recovery.previous.json"));
-        if (!ReadWorkspaceBytesUncached(Path.Combine(prepared.Root, "current.json")).AsSpan().SequenceEqual(prepared.Selector))
+        var (selector, selected) = ReadSelectedRecovery(prepared.Root);
+        if (!selector.AsSpan().SequenceEqual(prepared.Selector))
             throw new IOException("Recovery selection changed during publication.");
-        var selected = ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: true);
         verifiedRecoveryPath = prepared.Root;
         compatibility = compatibility with { RecoveryPath = prepared.Root };
         pendingRecovery = null;
@@ -268,6 +288,7 @@ public sealed partial class ApplicationWorkflow
 
     private void FinishCommittedRecovery(PreparedRecovery prepared)
     {
+        if (workspaceConflicts.Count != 0) return;
         pendingRecovery = prepared;
         ValidatedRecovery selected;
         try
@@ -292,8 +313,9 @@ public sealed partial class ApplicationWorkflow
         verifiedRecoveryPath = null;
         try
         {
+            if (workspaceConflicts.Count != 0) return;
             var root = Path.Combine(workspace!, "recovery");
-            var selected = ValidateRecovery(root, ReadWorkspaceBytesUncached(Path.Combine(root, "current.json")), true);
+            var (_, selected) = ReadSelectedRecovery(root);
             verifiedRecoveryPath = root;
             if (selected.Metadata.SourceRevision != WorkspaceFingerprint(snapshot: current))
             {
@@ -330,6 +352,9 @@ public sealed partial class ApplicationWorkflow
             try
             {
                 using var access = CoordinateWorkspaceIo(workspace);
+                LoadPublicationConflicts();
+                if (workspaceConflicts.Count != 0)
+                    throw new IOException("Explicitly resolve the publication conflict before storage maintenance.");
                 EnsureWorkspaceWritable();
                 using var lease = new FileStream(Path.Combine(workspace, ".workspace.lock"),
                     FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -376,10 +401,7 @@ public sealed partial class ApplicationWorkflow
                 using var access = CoordinateWorkspaceIo(workspace);
                 var source = Path.TrimEndingDirectorySeparator(workspace);
                 var root = Path.Combine(source, "recovery");
-                var path = Path.Combine(root, "current.json");
-                RejectWorkspaceLink(path);
-                var selector = ReadWorkspaceBytesUncached(path);
-                var recovery = ValidateRecovery(root, selector, true);
+                var (selector, recovery) = ReadSelectedRecovery(root);
                 var destination = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationPath));
                 if (destination.Equals(source, StringComparison.OrdinalIgnoreCase) ||
                     destination.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
@@ -397,11 +419,11 @@ public sealed partial class ApplicationWorkflow
                         RejectWorkspaceLink(entry, allowMissing: true);
                     WriteDurablyBytes(target, bytes);
                 }
-                var after = ValidateRecovery(root, selector, true);
+                var (afterSelector, after) = ReadSelectedRecovery(root);
                 if (recovery.Bytes.Count != after.Bytes.Count || recovery.Bytes.Any(e =>
                     !after.Bytes.TryGetValue(e.Key, out var value) || !value.AsSpan().SequenceEqual(e.Value)))
                     throw new IOException("Recovery bytes changed while copying; destination has not been opened.");
-                if (!ReadWorkspaceBytesUncached(path).AsSpan().SequenceEqual(selector))
+                if (!afterSelector.AsSpan().SequenceEqual(selector))
                     throw new IOException("Recovery selection changed while copying; destination has not been opened.");
                 using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = destination })
                     validation.ReadIncrementalWorkspaceData(recovery.Bytes.ToDictionary(e =>

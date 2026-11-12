@@ -6,6 +6,7 @@ public sealed partial class ApplicationWorkflow
 {
     private void WriteMarkdownAtomically(string folder, Guid id, string content, Action validateDraft)
     {
+        if (workspaceConflicts.Count == 0) publicationOutcome = WorkspacePublicationOutcome.NotPublished;
         string? staged = null;
         try
         {
@@ -32,15 +33,14 @@ public sealed partial class ApplicationWorkflow
             if (WorkspaceFingerprint() != revision)
                 throw new IOException("Workspace changed during recovery staging; no note changes saved.");
             WriteDurablyBytes(staged, bytes);
-            PublishWorkspaceFile(staged, destination, null);
+            PublishCurrent(staged, destination, expected, candidate, recovery);
             staged = null;
-            expected[destination] = bytes;
-            AcceptWorkspaceRevision(expected);
+            AcceptWorkspaceRevision(candidate);
             FinishCommittedRecovery(recovery);
         }
         finally
         {
-            if (staged is not null)
+            if (staged is not null && PublicationOutcome != WorkspacePublicationOutcome.Indeterminate)
             {
                 try { DeleteWorkspaceFile(staged); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
