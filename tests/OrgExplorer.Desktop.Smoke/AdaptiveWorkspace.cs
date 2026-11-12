@@ -131,6 +131,7 @@ internal static partial class Program
 
     private static PaneProportions AssertAdaptiveWorkspace(AutomationElement window)
     {
+        ProbeHostedDisplay(window);
         Set(window, "SearchQuery", "");
         var scale = DpiScale(window);
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
