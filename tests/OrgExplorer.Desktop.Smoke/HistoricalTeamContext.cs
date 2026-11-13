@@ -345,10 +345,9 @@ internal static partial class Program
 
     private static void AssertCollapsedTeamWarnings(AutomationElement window, string email, string title)
     {
-        foreach (var section in new[] { "CurrentTeamContext", "HistoryAccess" })
-            if (((ExpandCollapsePattern)Find(window, section).GetCurrentPattern(ExpandCollapsePattern.Pattern))
-                .Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
-                throw new InvalidOperationException($"{section} must not precede everyday Person writing.");
+        ControlReadiness.AssertCollapsed(["CurrentTeamContext", "HistoryAccess"],
+            section => ((ExpandCollapsePattern)Find(window, section).GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                .Current.ExpandCollapseState == ExpandCollapseState.Collapsed, Await);
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
         if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
         Await(() => !Find(window, "InheritedTeamReviewWarnings").Current.IsOffscreen);

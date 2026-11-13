@@ -127,6 +127,7 @@ internal static partial class Program
             {
                 VerifySettingsFocus(window);
                 VerifyProfileSaveRefresh(window, settings);
+                VerifyPeopleSearchRestoration(window, settings);
             }
             if (verifyUpdateYield) VerifyUpdateYield(window, settings, heldPublisher!);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
@@ -289,6 +290,120 @@ internal static partial class Program
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
+    }
+
+    private static void VerifyPeopleSearchRestoration(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "responsive-browsing");
+        Guid noteId;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            var records = """
+                {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred",
+                 "alias":"avhandle","jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper",
+                 "officeNumber":"007B","officeState":"Ontario","officeCountry":"Canada",
+                 "linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery","managerEmail":"morgan@example.com"},
+                {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true},
+                {"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
+                 "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
+                 "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
+                 "managerEmail":null}
+                """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
+                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
+                """));
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 901)).Id))
+                throw new InvalidOperationException("Responsive browsing fixture failed: " + seed.Status);
+            noteId = seed.CreatePersonNote("avery@example.com", "Individual context", "# Orchid\nPrivate Person writing\n\n" +
+                string.Join("\n\n", Enumerable.Range(1, 32).Select(i =>
+                    $"Private Person writing paragraph {i}. Keep decisions and their context readable while the same Person identity remains anchored.")))!.Id;
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        void Layout(bool compact)
+        {
+            var size = compact ? new Size(700, 900) : new Size(1920, 1040);
+            root.Measure(size);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+        }
+        void Settle(bool compact)
+        {
+            Layout(compact);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            Layout(compact);
+        }
+        Control<TextBox>("WorkspacePath").Text = folder;
+        Invoke("OpenWorkspaceButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+            Control<TextBlock>("WorkspaceName").Text == "responsive-browsing");
+        var tree = Control<TreeView>("PeopleList");
+        Layout(false);
+        Control<TextBox>("SearchQuery").Text = "orchid";
+        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+        Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
+            .Single(r => r.NoteId == noteId);
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        Control<TextBox>("SearchQuery").Clear();
+        Settle(false);
+        foreach (var compact in new[] { false, true })
+        {
+            Layout(compact);
+            if (compact) Invoke("OpenPeopleButton");
+            Settle(compact);
+            var manager = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "morgan@example.com");
+            var branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+            if (!compact) branch.IsExpanded = true;
+            Settle(compact);
+            foreach (var item in VisualDescendants(tree).OfType<TreeViewItem>().ToArray())
+                item.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Settle(compact);
+            if (!branch.IsExpanded)
+                throw new InvalidOperationException("The compiled compact transition lost the expanded Manager branch.");
+            var scrolling = VisualDescendants(tree).OfType<ScrollViewer>().First();
+            var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
+            if (!provider.VerticallyScrollable)
+                throw new InvalidOperationException("The responsive replay must exercise a real reporting-tree scroll extent.");
+            provider.SetScrollPercent(-1, 70);
+            Settle(compact);
+            if (Math.Abs(provider.VerticalScrollPercent - 70) >= 1)
+                throw new InvalidOperationException("The responsive replay could not establish its initial 70% browsing offset.");
+            Control<TextBox>("SearchQuery").Text = "orchid";
+            PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+            Settle(compact);
+            Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
+                .Single(r => r.NoteId == noteId);
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
+                Control<GroupBox>("SearchContextPanel").Visibility == Visibility.Visible);
+            Settle(compact);
+            Control<TextBox>("SearchQuery").Clear();
+            if (compact) Invoke("OpenPeopleButton");
+            Settle(compact);
+            if (Math.Abs(provider.VerticalScrollPercent - 70) >= 1 ||
+                Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
+                throw new InvalidOperationException($"Compiled search/clear lost browsing restoration: compact={compact}; " +
+                    $"expected=70%; actual={provider.VerticalScrollPercent}%; offset={scrolling.VerticalOffset}; " +
+                    $"extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}.");
+            provider.SetScrollPercent(-1, 0);
+            Settle(compact);
+            branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+            if (!branch.IsExpanded)
+                throw new InvalidOperationException("Search/clear lost the expanded Manager branch after returning to the top.");
+        }
+        Console.WriteLine("PASS: compiled wide/compact exact-note search restores the real tree scroll offset and expansion without a window/native handle.");
+    }
+
+    private static IEnumerable<DependencyObject> VisualDescendants(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (var descendant in VisualDescendants(child)) yield return descendant;
+        }
     }
 
     private static void VerifyAdaptiveReadingLayout(Window window)

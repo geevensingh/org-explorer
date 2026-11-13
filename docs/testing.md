@@ -314,6 +314,17 @@ repairs lost expansion before measuring scroll/search restoration. Runner
 regressions replay the observed external provider's redundant-expansion side
 effect and require collapsed restored state to fail, not be silently repaired.
 These are harness-action contracts, not a local reproduction of native WPF focus.
+Post-resize collapsed-context assertions wait only for read-only UIA discovery
+within the existing bounded wait. An expanded section still fails immediately;
+the helper never collapses it, and permanently missing sections still fail.
+Runner coverage replays the observed missing-then-present context provider.
+The invisible compiled replay additionally drives the 44-Person/long-note
+fixture through real tree scrolling, exact-note search/clear and wide/compact
+restoration, including recycled tree-item load events. It does not reproduce
+native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
+failures retain the original percentage/visibility assertion and capture the
+before/failure pixels, viewport percentages, bounds and focus without corrective
+actions or a longer deadline.
 The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
 with the exact failed Person-note editor retained and actionable feedback.
 Selection helpers deliberately open compact browsing when needed; they do not
