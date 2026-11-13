@@ -50,6 +50,7 @@ internal static partial class Program
                 AwaitPackageVerificationFailure(window);
                 startup.Toggle();
                 AwaitStartupPreference(window, ToggleState.Off);
+                SetSettingsVisible(window, false);
                 Close(process);
             }
             finally { held.TrySetResult(); StopApplication(process); }
@@ -73,6 +74,7 @@ internal static partial class Program
 
             using var unknown = new SignedReleaseFixture();
             server.Response = () => unknown.Sign(unknown.Manifest("9999.0.0"), "unknown-downloaded-key");
+            SetSettingsVisible(window, true);
             Click(window, "CheckForUpdates");
             AwaitUpdateFailure(window, "not an embedded trusted project key");
             server.Response = () => unknown.Sign(unknown.Manifest("9999.0.0"));
@@ -104,6 +106,7 @@ internal static partial class Program
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();
             AwaitStartupPreference(window, ToggleState.On);
+            SetSettingsVisible(window, false);
             Close(reopened);
         }
         finally { StopApplication(reopened); }
@@ -120,6 +123,7 @@ internal static partial class Program
             AwaitUpdateFailure(window, "project signature is invalid");
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
                 throw new InvalidOperationException("Re-enabled startup checks did not survive reopen.");
+            SetSettingsVisible(window, false);
             Close(rejectedStartup);
         }
         finally { StopApplication(rejectedStartup); }
@@ -144,6 +148,7 @@ internal static partial class Program
     private static void AssertSafeUpdateDrafts(AutomationElement window, string workspace, string fixtureDirectory,
         SignedReleaseFixture fixture, LocalReleaseServer server)
     {
+        SetSettingsVisible(window, true);
         Set(window, "WorkspacePath", workspace);
         Click(window, "OpenWorkspace");
         AwaitLocalWorkIdle(window);
@@ -162,6 +167,7 @@ internal static partial class Program
         {
             Set(window, "PersonNoteMarkdown", "Retained failing update draft");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
+            SetSettingsVisible(window, true);
             Click(window, "CheckForUpdates");
             Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Automatic update paused"));
             SetSettingsVisible(window, false);
@@ -173,8 +179,10 @@ internal static partial class Program
         AwaitLocalWorkIdle(window);
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = held.Task;
+        SetSettingsVisible(window, true);
         Click(window, "CheckForUpdates");
         Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Checking"));
+        SetSettingsVisible(window, false);
         Set(window, "PersonNoteMarkdown", "Final private writing flushed before update");
         SetSettingsVisible(window, true);
         held.TrySetResult();

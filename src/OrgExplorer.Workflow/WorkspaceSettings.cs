@@ -109,17 +109,13 @@ public sealed class WorkspaceSettings
                 !ApplicationWorkflow.IsPlainEmail(ownerEmail) || noteId == Guid.Empty ||
                 !Path.IsPathFullyQualified(workspacePath))
                 throw new ArgumentException("An ongoing note requires a scope, owner email and existing note GUID.");
-            var path = CanonicalPath(workspacePath);
-            var workspaces = (current?.Workspaces ?? []).ToList();
-            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
-            var notes = (index < 0 ? [] : workspaces[index].OngoingNotes)
-                .Where(n => n.Scope != scope || !n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase)).ToList();
-            notes.Add(new(scope, ownerEmail.Trim().ToLowerInvariant(), noteId));
-            var updated = index < 0 ? new WorkspacePreference(path, notes.ToArray()) :
-                workspaces[index] with { OngoingNotes = notes.ToArray() };
-            if (index < 0) workspaces.Add(updated);
-            else workspaces[index] = updated;
-            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+            return UpdateWorkspace(current, workspacePath, workspace =>
+            {
+                var notes = workspace.OngoingNotes
+                    .Where(n => n.Scope != scope || !n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase)).ToList();
+                notes.Add(new(scope, ownerEmail.Trim().ToLowerInvariant(), noteId));
+                return workspace with { OngoingNotes = notes.ToArray() };
+            });
         }, "Ongoing-note preference was NOT saved; the previous ongoing choice is unchanged.");
 
     public PaneProportions? GetPaneProportions(string workspacePath) =>
@@ -130,12 +126,7 @@ public sealed class WorkspaceSettings
         {
             if (!proportions.IsValid || !Path.IsPathFullyQualified(workspacePath))
                 throw new ArgumentException("Pane proportions require an absolute Workspace folder and finite percentages between zero and 100.");
-            var path = CanonicalPath(workspacePath);
-            var workspaces = (current?.Workspaces ?? []).ToList();
-            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
-            if (index < 0) workspaces.Add(new(path, [], proportions));
-            else workspaces[index] = workspaces[index] with { PaneProportions = proportions };
-            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+            return UpdateWorkspace(current, workspacePath, workspace => workspace with { PaneProportions = proportions });
         }, "Pane proportions were NOT saved; the previous durable proportions are unchanged.");
 
     public RememberedView? GetLastView(string workspacePath) =>
@@ -147,13 +138,20 @@ public sealed class WorkspaceSettings
             ValidateView(view);
             if (!Path.IsPathFullyQualified(workspacePath))
                 throw new ArgumentException("A remembered view requires an absolute Workspace folder.");
-            var path = CanonicalPath(workspacePath);
-            var workspaces = (current?.Workspaces ?? []).ToList();
-            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
-            if (index < 0) workspaces.Add(new(path, [], LastView: view));
-            else workspaces[index] = workspaces[index] with { LastView = view };
-            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+            return UpdateWorkspace(current, workspacePath, workspace => workspace with { LastView = view });
         }, "The current view was NOT remembered; the previous durable view is unchanged.");
+
+    private static Preference UpdateWorkspace(Preference? current, string workspacePath,
+        Func<WorkspacePreference, WorkspacePreference> update)
+    {
+        var path = CanonicalPath(workspacePath);
+        var workspaces = (current?.Workspaces ?? []).ToList();
+        var index = workspaces.FindIndex(w => SamePath(w.Path, path));
+        var updated = update(index < 0 ? new(path, []) : workspaces[index]);
+        if (index < 0) workspaces.Add(updated);
+        else workspaces[index] = updated;
+        return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+    }
 
     private static void ValidateView(RememberedView view)
     {

@@ -14,11 +14,17 @@ public partial class PersonNotesControl : UserControl
     private bool loading;
     private bool includeArchived;
     private readonly NoteDraftState draft;
+    private readonly OwnedNotePresentation presentation;
     private NoteDraft? noteBase;
 
     public PersonNotesControl()
     {
         InitializeComponent();
+        presentation = new(NoteScope.Person)
+        {
+            Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
+            Designate = DesignateButton, Ongoing = OngoingButton
+        };
         draft = new NoteDraftState("Person note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
@@ -254,16 +260,8 @@ public partial class PersonNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        var view = workflow.PersonNotesView;
-        OngoingStatus.Text = view.Feedback;
-        NoteKind.Text = view.SelectedNote is null ? "" :
-            (view.IsOngoing ? "Ongoing Person note" : "Other Person note") + (view.SelectedNote.Archived ? " - Archived" : "");
-        System.Windows.Automation.AutomationProperties.SetHelpText(NoteHeading, view.SelectedNote?.Id.ToString() ?? "");
+        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
-        DesignateButton.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
-        DesignateButton.IsEnabled = workflow.IsWorkspaceCurrent;
-        OngoingButton.Visibility = view.OngoingNoteId is not null && !view.IsOngoing ? Visibility.Visible : Visibility.Collapsed;
-        OngoingButton.IsEnabled = view.Notes.Any(n => n.Id == view.OngoingNoteId && !n.Archived);
     }
 
     private void ChangeOtherNotes(object sender, RoutedEventArgs e)

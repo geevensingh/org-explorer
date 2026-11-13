@@ -113,6 +113,8 @@ and note-save failures. Those assertions require hosted Windows; non-UI success
 does not constitute their execution.
 
 Owned Team presentation reuses that same observable owned-note interaction.
+Both compiled controls share the ongoing/Other status, identity and action
+presentation; their local draft guards and Team inheritance/review remain separate.
 `TeamNoteTests` covers all-ancestor and secondary-note inheritance, exact
 owner-correct review navigation, retained independent Person writing, new/empty
 Team writing and frozen search identity after designation, editing and archival.
@@ -535,6 +537,11 @@ UI Automation invocation can return before WPF processes the queued button
 handler. Click and value helpers acquire an enabled control and its required
 pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
+Raw Click/Set and idle/startup observations never open or close Settings.
+Journeys prepare Settings explicitly before folder, Import or update actions,
+and deliberately return to People before subsequent writing. Rejected-close
+observations require Settings to be closed by the app before retrying the
+retained note; input helpers cannot repair a hidden editor and mask that failure.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
 Startup restore observation likewise accepts an absent/offscreen recovery label
