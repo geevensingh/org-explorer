@@ -25,7 +25,6 @@ public partial class MainWindow : Window
         PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
-        preferredNameSaveTimer.Tick += SavePreferredNameDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
         Title = $"Org explorer {version} (Windows x64 / win)";
@@ -55,7 +54,7 @@ public partial class MainWindow : Window
                     "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
             }
         };
-        Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };
+        Closed += (_, _) => workflow.Dispose();
     }
     private void ChooseWorkspace(object sender, RoutedEventArgs e)
     {
@@ -417,7 +416,7 @@ public partial class MainWindow : Window
                 ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
                     ? "Publication outcome unknown - external resolution required"
                     : "Saved locally - external conflict resolution required"
-                : unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+                : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
         ShowPublicationConflicts();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
@@ -427,9 +426,9 @@ public partial class MainWindow : Window
                 ? "No Workspace is open. Choose a folder or retry the previous Workspace."
                 : "STALE / unavailable — displayed information is the last valid local state, not current data.";
         RetryProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || HasUnsavedRelationship);
         DiscardProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || HasUnsavedRelationship);
         DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
@@ -487,13 +486,13 @@ public partial class MainWindow : Window
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
         if (!TryLeaveNotes()) return false;
-        if (unsavedPreferredNameEdits.Count == 0 && !HasUnsavedRelationship)
+        if (!HasPreferredNameDraft && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;
             return true;
         }
         ShowNavigationBlocked(workflow.LocalSaveError is null
-            ? "Navigation blocked: profile edits are pending. Please wait for saving to finish before leaving."
+            ? "Navigation blocked: choose Save or Cancel for the Preferred name, or resolve pending quick changes before leaving."
             : "Navigation blocked: profile edits were NOT saved. Retry or discard unsaved profile edits before leaving.");
         return false;
     }

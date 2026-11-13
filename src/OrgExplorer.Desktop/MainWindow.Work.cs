@@ -14,7 +14,7 @@ public partial class MainWindow
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        bool keepPreferredNameDraft = false, System.Windows.Controls.UserControl? noteDraft = null)
+        System.Windows.Controls.UserControl? noteDraft = null)
     {
         workPending = true;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -22,7 +22,6 @@ public partial class MainWindow
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
-        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = keepPreferredNameDraft;
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
         TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
@@ -33,6 +32,12 @@ public partial class MainWindow
         finally
         {
             workPending = false;
+            if (pendingPreferredNameCancellation is { } cancelledName)
+            {
+                pendingPreferredNameCancellation = null;
+                workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
+                externalRefreshPending = true;
+            }
             completion.TrySetResult();
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = WorkspacePath.IsEnabled = ImportPath.IsEnabled = true;
