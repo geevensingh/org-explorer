@@ -45,6 +45,42 @@ public sealed class ControlReadinessTests
         Assert.Equal(2, patternReads);
     }
 
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Collapsed_secondary_context_waits_for_post_resize_discovery_without_changing_expansion()
+    {
+        var observations = new List<string>();
+        ControlReadiness.AssertCollapsed(["CurrentTeamContext", "HistoryAccess"], section =>
+        {
+            observations.Add(section);
+            if (observations.Count == 1)
+                throw new InvalidOperationException("Missing actual UI control: CurrentTeamContext");
+            return true;
+        }, AwaitReady);
+
+        Assert.Equal(["CurrentTeamContext", "CurrentTeamContext", "HistoryAccess"], observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Expanded_secondary_context_fails_without_waiting_for_or_repairing_later_collapse()
+    {
+        var observations = 0;
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ControlReadiness.AssertCollapsed(["CurrentTeamContext"], _ => ++observations > 1, AwaitReady));
+
+        Assert.Contains("CurrentTeamContext must not precede everyday Person writing", error.Message);
+        Assert.Equal(1, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_secondary_context_still_fails_the_existing_bounded_wait()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AssertCollapsed(["CurrentTeamContext"],
+            _ => throw new InvalidOperationException("Missing actual UI control: CurrentTeamContext"), AwaitReady));
+    }
+
     private static InvalidOperationException MissingControl() => new("Missing actual UI control: CheckForUpdates");
 
     private static void AwaitReady(Func<bool> condition)

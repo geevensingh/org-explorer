@@ -328,6 +328,10 @@ internal static partial class Program
             scroll.SetScrollPercent(ScrollPattern.NoScroll, 70);
             Await(() => Math.Abs(scroll.Current.VerticalScrollPercent - 70) < 1);
             var offset = scroll.Current.VerticalScrollPercent;
+            var originalView = scroll.Current.VerticalViewSize;
+            var originalBounds = Find(window, "People").Current.BoundingRectangle;
+            var originalFocus = AutomationElement.FocusedElement?.Current.AutomationId;
+            CaptureVisualEvidence(window, compact ? "search-browsing-before-compact" : "search-browsing-before-wide");
             Set(window, "SearchQuery", "orchid");
             Await(() => !IsVisible(window, "People") && !IsVisible(window, "Favorites"));
             if (Find(window, "SearchResults").Current.BoundingRectangle.Height <
@@ -336,7 +340,33 @@ internal static partial class Program
             QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
             if (compact) Await(() => !IsVisible(window, "PeopleNavigation"));
             EnsurePeopleBrowsing(window);
-            Await(() => Math.Abs(scroll.Current.VerticalScrollPercent - offset) < 1 && IsVisible(window, "Favorites"));
+            var observedOffset = double.NaN;
+            var favoritesVisible = false;
+            try
+            {
+                Await(() =>
+                {
+                    observedOffset = scroll.Current.VerticalScrollPercent;
+                    favoritesVisible = IsVisible(window, "Favorites");
+                    return Math.Abs(observedOffset - offset) < 1 && favoritesVisible;
+                });
+            }
+            catch (TimeoutException error)
+            {
+                var currentTree = Find(window, "People");
+                var currentScroll = (ScrollPattern)currentTree.GetCurrentPattern(ScrollPattern.Pattern);
+                var focused = AutomationElement.FocusedElement?.Current;
+                CaptureVisualEvidence(window, compact ? "search-browsing-restoration-failed-compact" : "search-browsing-restoration-failed-wide");
+                throw new TimeoutException("Search/clear did not restore the original browsing position within the unchanged 20 seconds. " +
+                    $"compact={compact}; expectedPercent={offset}; lastPercent={observedOffset}; " +
+                    $"freshPercent={currentScroll.Current.VerticalScrollPercent}; " +
+                    $"originalViewPercent={originalView}; oldViewPercent={scroll.Current.VerticalViewSize}; freshViewPercent={currentScroll.Current.VerticalViewSize}; " +
+                    $"favoritesVisible={favoritesVisible}; query='{Value(window, "SearchQuery")}'; " +
+                    $"originalTreeBounds={originalBounds}; treeBounds={currentTree.Current.BoundingRectangle}; " +
+                    $"peopleBounds={Find(window, "PeopleNavigation").Current.BoundingRectangle}; " +
+                    $"originalFocusedId='{originalFocus}'; focusedId='{focused?.AutomationId}'; focusedName='{focused?.Name}'; " +
+                    $"owner='{Find(window, "Email").Current.Name}'. No corrective actions were attempted.", error);
+            }
             scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
             Await(() => ((ExpandCollapsePattern)Find(Find(window, "People"), "morgan@example.com")
                 .GetCurrentPattern(ExpandCollapsePattern.Pattern)).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
