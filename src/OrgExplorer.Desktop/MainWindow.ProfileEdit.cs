@@ -79,7 +79,8 @@ public partial class MainWindow
         ProfilePhotoDraft.Text = workflow.ProfileEdit?.PhotoLocalPath is { } path
             ? $"Staged photo: {path}. The saved photo remains shown until Save."
             : "Photo clear staged. The saved photo remains shown until Save.";
-        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = writable;
+        PreferredNameContext.IsEnabled = writable;
+        UpdatePreferredNameActions();
     }
 
     private static void PlaceProfileLink(Button link, Panel host)

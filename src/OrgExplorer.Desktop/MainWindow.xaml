@@ -490,15 +490,35 @@
             </TextBlock>
             <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
                        Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0"/>
-            <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed" Margin="0,8,0,0">
-              <TextBlock Text="Preferred name" Foreground="{StaticResource MutedBrush}"/>
-              <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
-                       AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
-              <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
-                         Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
-              <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
-                      Click="ReadPreferredName" HorizontalAlignment="Left"/>
-            </StackPanel>
+            <Popup x:Name="PreferredNamePopup" PlacementTarget="{Binding ElementName=EditPreferredNameButton}"
+                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Closed="PreferredNameDismissed">
+              <Border x:Name="PreferredNameEditorPanel" Visibility="Collapsed" Width="320" Padding="16"
+                      Background="White" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="1" CornerRadius="6"
+                      KeyboardNavigation.TabNavigation="Cycle" PreviewKeyDown="PreferredNameKeyDown">
+                <GroupBox Header="Preferred name" Padding="0" BorderThickness="0"
+                          AutomationProperties.AutomationId="PreferredNameEntry" AutomationProperties.Name="Preferred name entry">
+                  <StackPanel>
+                    <TextBox x:Name="PreferredName" Tag="PreferredName" Margin="0,8,0,0"
+                             AutomationProperties.AutomationId="PreferredName" AutomationProperties.Name="Preferred name"
+                             TextChanged="EditPersonAttribute"/>
+                    <TextBlock Text="Empty clears the preferred name." Foreground="{StaticResource MutedBrush}"
+                               TextWrapping="Wrap" Margin="0,8"/>
+                    <ScrollViewer MaxHeight="140" Focusable="False"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                      <TextBlock x:Name="PreferredNameError" AutomationProperties.AutomationId="PreferredNameError"
+                                 Foreground="#A4262C" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,8"
+                                 AutomationProperties.LiveSetting="Assertive"/>
+                    </ScrollViewer>
+                    <StackPanel Orientation="Horizontal">
+                      <Button x:Name="SavePreferredNameButton" Content="Save" MinWidth="80" Style="{StaticResource PrimaryButton}"
+                              AutomationProperties.AutomationId="SavePreferredName" Click="SavePreferredName"/>
+                      <Button x:Name="CancelPreferredNameButton" Content="Cancel" Margin="8,0,0,0"
+                              AutomationProperties.AutomationId="CancelPreferredName" Click="CancelPreferredName"/>
+                    </StackPanel>
+                  </StackPanel>
+                </GroupBox>
+              </Border>
+            </Popup>
           </StackPanel>
           <StackPanel x:Name="IdentityActions" Grid.Column="2" VerticalAlignment="Top">
             <WrapPanel>

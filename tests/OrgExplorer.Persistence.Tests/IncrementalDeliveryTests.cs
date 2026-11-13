@@ -408,6 +408,10 @@ public sealed class IncrementalDeliveryTests : IDisposable
         }
         Assert.True(app.RefreshWorkspace(), app.Status);
         Assert.Equal("Local Avery", app.GetRelationships(Email)!.Person.PreferredName);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal(WorkspacePublicationOutcome.PublishedConflict, app.PublicationOutcome);
+        Assert.Equal(conflict.Id, Assert.Single(app.GetWorkspaceConflicts()).Id);
         app.DiscardUnsavedChanges();
         Assert.False(app.CanSafelyClose);
         using var reopened = Reopen();
@@ -490,6 +494,8 @@ public sealed class IncrementalDeliveryTests : IDisposable
         Assert.Equal(WorkspacePublicationOutcome.Indeterminate, app.PublicationOutcome);
         Assert.Contains("outcome unknown", app.Status);
         Assert.DoesNotContain("NOT saved", app.Status);
+        app.DiscardPersonTextDraft(app.GetRelationships(Email)!.Person, PersonTextField.PreferredName);
+        Assert.Equal(WorkspacePublicationOutcome.Indeterminate, app.PublicationOutcome);
         Assert.False(app.CanSafelyClose);
         Assert.Equal(recovery, File.ReadAllBytes(Path.Combine(Folder, "recovery", "current.json")));
         using var reopened = Reopen();

@@ -36,8 +36,11 @@ internal static partial class Program
             if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
                 throw new InvalidOperationException("Current profile lost its Directory name.");
             Click(window, "EditPreferredName");
-            Set(window, "PreferredName", "Indexed UI edit");
+            var entry = PreferredNameEntry(window);
+            Set(entry, "PreferredName", "Indexed UI edit");
+            Click(entry, "SavePreferredName");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            AssertPreferredNameReading(window, "Indexed UI edit", "Edit");
             var pointer = Path.Combine(workspace, "workspace.json");
             var compatible = File.ReadAllBytes(pointer);
             var data = JsonNode.Parse(compatible)!;
@@ -46,7 +49,7 @@ internal static partial class Program
             File.WriteAllText(pointer, data.ToJsonString());
             var before = WorkspaceFixtures.Bytes(workspace);
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
-            if (Find(window, "PreferredName").Current.IsEnabled ||
+            if (Find(window, "EditPreferredName").Current.IsEnabled ||
                 Find(window, "ToggleFavorite").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
             OpenImportView(window);
@@ -61,7 +64,12 @@ internal static partial class Program
             AssertWorkspaceBytes(workspace, before);
             File.WriteAllBytes(pointer, compatible);
             SetSettingsVisible(window, false);
-            Await(() => Find(window, "PreferredName").Current.IsEnabled);
+            Await(() => Find(window, "EditPreferredName").Current.IsEnabled);
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            if (!Find(entry, "PreferredName").Current.IsEnabled || !Find(entry, "SavePreferredName").Current.IsEnabled)
+                throw new InvalidOperationException("Validated Workspace did not restore explicit Preferred-name editing.");
+            Click(entry, "CancelPreferredName");
             Close(process);
         }
         finally
