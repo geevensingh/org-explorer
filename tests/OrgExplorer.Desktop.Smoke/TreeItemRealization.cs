@@ -2,6 +2,15 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal static void PrepareMeasuredScrollPosition(double percent, Action<double> scrollTo,
+        Func<double> currentPercent, Action<Func<bool>> awaitState)
+    {
+        scrollTo(100);
+        awaitState(() => Math.Abs(currentPercent() - 100) < 1);
+        scrollTo(percent);
+        awaitState(() => Math.Abs(currentPercent() - percent) < 1);
+    }
+
     internal static void AwaitExpanded(bool initializeBranch, Func<bool> isExpanded, Action expand,
         Action<Func<bool>> awaitState)
     {
