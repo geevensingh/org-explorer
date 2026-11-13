@@ -7,7 +7,7 @@ using Microsoft.Win32;
 
 namespace OrgExplorer.Installer.Smoke;
 
-internal static class Program
+internal static partial class Program
 {
     private static string PackageInput = @"C:\PackageInput";
     private static string SmokeRunner = @"C:\SmokeInput\OrgExplorer.Desktop.Smoke.exe";
@@ -91,6 +91,7 @@ internal static class Program
                 throw new InvalidOperationException("Default per-user installation did not contain the built app and updater.");
             evidence["bundledRuntimeModules"] = CloseAutomaticallyLaunchedDesktop(exe, version);
             evidence["automaticRealWpfLaunch"] = true;
+            evidence["installedIcons"] = AssertInstalledIcons(install, exe, setup);
             Run(SmokeRunner, "desktop-create", exe, workspace, "create", version);
             var savedWorkspace = Snapshot(workspace);
             evidence["workspaceFiles"] = savedWorkspace.Count;
@@ -120,6 +121,7 @@ internal static class Program
                 throw new InvalidOperationException("Hosted ticket-18 lifecycle requires the ephemeral signed-update fixture; missing automatic update evidence cannot pass.");
 
             Run(upgradedSetup, "upgrade", "--silent", "--log", Path.Combine(Results, "upgrade.log"));
+            evidence["upgradedIcons"] = AssertInstalledIcons(install, exe, upgradedSetup);
             RequireUnchanged(workspace, savedWorkspace, "installation upgrade");
             Run(SmokeRunner, "desktop-after-upgrade", exe, workspace, "reopen", upgradedVersion);
             RequireUnchanged(workspace, savedWorkspace, "upgraded app reopen");
@@ -130,6 +132,7 @@ internal static class Program
                 throw new InvalidOperationException("Uninstall left the installed application behind.");
             RequireUnchanged(workspace, savedWorkspace, "uninstall");
             Run(upgradedSetup, "reinstall", "--silent", "--log", Path.Combine(Results, "reinstall.log"));
+            evidence["reinstalledIcons"] = AssertInstalledIcons(install, exe, upgradedSetup);
             Run(SmokeRunner, "desktop-after-uninstall-reinstall", exe, workspace, "reopen", upgradedVersion);
             RequireUnchanged(workspace, savedWorkspace, "reinstall and reopen");
             evidence["workspaceSurvivedUninstall"] = true;
@@ -243,6 +246,8 @@ internal static class Program
             RedirectStandardOutput = captureConsole,
             RedirectStandardError = captureConsole
         };
+        if (captureConsole)
+            start.Environment["DESKTOP_RESULTS_DIRECTORY"] = Path.Combine(Results, label + "-desktop");
         foreach (var argument in args) start.ArgumentList.Add(argument);
         if (args.Contains("uninstall"))
         {

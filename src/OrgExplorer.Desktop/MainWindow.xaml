@@ -4,6 +4,7 @@
         xmlns:workflow="clr-namespace:OrgExplorer.Workflow;assembly=OrgExplorer.Workflow"
         xmlns:local="clr-namespace:OrgExplorer.Desktop"
         Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500"
+        Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
     <Style TargetType="Button">

@@ -16,6 +16,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = OpenInstalledWorkspace(process, executable, workspace, args[3]);
+            CaptureWindowIconEvidence(window, executable, create ? "installed-create" : "installed-reopen");
             if (create)
             {
                 var producer = Path.Combine(root, "producer");

@@ -5,6 +5,21 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . "$PSScriptRoot\..\eng\ReleaseArtifacts.ps1"
+function Assert-PackagedIcon($Entry, [switch]$Application) {
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ('OrgExplorer-Icon-' + [guid]::NewGuid().ToString('N'))
+    [void][IO.Directory]::CreateDirectory($scratch)
+    try {
+        $path = Join-Path $scratch $Entry.Name
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($Entry, $path)
+        & "$PSScriptRoot\ApplicationIcon.Tests.ps1" -Executable $path
+        if ($Application) {
+            $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
+            if ($info.ProductName -cne 'Org explorer' -or $info.ProductVersion -cne $Version) {
+                throw 'Produced executable metadata does not identify this exact Org explorer version.'
+            }
+        }
+    } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
+}
 $release = (Resolve-Path $ReleaseDirectory).Path
 $metadata = Get-Content (Join-Path $release 'package-metadata.json') -Raw | ConvertFrom-Json
 if ($metadata.appId -ne 'geevensingh.OrgExplorer' -or $metadata.version -ne $Version -or
@@ -22,6 +37,7 @@ foreach ($file in $setup, $package, $portable, (Join-Path $release 'releases.win
     (Join-Path $release 'assets.win.json'), (Join-Path $release 'RELEASES')) {
     if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Required Velopack artifact is missing: $file" }
 }
+& "$PSScriptRoot\ApplicationIcon.Tests.ps1" -Executable $setup
 foreach ($item in $metadata.artifacts) {
     if ($item.fileName -ne [IO.Path]::GetFileName($item.fileName) -or $item.fileName -match '[/\\]') {
         throw 'Artifact inventory must contain only relative filenames.'
@@ -60,6 +76,18 @@ try {
     if ((& $get 'runtimeDependencies') -ne '') {
         throw 'Self-contained installation unexpectedly requires a separately downloaded runtime.'
     }
+    $iconEntry = $archive.GetEntry('setup.ico')
+    if ($null -eq $iconEntry) { throw 'The full package is missing its installed shell icon resource.' }
+    $iconStream = [IO.MemoryStream]::new()
+    try {
+        $input = $iconEntry.Open()
+        try { $input.CopyTo($iconStream) } finally { $input.Dispose() }
+        $expectedIcon = [IO.File]::ReadAllBytes("$PSScriptRoot\..\src\OrgExplorer.Desktop\Assets\OrgExplorer.ico")
+        if ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($iconStream.ToArray())) -ne
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedIcon))) {
+            throw 'The installed shell icon does not contain the exact tested C1 frames.'
+        }
+    } finally { $iconStream.Dispose() }
     $appEntries = @($archive.Entries | Where-Object { $_.FullName -Match '^lib/[^/]+/.+' -and $_.Name -ne '' })
     foreach ($name in 'OrgExplorer.Desktop.exe', 'OrgExplorer.Desktop.dll', 'OrgExplorer.Workflow.dll',
         'Velopack.dll', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll',
@@ -101,11 +129,14 @@ try {
             }
         } finally { $stream.Dispose() }
     }
+    Assert-PackagedIcon ($appEntries | Where-Object Name -EQ 'OrgExplorer.Desktop.exe') -Application
 } finally { $archive.Dispose() }
 $archive = [IO.Compression.ZipFile]::OpenRead($portable)
 try {
     foreach ($name in '.portable', 'Org explorer.exe', 'Update.exe', 'current/OrgExplorer.Desktop.exe', 'current/sq.version') {
         if (!($archive.Entries | Where-Object FullName -EQ $name)) { throw "Required portable launcher/bootstrap artifact is missing: $name" }
     }
+    Assert-PackagedIcon ($archive.Entries | Where-Object FullName -EQ 'Org explorer.exe')
+    Assert-PackagedIcon ($archive.Entries | Where-Object FullName -EQ 'current/OrgExplorer.Desktop.exe') -Application
 } finally { $archive.Dispose() }
 Write-Host 'PASS: installer, full update package, feed, portable bundle, coherent metadata, bundled .NET 10/WPF runtime, and product-only payload.'

@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/installer-verification.yml'
       - '.config/dotnet-tools.json'
+      - 'assets/app-icon.xaml'
+      - 'eng/Export-ApplicationIcon.ps1'
       - 'eng/Package-Windows.ps1'
       - 'eng/ReleaseArtifacts.ps1'
       - 'eng/Test-WindowsInstaller.ps1'
@@ -13,6 +15,8 @@ on:
       - 'tests/SignedReleaseFixture.cs'
       - 'tests/LocalReleaseServer.cs'
       - 'tests/Installer.*.Tests.ps1'
+      - 'tests/ApplicationIcon.Tests.ps1'
+      - 'tests/NativeIconResource.cs'
       - 'tests/Update.Trust*.Tests.ps1'
       - 'tests/OrgExplorer.Installer.Smoke/**'
       - 'tests/OrgExplorer.Installer.ProcessFixture/**'
@@ -101,5 +105,7 @@ jobs:
             .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.log
             .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.stdout.txt
             .artifacts/installer-verification/0.1.0-to-0.1.1/results/*.stderr.txt
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/**/*.png
+            .artifacts/installer-verification/0.1.0-to-0.1.1/results/**/*.json
             .artifacts/installer/0.1.0/releases/package-metadata.json
             .artifacts/installer/0.1.1/releases/package-metadata.json
