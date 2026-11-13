@@ -313,13 +313,22 @@ only observes the already-restored expanded state: it never reissues Expand or
 repairs lost expansion before measuring scroll/search restoration. Runner
 regressions replay the observed external provider's redundant-expansion side
 effect and require collapsed restored state to fail, not be silently repaired.
+Before capturing each 70% browsing baseline, one explicit scroll to the fixture
+end measures cold virtualized rows, followed by the single target scroll.
+Neither action is retried, and neither occurs after search/clear restoration.
+The cold-cache compiled replay first reproduces percentage drift caused by a
+changing measured extent, then exercises this same preparation and the original
+70%-within-one restoration criterion. Hosted logs retain unmeasured/measured
+view sizes, focus and owner, plus the original/failure diagnostics: calibration
+must not conceal later extent drift or change the selected Person.
 These are harness-action contracts, not a local reproduction of native WPF focus.
 Post-resize collapsed-context assertions wait only for read-only UIA discovery
 within the existing bounded wait. An expanded section still fails immediately;
 the helper never collapses it, and permanently missing sections still fail.
 Runner coverage replays the observed missing-then-present context provider.
 The invisible compiled replay additionally drives the 44-Person/long-note
-fixture through real tree scrolling, exact-note search/clear and wide/compact
+fixture through real tree scrolling with cold virtualization and recorded
+available viewport geometry, exact-note search/clear and wide/compact
 restoration, including recycled tree-item load events. It does not reproduce
 native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
 failures retain the original percentage/visibility assertion and capture the

@@ -321,9 +321,11 @@ internal static partial class Program
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var root = (FrameworkElement)window.Content;
+        if (!new WorkspaceSettings(Path.Combine(settings, "workspace-settings.json")).SetPaneProportions(folder, new(27, 35)))
+            throw new InvalidOperationException("Could not seed the hosted browsing pane balance.");
         void Layout(bool compact)
         {
-            var size = compact ? new Size(700, 900) : new Size(1920, 1040);
+            var size = compact ? new Size(700, 900) : new Size(1920, 1012);
             root.Measure(size);
             root.Arrange(new Rect(size));
             root.UpdateLayout();
@@ -341,6 +343,8 @@ internal static partial class Program
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
             Control<TextBlock>("WorkspaceName").Text == "responsive-browsing");
         var tree = Control<TreeView>("PeopleList");
+        // Force cold realization rather than letting an invisible host premeasure the entire small fixture.
+        VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
         Layout(false);
         Control<TextBox>("SearchQuery").Text = "orchid";
         PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
@@ -356,7 +360,11 @@ internal static partial class Program
             Settle(compact);
             var manager = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "morgan@example.com");
             var branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
-            if (!compact) branch.IsExpanded = true;
+            if (!compact)
+            {
+                branch.IsSelected = true;
+                branch.IsExpanded = true;
+            }
             Settle(compact);
             foreach (var item in VisualDescendants(tree).OfType<TreeViewItem>().ToArray())
                 item.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
@@ -367,10 +375,9 @@ internal static partial class Program
             var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
             if (!provider.VerticallyScrollable)
                 throw new InvalidOperationException("The responsive replay must exercise a real reporting-tree scroll extent.");
-            provider.SetScrollPercent(-1, 70);
-            Settle(compact);
-            if (Math.Abs(provider.VerticalScrollPercent - 70) >= 1)
-                throw new InvalidOperationException("The responsive replay could not establish its initial 70% browsing offset.");
+            TreeItemRealization.PrepareMeasuredScrollPosition(70,
+                percent => provider.SetScrollPercent(-1, percent), () => provider.VerticalScrollPercent,
+                condition => PumpUntil(() => { Layout(compact); return condition(); }));
             Control<TextBox>("SearchQuery").Text = "orchid";
             PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
             Settle(compact);

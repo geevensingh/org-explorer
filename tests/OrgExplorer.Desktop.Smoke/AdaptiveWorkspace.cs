@@ -325,12 +325,21 @@ internal static partial class Program
             var scroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
             if (!scroll.Current.VerticallyScrollable)
                 throw new InvalidOperationException("The representative browse fixture did not exercise a real reporting-tree viewport.");
-            scroll.SetScrollPercent(ScrollPattern.NoScroll, 70);
-            Await(() => Math.Abs(scroll.Current.VerticalScrollPercent - 70) < 1);
+            var unmeasuredView = scroll.Current.VerticalViewSize;
+            var focusBeforeMeasurement = AutomationElement.FocusedElement?.Current.AutomationId;
+            var ownerBeforeMeasurement = Find(window, "Email").Current.Name;
+            TreeItemRealization.PrepareMeasuredScrollPosition(70,
+                percent => scroll.SetScrollPercent(ScrollPattern.NoScroll, percent),
+                () => scroll.Current.VerticalScrollPercent, Await);
             var offset = scroll.Current.VerticalScrollPercent;
             var originalView = scroll.Current.VerticalViewSize;
             var originalBounds = Find(window, "People").Current.BoundingRectangle;
             var originalFocus = AutomationElement.FocusedElement?.Current.AutomationId;
+            if (Find(window, "Email").Current.Name != ownerBeforeMeasurement)
+                throw new InvalidOperationException("Measuring the browsing fixture changed its selected Person.");
+            Console.WriteLine($"Browsing baseline measurement: compact={compact}; " +
+                $"unmeasuredViewPercent={unmeasuredView}; measuredViewPercent={originalView}; targetPercent={offset}; " +
+                $"focusBefore='{focusBeforeMeasurement}'; focusAfter='{originalFocus}'; owner='{ownerBeforeMeasurement}'.");
             CaptureVisualEvidence(window, compact ? "search-browsing-before-compact" : "search-browsing-before-wide");
             Set(window, "SearchQuery", "orchid");
             Await(() => !IsVisible(window, "People") && !IsVisible(window, "Favorites"));
