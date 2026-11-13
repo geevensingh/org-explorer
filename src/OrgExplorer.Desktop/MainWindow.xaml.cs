@@ -50,7 +50,8 @@ public partial class MainWindow : Window
                 UpdateMainViews();
                 StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
                     workPending ? "Local work is still pending; closing waits for it to finish." :
-                    workflow.Status + "\nUnsaved local changes prevent safe closing. Retry or deliberately discard.";
+                    "Unsaved local changes prevent safe closing.\n" + workflow.Status +
+                    "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
             }
         };
         Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };
@@ -408,8 +409,13 @@ public partial class MainWindow : Window
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
         if (!workPending)
-            WorkflowActivity.Text = unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+            WorkflowActivity.Text = workflow.GetWorkspaceConflicts().Count != 0
+                ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
+                    ? "Publication outcome unknown - external resolution required"
+                    : "Saved locally - external conflict resolution required"
+                : unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
+        ShowPublicationConflicts();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."

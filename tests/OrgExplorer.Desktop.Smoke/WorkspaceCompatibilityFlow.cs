@@ -9,8 +9,8 @@ internal static partial class Program
 {
     private static void RunWorkspaceCompatibilityFlow(string executable, string root)
     {
-        var workspace = Path.Combine(root, "legacy");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        var workspace = Path.Combine(root, "current");
+        WorkspaceFixtures.CopyCurrent(workspace);
         using var process = Launch(executable);
         try
         {
@@ -25,18 +25,18 @@ internal static partial class Program
             AssertNoFakeUpdater(window);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
+            AwaitRestoredWorkspace(window, workspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 3");
             if (!Find(window, "FavoriteStatus").Current.Name.Contains("Marked favorite"))
-                throw new InvalidOperationException("Supported conversion lost favorite state.");
+                throw new InvalidOperationException("Current Workspace lost favorite state.");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             AssertPhotoVisible(window);
             if (!Find(window, "DirectoryName").Current.Name.Contains("Avery Example"))
-                throw new InvalidOperationException("Converted profile lost its Directory name.");
+                throw new InvalidOperationException("Current profile lost its Directory name.");
             Click(window, "EditPreferredName");
-            Set(window, "PreferredName", "Migration UI edit");
+            Set(window, "PreferredName", "Indexed UI edit");
             Await(() => Find(window, "Status").Current.Name == "Saved locally.");
             var pointer = Path.Combine(workspace, "workspace.json");
             var compatible = File.ReadAllBytes(pointer);
@@ -69,39 +69,47 @@ internal static partial class Program
             StopApplication(process);
         }
 
-        var recoveryWorkspace = Path.Combine(root, "migration-recovery");
-        WorkspaceFixtures.CopyVersionOne(recoveryWorkspace);
-        var originals = WorkspaceFixtures.Bytes(recoveryWorkspace);
+        var legacyWorkspace = Path.Combine(root, "older-rejected");
+        WorkspaceFixtures.CopyVersionOne(legacyWorkspace);
+        var originals = WorkspaceFixtures.Bytes(legacyWorkspace);
+        var directories = Directory.GetDirectories(legacyWorkspace, "*", SearchOption.AllDirectories).Order().ToArray();
+        var recoveryWorkspace = Path.Combine(root, "supported-alternative");
+        WorkspaceFixtures.CopyCurrent(recoveryWorkspace);
         using var recovery = Launch(executable);
         try
         {
             var window = Window(recovery);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", recoveryWorkspace);
-            using (File.Open(Path.Combine(recoveryWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Set(window, "WorkspacePath", legacyWorkspace);
+            using (File.Open(Path.Combine(legacyWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Click(window, "OpenWorkspace");
-                Await(() => Find(window, "Status").Current.Name.Contains("conversion failed"));
+                Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
                 SetSettingsVisible(window, true);
-                Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
+                Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("does not migrate"));
                 SetSettingsVisible(window, false);
                 var edit = window.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "EditPreferredName"));
                 if (edit?.Current.IsEnabled == true || CurrentPersonEmail(window).Length != 0)
-                    throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
+                    throw new InvalidOperationException("Older Workspace falsely loaded a writable profile.");
                 OpenImportView(window);
                 if (Find(window, "ApplyImport").Current.IsEnabled)
-                    throw new InvalidOperationException("Failed migration enabled Import application.");
+                    throw new InvalidOperationException("Older Workspace enabled Import application.");
                 ReturnToPeople(window);
-                foreach (var (path, bytes) in originals)
-                    if (!bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(recoveryWorkspace, path))))
-                        throw new InvalidOperationException("Failed migration replaced original " + path);
+                AssertWorkspaceBytes(legacyWorkspace, originals);
             }
             SetSettingsVisible(window, true);
             Click(window, "RetryWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
-            SetSettingsVisible(window, false);
+            Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
+            AssertWorkspaceBytes(legacyWorkspace, originals);
+            if (File.Exists(Path.Combine(legacyWorkspace, ".workspace.lock")) ||
+                !directories.SequenceEqual(Directory.GetDirectories(legacyWorkspace, "*", SearchOption.AllDirectories).Order()))
+                throw new InvalidOperationException("Older Workspace rejection mutated its directories or lock.");
+            SetSettingsVisible(window, true);
+            Set(window, "WorkspacePath", recoveryWorkspace);
+            Click(window, "OpenWorkspace");
+            AwaitRestoredWorkspace(window, recoveryWorkspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             Close(recovery);
@@ -156,7 +164,7 @@ internal static partial class Program
         }
 
         var alternate = Path.Combine(root, "alternate-workspace");
-        WorkspaceFixtures.CopyVersionOne(alternate);
+        WorkspaceFixtures.CopyCurrent(alternate);
         using (var choose = Launch(executable))
         {
             try

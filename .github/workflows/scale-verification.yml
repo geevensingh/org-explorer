@@ -19,10 +19,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: scale-verification-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   non-ui-performance:
     name: Thorough non-UI performance

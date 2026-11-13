@@ -33,9 +33,10 @@ internal sealed class ScaleFixture : IDisposable
     private readonly List<string> acceptedSources = [];
     internal Action<string> Log { get; init; } = Console.WriteLine;
 
-    internal IApplicationWorkflow Open(bool memory = false)
+    internal IApplicationWorkflow Open(bool memory = false, IWorkspaceFileObserver? fileObserver = null)
     {
-        var app = new WorkspaceViewModel(memory ? ApplicationWorkflow.CreateInMemory() : ApplicationWorkflow.CreateFileBacked());
+        var app = new WorkspaceViewModel(memory ? ApplicationWorkflow.CreateInMemory() :
+            ApplicationWorkflow.CreateFileBacked(fileObserver: fileObserver));
         clients.Add(app);
         Check(app.OpenWorkspace(Workspace), app.Status);
         return app;
@@ -79,7 +80,7 @@ internal sealed class ScaleFixture : IDisposable
             Apply(app, archival);
             acceptedSources.Add(archival);
             Check(app.EditTeamNote(app.GetTeamNotes(Email(100))[0].Id, "Current Team 100", "# Pine current context 100."), app.Status);
-            Export(app);
+            Measure("fixture-export", () => Export(app), Log);
         }, Log);
     }
 
@@ -120,28 +121,33 @@ internal sealed class ScaleFixture : IDisposable
 
     private void Export(IApplicationWorkflow app)
     {
-        const string generationId = "15000000000040008000000000000001";
-        var generation = Path.Combine(Workspace, "generations", generationId);
-        foreach (var name in new[] { "people", "profile-history", "historical-team-context", "photos" })
-            Directory.CreateDirectory(Path.Combine(generation, name));
+        var documents = new Dictionary<string, Dictionary<string, byte[]>>
+        {
+            ["people"] = [], ["profileHistory"] = [], ["historicalTeamContext"] = [], ["photos"] = [],
+            ["acceptedBatches"] = []
+        };
+        var gate = new object();
         Directory.CreateDirectory(Path.Combine(Workspace, "notes"));
         Directory.CreateDirectory(Path.Combine(Workspace, "team-notes"));
         foreach (var person in app.People.Where(p => p.PhotoPath is not null).DistinctBy(p => p.PhotoPath))
-            File.WriteAllBytes(Path.Combine(generation, "photos", person.PhotoPath!), app.GetPhoto(person.Email)!.Bytes.ToArray());
+            documents["photos"][person.PhotoPath!] = app.GetPhoto(person.Email)!.Bytes.ToArray();
         Parallel.ForEach(app.People, new ParallelOptions { MaxDegreeOfParallelism = 8 }, person =>
         {
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email))).ToLowerInvariant() + ".json";
             var record = JsonSerializer.SerializeToNode(person, Json)!.AsObject();
             record["schemaVersion"] = 2;
-            Write(Path.Combine(generation, "people", key), record);
             var timeline = app.GetProfileTimeline(person.Email)!;
-            Write(Path.Combine(generation, "profile-history", key), new
+            var history = JsonSerializer.SerializeToUtf8Bytes(new
             {
                 schemaVersion = 2, person.Email, changes = timeline.Changes, observations = timeline.Observations
-            });
+            }, Json);
             var captures = app.GetHistoricalTeamContexts(person.Email);
-            if (captures.Count > 0) Write(Path.Combine(generation, "historical-team-context", key),
-                new { schemaVersion = 1, person.Email, contexts = captures });
+            lock (gate)
+            {
+                documents["people"][person.Email] = JsonSerializer.SerializeToUtf8Bytes(record, Json);
+                documents["profileHistory"][person.Email] = history;
+                if (captures.Count > 0) documents["historicalTeamContext"][person.Email] =
+                    JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, person.Email, contexts = captures }, Json);
+            }
             foreach (var note in app.GetPersonNotes(person.Email, true))
                 WriteNote("notes", note.Id, new { schemaVersion = 1, kind = "person", note.Id, note.OwnerEmail,
                     note.Title, note.Archived, note.CreatedAt, note.UpdatedAt }, note.Markdown);
@@ -149,18 +155,11 @@ internal sealed class ScaleFixture : IDisposable
                 WriteNote("team-notes", note.Id, new { schemaVersion = 1, kind = "team", note.Id, note.OwnerEmail,
                     note.Title, note.Archived, note.CreatedAt, note.UpdatedAt, confirmedContextRevision = Guid.Empty }, note.Markdown);
         });
-        Write(Path.Combine(generation, "team-context.json"), new Dictionary<string, Guid>());
-        Write(Path.Combine(generation, "batches.json"), AcceptedLedger(app));
-        Write(Path.Combine(Workspace, "workspace.json"), new
-        {
-            schemaVersion = 2, generation = generationId,
-            files = Directory.GetFiles(generation, "*", SearchOption.AllDirectories).Select(p => Path.GetRelativePath(generation, p)).ToArray(),
-            recordVersions = new { people = 2, profileHistory = 2, acceptedBatches = 1, personNotes = 1,
-                teamNotes = 1, photos = 1, teamContext = 1, historicalTeamContext = 1 }
-        });
+        foreach (var batch in AcceptedLedger(app))
+            documents["acceptedBatches"][batch.Key] =
+                JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object> { [batch.Key] = batch.Value }, Json);
+        WorkspaceFixtures.WriteCurrent(Workspace, documents);
     }
-
-    private static void Write<T>(string path, T value) => File.WriteAllText(path, JsonSerializer.Serialize(value, Json));
 
     private Dictionary<string, object> AcceptedLedger(IApplicationWorkflow app)
     {

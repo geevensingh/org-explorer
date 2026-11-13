@@ -41,6 +41,9 @@ try {
     } finally { $env:SCALE_STARTED_AT = $started }
     Write-Host 'PASS: exhausted UI-scale setup budget fails before any build or desktop execution.'
     $workflow = Get-Content "$root\.github\workflows\scale-verification.yml" -Raw
+    if ($workflow -match '(?m)^\s*concurrency:') {
+        throw 'Independent scale verification runs must not serialize or cancel one another on the same ref.'
+    }
     foreach ($suite in @(
         @{ job = 'non-ui-performance'; command = 'Run-Performance.ps1'; artifact = 'non-ui-performance-' },
         @{ job = 'ui-scale'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-' }

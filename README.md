@@ -61,7 +61,7 @@ editable. Email is a non-editable identity. Reopen the same Workspace to retriev
 saved data. The app does not upload Workspace data.
 
 After a successful open, the app remembers that Workspace in app-local settings
-and reopens it on the next launch through the same validation/conversion flow.
+and reopens it on the next launch through the same version-3 validation flow.
 First launch stays empty with folder-opening controls available in **Settings**.
 If the previous folder cannot be reopened, the app stays empty, explains the failure, and offers
 **Retry previous Workspace** or **Choose another folder**. Automatic reopening
@@ -100,21 +100,20 @@ wait; a failed quick/note save asks you to retry or discard. Note-specific feedb
 appears beside the affected note. Desktop smoke waits for saves and verifies
 the destination Person before continuing a successful navigation. Search runs
 locally in the background and ignores superseded query responses. None of this changes
-the import review checkpoint, atomic generation publication, or data formats.
+the import review checkpoint, atomic selector publication, or data formats.
 
-Known version-1 Workspaces open through automatic validated **1 → 2 conversion**,
-including the breaking Person/history record-version headers. Conversion
-preserves the complete profile, note/photo, Observation and frozen-history
-family, with durably copied and validated originals under `recovery\<attempt>\original\`.
-No migration approval is required. Unsupported versions immediately suggest an
-app upgrade and block all Workspace writes; incomplete external delivery is
-unavailable data, never an app-owned repair. Conversion failure keeps the
-original pointer authoritative and reports recoverable originals, when available.
-Resolve the local failure and retry; do not treat staged output as committed.
+Workspaces use **version 3**, with changed-document/index writes, independent
+committed recovery and guarded bounded reclamation. Older versions (including
+1 and 2) and future versions are rejected without changing their bytes or
+directories. There is no migration or legacy cleanup: preserve the old folder
+and explicitly choose a new empty folder. Import version 1 and existing record
+families remain unchanged. Incomplete external delivery is unavailable data,
+never permission to repair it or accept a smaller population.
 
-**Settings** is always accessible, including before choosing
-a Workspace or after incompatible data/conversion failure. **Retry Workspace
-validation / conversion** retries local loading without enabling invalid edits.
+**Settings and upgrade guidance** is always accessible, including before choosing
+a Workspace or after incompatible/unavailable data. **Retry Workspace
+validation / storage maintenance** retries local loading and committed maintenance
+without converting incompatible data or replaying an edit.
 **Check for updates** verifies project-key signed releases, and startup checks
 default to enabled. Availability and offline/rate-limit/verification errors are
 explicit and do not block local work. The owner-provided **public verification
@@ -126,7 +125,7 @@ publication evidence, Windows publisher signing/reputation, or Windows 11
 certification. See the [protocol/provisioning contract](docs/update-protocol.md)
 and [release operations](docs/releasing.md).
 Installer rollback does not restore Workspace data; follow the
-[Workspace recovery guidance](docs/workspace-format.md#automatic-supported-conversion)
+[Workspace recovery guidance](docs/workspace-format.md#restoration)
 before restoring files externally.
 
 Profiles offer a direct ongoing **Person note**, with **Other notes** retaining

@@ -33,7 +33,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
     {
         using var app = Open();
         app.CreateTeamNote("manager@example.com", "Team", "Retained writing");
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         var invalid = File.ReadAllText(file).Replace(original, replacement);
         File.WriteAllText(file, invalid);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -74,7 +74,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.Equal("Saved writing", durable.Markdown);
         Assert.False(durable.NeedsReview);
         Assert.True(other.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         File.WriteAllText(file, File.ReadAllText(file).Replace("Saved writing", "Synced writing"));
         Assert.True(app.RefreshTeamNotes(), app.Status);
         Assert.Equal("Director", app.GetRelationships("manager@example.com")!.Person.JobTitle);
@@ -95,7 +95,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         using var app = Open();
         var note = app.CreateTeamNote("manager@example.com", "Team", "Saved writing")!;
         Assert.True(app.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
-        var file = Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories).Single();
+        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         var saved = File.ReadAllText(file);
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
@@ -126,7 +126,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.False(Assert.Single(reopened.GetTeamNotes("manager@example.com")).NeedsReview);
         Assert.Equal("Confirmed writing", Assert.Single(reopened.GetTeamNotes("manager@example.com")).Markdown);
-        Assert.Empty(Directory.GetFiles(folder, "*.next", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.next"));
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.Equal("**Manager**", Assert.Single(app.GetTeamNotes("manager@example.com", true)).Markdown);
         Assert.Empty(app.GetTeamNotes("manager@example.com"));
-        Assert.Equal(3, Directory.GetFiles(folder, "*.md", SearchOption.AllDirectories)
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md")
             .Count(path => File.ReadAllText(path).Contains("\"kind\": \"team\"")));
     }
 

@@ -360,7 +360,12 @@ internal static partial class Program
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         void Saved()
         {
-            try { PumpUntil(() => Control<TextBlock>("NoteStatus").Text == "Team note saved locally and confirmed for current context."); }
+            try
+            {
+                PumpUntil(() => Control<TextBlock>("NoteStatus").Text.StartsWith(
+                    "Team note saved locally and confirmed for current context.", StringComparison.Ordinal) &&
+                    ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready");
+            }
             catch (TimeoutException error)
             {
                 throw new TimeoutException($"Team save did not settle: note={Control<TextBlock>("NoteStatus").Text}; " +
@@ -451,7 +456,9 @@ internal static partial class Program
         T NoteControl<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         var file = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
         Task<bool> Flush() => (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
-        void WaitForSave() => PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text == "Person note saved locally.");
+        void WaitForSave() => PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text.StartsWith(
+            "Person note saved locally.", StringComparison.Ordinal) &&
+            ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready");
         NoteControl<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
         NoteControl<TextBox>("MarkdownEditor").Text = "Durable draft before update";
         WaitForSave();
@@ -536,7 +543,8 @@ internal static partial class Program
         PumpUntil(() => ((TextBox)notes.FindName("NoteTitle")).Text == "New Person note");
         ((TextBox)notes.FindName("NoteTitle")).Text = "Automatic update writing";
         editor.Text = "Durable draft before update handoff";
-        PumpUntil(() => noteStatus.Text == "Person note saved locally.");
+        PumpUntil(() => noteStatus.Text.StartsWith("Person note saved locally.", StringComparison.Ordinal) &&
+            ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready");
         file = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md")
             .Single(path => File.ReadAllText(path).Contains("Durable draft before update handoff", StringComparison.Ordinal));
         using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))

@@ -82,9 +82,7 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         var app = Open();
         Apply(app, Batch("""{"email":"avery@example.com","displayName":"Avery","managerEmail":null}""",
             1, "2026-11-01T17:00:00Z"));
-        var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        var historyDirectory = Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history");
-        var file = Assert.Single(Directory.GetFiles(historyDirectory, "*.json"));
+        var file = OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["profileHistory:avery@example.com"];
         var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
         history["observations"]![0]![property] = System.Text.Json.Nodes.JsonNode.Parse(jsonValue);
         File.WriteAllText(file, history.ToJsonString());
@@ -115,16 +113,20 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Legacy_generation_without_field_history_keeps_prior_evidence_unknown_instead_of_reconstructing_from_envelopes()
+    public void Missing_field_evidence_stays_unknown_instead_of_reconstructing_from_envelopes()
     {
         var app = Open();
         Apply(app, Batch("""
             {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null}
             """, 1, "2026-11-01T17:00:00Z"));
-        var metadata = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        Directory.Delete(Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "profile-history"), true);
-        OrgExplorer.TestFixtures.WorkspaceFixtures.WriteLegacyPointer(folder, metadata);
+        foreach (var file in OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)
+            .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value))
+        {
+            var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+            history["observations"] = new System.Text.Json.Nodes.JsonArray();
+            File.WriteAllText(file, history.ToJsonString());
+        }
         var legacy = Open();
         Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
         Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));

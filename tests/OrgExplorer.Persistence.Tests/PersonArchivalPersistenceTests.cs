@@ -252,10 +252,7 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
         app.CreateTeamNote("morgan@example.com", "Manager", "Frozen writing");
         Assert.True(app.EditPersonArchived("avery@example.com", true));
         var capture = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(Workspace, "workspace.json")))!;
-        var directory = Path.Combine(Workspace, "generations", metadata["generation"]!.GetValue<string>(), "historical-team-context");
-        var file = Directory.GetFiles(directory, "*.json").Single(f =>
-            JsonNode.Parse(File.ReadAllText(f))!["email"]!.GetValue<string>() == "avery@example.com");
+        var file = OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(Workspace)["historicalTeamContext:avery@example.com"];
         var original = File.ReadAllText(file);
         var document = JsonNode.Parse(original)!;
         var segments = path.Split('.');

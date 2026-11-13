@@ -17,7 +17,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Validated_reopen_restores_the_exact_secondary_note_by_identity_in_Read_mode(NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         Guid ongoing;
         Guid secondary;
         var settings = new WorkspaceSettings(Preferences);
@@ -67,7 +67,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Unavailable_exact_view_retains_preferences_and_writing_until_deliberate_reselection(string failure)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         RememberedView remembered;
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
@@ -111,7 +111,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Failed_exact_view_write_keeps_the_prior_durable_view_and_explains_the_in_session_choice(string failure)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -152,7 +152,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Reopened_search_note_keeps_its_inherited_or_frozen_owner_context_not_current_owned_writing(bool historical)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         Guid noteId;
         Guid? captureId = null;
@@ -196,8 +196,8 @@ public sealed class WorkspaceStartupTests : IDisposable
     {
         var workspace = Path.Combine(root, "workspace");
         var alternate = Path.Combine(root, "alternate");
-        WorkspaceFixtures.CopyVersionOne(workspace);
-        WorkspaceFixtures.CopyVersionOne(alternate);
+        WorkspaceFixtures.CopyCurrent(workspace);
+        WorkspaceFixtures.CopyCurrent(alternate);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -267,7 +267,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void A_later_owner_can_record_a_Team_choice_after_preference_failure_and_retain_it_through_archival()
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -320,8 +320,8 @@ public sealed class WorkspaceStartupTests : IDisposable
     {
         var first = Path.Combine(root, "first");
         var second = Path.Combine(root, "second");
-        WorkspaceFixtures.CopyVersionOne(first);
-        WorkspaceFixtures.CopyVersionOne(second);
+        WorkspaceFixtures.CopyCurrent(first);
+        WorkspaceFixtures.CopyCurrent(second);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, first));
@@ -358,7 +358,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(string failure)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -399,7 +399,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Unreadable_preferences_keep_manual_Workspace_access_without_claiming_an_ongoing_choice_was_restored()
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using (var seed = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
         {
@@ -443,7 +443,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(string failure, NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -495,8 +495,8 @@ public sealed class WorkspaceStartupTests : IDisposable
     {
         var workspace = Path.Combine(root, "workspace");
         var second = Path.Combine(root, "second");
-        WorkspaceFixtures.CopyVersionOne(workspace);
-        WorkspaceFixtures.CopyVersionOne(second);
+        WorkspaceFixtures.CopyCurrent(workspace);
+        WorkspaceFixtures.CopyCurrent(second);
         var settings = new WorkspaceSettings(Preferences);
         Guid ongoing;
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
@@ -554,7 +554,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(bool archived, NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
         Assert.True(settings.OpenWorkspace(app, workspace));
@@ -604,8 +604,8 @@ public sealed class WorkspaceStartupTests : IDisposable
     {
         var first = Path.Combine(root, "first");
         var second = Path.Combine(root, "second");
-        WorkspaceFixtures.CopyVersionOne(first);
-        WorkspaceFixtures.CopyVersionOne(second);
+        WorkspaceFixtures.CopyCurrent(first);
+        WorkspaceFixtures.CopyCurrent(second);
         Directory.CreateDirectory(Path.GetDirectoryName(Preferences)!);
         File.WriteAllText(Preferences, new JsonObject { ["schemaVersion"] = 1, ["lastWorkspacePath"] = first }.ToJsonString());
         var settings = new WorkspaceSettings(Preferences);
@@ -656,7 +656,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.False(Directory.Exists(root));
 
             var workspace = Path.Combine(root, "workspace");
-            WorkspaceFixtures.CopyVersionOne(workspace);
+            WorkspaceFixtures.CopyCurrent(workspace);
             Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
             Assert.Equal(workspace, settings.LastWorkspacePath);
             Assert.Equal("Ave", app.GetRelationships("avery@example.com")!.Person.PreferredName);
@@ -677,7 +677,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Missing_workspace_is_not_recreated_and_retry_can_reopen_the_original()
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
         {
@@ -710,7 +710,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     public void Invalid_or_inaccessible_restore_keeps_the_app_empty_and_preserves_the_successful_preference(bool locked)
     {
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         var settings = new WorkspaceSettings(Preferences);
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
         {
@@ -760,7 +760,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             File.WriteAllText(invalid, "Not a Workspace directory");
             Assert.False(settings.OpenWorkspace(app, invalid));
             Assert.Equal(first, new WorkspaceSettings(Preferences).LastWorkspacePath);
-            WorkspaceFixtures.CopyVersionOne(alternate);
+            WorkspaceFixtures.CopyCurrent(alternate);
             Assert.True(settings.OpenWorkspace(app, alternate), app.Status);
             Assert.Equal(alternate, new WorkspaceSettings(Preferences).LastWorkspacePath);
         }
@@ -835,7 +835,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.False(settings.RestoreWorkspace(app, restartWorkspace));
             Assert.False(Directory.Exists(restartWorkspace));
             Assert.Equal(first, new WorkspaceSettings(Preferences).LastWorkspacePath);
-            WorkspaceFixtures.CopyVersionOne(restartWorkspace);
+            WorkspaceFixtures.CopyCurrent(restartWorkspace);
             Assert.True(settings.RestoreWorkspace(app, restartWorkspace), app.Status);
         }
         using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
@@ -851,8 +851,8 @@ public sealed class WorkspaceStartupTests : IDisposable
     {
         var first = Path.Combine(root, "first");
         var alternate = Path.Combine(root, "alternate");
-        WorkspaceFixtures.CopyVersionOne(first);
-        WorkspaceFixtures.CopyVersionOne(alternate);
+        WorkspaceFixtures.CopyCurrent(first);
+        WorkspaceFixtures.CopyCurrent(alternate);
         var settings = new WorkspaceSettings(Preferences);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(settings.OpenWorkspace(app, first), app.Status);

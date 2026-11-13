@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -23,7 +24,7 @@ internal static partial class Program
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = held.Task;
         var workspace = Path.Combine(root, "workspace");
-        WorkspaceFixtures.CopyVersionOne(workspace);
+        WorkspaceFixtures.CopyCurrent(workspace);
         using (var process = Launch(executable))
         {
             try
@@ -38,7 +39,7 @@ internal static partial class Program
                     throw new InvalidOperationException("A duplicate manual check was enabled during the in-flight startup request.");
                 Set(window, "WorkspacePath", workspace);
                 Click(window, "OpenWorkspace");
-                Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
+                Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Editable during update check");
@@ -101,7 +102,16 @@ internal static partial class Program
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Editable after update failure");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+                Find(window, "Status").Current.Name ==
+                    "Saved locally.\nStorage reclamation deferred for preserved unretired transactions.");
+            using (var saved = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!saved.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||
+                    saved.GetRelationships("avery@example.com")!.Person.PreferredName != "Editable after update failure" ||
+                    !saved.CanSafelyClose)
+                    throw new InvalidOperationException("The post-update-failure edit was not durably saved: " + saved.Status);
+            }
             SetSettingsVisible(window, true);
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();

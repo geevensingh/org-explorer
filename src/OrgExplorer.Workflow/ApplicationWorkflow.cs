@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
@@ -64,6 +63,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
 {
     private readonly bool memory;
     private readonly IWorkspaceFilePublisher filePublisher;
+    private readonly IWorkspaceFileObserver? fileObserver;
     private Dictionary<string, PersonProfile> people = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, AcceptedBatch> batches = [];
     private string? workspace;
@@ -75,11 +75,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         string BatchId, string Fingerprint, JsonElement Source, Dictionary<string, byte[]> Photos,
         IReadOnlyList<PhotoResource> Resources);
     private sealed record AcceptedBatch(string Fingerprint, JsonElement Source, DateTimeOffset AppliedAt);
-    private sealed record WorkspaceMetadata(
-        [property: System.Text.Json.Serialization.JsonRequired] int SchemaVersion,
-        [property: System.Text.Json.Serialization.JsonRequired] string Generation,
-        IReadOnlyList<string>? Files = null,
-        IReadOnlyDictionary<string, int>? RecordVersions = null);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -88,18 +83,19 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     };
 
     private ApplicationWorkflow(bool memory, IProfileLinkOpener? profileLinkOpener, TimeProvider? timeProvider,
-        IWorkspaceFilePublisher? filePublisher = null)
+        IWorkspaceFilePublisher? filePublisher = null, IWorkspaceFileObserver? fileObserver = null)
     {
         this.memory = memory;
         this.profileLinkOpener = profileLinkOpener;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.filePublisher = filePublisher ?? new WorkspaceFilePublisher();
+        this.fileObserver = fileObserver;
     }
     public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
         new ApplicationWorkflow(true, profileLinkOpener, timeProvider);
     public static IApplicationWorkflow CreateFileBacked(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null,
-        IWorkspaceFilePublisher? filePublisher = null) =>
-        new ApplicationWorkflow(false, profileLinkOpener, timeProvider, filePublisher);
+        IWorkspaceFilePublisher? filePublisher = null, IWorkspaceFileObserver? fileObserver = null) =>
+        new ApplicationWorkflow(false, profileLinkOpener, timeProvider, filePublisher, fileObserver);
     public IReadOnlyList<PersonProfile> People
     { get { if (queryView is { } view) return view.People; lock (workspaceGate) return OrderedPeople(); } }
     public IReadOnlyList<ReportingNode> ReportingRoots
@@ -141,6 +137,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
             Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
             Volatile.Write(ref saveErrorSnapshot, error);
+            if (storageReclamationDeferred && !value.Contains("Storage reclamation deferred", StringComparison.Ordinal))
+                value += "\nStorage reclamation deferred for preserved unretired transactions.";
             Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
                 ? value + "\n" + error : value);
         }
@@ -154,11 +152,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private bool OpenWorkspaceCore(string path, WorkspaceOpenMode mode)
     {
         if (disposed) return Fail("The Workspace workflow is closed.");
+        if (workspaceConflicts.Count != 0 && !string.Equals(path, workspace, StringComparison.OrdinalIgnoreCase))
+            return Fail("Resolve retained publication conflicts before switching Workspaces.");
         if (profileEdit is { IsDirty: true })
             return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
         CancelProfileEdit();
         StopWatching();
         workspaceCurrent = false;
+        storageReclamationDeferred = false;
         pending = null;
         workspace = null;
         compatibility = new(WorkspaceCompatibilityState.NotOpened,
@@ -180,9 +181,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 else Directory.CreateDirectory(fullPath);
             }
             workspace = fullPath;
+            if (!memory) LoadPublicationConflicts();
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
-            Status = conversionMessage ?? "Workspace opened.";
+            Status = "Workspace opened.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
@@ -432,16 +434,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             complete.UnionWith(path);
         }
     }
-    private string WorkspaceFingerprint(bool includePersonNotes = true, string? ignoredGeneration = null,
-        IReadOnlyDictionary<string, byte[]>? snapshot = null, bool allGenerations = false)
+    private string WorkspaceFingerprint(bool includePersonNotes = true,
+        IReadOnlyDictionary<string, byte[]>? snapshot = null)
     {
         using var access = CoordinateWorkspaceIo(workspace!);
-        snapshot ??= CaptureWorkspaceBytes(allGenerations);
+        snapshot ??= CaptureWorkspaceBytes();
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in (snapshot is null ? EnumerateWorkspaceFiles(workspace!, allGenerations) : snapshot.Keys)
+        foreach (var path in snapshot.Keys
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
-                (ignoredGeneration is null || !p.StartsWith(Path.Combine(workspace!, "generations", ignoredGeneration) +
-                    Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) &&
                 (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))).Order())
@@ -464,81 +464,27 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             failedSaves.Remove(operation);
             return true;
         }
-        try
-        {
-            using var access = CoordinateWorkspaceIo(workspace!);
-            EnsureWorkspaceWritable();
-            using var lease = new FileStream(Path.Combine(workspace!, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            var sourceBytes = CaptureWorkspaceBytes();
-            if (WorkspaceFingerprint(snapshot: sourceBytes) != revision)
-                throw new IOException("Workspace changed since opening or preview. Reopen and preview again; no changes saved.");
-            string? sourceGeneration = null;
-            if (sourceBytes.TryGetValue(Path.Combine(workspace!, "workspace.json"), out var pointerBytes))
-            {
-                using var sourcePointer = JsonDocument.Parse(pointerBytes);
-                sourceGeneration = Path.Combine(workspace!, "generations", ReadWorkspaceMetadata(sourcePointer.RootElement).Generation);
-            }
-            var generation = Guid.NewGuid().ToString("N");
-            var directory = Path.Combine(workspace!, "generations", generation);
-            var published = new ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            Directory.CreateDirectory(Path.Combine(directory, "people"));
-            RunBoundedFileIo(proposed.Values, person =>
-            {
-                var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(person.Email.ToLowerInvariant()))).ToLowerInvariant();
-                var target = Path.Combine(directory, "people", key + ".json");
-                var source = sourceGeneration is null ? null : Path.Combine(sourceGeneration, "people", key + ".json");
-                if (people.TryGetValue(person.Email, out var prior) && prior == person &&
-                    source is not null && sourceBytes.TryGetValue(source, out var bytes))
-                    WriteDurablyBytes(target, bytes, published);
-                else WriteVersionedRecord(target, person, published);
-            });
-            SavePhotos(directory, proposed, proposedPhotos ?? photos, published);
-            WriteDurably(Path.Combine(directory, "team-context.json"), nextTeamContexts, published);
-            WriteDurably(Path.Combine(directory, "batches.json"), accepted, published);
-            WriteProfileHistory(directory, history ?? profileHistory, profileHistory, sourceGeneration, sourceBytes, published);
-            WriteHistoricalTeamContexts(directory, nextHistoricalContexts, historicalTeamContexts, sourceGeneration, sourceBytes, published);
-            var staged = Path.Combine(workspace!, "workspace.next");
-            var files = published.Keys
-                .Select(path => Path.GetRelativePath(directory, path)).Order(StringComparer.Ordinal).ToArray();
-            // Unlink only the app-owned stage, then create exclusively so a raced link is never followed.
-            File.Delete(staged);
-            WriteDurablyBytes(staged, JsonSerializer.SerializeToUtf8Bytes(
-                new WorkspaceMetadata(2, generation, files, CurrentRecordVersions), JsonOptions), published);
-            if (WorkspaceFingerprint() != revision || resources is not null && !PhotoResourcesUnchanged(resources))
-                throw new IOException("Workspace or supplied import resources changed during generation staging. Preview again; no changes published.");
-            var destination = Path.Combine(workspace!, "workspace.json");
-            filePublisher.Publish(staged, destination, Path.Combine(workspace!, "workspace.previous.json"));
-            liveGeneration = generation;
-            var generationPrefix = Path.Combine(workspace!, "generations") + Path.DirectorySeparatorChar;
-            var expected = sourceBytes.Where(entry => !entry.Key.StartsWith(generationPrefix, StringComparison.OrdinalIgnoreCase))
-                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase);
-            foreach (var (path, bytes) in published)
-                expected[path == staged ? destination : path] = bytes;
-            AcceptWorkspaceRevision(expected);
-            teamContextRevisions = nextTeamContexts;
-            historicalTeamContexts = nextHistoricalContexts;
-            failedSaves.Remove(operation);
-            return true;
-        }
-        catch (Exception ex) when (StorageError(ex))
-        {
-            return SaveFailed(operation, "Save failed; changes are NOT saved locally: " + ex.Message);
-        }
+        return SaveIncrementally(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
+            nextTeamContexts, nextHistoricalContexts, operation, resources);
     }
-    private static void WriteDurably<T>(string path, T value, ConcurrentDictionary<string, byte[]>? published = null)
-    {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
-        using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        file.Write(bytes);
-        file.Flush(true);
-        if (published is not null) published[path] = bytes;
-    }
-    private static void WriteDurablyBytes(string path, byte[] bytes, ConcurrentDictionary<string, byte[]>? published = null)
+    private void WriteDurablyBytes(string path, byte[] bytes)
     {
         using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         file.Write(bytes);
+        fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
         file.Flush(true);
-        if (published is not null) published[path] = bytes;
+        fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
+    }
+    private void PublishWorkspaceFile(string staged, string destination, string? backup,
+        WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
+    {
+        filePublisher.Publish(staged, destination, backup, mode);
+        fileObserver?.Observe(new(WorkspaceFileEffectKind.Publish, staged, Destination: destination, Backup: backup));
+    }
+    private void DeleteWorkspaceFile(string path)
+    {
+        File.Delete(path);
+        fileObserver?.Observe(new(WorkspaceFileEffectKind.Delete, path));
     }
     private static void RunBoundedFileIo<T>(IEnumerable<T> values, Action<T> write)
     {

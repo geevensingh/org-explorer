@@ -166,10 +166,7 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
 
     private string CurrentPersonFile(string email)
     {
-        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "workspace.json")))!;
-        var directory = Path.Combine(folder, "generations", metadata["generation"]!.GetValue<string>(), "people");
-        return Directory.GetFiles(directory, "*.json").Single(p =>
-            JsonNode.Parse(File.ReadAllText(p))!["email"]!.GetValue<string>() == email);
+        return OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["people:" + email];
     }
 
     public void Dispose()

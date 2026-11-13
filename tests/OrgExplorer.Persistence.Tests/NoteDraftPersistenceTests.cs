@@ -153,7 +153,9 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             Assert.Null(app.SaveNoteDraft(original, "First edit", "First writing"));
         Assert.False(app.CanSafelyClose);
         Assert.Equal(bytes, File.ReadAllBytes(file));
-        var accepted = Assert.IsType<NoteDraft>(app.SaveNoteDraft(original, "First edit", "First writing"));
+        var retry = app.SaveNoteDraft(original, "First edit", "First writing");
+        Assert.True(retry is not null, app.Status);
+        var accepted = Assert.IsType<NoteDraft>(retry);
         Assert.True(app.CanSafelyClose);
         Assert.Equal("First writing", accepted.Markdown);
         var newer = Assert.IsType<NoteDraft>(app.SaveNoteDraft(accepted, "Newer edit", "Typed while saving"));

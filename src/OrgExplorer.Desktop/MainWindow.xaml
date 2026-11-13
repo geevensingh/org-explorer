@@ -97,8 +97,16 @@
                        TextWrapping="Wrap"/>
             <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
                        TextWrapping="Wrap" Margin="0,8"/>
-            <Button Content="Retry Workspace validation / conversion" AutomationProperties.AutomationId="RetryWorkspace"
+            <Button Content="Retry Workspace validation / storage maintenance" AutomationProperties.AutomationId="RetryWorkspace"
                     Click="RetryWorkspace" HorizontalAlignment="Left"/>
+            <TextBlock x:Name="PublicationConflictDetails" AutomationProperties.AutomationId="PublicationConflictDetails"
+                       TextWrapping="Wrap" Margin="0,8"/>
+            <WrapPanel>
+              <Button x:Name="ReviewPublicationConflictsButton" Content="Review publication conflicts"
+                      AutomationProperties.AutomationId="ReviewPublicationConflicts" Click="ReviewPublicationConflicts"/>
+              <Button x:Name="ResolvePublicationConflictsButton" Content="Acknowledge external resolution"
+                      AutomationProperties.AutomationId="ResolvePublicationConflicts" Click="ResolvePublicationConflicts" Margin="8,0"/>
+            </WrapPanel>
           </StackPanel>
         </ScrollViewer>
       </DockPanel>
