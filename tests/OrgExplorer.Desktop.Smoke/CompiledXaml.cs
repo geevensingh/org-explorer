@@ -226,7 +226,28 @@ internal static partial class Program
             throw new InvalidOperationException("Full Edit must expose empty fields without duplicate reading values.");
         if (Control<Button>("Manager").IsDescendantOf(Control<Border>("ProfileValues")))
             throw new InvalidOperationException("Profile editing hid saved-Manager navigation, preventing the existing guarded leave flow.");
+        VerifyInlineProfileLayout(window);
+        var focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBox>("DirectoryNameEditor")))
+            throw new InvalidOperationException("Entering the inline profile must focus its first field after layout, not leave focus on a hidden action.");
+        Control<TextBox>("OfficeNumber").Text = "Cancelled by the owner";
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice,
+            new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Return)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        };
+        Control<TextBox>("OfficeNumber").RaiseEvent(enter);
+        if (Control<FrameworkElement>("ProfileSessionActions").Visibility != Visibility.Visible ||
+            Control<TextBox>("OfficeNumber").Text != "Cancelled by the owner")
+            throw new InvalidOperationException("Field Enter must leave the complete inline draft open and unchanged.");
         Invoke("CancelProfileButton");
+        focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")))
+            throw new InvalidOperationException("Profile Cancel must return logical focus to Edit profile.");
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B")
             throw new InvalidOperationException("Profile Cancel changed the readable saved value.");
         var notes = Control<FrameworkElement>("PersonNotes");
@@ -470,6 +491,77 @@ internal static partial class Program
         ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
         Console.WriteLine("PASS: invisible compiled Preferred-name typing/update drain do not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
         Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
+    }
+
+    private static void VerifyInlineProfileLayout(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var identity = Control<Grid>("PersonIdentity");
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        void Layout(double width, double height)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+        }
+        Layout(1920, 1040);
+        var directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        var alias = Bounds(Control<TextBox>("Alias"));
+        if (Math.Abs(directory.Top - alias.Top) > 1 || alias.Left < directory.Right)
+            throw new InvalidOperationException("The wide inline profile must pair Directory name and Alias in a responsive labelled form.");
+        var divider = Control<GridSplitter>("PeopleDivider");
+        var people = Control<GroupBox>("PeoplePanel");
+        var host = Control<Grid>("ExplorerPanel");
+        var originalPeople = people.ActualWidth;
+        void Drag(double delta)
+        {
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Layout(1920, 1040);
+            divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Layout(1920, 1040);
+        }
+        Drag(host.ActualWidth - people.ActualWidth);
+        directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        alias = Bounds(Control<TextBox>("Alias"));
+        if (alias.Top <= directory.Bottom || Math.Abs(alias.Left - directory.Left) > 1)
+            throw new InvalidOperationException("A narrow Person pane must stack labelled profile fields rather than clipping paired columns.");
+        Drag(originalPeople - people.ActualWidth);
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
+        {
+            Layout(size.Width, size.Height);
+            var viewport = Bounds(scroll);
+            foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+            {
+                var editor = Control<Control>(name);
+                var bounds = Bounds(editor);
+                if (!editor.IsEnabled || editor.Visibility != Visibility.Visible || !editor.Focusable ||
+                    !KeyboardNavigation.GetIsTabStop(editor) || editor.FontSize < 14 ||
+                    bounds.Width < 180 || bounds.Left < viewport.Left - 1 || bounds.Right > viewport.Right + 1)
+                    throw new InvalidOperationException($"Inline profile field {name} is inaccessible or overflows at {size}: {bounds}, viewport={viewport}.");
+            }
+            if (scroll.ScrollableWidth > 0 ||
+                scroll.ViewportHeight < Control<TextBox>("DirectoryNameEditor").ActualHeight ||
+                Bounds(Control<GroupBox>("ProfileSummary")).Bottom > Bounds(Control<GroupBox>("NotesPane")).Top + 1)
+                throw new InvalidOperationException("Profile editing must precede independent notes without horizontal page scrolling.");
+            var beforeIdentity = Bounds(identity);
+            var save = Control<Button>("SaveProfileButton");
+            var beforeSave = Bounds(save);
+            scroll.ScrollToBottom();
+            Layout(size.Width, size.Height);
+            if (beforeIdentity != Bounds(identity) || beforeSave != Bounds(save) ||
+                Bounds(save).Bottom > Bounds(scroll).Top + 1 || save.IsDefault ||
+                Control<Button>("CancelProfileButton").IsCancel)
+                throw new InvalidOperationException("Profile identity and explicit Save/Cancel must remain anchored without a window-wide Enter/Escape action.");
+            scroll.ScrollToTop();
+        }
+        Layout(1920, 1040);
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");
+        Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
     }
 
     private static void VerifyPeopleSearchRestoration(Window window, string settings)

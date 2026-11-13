@@ -100,8 +100,10 @@ internal static partial class Program
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
             BeginProfileEditing(window);
+            AssertProfileFieldKeyboard(window, workspace);
             Set(window, "OfficeNumber", "Cancelled office");
             Click(window, "ClearPhoto");
+            CaptureVisualEvidence(window, "profile-inline-photo-clear-staged");
             CancelProfileEditing(window);
             AwaitLocalWorkIdle(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -243,7 +245,28 @@ internal static partial class Program
     {
         Click(window, "EditProfile");
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
-            !Find(window, "DirectoryNameEditor").Current.IsOffscreen);
+            !Find(window, "DirectoryNameEditor").Current.IsOffscreen &&
+            Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+    }
+
+    private static void AssertProfileFieldKeyboard(AutomationElement window, string workspace)
+    {
+        PressCopyKey(0x09);
+        Await(() => Find(window, "Alias").Current.HasKeyboardFocus);
+        Set(window, "OfficeNumber", "Not submitted by Enter");
+        Find(window, "OfficeNumber").SetFocus();
+        Await(() => Find(window, "OfficeNumber").Current.HasKeyboardFocus);
+        PressCopyKey(0x0D);
+        PressCopyKey(0x09);
+        Await(() => Find(window, "OfficeState").Current.HasKeyboardFocus);
+        AssertValue(window, "OfficeNumber", "Not submitted by Enter");
+        if (!IsVisible(window, "ProfileEditingState") || !IsVisible(window, "SaveProfile") ||
+            !IsVisible(window, "CancelProfile") || Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException("Field Enter submitted or displaced the complete contextual profile draft.");
+        using var saved = ApplicationWorkflow.CreateFileBacked();
+        if (!saved.OpenWorkspace(workspace) || saved.GetRelationships("avery@example.com")!.Person.OfficeNumber != "007B")
+            throw new InvalidOperationException("A profile field Enter published staged text before explicit Save.");
+        CaptureVisualEvidence(window, "profile-inline-field-enter-retained");
     }
 
     [DllImport("user32.dll")]
@@ -283,7 +306,8 @@ internal static partial class Program
     private static void CancelProfileEditing(AutomationElement window)
     {
         Click(window, "CancelProfile");
-        Await(() => Find(window, "EditProfile").Current.IsEnabled);
+        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
+            Find(window, "EditProfile").Current.HasKeyboardFocus);
     }
 
     private static void AssertProfileValue(AutomationElement window, string field, string expected)

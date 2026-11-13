@@ -460,6 +460,14 @@ The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, compact initials, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+Its inline profile check measures paired fields at wide widths and stacked fields
+at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
+content. It requires enabled, Tab-accessible, readable-width fields without
+horizontal page overflow, notes below the form, and identity/Save/Cancel remaining
+anchored during scrolling. Logical entry/Cancel focus, routed field Enter and
+retained staged text are also checked without creating a native window handle.
+Physical focus, Tab scrolling, Enter delivery and appearance still require hosted
+WPF; these compiled observations cannot substitute for them.
 It also measures/arranges the actual compiled content and drives its real
 People splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
 drags, 27% balance recovery and a narrower wide viewport. Facts and notes must
@@ -622,6 +630,10 @@ without changing its display. They cover:
   explicitly, replaces the people view, and returns to reading with Import
   controls absent. Choosing/previewing retains the saved population; changing the
   path invalidates Apply until reviewed again.
+  Inline editing additionally requires initial Directory-name focus, Tab to Alias,
+  actual field Enter followed by Tab without submission, unchanged saved office
+  data before explicit Save, and focus returning to Edit profile after Cancel.
+  Named captures retain the field-Enter draft and staged photo clear.
 - `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
   leave-save retention and Import protection versus independent failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
@@ -685,6 +697,12 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
   mouse/keyboard People resizing, percentage resize/reopen and search/clear position.
 - `responsive-draft-navigation`: the complete draft-protection journey plus
   actual compact overlay rejection retaining the exact owner/editor and feedback.
+  Its inline form also traverses every ordinary field and Manager by Tab at
+  700 x 500, 1100 x 900, host widths 959/960/961, maximized and the minimum
+  Person allocation. Each focused control must fit the actual scroll viewport
+  without moving identity or Save/Cancel; stable email stays read-only and notes
+  stay below the draft. Named top/Manager and failed-leave-save captures support
+  final whole-pass comparison, not automatic visual acceptance.
 - `responsive-team-history`: the complete owned/inherited Team, independent
   draft and frozen-history journey plus the 700/1100 rendered warning/history
   matrices. All ordinary domain/ownership/history assertions remain in the
