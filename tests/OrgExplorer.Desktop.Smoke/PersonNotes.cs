@@ -47,6 +47,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             AssertEmptyNotes(window, "Person");
             AssertEmptyNotes(window, "Team");
+            CaptureVisualEvidence(window, "notes-true-empty-invitations");
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
             AssertNoteView(window, "Person", editing: true);
@@ -60,6 +61,8 @@ internal static partial class Program
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "person-note-existing-empty-read");
             SelectTab(window, "PersonNoteEditTab");
             AssertNoteView(window, "Person", editing: true);
             AssertValue(window, "PersonNoteMarkdown", "");
@@ -72,6 +75,8 @@ internal static partial class Program
             OpenPerson(window, "casey@example.com");
             Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("Choose an ongoing note"));
             AssertOtherPersonNotesCollapsed(window);
+            AssertNoEmptyInvitation(window, "Person");
+            CaptureVisualEvidence(window, "person-note-ambiguous-not-empty");
             SelectNote(window, "Private meeting");
             Click(window, "UseAsOngoingPersonNote");
             AssertOtherPersonNotesCollapsed(window);
@@ -84,6 +89,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Person-note owner was not explicit.");
             if (!ReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Image suppression was not visible in the rendered reading view.");
+            ReadAndCaptureNote(window, "PersonNoteReading", "Meeting with Avery.", "person-note-populated-ongoing");
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
@@ -114,6 +120,7 @@ internal static partial class Program
                 Await(() => !IsVisible(window, "SettingsTitle"));
                 AssertNoteView(window, "Person", editing: true);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
+                CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
             }
             Click(window, "RetryPersonNoteSave");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
@@ -128,6 +135,7 @@ internal static partial class Program
                 if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note") ||
                     !File.ReadAllBytes(preferences).SequenceEqual(previousPreference))
                     throw new InvalidOperationException("Failed designation falsely changed the ongoing note.");
+                CaptureVisualEvidence(window, "person-note-designation-failure");
             }
             SelectNote(window, "Private meeting");
             Click(window, "UseAsOngoingPersonNote");
@@ -137,6 +145,8 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: false);
             if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
                 throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "person-note-exact-other-empty-search");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");
@@ -160,6 +170,8 @@ internal static partial class Program
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             AssertRestoredNote(window, "Person", secondaryId, "Secondary empty note");
             Await(() => !Find(window, "PersonNoteHeading").Current.IsOffscreen);
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "person-note-exact-empty-reopened");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             AssertOtherPersonNotesCollapsed(window);
@@ -168,6 +180,8 @@ internal static partial class Program
             Click(window, "ArchivePersonNote");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("archived locally"));
             Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
+            AssertNoEmptyInvitation(window, "Person");
+            CaptureVisualEvidence(window, "person-note-unavailable-ongoing-choice");
             ExpandOtherPersonNotes(window);
             ((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectNote(window, "Private meeting");
@@ -272,5 +286,34 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Notes"));
         if (list is not null && !list.Current.IsOffscreen)
             throw new InvalidOperationException($"Empty {kind} notes retain a blank permanent picker.");
+    }
+
+    private static void AssertNoEmptyInvitation(AutomationElement window, string kind)
+    {
+        var empty = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}NotesEmpty"));
+        if (empty is not null && !empty.Current.IsOffscreen)
+            throw new InvalidOperationException($"Unavailable, ambiguous or retained {kind} writing was presented as an empty collection.");
+    }
+
+    private static void AssertEmptyDocument(AutomationElement window, string kind)
+    {
+        AssertNoEmptyInvitation(window, kind);
+        if (!Find(window, $"{kind}NoteEmptyBody").Current.Name.Contains("Choose Edit", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The exact empty {kind} document lost its purposeful Edit invitation.");
+    }
+
+    private static void ReadAndCaptureNote(AutomationElement window, string readingId, string expected, string state)
+    {
+        var reading = Find(window, readingId);
+        var range = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange
+            .FindText(expected, false, false) ?? throw new InvalidOperationException("Missing actual note prose: " + expected);
+        range.ScrollIntoView(true);
+        Await(() => !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0);
+        if (reading.Current.BoundingRectangle.Width / DpiScale(window) > 601 ||
+            reading.TryGetCurrentPattern(ScrollPattern.Pattern, out var inner) && ((ScrollPattern)inner).Current.VerticallyScrollable ||
+            ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
+            throw new InvalidOperationException("Owned/current/frozen prose lost its bounded measure or reintroduced an independent reading scroll.");
+        CaptureVisualEvidence(window, state);
     }
 }

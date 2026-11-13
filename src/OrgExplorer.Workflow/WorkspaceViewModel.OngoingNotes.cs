@@ -7,6 +7,7 @@ public sealed record OwnedNotesView(
     OwnedNote? SelectedNote, bool IsEditing, bool OtherNotesOpen, string Feedback)
 {
     public bool IsOngoing => SelectedNote is not null && SelectedNote.Id == OngoingNoteId;
+    public bool IsEmpty { get; init; }
 }
 
 public sealed partial class WorkspaceViewModel
@@ -47,6 +48,9 @@ public sealed partial class WorkspaceViewModel
         var ongoing = OngoingId(scope, view.Owner, notes);
         var selectedId = view.Exact ? view.Selected : ongoing;
         var selected = notes.FirstOrDefault(n => n.Id == selectedId && (view.Exact || !n.Archived));
+        var empty = view.Owner is not null && notes.Count == 0 && ongoing is null && view.Selected is null &&
+            view.Error is null && ongoingPreferenceError is null &&
+            settings is not { HasValidPreferenceSnapshot: false } && IsWorkspaceCurrent && LocalSaveError is null;
         var feedback = view.Error ?? ongoingPreferenceError ??
             (settings is { HasValidPreferenceSnapshot: false } ? settings.PreferenceError : null) ?? (view.Owner is null ? "" :
             ongoing is { } id && !notes.Any(n => n.Id == id && !n.Archived)
@@ -55,9 +59,13 @@ public sealed partial class WorkspaceViewModel
                     ? "The selected note is unavailable. Use Other notes or deliberately open the ongoing note. No replacement was opened."
                 : ongoing is null && notes.Any(n => !n.Archived)
                     ? "Choose an ongoing note from Other notes. No document has been chosen for you."
-                    : notes.Count == 0 ? $"No {scope} notes. Write a new note to begin." : "");
+                    : notes.Count == 0 ? (empty ? $"No {scope} notes. Write a new note to begin." : LocalSaveError ?? Status)
+                    : notes.All(n => n.Archived) ? $"Only archived {scope} notes. Use Other notes to read or restore existing writing." : "");
         return new(view.Owner, notes, ongoing, selected, view.Editing && selected is { Archived: false },
-            view.OtherNotes, feedback);
+            view.OtherNotes, feedback)
+        {
+            IsEmpty = empty
+        };
     }
 
     public bool OpenOwnedNotes(NoteScope scope, string? ownerEmail) => Observe(() =>

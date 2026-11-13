@@ -16,9 +16,13 @@ internal static class PrivateMarkdownReading
     {
         var document = new FlowDocument
         {
-            PagePadding = new Thickness(0), FontSize = 14,
+            PagePadding = new Thickness(0), FontSize = 14, LineHeight = 22,
             FontFamily = new System.Windows.Media.FontFamily("Segoe UI")
         };
+        document.Resources.Add(typeof(Paragraph), new Style(typeof(Paragraph))
+        {
+            Setters = { new Setter(Paragraph.MarginProperty, new Thickness(0, 0, 0, 12)) }
+        });
         foreach (var block in Markdown.Parse(markdown, Pipeline)) AddBlock(document.Blocks, block, openLink);
         return document;
     }
@@ -28,7 +32,11 @@ internal static class PrivateMarkdownReading
         switch (block)
         {
             case HeadingBlock heading:
-                var paragraph = new Paragraph { FontSize = 28 - heading.Level * 2, FontWeight = FontWeights.Bold };
+                var paragraph = new Paragraph
+                {
+                    FontSize = 28 - heading.Level * 2, FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 8, 0, 8)
+                };
                 AddInlines(paragraph.Inlines, heading.Inline, openLink);
                 output.Add(paragraph);
                 break;

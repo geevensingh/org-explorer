@@ -185,6 +185,14 @@ This section covers ongoing-note behavior and shared designation support.
 Exact startup restoration is described below; hosted WPF acceptance remains
 an exact-candidate delivery gate.
 
+The refreshed Person and owned-Team surfaces share full-width section headings,
+restrained actions, light separators and aligned, bounded reading text. True
+empty collections offer Write a Person/Team note without a blank viewer or
+disabled action collection. An existing empty document instead keeps its exact
+title, kind and Read/Edit access, with an invitation to Edit. Archived-only
+collections, unavailable choices, ambiguous designations, unreadable preferences
+and failed writing retain their own guidance rather than claiming emptiness.
+
 ### Implemented adaptive host
 
 The host retains profile editing and independent note surfaces. Its circular
@@ -284,6 +292,14 @@ inheritance, frozen owner identity and exact historical search stay distinct.
 The same surfaces live within the existing wide/compact adaptive host; headers
 wrap and Markdown retains its 600-DIP reading limit. Existing title/Markdown
 autosave, retry/discard, archive/restore and external-change protections remain.
+
+Current context keeps readable ancestor attribution outside its collapsed
+details as well as the attributed review warnings. Full-width native disclosures
+align their headings with the content; History uses the same typography and
+bounded prose rather than nested boxes. Owned, inherited and frozen Markdown
+all grow within the one Person reading scroll. Its reserved scrollbar gutter
+keeps fact slots stable when populated and empty notes have different heights.
+This does not change the separate People browsing bookmark or measured range.
 
 Workflow and real-file regressions cover secondary inheritance/navigation,
 durable Team designation, preference failures/nonmutation and retained drafts.

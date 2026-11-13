@@ -26,7 +26,8 @@ public partial class TeamNotesControl : UserControl
         presentation = new(NoteScope.Team)
         {
             Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
-            Designate = DesignateButton, Ongoing = OngoingButton
+            Designate = DesignateButton, Ongoing = OngoingButton,
+            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody
         };
         draft = new NoteDraftState("Team note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
@@ -71,7 +72,7 @@ public partial class TeamNotesControl : UserControl
             loading = false;
         }
         Ownership.Text = email is null ? "Select a Person." :
-            $"Owned by {email}; applies to current formal descendants. Ownership stays with this Person, not a permanent team. No sharing.";
+            $"Owned by {email}; applies to current formal descendants.";
         NewButton.IsEnabled = email is not null;
         if (!draft.HasUnsavedChanges) RefreshNotes();
         RefreshContext();
@@ -99,8 +100,6 @@ public partial class TeamNotesControl : UserControl
         NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == view.SelectedNote?.Id);
         OtherNotes.IsExpanded = view.OtherNotesOpen;
         OtherNotes.Visibility = owner is not null && view.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Visibility = owner is not null && !view.Notes.Any(n => !n.Archived) ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Text = "No active owned Team notes. Write a new Team note to begin; Other notes retains archived writing.";
         loading = false;
         LoadNote(view.SelectedNote);
         ShowPresentation();
@@ -291,7 +290,10 @@ public partial class TeamNotesControl : UserControl
         InheritedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
             $"Needs review: '{n.Note.Title}' - {n.Owner.Heading} ({n.Owner.Email}). Expand Current inherited Team context to read or review."));
         InheritedReviewWarnings.Visibility = warnings.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        ContextHeading.Text = $"Current inherited Team context - {inherited.Count} notes from formal ancestors";
+        ContextHeading.Text = "Current inherited Team context";
+        ContextAttribution.Text = inherited.Count == 0 ? "No current inherited Team notes. Person notes never inherit." :
+            "From " + string.Join("; ", inherited.Select(n => $"{n.Owner.Heading} ({n.Owner.Email})").Distinct()) +
+            $". All {inherited.Count} active ancestor notes, not just ongoing writing.";
         InheritedSummary.Text = inherited.Count == 0 ? "No current inherited Team notes." :
             string.Join("\n", inherited.Select(n => $"{n.Note.Title} — {n.Owner.Heading} ({n.Owner.Email}): {n.Note.ReviewStatus}"));
         ReviewOwners.Children.Clear();
@@ -313,8 +315,9 @@ public partial class TeamNotesControl : UserControl
                     Text = $"Read / review '{context.Note.Title}' on {context.Owner.Heading}'s profile",
                     TextWrapping = TextWrapping.Wrap
                 },
-                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
+                MaxWidth = 600, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
             };
+            button.SetResourceReference(StyleProperty, "QuietButton");
             AutomationProperties.SetAutomationId(button, "ReviewTeamNote-" + context.Note.Id);
             AutomationProperties.SetName(button, $"Read / review '{context.Note.Title}' - owner {context.Owner.Email}");
             button.Click += (_, _) => OwnerRequested?.Invoke(context.Note.Id);
@@ -333,12 +336,14 @@ public partial class TeamNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent);
+        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent, draft.HasUnsavedChanges);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
         var note = notes.FirstOrDefault(n => n.Id == selected);
         ReviewStatus.Text = note?.ReviewStatus ?? "";
+        ReviewStatus.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && note is { NeedsReview: true, Archived: false };
+        ConfirmButton.Visibility = note is { NeedsReview: true, Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         var warnings = notes.Where(n => n.NeedsReview && !n.Archived).ToArray();
         OwnedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
             $"Needs review: '{n.Title}' - owned by {n.OwnerEmail}. Open the note to confirm, edit or archive."));

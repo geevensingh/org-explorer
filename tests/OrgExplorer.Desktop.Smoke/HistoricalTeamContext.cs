@@ -35,6 +35,8 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
             SelectTreePerson(window, "casey@example.com");
+            AssertEmptyNotes(window, "Team");
+            CaptureVisualEvidence(window, "team-note-true-empty-invitation");
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "About Casey");
             Set(window, "PersonNoteMarkdown", "Never inherited");
@@ -48,9 +50,13 @@ internal static partial class Program
             AwaitLocalWorkIdle(window);
             SelectTab(window, "TeamNoteReadTab");
             AssertNoteView(window, "Team", editing: false);
+            AssertEmptyDocument(window, "Team");
+            CaptureVisualEvidence(window, "team-note-existing-empty-read");
             SelectTab(window, "TeamNoteEditTab");
             AssertValue(window, "TeamNoteMarkdown", "");
-            Set(window, "TeamNoteMarkdown", $"# Frozen ancestor\nOriginal **ancestor** R&amp;D\n![Remote image]({image})");
+            Set(window, "TeamNoteMarkdown", $"# Frozen ancestor\nOriginal **ancestor** R&amp;D\n![Remote image]({image})" +
+                (responsive ? "\n\n" + string.Join("\n\n", Enumerable.Range(1, 32).Select(n =>
+                    $"Former Team paragraph {n}. Preserve the former owner's writing and captured context while reading.")) : ""));
             SelectTab(window, "TeamNoteReadTab");
             AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("Original ancestor"));
@@ -58,6 +64,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Owned Team reading lost decoded Markdown entities.");
             if (!TeamReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Owned Team Markdown did not show remote-image suppression.");
+            ReadAndCaptureNote(window, "TeamNoteReading", "Original ancestor", "team-note-populated-owned-reading");
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Secondary empty Team note");
@@ -67,6 +74,8 @@ internal static partial class Program
             NavigateToManager(window, "casey@example.com");
             Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("Choose an ongoing note"));
             AssertOtherTeamNotesCollapsed(window);
+            AssertNoEmptyInvitation(window, "Team");
+            CaptureVisualEvidence(window, "team-note-ambiguous-not-empty");
             SelectTeamNote(window, "Casey context");
             Click(window, "UseAsOngoingTeamNote");
             AssertOtherTeamNotesCollapsed(window);
@@ -76,6 +85,8 @@ internal static partial class Program
             AssertNoteView(window, "Team", editing: false);
             if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note"))
                 throw new InvalidOperationException("Team search redirected a secondary note to the ongoing note.");
+            AssertEmptyDocument(window, "Team");
+            CaptureVisualEvidence(window, "team-note-exact-other-empty-search");
             var secondaryFile = Directory.GetFiles(Path.Combine(workspace, "team-notes"), "*.md")
                 .Single(path => File.ReadAllText(path).Contains("Secondary empty Team note", StringComparison.Ordinal));
             var savedSecondary = File.ReadAllBytes(secondaryFile);
@@ -91,6 +102,8 @@ internal static partial class Program
                 if (Find(window, "TeamNoteHeading").Current.Name != "Secondary empty Team note" ||
                     !savedSecondary.SequenceEqual(File.ReadAllBytes(secondaryFile)))
                     throw new InvalidOperationException("Ongoing Team navigation changed a failed secondary draft or saved writing.");
+                AssertNoEmptyInvitation(window, "Team");
+                CaptureVisualEvidence(window, "team-note-retained-secondary-save-failure");
             }
             Click(window, "DiscardTeamNoteDraft");
             Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
@@ -104,6 +117,7 @@ internal static partial class Program
                 if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note") ||
                     !savedPreferences.SequenceEqual(File.ReadAllBytes(preferences)))
                     throw new InvalidOperationException("Failed Team designation changed the durable ongoing choice.");
+                CaptureVisualEvidence(window, "team-note-designation-failure");
             }
             Click(window, "OpenOngoingTeamNote");
             Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
@@ -119,6 +133,11 @@ internal static partial class Program
             Set(window, "JobTitle", "Director");
             SaveProfileEditing(window);
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
+            AssertOtherTeamNotesCollapsed(window);
+            var ownedWarning = Find(window, "OwnedTeamReviewWarnings").Current.Name;
+            if (!ownedWarning.Contains("Morgan context") || !ownedWarning.Contains("morgan@example.com"))
+                throw new InvalidOperationException("Collapsed Other Team notes concealed the reviewed note's exact ownership.");
+            ReadAndCaptureNote(window, "TeamNoteReading", "Original direct", "team-owned-review-warning-outside-other-notes");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Primary Person context");
@@ -131,15 +150,21 @@ internal static partial class Program
                 {
                     ResizeWindow(window, size.Width, size.Height);
                     AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+                    CaptureVisualEvidence(window, $"team-inherited-warning-collapsed-{size.Width:0}");
                 }
             }
-            else AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+            else
+            {
+                AssertCollapsedTeamWarnings(window, "morgan@example.com", "Morgan context");
+                CaptureVisualEvidence(window, "team-inherited-warning-collapsed");
+            }
             ExpandCurrentTeamContext(window);
             var inherited = Find(window, "InheritedTeamSummary").Current.Name;
             if (!inherited.Contains("morgan@example.com") || !inherited.Contains("casey@example.com") ||
                 !inherited.Contains("Secondary empty Team note") ||
                 !inherited.Contains("Needs review") || CurrentReadingText(window).Contains("Never inherited"))
                 throw new InvalidOperationException("Inherited context lost ancestor attribution, review feedback or private scope.");
+            ReadAndCaptureNote(window, "InheritedTeamReading", "Original direct", "team-current-all-ancestor-attribution");
             SelectTab(window, "PersonNoteEditTab");
             Set(window, "PersonNoteTitle", " ");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
@@ -149,6 +174,7 @@ internal static partial class Program
             AssertValue(window, "PersonNoteMarkdown", "Everyday individual writing");
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Inherited review bypassed the selected Person's retained writing.");
+            CaptureVisualEvidence(window, "team-owner-review-rejected-independent-person-draft");
             Click(window, "DiscardPersonNoteDraft");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
             ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
@@ -162,6 +188,8 @@ internal static partial class Program
             Click(window, "ArchiveTeamNote");
             Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("archived locally"));
             Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
+            AssertNoEmptyInvitation(window, "Team");
+            CaptureVisualEvidence(window, "team-note-unavailable-archived-choice");
             ExpandSection(window, "OtherTeamNotes");
             ((TogglePattern)Find(window, "ShowArchivedTeamNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectTeamNote(window, "Morgan context");
@@ -173,7 +201,9 @@ internal static partial class Program
             SelectTreePerson(window, "alex@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Alex context");
-            Set(window, "TeamNoteMarkdown", "# Current branch\nNew branch writing");
+            Set(window, "TeamNoteMarkdown", "# Current branch\nNew branch writing" +
+                (responsive ? "\n\n" + string.Join("\n\n", Enumerable.Range(1, 32).Select(n =>
+                    $"Current Team paragraph {n}. Keep current ancestor context separate from frozen former writing.")) : ""));
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             ExpandHistory(window);
             if (!Find(window, "HistoricalTeamSummary").Current.Name.Contains("baseline"))
@@ -200,6 +230,7 @@ internal static partial class Program
                 frozen.Contains("New branch writing") || !CurrentReadingText(window).Contains("New branch writing") ||
                 CurrentReadingText(window).Contains("Original ancestor"))
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");
+            ReadAndCaptureNote(window, "HistoricalTeamReading", "Original direct", "team-frozen-former-owner-attribution");
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
             AssertNoteView(window, "Team", editing: false);
@@ -215,11 +246,16 @@ internal static partial class Program
                     if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing") ||
                         ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
                         throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
+                    if (!frozen.Contains("Former Team paragraph 32") || !CurrentReadingText(window).Contains("Current Team paragraph 32"))
+                        throw new InvalidOperationException("Responsive context lost the complete long current/frozen writing.");
+                    ReadAndCaptureNote(window, "InheritedTeamReading", "Current Team paragraph 32", $"team-current-long-reading-{size.Width:0}");
+                    ReadAndCaptureNote(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
                 }
             QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Original direct", "Later writing");
             if (!Find(window, "SearchContext").Current.Name.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
+            ReadAndCaptureNote(window, "SearchResultReading", "Original direct", "team-exact-frozen-search");
             SelectTreePerson(window, "casey@example.com");
             SelectTeamNote(window, "Secondary empty Team note");
             var secondaryId = Find(window, "TeamNoteHeading").Current.HelpText;
@@ -229,6 +265,8 @@ internal static partial class Program
             AwaitRestoredWorkspace(window, workspace, "casey@example.com");
             AssertRestoredNote(window, "Team", secondaryId, "Secondary empty Team note");
             Await(() => !Find(window, "TeamNoteHeading").Current.IsOffscreen);
+            AssertEmptyDocument(window, "Team");
+            CaptureVisualEvidence(window, "team-note-exact-empty-reopened");
             if (responsive)
                 foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
                 {
@@ -354,6 +392,8 @@ internal static partial class Program
         var warning = Find(window, "InheritedTeamReviewWarnings").Current.Name;
         if (!warning.Contains(email) || !warning.Contains(title) || !warning.Contains("Needs review"))
             throw new InvalidOperationException("Collapsed inherited context concealed attributed review needs.");
+        if (!Find(window, "CurrentTeamAttribution").Current.Name.Contains(email))
+            throw new InvalidOperationException("Collapsed current context lost the ancestor's readable attribution.");
         var reading = window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "InheritedTeamReading"));
         if (reading is not null && !reading.Current.IsOffscreen)
