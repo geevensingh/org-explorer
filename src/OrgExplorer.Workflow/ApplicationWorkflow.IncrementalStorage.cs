@@ -16,7 +16,7 @@ public sealed partial class ApplicationWorkflow
                 throw new IOException(LocalSaveError);
         }
         var bytes = CaptureWorkspaceBytes();
-        using var candidate = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace };
+        using var candidate = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = workspace };
         candidate.ReadIncrementalWorkspaceData(bytes);
         if (WorkspaceFingerprint() != WorkspaceFingerprint(snapshot: bytes))
             throw new IOException("Workspace delivery changed while reading; waiting for complete local files.");
@@ -38,7 +38,10 @@ public sealed partial class ApplicationWorkflow
             verifiedRecoveryPath);
     }
 
-    private void ReadIncrementalWorkspaceData(IReadOnlyDictionary<string, byte[]> bytes)
+    private void ReadIncrementalWorkspaceData(IReadOnlyDictionary<string, byte[]> bytes) =>
+        ObserveStoragePhase("storage.validate-current", () => ReadIncrementalWorkspaceDataCore(bytes));
+
+    private void ReadIncrementalWorkspaceDataCore(IReadOnlyDictionary<string, byte[]> bytes)
     {
         using var read = new WorkspaceReadScope(bytes);
         if (!bytes.TryGetValue(Path.Combine(workspace!, "workspace.json"), out var selector))
@@ -188,7 +191,7 @@ public sealed partial class ApplicationWorkflow
             var documents = IndexedFamilies.ToDictionary(f => f, _ => new Dictionary<string, string>());
             if (source.TryGetValue(destination, out var selector))
             {
-                using var validated = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace };
+                using var validated = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = workspace };
                 validated.ReadIncrementalWorkspaceData(source);
                 var graph = ResolveIncrementalGraph(workspace!, selector, source);
                 roots = new(graph.Metadata.Roots);
@@ -259,7 +262,7 @@ public sealed partial class ApplicationWorkflow
                 if (!ReadWorkspaceBytesUncached(entry.Key).AsSpan().SequenceEqual(entry.Value))
                     throw new IOException("Workspace candidate changed while validating staged data.");
             });
-            using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
+            using (var validation = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = workspace })
                 validation.ReadIncrementalWorkspaceData(expected);
             var recovery = PrepareRecovery(expected, transaction,
                 new("workspace.json", selector is null ? null : ByteDigest(selector), ByteDigest(candidate)));
@@ -289,6 +292,10 @@ public sealed partial class ApplicationWorkflow
     }
 
     private void WriteIncrementalObjects(string transaction, string inventoryPrefix,
+        IReadOnlyList<(string Relative, string StagingPath, byte[] Bytes)> objects) =>
+        ObserveStoragePhase("storage.write-objects", () => WriteIncrementalObjectsCore(transaction, inventoryPrefix, objects));
+
+    private void WriteIncrementalObjectsCore(string transaction, string inventoryPrefix,
         IReadOnlyList<(string Relative, string StagingPath, byte[] Bytes)> objects)
     {
         foreach (var directory in objects.Select(value => Path.GetDirectoryName(Path.Combine(workspace!, value.Relative))!)

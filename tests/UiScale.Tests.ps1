@@ -49,7 +49,10 @@ try {
         @{ job = 'ui-scale'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-' }
     )) {
         $job = [regex]::Match($workflow, "(?ms)^  $($suite.job):\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
-        foreach ($required in @('runs-on: windows-latest', 'timeout-minutes: 11', 'SCALE_STARTED_AT=',
+        $watchdog = if ($suite.job -eq 'ui-scale') {
+            'timeout-minutes: ${{ inputs.extended_observation && 17 || 13 }}'
+        } else { 'timeout-minutes: 13' }
+        foreach ($required in @('runs-on: windows-latest', $watchdog, 'SCALE_STARTED_AT=',
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
             ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'))) {
             if (!$job.Contains($required)) { throw "$($suite.job) is missing $required" }
@@ -66,6 +69,11 @@ try {
     }
     $shared = Get-Content "$root\eng\ScaleRunner.ps1" -Raw
     if (!$shared.Contains('$process.Kill($true)')) { throw 'Shared scale execution lost owned process-tree termination.' }
+    if (!$shared.Contains('$ceilingSeconds = 660') -or !$shared.Contains("'diagnostic_complete'") -or
+        !$workflow.Contains("inputs.extended_observation && 'diagnostic-' || ''") -or
+        !$runner.Contains('[switch] $ExtendedObservation')) {
+        throw 'Extended observation must stay explicit, non-verifying and separate from the unchanged pass/fail budget.'
+    }
     $ciRunner = Get-Content "$root\eng\Run-CiLane.ps1" -Raw
     if (!$ciRunner.Contains('& "$root\tests\UiScale.Tests.ps1"')) {
         throw 'Required core execution must verify the UI-scale command contract without launching UI.'

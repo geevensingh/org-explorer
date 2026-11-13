@@ -32,13 +32,16 @@ public sealed partial class ApplicationWorkflow
         [property: JsonRequired] string RecoveryDigest);
 
     // Called with the local I/O gate and writer lease, only after recovery selection.
-    private void ReclaimIncrementalStorage(PreparedRecovery prepared, ValidatedRecovery selected)
+    private void ReclaimIncrementalStorage(PreparedRecovery prepared, ValidatedRecovery selected) =>
+        ObserveStoragePhase("storage.reclamation", () => ReclaimIncrementalStorageCore(prepared, selected));
+
+    private void ReclaimIncrementalStorageCore(PreparedRecovery prepared, ValidatedRecovery selected)
     {
         LoadPublicationConflicts();
         if (workspaceConflicts.Count != 0)
             throw new IOException("Publication conflict evidence must remain protected until explicit resolution.");
         var current = CaptureWorkspaceBytes();
-        using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace })
+        using (var validation = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = workspace })
             validation.ReadIncrementalWorkspaceData(current);
         var accepted = WorkspaceFingerprint(snapshot: current);
         if (accepted != prepared.Metadata.SourceRevision)
@@ -218,7 +221,8 @@ public sealed partial class ApplicationWorkflow
             }
         }
 
-        void Recheck()
+        void Recheck() => ObserveStoragePhase("storage.reclamation-recheck", RecheckCore);
+        void RecheckCore()
         {
             var actual = CaptureWorkspaceBytes();
             if (WorkspaceFingerprint(snapshot: actual) != accepted ||

@@ -7,6 +7,11 @@ on:
         description: Exact candidate commit supplied by the calling workflow
         required: true
         type: string
+      extended_observation:
+        description: Diagnostic UI observation only; never passing candidate verification
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: '23 10 * * *'
   workflow_dispatch:
@@ -15,6 +20,11 @@ on:
         description: Full 40-character candidate SHA to check freshly (blank uses the selected workflow commit)
         required: false
         type: string
+      extended_observation:
+        description: Observe UI work for up to 900s but retain the 660s verdict; diagnostic only
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -23,7 +33,7 @@ jobs:
   non-ui-performance:
     name: Thorough non-UI performance
     runs-on: windows-latest
-    timeout-minutes: 11
+    timeout-minutes: 13
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
     steps:
@@ -59,9 +69,11 @@ jobs:
   ui-scale:
     name: Genuine 10,000-Person WPF scale
     runs-on: windows-latest
-    timeout-minutes: 11
+    # 13 minutes normally, 17 only for explicitly non-verifying diagnostic observation.
+    timeout-minutes: ${{ inputs.extended_observation && 17 || 13 }}
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
+      EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
     steps:
       - name: Start shared execution budget before setup
         run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -81,11 +93,11 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run fresh sequential genuine UI-scale scenarios
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION
+        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: ui-scale-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
             .ci-results/ui-scale/**/*.json

@@ -80,33 +80,65 @@ internal static class WorkspaceFixtures
         WriteCurrent(destination, documents);
     }
 
-    internal static void WriteCurrent(string destination, Dictionary<string, Dictionary<string, byte[]>> documents)
+    internal static void WriteCurrent(string destination, Dictionary<string, Dictionary<string, byte[]>> documents,
+        IWorkspaceFileObserver? fileObserver = null, Action<string, Action>? measure = null)
     {
+        void Run(string name, Action action)
+        {
+            if (measure is null) action();
+            else measure(name, action);
+        }
+        void Write(string path, byte[] bytes)
+        {
+            File.WriteAllBytes(path, bytes);
+            fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
+        }
         Directory.CreateDirectory(destination);
         var roots = new JsonObject();
-        foreach (var family in new[] { "people", "profileHistory", "acceptedBatches", "photos", "teamContext", "historicalTeamContext" })
+        Run("fixture-current-files-and-indexes", () =>
         {
-            var entries = new Dictionary<string, string>();
-            foreach (var (key, bytes) in documents.GetValueOrDefault(family) ?? [])
+            foreach (var family in new[] { "people", "profileHistory", "acceptedBatches", "photos", "teamContext", "historicalTeamContext" })
             {
-                var extension = family == "photos" ? Path.GetExtension(key) : ".json";
-                var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
-                var path = Path.Combine(destination, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.WriteAllBytes(path, bytes);
-                entries.Add(key, relative);
+                var entries = new Dictionary<string, string>();
+                foreach (var (key, bytes) in documents.GetValueOrDefault(family) ?? [])
+                {
+                    var extension = family == "photos" ? Path.GetExtension(key) : ".json";
+                    var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
+                    var path = Path.Combine(destination, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    Write(path, bytes);
+                    entries.Add(key, relative);
+                }
+                roots[family] = entries.Count == 0 ? null : WriteIndex(family, entries, 0);
             }
-            roots[family] = entries.Count == 0 ? null : WriteIndex(family, entries, 0);
-        }
-        File.WriteAllText(Path.Combine(destination, "workspace.json"), new JsonObject
+            Write(Path.Combine(destination, "workspace.json"), System.Text.Encoding.UTF8.GetBytes(new JsonObject
+            {
+                ["schemaVersion"] = 3,
+                ["storageProtocol"] = 1,
+                ["commit"] = Guid.NewGuid(),
+                ["roots"] = roots,
+                ["recordVersions"] = JsonSerializer.SerializeToNode(new
+                {
+                    people = 2,
+                    profileHistory = 2,
+                    acceptedBatches = 1,
+                    personNotes = 1,
+                    teamNotes = 1,
+                    photos = 1,
+                    teamContext = 1,
+                    historicalTeamContext = 1
+                })
+            }.ToJsonString()));
+        });
+        using var workflow = ApplicationWorkflow.CreateFileBacked(fileObserver: fileObserver);
+        Run("fixture-open-validation", () =>
         {
-            ["schemaVersion"] = 3, ["storageProtocol"] = 1, ["commit"] = Guid.NewGuid(), ["roots"] = roots,
-            ["recordVersions"] = JsonSerializer.SerializeToNode(new { people = 2, profileHistory = 2, acceptedBatches = 1,
-                personNotes = 1, teamNotes = 1, photos = 1, teamContext = 1, historicalTeamContext = 1 })
-        }.ToJsonString());
-        using var workflow = ApplicationWorkflow.CreateFileBacked();
-        if (!workflow.OpenWorkspace(destination) || !workflow.RetryStorageMaintenance())
-            throw new InvalidOperationException(workflow.Status);
+            if (!workflow.OpenWorkspace(destination)) throw new InvalidOperationException(workflow.Status);
+        });
+        Run("fixture-independent-recovery", () =>
+        {
+            if (!workflow.RetryStorageMaintenance()) throw new InvalidOperationException(workflow.Status);
+        });
 
         string WriteIndex(string family, Dictionary<string, string> entries, int depth)
         {
@@ -117,9 +149,12 @@ internal static class WorkspaceFixtures
                         group => WriteIndex(family, group.ToDictionary(), depth + 1));
             var relative = Path.Combine("index", Guid.NewGuid().ToString("N") + ".json");
             Directory.CreateDirectory(Path.Combine(destination, "index"));
-            File.WriteAllBytes(Path.Combine(destination, relative), JsonSerializer.SerializeToUtf8Bytes(new
+            Write(Path.Combine(destination, relative), JsonSerializer.SerializeToUtf8Bytes(new
             {
-                schemaVersion = 1, family, entries = children is null ? entries : null, children
+                schemaVersion = 1,
+                family,
+                entries = children is null ? entries : null,
+                children
             }));
             return relative;
         }

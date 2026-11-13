@@ -38,7 +38,11 @@ internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios
                         JsonSerializer.Serialize(new { schemaVersion = 1, checkOnStartup = false }));
                 }
                 scenarios[index].Execute(result.Fixture);
-                Directory.Delete(result.Fixture, true);
+                Console.WriteLine("SCALE BEGIN fixture-cleanup");
+                var cleanup = Stopwatch.StartNew();
+                var cleaned = false;
+                try { Directory.Delete(result.Fixture, true); cleaned = true; }
+                finally { Console.WriteLine($"SCALE END fixture-cleanup; outcome={(cleaned ? "Passed" : "Failed")}; ms={cleanup.Elapsed.TotalMilliseconds:F1}"); }
                 result.Status = "Passed";
             }
             catch (Exception error)

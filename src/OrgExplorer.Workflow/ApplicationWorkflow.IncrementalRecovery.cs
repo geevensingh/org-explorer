@@ -45,7 +45,11 @@ public sealed partial class ApplicationWorkflow
     private static string ByteDigest(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
     private PreparedRecovery PrepareRecovery(IReadOnlyDictionary<string, byte[]> current, string transaction,
-        RecoveryPublication? publication = null)
+        RecoveryPublication? publication = null) =>
+        ObserveStoragePhase("storage.prepare-recovery", () => PrepareRecoveryCore(current, transaction, publication));
+
+    private PreparedRecovery PrepareRecoveryCore(IReadOnlyDictionary<string, byte[]> current, string transaction,
+        RecoveryPublication? publication)
     {
         var root = Path.Combine(workspace!, "recovery");
         CreateIncrementalDirectory(root);
@@ -200,7 +204,10 @@ public sealed partial class ApplicationWorkflow
     }
 
     private ValidatedRecovery ValidateRecovery(string root, byte[] selector,
-        bool requireReceipt)
+        bool requireReceipt) =>
+        ObserveStoragePhase("storage.validate-recovery", () => ValidateRecoveryCore(root, selector, requireReceipt));
+
+    private ValidatedRecovery ValidateRecoveryCore(string root, byte[] selector, bool requireReceipt)
     {
         RejectWorkspaceLink(root);
         using var json = JsonDocument.Parse(selector);
@@ -248,12 +255,15 @@ public sealed partial class ApplicationWorkflow
             foreach (var (key, relative) in graph.Documents[family])
                 bytes[Path.Combine(root, directory, key + ".md")] = bytes[IncrementalPath(root, relative, family, bytes)];
         bytes[Path.Combine(root, "workspace.json")] = JsonSerializer.SerializeToUtf8Bytes(metadata.Workspace, JsonOptions);
-        using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = root };
+        using var validation = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = root };
         validation.ReadIncrementalWorkspaceData(bytes);
         return new(metadata, bytes, receiptBytes);
     }
 
-    private ValidatedRecovery CompleteRecovery(PreparedRecovery prepared)
+    private ValidatedRecovery CompleteRecovery(PreparedRecovery prepared) =>
+        ObserveStoragePhase("storage.publish-recovery", () => CompleteRecoveryCore(prepared));
+
+    private ValidatedRecovery CompleteRecoveryCore(PreparedRecovery prepared)
     {
         ValidateRecovery(prepared.Root, prepared.Selector, requireReceipt: false);
         var receipt = JsonSerializer.SerializeToUtf8Bytes(new RecoveryReceipt(1, prepared.Metadata.Transaction,
@@ -359,7 +369,7 @@ public sealed partial class ApplicationWorkflow
                 using var lease = new FileStream(Path.Combine(workspace, ".workspace.lock"),
                     FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 var current = CaptureWorkspaceBytes();
-                using var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = workspace };
+                using var validation = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = workspace };
                 validation.ReadIncrementalWorkspaceData(current);
                 var currentRevision = WorkspaceFingerprint(snapshot: current);
                 var candidate = pendingRecovery is { } prepared && prepared.Metadata.SourceRevision == currentRevision
@@ -425,7 +435,7 @@ public sealed partial class ApplicationWorkflow
                     throw new IOException("Recovery bytes changed while copying; destination has not been opened.");
                 if (!afterSelector.AsSpan().SequenceEqual(selector))
                     throw new IOException("Recovery selection changed while copying; destination has not been opened.");
-                using (var validation = new ApplicationWorkflow(false, null, timeProvider) { workspace = destination })
+                using (var validation = new ApplicationWorkflow(false, null, timeProvider, fileObserver: fileObserver) { workspace = destination })
                     validation.ReadIncrementalWorkspaceData(recovery.Bytes.ToDictionary(e =>
                         Path.Combine(destination, Path.GetRelativePath(root, e.Key)), e => ReadWorkspaceBytesUncached(
                             Path.Combine(destination, Path.GetRelativePath(root, e.Key))), StringComparer.OrdinalIgnoreCase));

@@ -76,7 +76,11 @@ public sealed partial class ApplicationWorkflow
 
     private void PublishCurrent(string staged, string destination, IReadOnlyDictionary<string, byte[]> source,
         IReadOnlyDictionary<string, byte[]> expected, PreparedRecovery recovery,
-        IReadOnlyList<PhotoResource>? resources = null)
+        IReadOnlyList<PhotoResource>? resources = null) =>
+        ObserveStoragePhase("storage.publish-current", () => PublishCurrentCore(staged, destination, source, expected, recovery, resources));
+
+    private void PublishCurrentCore(string staged, string destination, IReadOnlyDictionary<string, byte[]> source,
+        IReadOnlyDictionary<string, byte[]> expected, PreparedRecovery recovery, IReadOnlyList<PhotoResource>? resources)
     {
         var transaction = recovery.Transaction;
         var before = source.GetValueOrDefault(destination);

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -31,12 +32,25 @@ internal sealed class ScaleFixture : IDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly List<IApplicationWorkflow> clients = [];
     private readonly List<string> acceptedSources = [];
-    internal Action<string> Log { get; init; } = Console.WriteLine;
+    private readonly ConcurrentQueue<Exception> diagnosticFailures = new();
+    private Action<string> writeLog = Console.WriteLine;
+    internal Action<string> Log { get => WriteLog; init => writeLog = value; }
 
-    internal IApplicationWorkflow Open(bool memory = false, IWorkspaceFileObserver? fileObserver = null)
+    private void WriteLog(string message)
+    {
+        try { writeLog(message); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+            InvalidOperationException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            diagnosticFailures.Enqueue(error);
+        }
+    }
+
+    internal IApplicationWorkflow Open(bool memory = false, IWorkspaceFileObserver? fileObserver = null,
+        IWorkspaceFilePublisher? filePublisher = null)
     {
         var app = new WorkspaceViewModel(memory ? ApplicationWorkflow.CreateInMemory() :
-            ApplicationWorkflow.CreateFileBacked(fileObserver: fileObserver));
+            ApplicationWorkflow.CreateFileBacked(filePublisher: filePublisher, fileObserver: new PhaseObserver(Log, fileObserver)));
         clients.Add(app);
         Check(app.OpenWorkspace(Workspace), app.Status);
         return app;
@@ -53,10 +67,15 @@ internal sealed class ScaleFixture : IDisposable
             var import = Path.Combine(Producer, "initial.json");
             File.WriteAllText(import, Batch(Enumerable.Range(0, Population).Select(i => new
             {
-                email = Email(i), displayName = $"Fictitious Person {i:00000}", preferredName = $"Reference {i:00000}",
-                alias = $"handle{i:00000}", jobTitle = i < 111 ? "Manager" : "Research engineer",
-                department = $"Division {i % 10}", officeBuilding = $"Building {i % 20}",
-                officeNumber = $"{i % 1000:0000}B", officeState = i % 2 == 0 ? "Ontario" : "Washington",
+                email = Email(i),
+                displayName = $"Fictitious Person {i:00000}",
+                preferredName = $"Reference {i:00000}",
+                alias = $"handle{i:00000}",
+                jobTitle = i < 111 ? "Manager" : "Research engineer",
+                department = $"Division {i % 10}",
+                officeBuilding = $"Building {i % 20}",
+                officeNumber = $"{i % 1000:0000}B",
+                officeState = i % 2 == 0 ? "Ontario" : "Washington",
                 officeCountry = i % 2 == 0 ? "Canada" : "United States",
                 linkedInProfileUrl = $"https://www.linkedin.com/in/fictitious-{i:00000}",
                 managerEmail = i == 0 ? null : Email(i <= 10 ? 0 : i <= 110 ? 1 + (i - 11) % 10 :
@@ -72,7 +91,9 @@ internal sealed class ScaleFixture : IDisposable
                 Check(app.CreateTeamNote(Email(i), $"Team {i}", $"# Team {i}\nCedar former context {i}.") is not null, app.Status);
             var transfer = Batch(Enumerable.Range(1000, 100).Select(i => new
             {
-                email = Email(i), managerEmail = Email(i == 1011 ? 12 : 11), officeNumber = $"new-{i:0000}B"
+                email = Email(i),
+                managerEmail = Email(i == 1011 ? 12 : 11),
+                officeNumber = $"new-{i:0000}B"
             }), 2);
             Apply(app, transfer);
             acceptedSources.Add(transfer);
@@ -86,8 +107,11 @@ internal sealed class ScaleFixture : IDisposable
 
     internal static string Batch<T>(IEnumerable<T> people, int id) => JsonSerializer.Serialize(new
     {
-        schemaVersion = 1, batchId = $"15000000-0000-4000-8000-{id:000000000000}",
-        observedAt = $"2026-11-{id:00}T17:00:00Z", producer = "fictitious-scale-fixture", people
+        schemaVersion = 1,
+        batchId = $"15000000-0000-4000-8000-{id:000000000000}",
+        observedAt = $"2026-11-{id:00}T17:00:00Z",
+        producer = "fictitious-scale-fixture",
+        people
     });
 
     internal static void Apply(IApplicationWorkflow app, string json)
@@ -106,10 +130,18 @@ internal sealed class ScaleFixture : IDisposable
 
     internal static T Measure<T>(string operation, Func<T> action, Action<string>? log = null)
     {
+        var write = log ?? Console.WriteLine;
         var timer = Stopwatch.StartNew();
-        var result = action();
-        (log ?? Console.WriteLine)($"SCALE {operation}: {timer.Elapsed.TotalMilliseconds:F1} ms");
-        return result;
+        write($"SCALE BEGIN {operation}; utc={DateTimeOffset.UtcNow:O}");
+        var outcome = "Failed";
+        try
+        {
+            var result = action();
+            outcome = "Passed";
+            write($"SCALE {operation}: {timer.Elapsed.TotalMilliseconds:F1} ms");
+            return result;
+        }
+        finally { write($"SCALE END {operation}; outcome={outcome}; ms={timer.Elapsed.TotalMilliseconds:F1}; utc={DateTimeOffset.UtcNow:O}"); }
     }
 
     internal static void Measure(string operation, Action action, Action<string>? log = null) =>
@@ -123,42 +155,127 @@ internal sealed class ScaleFixture : IDisposable
     {
         var documents = new Dictionary<string, Dictionary<string, byte[]>>
         {
-            ["people"] = [], ["profileHistory"] = [], ["historicalTeamContext"] = [], ["photos"] = [],
+            ["people"] = [],
+            ["profileHistory"] = [],
+            ["historicalTeamContext"] = [],
+            ["photos"] = [],
             ["acceptedBatches"] = []
         };
         var gate = new object();
-        Directory.CreateDirectory(Path.Combine(Workspace, "notes"));
-        Directory.CreateDirectory(Path.Combine(Workspace, "team-notes"));
-        foreach (var person in app.People.Where(p => p.PhotoPath is not null).DistinctBy(p => p.PhotoPath))
-            documents["photos"][person.PhotoPath!] = app.GetPhoto(person.Email)!.Bytes.ToArray();
-        Parallel.ForEach(app.People, new ParallelOptions { MaxDegreeOfParallelism = 8 }, person =>
+        var observer = new PhaseObserver(Log);
+        observer.Measure("fixture-document-generation", () =>
         {
-            var record = JsonSerializer.SerializeToNode(person, Json)!.AsObject();
-            record["schemaVersion"] = 2;
-            var timeline = app.GetProfileTimeline(person.Email)!;
-            var history = JsonSerializer.SerializeToUtf8Bytes(new
+            Directory.CreateDirectory(Path.Combine(Workspace, "notes"));
+            Directory.CreateDirectory(Path.Combine(Workspace, "team-notes"));
+            foreach (var person in app.People.Where(p => p.PhotoPath is not null).DistinctBy(p => p.PhotoPath))
+                documents["photos"][person.PhotoPath!] = app.GetPhoto(person.Email)!.Bytes.ToArray();
+            Parallel.ForEach(app.People, new ParallelOptions { MaxDegreeOfParallelism = 8 }, person =>
             {
-                schemaVersion = 2, person.Email, changes = timeline.Changes, observations = timeline.Observations
-            }, Json);
-            var captures = app.GetHistoricalTeamContexts(person.Email);
-            lock (gate)
-            {
-                documents["people"][person.Email] = JsonSerializer.SerializeToUtf8Bytes(record, Json);
-                documents["profileHistory"][person.Email] = history;
-                if (captures.Count > 0) documents["historicalTeamContext"][person.Email] =
-                    JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, person.Email, contexts = captures }, Json);
-            }
-            foreach (var note in app.GetPersonNotes(person.Email, true))
-                WriteNote("notes", note.Id, new { schemaVersion = 1, kind = "person", note.Id, note.OwnerEmail,
-                    note.Title, note.Archived, note.CreatedAt, note.UpdatedAt }, note.Markdown);
-            foreach (var note in app.GetTeamNotes(person.Email, true))
-                WriteNote("team-notes", note.Id, new { schemaVersion = 1, kind = "team", note.Id, note.OwnerEmail,
-                    note.Title, note.Archived, note.CreatedAt, note.UpdatedAt, confirmedContextRevision = Guid.Empty }, note.Markdown);
+                var record = JsonSerializer.SerializeToNode(person, Json)!.AsObject();
+                record["schemaVersion"] = 2;
+                var timeline = app.GetProfileTimeline(person.Email)!;
+                var history = JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    schemaVersion = 2,
+                    person.Email,
+                    changes = timeline.Changes,
+                    observations = timeline.Observations
+                }, Json);
+                var captures = app.GetHistoricalTeamContexts(person.Email);
+                lock (gate)
+                {
+                    documents["people"][person.Email] = JsonSerializer.SerializeToUtf8Bytes(record, Json);
+                    documents["profileHistory"][person.Email] = history;
+                    if (captures.Count > 0) documents["historicalTeamContext"][person.Email] =
+                        JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, person.Email, contexts = captures }, Json);
+                }
+                foreach (var note in app.GetPersonNotes(person.Email, true))
+                    WriteNote("notes", note.Id, new
+                    {
+                        schemaVersion = 1,
+                        kind = "person",
+                        note.Id,
+                        note.OwnerEmail,
+                        note.Title,
+                        note.Archived,
+                        note.CreatedAt,
+                        note.UpdatedAt
+                    }, note.Markdown, observer);
+                foreach (var note in app.GetTeamNotes(person.Email, true))
+                    WriteNote("team-notes", note.Id, new
+                    {
+                        schemaVersion = 1,
+                        kind = "team",
+                        note.Id,
+                        note.OwnerEmail,
+                        note.Title,
+                        note.Archived,
+                        note.CreatedAt,
+                        note.UpdatedAt,
+                        confirmedContextRevision = Guid.Empty
+                    }, note.Markdown, observer);
+            });
+            foreach (var batch in AcceptedLedger(app))
+                documents["acceptedBatches"][batch.Key] =
+                    JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object> { [batch.Key] = batch.Value }, Json);
         });
-        foreach (var batch in AcceptedLedger(app))
-            documents["acceptedBatches"][batch.Key] =
-                JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object> { [batch.Key] = batch.Value }, Json);
-        WorkspaceFixtures.WriteCurrent(Workspace, documents);
+        WorkspaceFixtures.WriteCurrent(Workspace, documents, observer, observer.Measure);
+        observer.Report("fixture-export-total");
+    }
+
+    private sealed class PhaseObserver(Action<string> log, IWorkspaceFileObserver? next = null) : IWorkspaceFileObserver
+    {
+        private readonly record struct IoCounts(long Writes, long Bytes, long Flushes, long Publications, long Deletions);
+        private readonly ConcurrentDictionary<Guid, IoCounts> beginnings = new();
+        private long writes, bytes, flushes, publications, deletions;
+
+        public void Observe(WorkspaceFileEffect effect)
+        {
+            if (effect.Kind == WorkspaceFileEffectKind.Write)
+            {
+                Interlocked.Increment(ref writes);
+                Interlocked.Add(ref bytes, effect.Bytes);
+            }
+            if (effect.Kind == WorkspaceFileEffectKind.Flush) Interlocked.Increment(ref flushes);
+            if (effect.Kind == WorkspaceFileEffectKind.Publish) Interlocked.Increment(ref publications);
+            if (effect.Kind == WorkspaceFileEffectKind.Delete) Interlocked.Increment(ref deletions);
+            next?.Observe(effect);
+        }
+
+        private IoCounts Counts() => new(Interlocked.Read(ref writes), Interlocked.Read(ref bytes),
+            Interlocked.Read(ref flushes), Interlocked.Read(ref publications), Interlocked.Read(ref deletions));
+
+        private string Difference(IoCounts before)
+        {
+            var after = Counts();
+            return $"writes={after.Writes - before.Writes}; bytes={after.Bytes - before.Bytes}; " +
+                $"durable-flushes={after.Flushes - before.Flushes}; publications={after.Publications - before.Publications}; " +
+                $"deletions={after.Deletions - before.Deletions}; inclusive=true";
+        }
+
+        public void Report(string name) => log($"SCALE COUNTS {name}; {Difference(default)}");
+
+        public void Measure(string name, Action action)
+        {
+            var before = Counts();
+            try { ScaleFixture.Measure(name, action, log); }
+            finally { log($"SCALE COUNTS {name}; {Difference(before)}"); }
+        }
+
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            next?.ObservePhase(phase);
+            if (phase.Kind == WorkspaceStoragePhaseKind.Begin)
+            {
+                beginnings[phase.Id] = Counts();
+                log($"SCALE BEGIN {phase.Name}; id={phase.Id:N}; utc={DateTimeOffset.UtcNow:O}");
+                return;
+            }
+            if (!beginnings.TryRemove(phase.Id, out var before))
+                throw new InvalidOperationException("Storage phase completed without its beginning.");
+            log($"SCALE END {phase.Name}; id={phase.Id:N}; outcome={phase.Kind}; ms={phase.Milliseconds:F1}; cpu-ms={phase.CpuMilliseconds:F1}; " +
+                $"{Difference(before)}; utc={DateTimeOffset.UtcNow:O}");
+        }
     }
 
     private Dictionary<string, object> AcceptedLedger(IApplicationWorkflow app)
@@ -199,8 +316,13 @@ internal sealed class ScaleFixture : IDisposable
         }
         return ledger;
     }
-    private void WriteNote<T>(string folder, Guid id, T metadata, string markdown) =>
-        File.WriteAllText(Path.Combine(Workspace, folder, id + ".md"), "---\n" + JsonSerializer.Serialize(metadata, Json) + "\n---\n" + markdown);
+    private void WriteNote<T>(string folder, Guid id, T metadata, string markdown, IWorkspaceFileObserver observer)
+    {
+        var path = Path.Combine(Workspace, folder, id + ".md");
+        var bytes = Encoding.UTF8.GetBytes("---\n" + JsonSerializer.Serialize(metadata, Json) + "\n---\n" + markdown);
+        File.WriteAllBytes(path, bytes);
+        observer.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
+    }
 
     private static byte[] Png(int seed)
     {
@@ -240,12 +362,19 @@ internal sealed class ScaleFixture : IDisposable
 
     public void Dispose()
     {
-        foreach (var app in clients) app.Dispose();
+        if (clients.Count != 0)
+            Measure("fixture-close-clients", () => { foreach (var app in clients) app.Dispose(); }, Log);
         if (ownsRoot && Directory.Exists(Root))
         {
-            Parallel.ForEach(Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories),
-                new ParallelOptions { MaxDegreeOfParallelism = 8 }, File.Delete);
-            Directory.Delete(Root, true);
+            Measure("fixture-cleanup", () =>
+            {
+                Parallel.ForEach(Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories),
+                    new ParallelOptions { MaxDegreeOfParallelism = 8 }, File.Delete);
+                Directory.Delete(Root, true);
+            }, Log);
         }
+        if (!diagnosticFailures.IsEmpty)
+            throw new AggregateException("Scale diagnostic logging failed; see retained errors. Storage outcomes are unchanged.",
+                diagnosticFailures.ToArray());
     }
 }
