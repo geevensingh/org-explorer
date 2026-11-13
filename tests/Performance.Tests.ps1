@@ -96,9 +96,14 @@ try {
     Write-Host 'PASS: shared scale execution records fresh running/success/failure evidence and cleans owned build trees.'
     $heartbeatProbe = Join-Path $results 'heartbeat-probe.ps1'
     @'
-param([string] $Report)
+param([string] $Report, [string] $Transport)
 $ErrorActionPreference = 'Stop'
-Write-Output 'SCALE BEGIN heartbeat-probe'
+function Write-Progress([string] $Message) {
+    if ($Transport -eq 'timing-file') {
+        Add-Content -LiteralPath $env:SCALE_TIMING_FILE -Value $Message
+    } else { Write-Output $Message }
+}
+Write-Progress 'SCALE BEGIN heartbeat-probe'
 $first = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
 Start-Sleep -Seconds 6
 $current = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
@@ -107,12 +112,28 @@ if ($current.activeCommand -ne 'heartbeat-probe' -or $current.activePhase -ne 'h
     $current.lastProgress -ne 'SCALE BEGIN heartbeat-probe') {
     throw 'The running command report did not retain fresh active-phase evidence.'
 }
+Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
 '@ | Set-Content -LiteralPath $heartbeatProbe
-    Invoke-ScaleSuite -Suite contract -Label 'Scale heartbeat' -ResultsDirectory (Join-Path $results 'heartbeat') -Selection @{} -Verify {
-        param($run, $build)
-        Invoke-ScaleProcess heartbeat-probe pwsh @('-NoProfile', '-File', $heartbeatProbe, (Join-Path $run 'result.json'))
+    $previousTiming = $env:SCALE_TIMING_FILE
+    try {
+        foreach ($transport in @('stdout', 'timing-file')) {
+            $heartbeatResults = Join-Path $results "heartbeat-$transport"
+            Invoke-ScaleSuite -Suite contract -Label "Scale heartbeat $transport" -ResultsDirectory $heartbeatResults -Selection @{} -Verify {
+                param($run, $build)
+                $env:SCALE_TIMING_FILE = Join-Path $run 'scale-measurements.log'
+                Invoke-ScaleProcess heartbeat-probe pwsh @('-NoProfile', '-File', $heartbeatProbe,
+                    (Join-Path $run 'result.json'), $transport)
+            }
+            $status = Get-Content -LiteralPath (Join-Path $heartbeatResults 'result.json') -Raw | ConvertFrom-Json
+            if ($status.lastProgress -ne 'SCALE END heartbeat-probe; outcome=Passed' -or
+                $status.lastActivePhase -ne 'heartbeat-probe' -or $status.activePhase) {
+                throw "Final progress did not retain the completed $transport phase."
+            }
+        }
+    } finally {
+        $env:SCALE_TIMING_FILE = $previousTiming
     }
-    Write-Host 'PASS: a held owned command publishes fresh heartbeat and active-phase evidence.'
+    Write-Host 'PASS: stdout and dedicated timing files retain live and final phase evidence.'
     $diagnostic = Join-Path $results 'diagnostic-only'
     Assert-Rejected {
         Invoke-ScaleSuite -Suite contract -Label 'Diagnostic observation' -ResultsDirectory $diagnostic `

@@ -541,6 +541,9 @@ work, changed candidates, cleanup errors and exhausted budgets fail closed.
 Interrupted reports remain incomplete, never an old passing result.
 While an owned command is running, atomically replaced reports publish a heartbeat
 every five seconds, its active command, and the most recent unmatched phase begin.
+Non-UI progress comes from its live `SCALE_TIMING_FILE`, not buffered passing-test
+stdout; the reader falls back to command stdout until that file exists, and uses
+the same source for the final progress capture.
 Reports distinguish command execution, termination and cleanup, and become terminal
 only after cleanup and the unchanged budget check.
 

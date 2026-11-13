@@ -60,8 +60,11 @@ function Invoke-ScaleSuite(
     }
 
     function Read-ScaleProgress([string] $Log) {
+        $progressLog = if ($env:SCALE_TIMING_FILE -and (Test-Path -LiteralPath $env:SCALE_TIMING_FILE -PathType Leaf)) {
+            $env:SCALE_TIMING_FILE
+        } else { $Log }
         $active = [Collections.Generic.List[string]]::new()
-        foreach ($line in Get-Content -LiteralPath $Log) {
+        foreach ($line in Get-Content -LiteralPath $progressLog) {
             if ($line -match '^(SCALE (BEGIN|END)|START:)') { $state.lastProgress = $line }
             if ($line -match '^SCALE (?<event>BEGIN|END) (?<name>[^;]+)(;|$)') {
                 if ($Matches.event -eq 'BEGIN') { $active.Add($Matches.name) }
