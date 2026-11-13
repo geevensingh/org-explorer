@@ -46,6 +46,7 @@ public partial class MainWindow
 
     private void ToggleSettings(object sender, RoutedEventArgs e)
     {
+        CancelPreferredNameEntry();
         SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         if (SettingsPanel.Visibility == Visibility.Visible && workflow.PeopleNavigation.OverlayOpen)
         {
