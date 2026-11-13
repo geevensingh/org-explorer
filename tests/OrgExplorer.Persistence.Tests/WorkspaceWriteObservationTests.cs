@@ -65,6 +65,67 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
             line.Contains("Failed", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("BEGIN", false)]
+    [InlineData("END", false)]
+    [InlineData("END", true)]
+    public void Scale_phase_logging_failures_do_not_change_real_save_outcomes(string eventKind, bool rejectPublication)
+    {
+        var workspace = Path.Combine(folder, "workspace");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(seed.OpenWorkspace(workspace), seed.Status);
+            Assert.True(seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"41000000-0000-4000-8000-000000000005",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id), seed.Status);
+        }
+        var loggingError = new IOException("Controlled diagnostic write failure.");
+        var publicationError = new WorkspaceFilePublicationException("Controlled real publication refusal.", true);
+        var publisher = new InspectingPublisher
+        {
+            BeforePublish = (_, destination) =>
+            {
+                if (rejectPublication && destination == Path.Combine(workspace, "workspace.json"))
+                    throw publicationError;
+            }
+        };
+        var fixture = new ScaleFixture(folder)
+        {
+            Log = message =>
+            {
+                if (message.StartsWith($"SCALE {eventKind} storage.publish-current;", StringComparison.Ordinal))
+                    throw loggingError;
+            }
+        };
+        Exception? completionError = null;
+        try
+        {
+            var app = fixture.Open(filePublisher: publisher);
+            var saved = app.EditPreferredName("avery@example.com", "Ave");
+            if (rejectPublication)
+            {
+                Assert.False(saved);
+                Assert.Contains(publicationError.Message, app.LocalSaveError);
+                Assert.DoesNotContain(loggingError.Message, app.LocalSaveError);
+                Assert.False(app.CanSafelyClose);
+            }
+            else
+            {
+                Assert.True(saved, app.Status);
+                Assert.Null(app.LocalSaveError);
+                Assert.True(app.CanSafelyClose);
+            }
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(workspace), reopened.Status);
+            Assert.Equal(rejectPublication ? null : "Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
+        }
+        finally { completionError = Record.Exception(fixture.Dispose); }
+        var diagnostics = Assert.IsType<AggregateException>(completionError);
+        Assert.Same(loggingError, Assert.Single(diagnostics.InnerExceptions));
+    }
+
     [Fact]
     public void Real_workflow_accounts_for_every_staged_payload_before_publication_and_reopens_saved_data()
     {

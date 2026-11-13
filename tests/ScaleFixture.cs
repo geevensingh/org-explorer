@@ -32,12 +32,25 @@ internal sealed class ScaleFixture : IDisposable
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly List<IApplicationWorkflow> clients = [];
     private readonly List<string> acceptedSources = [];
-    internal Action<string> Log { get; init; } = Console.WriteLine;
+    private readonly ConcurrentQueue<Exception> diagnosticFailures = new();
+    private Action<string> writeLog = Console.WriteLine;
+    internal Action<string> Log { get => WriteLog; init => writeLog = value; }
 
-    internal IApplicationWorkflow Open(bool memory = false, IWorkspaceFileObserver? fileObserver = null)
+    private void WriteLog(string message)
+    {
+        try { writeLog(message); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or
+            InvalidOperationException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            diagnosticFailures.Enqueue(error);
+        }
+    }
+
+    internal IApplicationWorkflow Open(bool memory = false, IWorkspaceFileObserver? fileObserver = null,
+        IWorkspaceFilePublisher? filePublisher = null)
     {
         var app = new WorkspaceViewModel(memory ? ApplicationWorkflow.CreateInMemory() :
-            ApplicationWorkflow.CreateFileBacked(fileObserver: new PhaseObserver(Log, fileObserver)));
+            ApplicationWorkflow.CreateFileBacked(filePublisher: filePublisher, fileObserver: new PhaseObserver(Log, fileObserver)));
         clients.Add(app);
         Check(app.OpenWorkspace(Workspace), app.Status);
         return app;
@@ -360,5 +373,8 @@ internal sealed class ScaleFixture : IDisposable
                 Directory.Delete(Root, true);
             }, Log);
         }
+        if (!diagnosticFailures.IsEmpty)
+            throw new AggregateException("Scale diagnostic logging failed; see retained errors. Storage outcomes are unchanged.",
+                diagnosticFailures.ToArray());
     }
 }

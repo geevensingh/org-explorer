@@ -558,6 +558,10 @@ metadata for host comparisons. Nested counters, wall time and process CPU time a
 inclusive, so do not sum overlapping phases.
 Actual WPF logs also separate Import navigation, preview, apply, return, close and
 cleanup. No file contents or Person writing are added to storage-phase diagnostics.
+Scale fixture observers retain diagnostic-write/output failures without throwing
+through storage callbacks. Fixture disposal reports them as verification failures
+after closing clients and cleaning owned fixtures, preserving real save outcomes
+and original storage errors rather than silently accepting missing diagnostics.
 
 The direct scale workflow's `extended_observation` input is explicitly diagnostic.
 It lets the unchanged UI workload be observed for up to 900 seconds with a
