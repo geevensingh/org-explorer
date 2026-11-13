@@ -136,6 +136,11 @@ internal static partial class Program
             if (verifyProfileRefresh)
             {
                 VerifySettingsFocus(window);
+                // The empty 44-Person probe must not warm the separate cold browsing window.
+                var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyEmptyReadingScroll(emptyReadingWindow, settings); }
+                finally { emptyReadingWindow.Close(); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -785,6 +790,42 @@ internal static partial class Program
         Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
     }
 
+    private static void VerifyEmptyReadingScroll(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "empty-reading-scroll");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) ||
+                !seed.ApplyImport(seed.PreviewImport(SearchImport(SearchBrowsingPeople(responsive: true), 902)).Id))
+                throw new InvalidOperationException("Empty reading fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+            Control<TextBlock>("WorkspaceName").Text == "empty-reading-scroll" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        var avery = workflow.ReportingRoots.Single(node => node.Person.Email == "morgan@example.com").Reports
+            .Single(node => node.Person.Email == "avery@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1920, 1012));
+        root.Arrange(new Rect(0, 0, 1920, 1012));
+        root.UpdateLayout();
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scroll).GetPattern(PatternInterface.Scroll);
+        Console.WriteLine($"EMPTY-READING: people={workflow.People.Count}; viewport={scroll.ViewportHeight}; " +
+            $"extent={scroll.ExtentHeight}; verticallyScrollable={provider.VerticallyScrollable}; offset={scroll.VerticalOffset}.");
+        if (workflow.People.Count != 44 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
+            workflow.GetTeamNotes("avery@example.com").Count != 0 || scroll.ViewportHeight <= 0 ||
+            provider.VerticallyScrollable || scroll.VerticalOffset != 0)
+            throw new InvalidOperationException("The full wide empty-reading fixture did not establish the non-scrollable precondition.");
+        ControlReadiness.ScrollToTopIfScrollable(() => provider.VerticallyScrollable,
+            () => provider.SetScrollPercent(System.Windows.Automation.ScrollPattern.NoScroll, 0));
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Empty-reading scroll proof must remain invisible without a native main-window handle.");
+    }
+
     private static void VerifyPeopleSearchRestoration(Window window, string settings)
     {
         var folder = Path.Combine(settings, "responsive-browsing");
@@ -1094,6 +1135,14 @@ internal static partial class Program
             var factsAfter = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
             if (identityBefore != identityAfter || Math.Abs(factsBefore.Top - factsAfter.Top - 240) > 1)
                 throw new InvalidOperationException("The shared scroll moved identity or failed to move facts with notes.");
+            var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(viewport).GetPattern(PatternInterface.Scroll);
+            if (!provider.VerticallyScrollable)
+                throw new InvalidOperationException("The long reading fixture must still exercise a genuinely scrollable axis.");
+            ControlReadiness.ScrollToTopIfScrollable(() => provider.VerticallyScrollable,
+                () => provider.SetScrollPercent(System.Windows.Automation.ScrollPattern.NoScroll, 0));
+            Layout();
+            if (viewport.VerticalOffset != 0)
+                throw new InvalidOperationException("A valid scroll-to-top request did not restore long reading to the top.");
         }
         finally
         {
