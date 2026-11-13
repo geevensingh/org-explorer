@@ -184,8 +184,11 @@ public partial class MainWindow
         return null;
     }
 
-    private void RememberPeopleBrowsing() => workflow.RememberPeopleBrowsing(expandedPeople,
-        FindScrollViewer(PeopleList)?.VerticalOffset ?? 0);
+    private void RememberPeopleBrowsing()
+    {
+        var scroll = FindScrollViewer(PeopleList);
+        workflow.RememberPeopleBrowsing(expandedPeople, scroll?.VerticalOffset ?? 0, scroll?.HorizontalOffset ?? 0);
+    }
 
     private void RestorePeopleBrowsing()
     {
@@ -194,8 +197,11 @@ public partial class MainWindow
         RestoreRealizedTreeState(PeopleList);
         Dispatcher.BeginInvoke(() =>
         {
-            if (workflow.PeopleNavigation.IsBrowsing)
-                FindScrollViewer(PeopleList)?.ScrollToVerticalOffset(workflow.PeopleNavigation.BrowseOffset);
+            if (workflow.PeopleNavigation.IsBrowsing && FindScrollViewer(PeopleList) is { } scroll)
+            {
+                scroll.ScrollToHorizontalOffset(workflow.PeopleNavigation.BrowseHorizontalOffset);
+                scroll.ScrollToVerticalOffset(workflow.PeopleNavigation.BrowseOffset);
+            }
         }, DispatcherPriority.Loaded);
     }
 }
