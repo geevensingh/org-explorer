@@ -73,7 +73,7 @@
               Click="DiscardDraft" IsEnabled="False" Margin="0,0,8,0"/>
     </WrapPanel>
       <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="PersonNoteStatus"
-                 Style="{DynamicResource ReadingProse}" VerticalAlignment="Center"/>
+                 Style="{DynamicResource ReadingProse}" VerticalAlignment="Center" Visibility="Collapsed"/>
   </StackPanel>
   </Border>
 </UserControl>

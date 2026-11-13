@@ -146,6 +146,8 @@ internal static partial class Program
     }
     private static string Status(AutomationElement window) => window.Current.HelpText;
     private static string Activity(AutomationElement window) => window.Current.ItemStatus;
+    private static string NoteFeedback(AutomationElement window, string scope) =>
+        Find(window, scope + "NotesSurface").Current.ItemStatus;
     private static string Freshness(AutomationElement window) => Find(window, "WorkspaceName").Current.ItemStatus;
 
     private static void PickWorkspaceFolder(AutomationElement window, string? folder,
@@ -170,13 +172,7 @@ internal static partial class Program
         observePicker?.Invoke();
         if (folder is not null)
         {
-            AutomationElement FolderEntry() =>
-                picker!.FindFirst(TreeScope.Descendants, new AndCondition(
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, "1148"),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit))) ??
-                Find(picker!, "FileNameControlHost").FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)) ??
-                throw new InvalidOperationException("Missing actual UI control: native Workspace folder entry");
+            AutomationElement FolderEntry() => Find(picker!, "1152", ControlType.Edit);
             var entry = ControlReadiness.AwaitPattern(FolderEntry, control => control.Current.IsEnabled,
                 control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await);
             entry.SetValue(Path.GetFullPath(folder));
@@ -213,8 +209,8 @@ internal static partial class Program
             Activity(window) == "Ready" &&
             !Status(window).StartsWith("Pending", StringComparison.Ordinal) &&
             (CurrentPersonEmail(window).Length == 0 ||
-                !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-                !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal)));
+                !NoteFeedback(window, "Person").StartsWith("Pending", StringComparison.Ordinal) &&
+                !NoteFeedback(window, "Team").StartsWith("Pending", StringComparison.Ordinal)));
     }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {

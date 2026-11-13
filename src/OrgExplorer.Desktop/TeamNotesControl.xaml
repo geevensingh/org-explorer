@@ -81,7 +81,7 @@
       <Button x:Name="DiscardButton" Content="Discard unsaved draft" AutomationProperties.AutomationId="DiscardTeamNoteDraft"
               Click="DiscardDraft" IsEnabled="False"/>
     </WrapPanel>
-    <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" Style="{DynamicResource ReadingProse}"/>
+    <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" Style="{DynamicResource ReadingProse}" Visibility="Collapsed"/>
   </StackPanel>
   </Border>
   <Border Style="{DynamicResource ReadingSection}">

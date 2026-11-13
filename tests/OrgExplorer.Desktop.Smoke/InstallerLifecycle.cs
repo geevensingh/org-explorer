@@ -78,12 +78,26 @@ internal static partial class Program
                 ? "PASS: installed WPF creates/saves/reopens independent profiles, photo, Person note, Profile changes and frozen Team context after producer removal."
                 : "PASS: actual installed WPF reopens unchanged Workspace profiles, photo, Person note, Profile changes and frozen Team context.");
         }
-        catch
+        catch (Exception original)
         {
-            if (process is not null && !process.HasExited)
-                foreach (AutomationElement control in Window(process).FindAll(TreeScope.Descendants, Condition.TrueCondition))
-                    if (control.Current.AutomationId.Length > 0)
-                        Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
+            Console.Error.WriteLine("Original installed desktop failure: " + original);
+            try
+            {
+                if (process is not null && !process.HasExited)
+                {
+                    var observed = AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                        new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
+                    if (observed is not null)
+                        foreach (AutomationElement control in observed.FindAll(TreeScope.Descendants, Condition.TrueCondition))
+                            if (control.Current.AutomationId.Length > 0)
+                                Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
+                }
+            }
+            catch (Exception diagnostic) when (diagnostic is ElementNotAvailableException or InvalidOperationException or
+                System.Runtime.InteropServices.COMException)
+            {
+                Console.Error.WriteLine("Read-only installed desktop diagnostics failed: " + diagnostic);
+            }
             throw;
         }
         finally

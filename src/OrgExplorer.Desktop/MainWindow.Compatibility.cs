@@ -63,28 +63,11 @@ public partial class MainWindow
         ShowOperationalNotice();
     }
 
-    private static bool IsRoutineFeedback(string message) => message is
-        "" or "Workspace opened." or "Saved locally." or "Profile saved locally." or
-        "Workspace refreshed from validated local files." or
-        "Person note saved locally." or "Team note saved locally." or
-        "Team note saved locally and confirmed for current context." or
-        "Person note archived locally; writing retained." or "Person note restored locally." or
-        "Team note archived locally; writing retained." or "Team note restored locally." or
-        "Unsaved local changes deliberately discarded." or
-        "Unsaved Person quick changes discarded. Note drafts are retained." or
-        "Profile draft discarded. Independently saved personal context is retained." or
-        "Import applied and saved locally." or "Already applied: no changes." or
-        "Preview ready. Review changes before Apply." or
-        "Import discarded. Independent note, profile and quick-action drafts are retained." or
-        "Storage maintenance completed; no current mutation was replayed." or
-        "Opened LinkedIn in your browser." or
-        "Retained publication conflicts were resolved externally. Independent writing and maintenance errors are unchanged." or
-        "External conflict resolution acknowledged. Evidence retained; protect the chosen current revision before safe close.";
-
     private void ShowOperationalNotice()
     {
         var messages = new List<string>();
-        if (WorkflowActivity.Text is not ("" or "Ready")) messages.Add(WorkflowActivity.Text);
+        if (workPending || HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose)
+            messages.Add(WorkflowActivity.Text);
         if (!workflow.IsWorkspaceCurrent && workflow.Compatibility.State != Workflow.WorkspaceCompatibilityState.NotOpened)
             messages.Add("Workspace unavailable. Showing last validated information, if any.");
         if (workflow.LocalSaveError is { } error)
@@ -104,18 +87,15 @@ public partial class MainWindow
                 messages.Add(separator < 0 ? line : line[..separator] + ".");
             }
         }
-        if (StatusText.Text != workflow.Status || workflow.LocalSaveError is null)
-        {
-            var feedback = StatusText.Text.Split('\n').FirstOrDefault(line => !IsRoutineFeedback(line));
-            if (feedback is not null) messages.Add(feedback);
-        }
+        var feedback = StatusText.Text != workflow.Status ? StatusText.Text : workflow.OperationError;
+        if (!string.IsNullOrEmpty(feedback)) messages.Add(feedback.Split('\n')[0]);
         NoticeSummary.Text = string.Join("\n", messages.Distinct());
         LocalWritingDetails.Text = workflow.LocalSaveError ?? "";
         OperationalNotice.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         NoticeRetryButton.Visibility = workflow.GetWorkspaceConflicts().Count == 0 &&
             (failedWorkspaceOpen is not null || !workflow.IsWorkspaceCurrent &&
                 workflow.Compatibility.State != Workflow.WorkspaceCompatibilityState.NotOpened ||
-                workflow.LocalSaveError?.Contains("maintenance incomplete", StringComparison.Ordinal) == true)
+                workflow.HasPendingStorageMaintenance)
             ? Visibility.Visible : Visibility.Collapsed;
         NoticeRetryButton.IsEnabled = RetryWorkspaceButton.IsEnabled = !workPending && !updateHandoffPending;
     }

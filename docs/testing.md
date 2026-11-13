@@ -496,6 +496,15 @@ The Window's accessible ItemStatus and HelpText expose the actual existing
 workflow activity and operation feedback; the Workspace label's ItemStatus exposes
 actual validation/freshness. These are bound to the same detailed status, not
 test-only readiness or success flags.
+Notice classification uses the workflow's operation error and retained storage
+maintenance state, not English success-message lists or maintenance substrings.
+Preferred-name cancellation and successful profile/note saves leave healthy
+reading quiet. Both note sections collapse routine operation feedback while
+exposing that same feedback through their surface's accessible ItemStatus.
+Pending/failed drafts remain visible; independent save and preference errors,
+stale data, publication outcomes and committed maintenance remain actionable.
+Hosted note waits read the real accessible feedback rather than requiring a
+permanent success TextBlock. Discard checks the restored saved reading and bytes.
 
 The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
@@ -528,7 +537,7 @@ columns, and opening its overlay must not move the Person viewport. The actual
 clear-search action returns to browsing without replacing the selected Person.
 These are compiled wiring/measurement checks, not rendered acceptance.
 The same invisible regression drives the actual Preferred-name Save/Cancel
-controls: typing and a generic update drain do not publish; failed Save retains
+controls: typing does not publish; failed Save retains
 its input/local error across an unrelated Favorite success; Save retry retains
 the original base across external delivery, and deliberate cancellation permits
 a new entry against the delivered value. Real held profile/note publication
@@ -537,6 +546,11 @@ revoke it or permit premature close, and newer input waits for another explicit
 Save. The Popup is never opened while the window is invisible. Its actual
 discovery, focus and physical Enter/Escape/outside-click behavior remain hosted
 proof, not an inference from these controls.
+These checks use the existing observable People DataContext, actual control
+activation/enablement and public workflow refresh notifications, never private
+window methods or work-completion fields. The generic update-drain refusal is
+proved by the signed update command in `--verify-update-yield`, not by invoking
+the private handoff implementation.
 Paired proportional columns keep both opposing People/Person minimums in WPF's
 shared resize constraint. This does not replace
 hosted physical gesture/hit-target or rendered-pixel acceptance.
@@ -584,6 +598,12 @@ The ordinary profile and Person-note journeys use the actual native dialog once,
 with explicit selectable-folder setup, exact accepted/cancelled outcomes and
 unchanged preference/writing assertions. Installed, responsive and scale callers
 use that same visible picker, never a hidden direct-path adapter.
+The native picker helper targets the observed Folder Edit field (ID 1152), not
+the file-dialog entry or a Search box. Cancellation compares actual before/after
+orientation, displayed path, preference bytes and untouched Workspace contents;
+HelpText need not be empty because WPF can supply useful tooltip fallback.
+Installed-flow failure diagnostics only read the existing automation tree and
+retain the original exception; they never call the maximize/open-window helper.
 
 It also exercises the existing public note-flush boundary after a failed save,
 successful retry and newer writing while Settings hides the editor. With the
@@ -598,19 +618,25 @@ desktop lane, within its existing budget. It requires the ephemeral
 trusted-update/effects build and does not replace a desktop scenario.
 It composes the actual window with the real file-backed workflow through an
 internal application-construction seam and the same held note publisher used
-by persistence tests. A dispatcher hook selects the real post-drain Background
-yield, admits one note save at Normal priority, and waits for publication to
+by persistence tests. Observing the real Import control becoming disabled for
+handoff queues one note save at Normal priority for the first dispatcher yield,
+and waits for publication to
 reach the hold. A ContextIdle observer requires the update to remain pending,
 with unchanged saved bytes and no early handoff, before releasing publication.
 The same regression repeats with a deliberately queued Preferred-name Save
 command and held real profile publication. Merely unconfirmed Preferred-name
-typing is separately rejected by the drain; only this explicit command admits it.
+typing is separately rejected by the actual signed Check for updates command,
+with unchanged Workspace bytes and no installer effect; only explicit Save admits it.
 The original single update action must then hand off the final durable bytes
 and matching file hash; there is no update retry. The shared work drain
 rechecks its gate after dispatcher settling and waits again for an admitted
 save, while existing failed-save, profile/draft and final restart guards remain
 active. This regression never shows/focuses a window or creates its native
 handle.
+The ordinary (43-Person), responsive and invisible replay (44-Person) browsing
+paths share only their fixture records and long-note paragraph inputs.
+Expected identities, exact row positions and document/owner assertions remain
+independently literal; the full populations, actions and deadlines are unchanged.
 The failed-note case also opens Settings and attempts Close once. Rejection must
 reveal the retained work area instead of leaving Settings over the failed editor,
 including after queued focus work settles. Owner, title, Markdown, actionable
