@@ -105,6 +105,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
     public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) =>
         Observe(() => workflow.SavePersonTextDraft(basis, field, value));
+    public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field) =>
+        Observe(() => { workflow.DiscardPersonTextDraft(basis, field); return true; });
     public bool OpenLinkedInProfile(string email) => Observe(() => workflow.OpenLinkedInProfile(email));
 
     private T Observe<T>(Func<T> operation)

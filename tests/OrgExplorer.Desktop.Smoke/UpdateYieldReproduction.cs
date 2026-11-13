@@ -15,9 +15,17 @@ internal static partial class Program
 {
     private static void VerifyUpdateYield(Window window, string settings, HeldNotePublisher publisher)
     {
+        VerifyUpdateYieldPublication(window, settings, publisher, preferredName: false);
+        VerifyUpdateYieldPublication(window, settings, publisher, preferredName: true);
+    }
+
+    private static void VerifyUpdateYieldPublication(Window window, string settings, HeldNotePublisher publisher, bool preferredName)
+    {
         var fixtureDirectory = Environment.GetEnvironmentVariable("ORG_EXPLORER_UPDATE_FIXTURE")
             ?? throw new InvalidOperationException("The update-yield experiment requires the existing ephemeral trusted-update build.");
-        var folder = Path.Combine(settings, "workspace");
+        var folder = Path.Combine(settings, preferredName ? "preferred-name-workspace" : "workspace");
+        publisher.Entered.Reset();
+        publisher.Release.Reset();
         Guid noteId;
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
@@ -37,10 +45,11 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         var notes = Control<FrameworkElement>("PersonNotes");
-        ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("EditTab");
-        var editor = (TextBox)notes.FindName("MarkdownEditor");
-        var file = Path.Combine(folder, "notes", noteId + ".md");
+        if (!preferredName) ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("EditTab");
+        var editor = preferredName ? Control<TextBox>("PreferredName") : (TextBox)notes.FindName("MarkdownEditor");
+        var file = preferredName ? Path.Combine(folder, "workspace.json") : Path.Combine(folder, "notes", noteId + ".md");
         var original = File.ReadAllBytes(file);
+        var finalWriting = preferredName ? "Explicit Preferred name queued in the update yield" : "Final private writing queued in the update yield";
 
         using var configuration = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtureDirectory, "trust.json")));
         var endpoint = new Uri(configuration.RootElement.GetProperty("manifestUrl").GetString()!);
@@ -65,7 +74,8 @@ internal static partial class Program
         var updatePendingAtObservation = false;
         var noEarlyHandoff = false;
         Exception? experimentFailure = null;
-        Task<bool>? saving = null;
+        Task? saving = null;
+        Task<bool>? noteSave = null;
         EventHandler arm = (_, _) =>
         {
             if (guidance.Text.Contains("Waiting for pending local saves", StringComparison.Ordinal)) armed = true;
@@ -83,10 +93,18 @@ internal static partial class Program
             {
                 try
                 {
-                    publisher.HoldNextNote = true;
-                    saving = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+                    publisher.HoldNextNote = !preferredName;
+                    publisher.HoldNextProfile = preferredName;
+                    if (preferredName)
+                    {
+                        Invoke("SavePreferredNameButton");
+                        saving = ((TaskCompletionSource)window.GetType()
+                            .GetField("workCompleted", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                            .GetValue(window)!).Task;
+                    }
+                    else saving = noteSave = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
                     if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
-                        throw new InvalidOperationException("The queued note save did not reach the held real-file publisher.");
+                        throw new InvalidOperationException("The queued explicit name/note save did not reach the held real-file publisher.");
                 }
                 catch (Exception error) { experimentFailure = error; }
                 window.Dispatcher.BeginInvoke(() =>
@@ -115,13 +133,14 @@ internal static partial class Program
             Invoke("CheckForUpdatesButton");
             PumpUntil(() => server.RequestArrived.Task.IsCompleted);
             Invoke("OpenSettingsButton");
-            editor.Text = "Final private writing queued in the update yield";
-            Invoke("OpenSettingsButton");
+            if (preferredName) Invoke("EditPreferredNameButton");
+            editor.Text = finalWriting;
+            if (!preferredName) Invoke("OpenSettingsButton");
             feedRelease.TrySetResult();
             PumpUntil(() => observed);
             if (experimentFailure is not null) throw experimentFailure;
             PumpUntil(() => saving is { IsCompleted: true } && Control<Button>("CheckForUpdatesButton").IsEnabled);
-            if (!saving!.GetAwaiter().GetResult() || !intercepted || !heldAtObservation ||
+            if (noteSave is not null && !noteSave.GetAwaiter().GetResult() || !intercepted || !heldAtObservation ||
                 !bytesUnchanged || !updatePendingAtObservation || !noEarlyHandoff)
                 throw new InvalidOperationException("The experiment did not preserve the intended yield/publication barriers.");
         }
@@ -133,18 +152,21 @@ internal static partial class Program
             textProperty.RemoveValueChanged(guidance, arm);
             if (saving is not null) PumpUntil(() => saving.IsCompleted);
         }
-        var durable = File.ReadAllText(file).Contains("Final private writing queued in the update yield", StringComparison.Ordinal);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        if (!reopened.OpenWorkspace(folder)) throw new InvalidOperationException(reopened.Status);
+        var durable = preferredName ? reopened.GetRelationships("avery@example.com")!.Person.PreferredName == finalWriting :
+            File.ReadAllText(file).Contains(finalWriting, StringComparison.Ordinal);
         var handedOff = File.Exists(handoff);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The update-yield experiment must never show a window or create its native handle.");
-        Console.WriteLine($"UPDATE-YIELD: intercepted={intercepted}; heldAtObservation={heldAtObservation}; " +
+        Console.WriteLine($"UPDATE-YIELD: preferredName={preferredName}; intercepted={intercepted}; heldAtObservation={heldAtObservation}; " +
             $"bytesUnchangedBeforeRelease={bytesUnchanged}; updatePendingBeforeRelease={updatePendingAtObservation}; " +
             $"noEarlyHandoff={noEarlyHandoff}; finalWritingDurable={durable}; handoff={handedOff}; nativeHandle=0");
         if (!durable || !handedOff)
-            throw new InvalidOperationException("The single update action must wait for the note save admitted during its yield, then hand off the durable writing.");
+            throw new InvalidOperationException("The single update action must wait for the explicit name/note save admitted during its yield, then hand off the durable writing.");
         using var request = JsonDocument.Parse(File.ReadAllText(handoff));
         var hash = request.RootElement.GetProperty("workspaceFiles").GetProperty(Path.GetRelativePath(folder, file)).GetString();
         if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))) != hash)
-            throw new InvalidOperationException("The installer boundary did not observe the final durable note bytes.");
+            throw new InvalidOperationException("The installer boundary did not observe the final durable writing bytes.");
     }
 }

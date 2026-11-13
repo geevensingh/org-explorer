@@ -63,8 +63,12 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and record-version checks stay explicit.
-Preferred-name autosave similarly submits the displayed field's immutable Person
-base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
+Preferred-name Save/Enter submits the displayed field's immutable Person base
+through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
+update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
+that field's unsaved failure, never other fields, profile sessions, quick actions,
+notes, Import, committed maintenance or durable publication conflicts.
+Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
@@ -465,6 +469,16 @@ under the main scroll, and leave identity fixed. Compact layout uses fewer fact
 columns, and opening its overlay must not move the Person viewport. The actual
 clear-search action returns to browsing without replacing the selected Person.
 These are compiled wiring/measurement checks, not rendered acceptance.
+The same invisible regression drives the actual Preferred-name Save/Cancel
+controls: typing and a generic update drain do not publish; failed Save retains
+its input/local error across an unrelated Favorite success; Save retry retains
+the original base across external delivery, and deliberate cancellation permits
+a new entry against the delivered value. Real held profile/note publication
+proves that cancellation closes without blocking behind admitted I/O, cannot
+revoke it or permit premature close, and newer input waits for another explicit
+Save. The Popup is never opened while the window is invisible. Its actual
+discovery, focus and physical Enter/Escape/outside-click behavior remain hosted
+proof, not an inference from these controls.
 Paired proportional columns keep both opposing People/Person minimums in WPF's
 shared resize constraint. This does not replace
 hosted physical gesture/hit-target or rendered-pixel acceptance.
@@ -513,6 +527,9 @@ by persistence tests. A dispatcher hook selects the real post-drain Background
 yield, admits one note save at Normal priority, and waits for publication to
 reach the hold. A ContextIdle observer requires the update to remain pending,
 with unchanged saved bytes and no early handoff, before releasing publication.
+The same regression repeats with a deliberately queued Preferred-name Save
+command and held real profile publication. Merely unconfirmed Preferred-name
+typing is separately rejected by the drain; only this explicit command admits it.
 The original single update action must then hand off the final durable bytes
 and matching file hash; there is no update retry. The shared work drain
 rechecks its gate after dispatcher settling and waits again for an admitted
@@ -593,7 +610,10 @@ verifies native current-mode and monitor bounds at 1024 x 768 / 32 bpp / 96 DPI
 without changing its display. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
-  binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  binding, readable Preferred name and one-click Add/Edit, explicit Save and
+  physical Enter, retained inline validation failure, Cancel/Escape/outside-click
+  dismissal without mutation, popup discovery/focus and uniquely named normal,
+  failure and dismissal captures,
   quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
   all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,

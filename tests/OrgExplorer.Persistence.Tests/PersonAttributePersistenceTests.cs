@@ -74,7 +74,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Preferred_name_autosave_retries_its_displayed_base_without_reverting_other_quick_context()
+    public void Explicit_Preferred_name_save_retries_its_displayed_base_without_reverting_other_quick_context()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(folder), app.Status);
@@ -107,7 +107,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Preferred_name_first_autosave_and_retry_do_not_overwrite_delivered_quick_context(bool emptyBase)
+    public void Explicit_Preferred_name_save_and_retry_do_not_overwrite_delivered_quick_context(bool emptyBase)
     {
         using var app = new WorkspaceViewModel(CreateWorkflow());
         Assert.True(app.OpenWorkspace(folder), app.Status);
@@ -128,9 +128,60 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             Assert.Equal("Delivered preferred name", Assert.Single(reopened.People).Heading);
             Assert.Equal("Avery Example", Assert.Single(reopened.People).DirectoryName);
         }
-        app.DiscardUnsavedChanges();
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         Assert.NotNull(app.SavePersonTextDraft(Assert.Single(app.People), PersonTextField.PreferredName, null));
         Assert.Equal("Avery Example", Assert.Single(app.People).Heading);
+    }
+
+    [Fact]
+    public void Cancelling_Preferred_name_preserves_saved_bytes_and_independent_failed_writing()
+    {
+        using var app = new WorkspaceViewModel(CreateWorkflow());
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
+        var basis = Assert.Single(app.People);
+        var person = app.CreatePersonNote(basis.Email, "Person writing", "Saved Person")!;
+        var team = app.CreateTeamNote(basis.Email, "Team writing", "Saved Team")!;
+        var personDraft = app.BeginNoteDraft(NoteScope.Person, basis.Email, person.Id)!;
+        var teamDraft = app.BeginNoteDraft(NoteScope.Team, basis.Email, team.Id)!;
+        var preview = app.PreviewImport(Batch.Replace("000000000001", "000000000002").Replace("Research", "Reviewed"));
+        Assert.True(preview.CanApply, app.Status);
+        Assert.True(app.BeginProfileEdit(basis.Email));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retained office draft"));
+        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.False(app.ApplyImport(preview.Id));
+            Assert.Null(app.SaveNoteDraft(personDraft, "Person writing", "Retained Person"));
+            Assert.Null(app.SaveNoteDraft(teamDraft, "Team writing", "Retained Team"));
+            Assert.False(app.EditFavorite(basis.Email, true));
+            Assert.False(app.SaveProfileEdit());
+            Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained name"));
+        }
+        var before = WorkspaceFixtures.Bytes(folder);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
+        Assert.Equal(basis, Assert.Single(app.People));
+        Assert.True(app.HasFailedImport);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, person.Id));
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Team, team.Id));
+        Assert.Equal("Retained office draft", app.ProfileEdit!.Draft.OfficeNumber);
+        Assert.False(app.CanSafelyClose);
+        Assert.False(app.RestartWhenSafe(_ => Assert.Fail("Cancellation must not authorize restart.")));
+        app.CancelProfileEdit();
+        app.DiscardImportChanges();
+        app.DiscardUnsavedChanges(person.Id);
+        app.DiscardUnsavedChanges(team.Id);
+        Assert.False(app.CanSafelyClose); // The independent Favorite failure still needs its own decision.
+        Assert.False(app.GetRelationships(basis.Email)!.Person.IsFavorite);
+        app.DiscardPersonChanges(basis.Email);
+        Assert.True(app.CanSafelyClose, app.Status);
+        using var reopened = CreateWorkflow();
+        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+        Assert.Equal(basis, Assert.Single(reopened.People));
+        Assert.Equal("Saved Person", Assert.Single(reopened.GetPersonNotes(basis.Email)).Markdown);
+        Assert.Equal("Saved Team", Assert.Single(reopened.GetTeamNotes(basis.Email)).Markdown);
     }
 
     [Fact]
