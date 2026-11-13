@@ -33,6 +33,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            CaptureWindowIconEvidence(window, executable, "profile");
             var settings = Find(window, "OpenSettings");
             if (settings.Current.Name != "Settings" || !settings.Current.IsKeyboardFocusable)
                 throw new InvalidOperationException("Settings lacks a meaningful, keyboard-accessible action.");
