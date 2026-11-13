@@ -14,6 +14,7 @@
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\LocalReleaseServer.cs" Link="LocalReleaseServer.cs" />
     <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
+    <Compile Include="..\NativeIconResource.cs" Link="NativeIconResource.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj"/>
   </ItemGroup>

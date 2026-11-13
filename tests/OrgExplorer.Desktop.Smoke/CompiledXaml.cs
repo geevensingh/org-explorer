@@ -13,6 +13,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
@@ -49,6 +50,10 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher)], null)!
                 : (Window)Activator.CreateInstance(type)!;
             var failures = new List<string>();
+            if (window.Icon is not BitmapFrame { Decoder: IconBitmapDecoder icon } ||
+                !icon.Frames.Select(frame => frame.PixelWidth).Order().SequenceEqual(
+                    new[] { 16, 20, 24, 32, 40, 48, 64, 96, 128, 256 }))
+                failures.Add("The compiled window must load the complete native C1 icon, not the generic WPF identity.");
             var settingsPanel = (FrameworkElement)window.FindName("SettingsPanel");
             static bool Contains(DependencyObject parent, DependencyObject? child)
             {

@@ -9,6 +9,7 @@
     <Version>0.1.0</Version>
     <Product>Org explorer</Product>
     <Description>Private offline-first Windows org explorer</Description>
+    <ApplicationIcon>Assets\OrgExplorer.ico</ApplicationIcon>
     <UpdateTrustFile Condition="'$(UpdateTrustFile)' == ''">$(MSBuildProjectDirectory)\update-trust.json</UpdateTrustFile>
   </PropertyGroup>
   <ItemGroup>
@@ -20,5 +21,6 @@
     <Content Include="..\..\docs\INSTALLATION.md" Link="INSTALLATION.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\docs\update-protocol.md" Link="update-protocol.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="$(UpdateTrustFile)" LogicalName="OrgExplorer.UpdateTrust.json" />
+    <Resource Include="Assets\OrgExplorer.ico" />
   </ItemGroup>
 </Project>

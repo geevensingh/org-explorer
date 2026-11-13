@@ -44,6 +44,29 @@ App assembly/package/feed versions are generated together. Import schema,
 Workspace format and signed-update protocol versions remain independent,
 deliberate compatibility contracts; a patch release changes none of them.
 
+## Native application identity
+
+The original C1 Person-reference artwork is `assets\app-icon.xaml`. Regenerate
+the committed production ICO with `.\eng\Export-ApplicationIcon.ps1`; optional
+`-PreviewDirectory .artifacts\icon-review` exports each frame for inspection.
+The 16/20/24-pixel artwork is optically simplified, not a crop of the approved
+comparison board. The ICO includes 16, 20, 24, 32, 40, 48, 64, 96, 128 and
+256-pixel transparent 32-bit frames.
+
+The app embeds those frames as both its native executable icon and WPF window
+resource. `Package-Windows.ps1` gives the same ICO to the pinned Velopack tool
+for setup, portable launcher and installed shell identity. The existing artifact
+checks decode the ICO, compare real PE resources, inspect packaged `setup.ico`,
+and check produced executable product/version metadata. They do not execute setup.
+The isolated installed lifecycle additionally checks Desktop/Start shortcuts
+and Installed Apps' actual icon targets after install, upgrade and reinstall.
+Native icon pixels and existing window captures support hosted review; neither
+packaging nor these assertions establishes small-size visual acceptance or
+completion of the whole Person workspace refresh.
+
+Branding does not add file associations, change the application ID or grant
+publisher/update trust. Preserve the signing warnings and ordinary release gates.
+
 ## Publication gates and provenance
 
 One non-cancelling production concurrency group covers planning, fresh scale

@@ -1,0 +1,64 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <DrawingImage x:Key="Large">
+    <DrawingImage.Drawing>
+      <DrawingGroup>
+        <GeometryDrawing Geometry="M58,0 H198 Q256,0 256,58 V198 Q256,256 198,256 H58 Q0,256 0,198 V58 Q0,0 58,0 Z">
+          <GeometryDrawing.Brush>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0.85,1">
+              <GradientStop Color="#1686F5" Offset="0"/>
+              <GradientStop Color="#0055BE" Offset="1"/>
+            </LinearGradientBrush>
+          </GeometryDrawing.Brush>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#A9D6FF">
+          <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="45,69,144,148" RadiusX="18" RadiusY="18"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#FFFFFF">
+          <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="62,49,148,154" RadiusX="18" RadiusY="18"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#91CAFC" Geometry="M171,49 H196 V91 L183.5,81 171,91 Z"/>
+        <GeometryDrawing Brush="#086FE5">
+          <GeometryDrawing.Geometry>
+            <EllipseGeometry Center="136,113" RadiusX="25" RadiusY="25"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#086FE5"
+                         Geometry="M90,177 C90,151 107,143 125,143 H147 C165,143 182,151 182,177 Z"/>
+      </DrawingGroup>
+    </DrawingImage.Drawing>
+  </DrawingImage>
+  <DrawingImage x:Key="Small">
+    <DrawingImage.Drawing>
+      <DrawingGroup>
+        <GeometryDrawing Brush="#086FDE">
+          <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="0,0,16,16" RadiusX="3.5" RadiusY="3.5"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#A9D6FF">
+          <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="3,4,9,10" RadiusX="1.25" RadiusY="1.25"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#FFFFFF">
+          <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="4,3,9,10" RadiusX="1.25" RadiusY="1.25"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#91CAFC" Geometry="M10.5,3 H12 V6 L11.25,5.25 10.5,6 Z"/>
+        <GeometryDrawing Brush="#086FE5">
+          <GeometryDrawing.Geometry>
+            <EllipseGeometry Center="8.5,7.25" RadiusX="1.65" RadiusY="1.65"/>
+          </GeometryDrawing.Geometry>
+        </GeometryDrawing>
+        <GeometryDrawing Brush="#086FE5"
+                         Geometry="M5.5,11 C5.5,9.6 6.6,9 8,9 H9 C10.4,9 11.5,9.6 11.5,11 Z"/>
+      </DrawingGroup>
+    </DrawingImage.Drawing>
+  </DrawingImage>
+</ResourceDictionary>

@@ -44,6 +44,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Self-contained .NET 10 WPF publish failed.' }
     dotnet tool run vpk -- pack --packId geevensingh.OrgExplorer --packTitle 'Org explorer' `
         --packAuthors 'Geeven Singh' --packVersion $Version --mainExe OrgExplorer.Desktop.exe `
+        --icon (Join-Path $repo 'src\OrgExplorer.Desktop\Assets\OrgExplorer.ico') `
         --runtime win11-x64 --channel win --packDir $publish --outputDir $releases `
         --delta None --skip-updates --yes
     if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed. Bootstrap validation must remain enabled.' }

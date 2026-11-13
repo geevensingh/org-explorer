@@ -483,6 +483,25 @@ journey retains its original Close action and visible failure/content assertions
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
 
+`tests\ApplicationIcon.Tests.ps1` decodes all ten native ICO frames and checks
+transparency and C1 tile/card/Person content. With `-Executable`, it inspects the
+real default PE icon group and compares every frame's bytes, without executing
+the product. The core lane checks the asset; ordinary desktop product-output
+isolation checks the published executable. The invisible compiled-window check
+also requires the complete ICO to load through the window's actual `Icon`.
+Existing installer-artifact checks inspect setup, full-package app and
+`setup.ico`, portable launcher/app resources, and produced product/version
+metadata. No installer is launched by these checks.
+
+The existing profile and installed desktop journeys compare the live window's
+small/large `WM_GETICON` pixels with the matching produced native frames, saving
+unscaled PNGs and a light/dark compositing plate with executable hash and candidate
+metadata. This is native-resource evidence, not a screenshot of the taskbar or
+Start menu. The isolated installed lifecycle also resolves the real Desktop/Start
+shortcuts and Installed Apps icon target after install, upgrade and reinstall.
+These checks do not replace actual Windows small-size/surface review or the
+whole-pass owner review. They must not be run on the shared local desktop.
+
 Installer-runner process tests use a separate non-UI .NET fixture, never the
 installed app or setup. Its parent exits with application files already removed
 while a named-event-gated cleanup child still owns the fixture installation.

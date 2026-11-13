@@ -72,6 +72,7 @@ try {
             & "$root\tests\Release.Workflow.Tests.ps1"
             & "$root\tests\Release.Payload.Tests.ps1"
             & "$root\tests\Update.TrustLifetime.Tests.ps1"
+            & "$root\tests\ApplicationIcon.Tests.ps1"
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')
@@ -118,6 +119,7 @@ try {
                     '-o', '.ci-results\desktop\product-check')
                 & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
                     -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
+                & "$root\tests\ApplicationIcon.Tests.ps1" -Executable (Join-Path $results 'product-check\OrgExplorer.Desktop.exe')
                 $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
                 if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
                     throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
