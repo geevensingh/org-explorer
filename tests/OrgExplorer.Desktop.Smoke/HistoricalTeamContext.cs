@@ -28,6 +28,7 @@ internal static partial class Program
                 """);
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -270,6 +271,7 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportPath"));
         if (path is not null && !path.Current.IsOffscreen) return;
         AwaitLocalWorkIdle(window);
+        SetSettingsVisible(window, true);
         Click(window, "OpenImport");
         Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
         var people = window.FindFirst(TreeScope.Descendants,

@@ -136,16 +136,11 @@ internal static partial class Program
     }
     internal static void Set(AutomationElement window, string id, string value)
     {
-        if (id == "WorkspacePath") SetSettingsVisible(window, true);
-        else SetSettingsVisible(window, false);
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
     }
     internal static void Click(AutomationElement window, string id)
     {
-        if (id is "OpenWorkspace" or "OpenImport" or "RetryWorkspace" or "CheckForUpdates")
-            SetSettingsVisible(window, true);
-        else if (id != "OpenSettings") SetSettingsVisible(window, false);
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
@@ -163,7 +158,6 @@ internal static partial class Program
     }
     private static void AwaitLocalWorkIdle(AutomationElement window)
     {
-        SetSettingsVisible(window, false);
         Await(() =>
             Find(window, "WorkflowActivity").Current.Name == "Ready" &&
             !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&

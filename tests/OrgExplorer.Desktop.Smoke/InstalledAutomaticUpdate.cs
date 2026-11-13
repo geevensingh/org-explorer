@@ -46,6 +46,7 @@ internal static partial class Program
                 Await(() => Find(window, "UpdateSummary").Current.Name.Contains($"installation confirmed by running version {args[4]}"));
                 SetSettingsVisible(window, true);
                 AssertValue(window, "WorkspacePath", Path.GetFullPath(args[1]));
+                SetSettingsVisible(window, false);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 AssertInstallerWorkspace(window);
                 SelectNote(window, "Automatic update safe local writing");
@@ -55,6 +56,7 @@ internal static partial class Program
                 Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("up to date"));
                 if (!Find(window, "CheckForUpdates").Current.IsEnabled)
                     throw new InvalidOperationException("Same installed version re-entered automatic download/restart.");
+                SetSettingsVisible(window, false);
                 Close(restarted);
             }
             finally { StopApplication(restarted); }

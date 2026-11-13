@@ -16,12 +16,18 @@ public partial class TeamNotesControl : UserControl
     private bool loading;
     private bool includeArchived;
     private readonly NoteDraftState draft;
+    private readonly OwnedNotePresentation presentation;
     private NoteDraft? noteBase;
     public event Action<Guid>? OwnerRequested;
 
     public TeamNotesControl()
     {
         InitializeComponent();
+        presentation = new(NoteScope.Team)
+        {
+            Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
+            Designate = DesignateButton, Ongoing = OngoingButton
+        };
         draft = new NoteDraftState("Team note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
@@ -313,16 +319,8 @@ public partial class TeamNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        var view = workflow.TeamNotesView;
-        OngoingStatus.Text = view.Feedback;
-        NoteKind.Text = view.SelectedNote is null ? "" :
-            (view.IsOngoing ? "Ongoing Team note" : "Other Team note") + (view.SelectedNote.Archived ? " - Archived" : "");
-        AutomationProperties.SetHelpText(NoteHeading, view.SelectedNote?.Id.ToString() ?? "");
+        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
-        DesignateButton.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
-        DesignateButton.IsEnabled = workflow.IsWorkspaceCurrent;
-        OngoingButton.Visibility = view.OngoingNoteId is not null && !view.IsOngoing ? Visibility.Visible : Visibility.Collapsed;
-        OngoingButton.IsEnabled = view.Notes.Any(n => n.Id == view.OngoingNoteId && !n.Archived);
         var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
         var note = notes.FirstOrDefault(n => n.Id == selected);
         ReviewStatus.Text = note?.ReviewStatus ?? "";

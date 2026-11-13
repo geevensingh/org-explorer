@@ -25,6 +25,7 @@ internal static partial class Program
         try
         {
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", folder);
             Click(window, "OpenWorkspace");
             OpenImportView(window);

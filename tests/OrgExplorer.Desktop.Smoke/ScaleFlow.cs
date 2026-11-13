@@ -17,6 +17,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-load", () =>
             {
@@ -171,6 +172,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", fixture.Workspace);
             Click(window, "OpenWorkspace");
             AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");

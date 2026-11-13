@@ -23,7 +23,6 @@ internal static partial class Program
                 throw new InvalidOperationException("First launch did not leave usable Workspace-opening controls.");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
-            SetSettingsVisible(window, false);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("automatically converted"));
@@ -78,6 +77,7 @@ internal static partial class Program
         {
             var window = Window(recovery);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", recoveryWorkspace);
             using (File.Open(Path.Combine(recoveryWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
@@ -146,6 +146,7 @@ internal static partial class Program
             {
                 var window = Window(failedManual);
                 AwaitStartupRecovery(window, workspace);
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", invalid);
                 Click(window, "OpenWorkspace");
                 Await(() => Find(window, "Status").Current.Name.Contains("could not be opened"));
@@ -164,6 +165,7 @@ internal static partial class Program
                 AwaitStartupRecovery(window, workspace);
                 if (Directory.Exists(workspace))
                     throw new InvalidOperationException("A failed manual attempt replaced the remembered Workspace.");
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", alternate);
                 Click(window, "OpenWorkspace");
                 AwaitRestoredWorkspace(window, alternate);
@@ -188,7 +190,6 @@ internal static partial class Program
     private static void AwaitRestoredWorkspace(AutomationElement window, string workspace, string expectedEmail = "",
         Action<Func<bool>>? awaitState = null)
     {
-        SetSettingsVisible(window, false);
         WorkspaceRestoration.AssertRestored(() =>
         {
             var recovery = window.FindFirst(TreeScope.Descendants,
@@ -203,7 +204,6 @@ internal static partial class Program
 
     private static void AwaitUnavailableView(AutomationElement window, string workspace)
     {
-        SetSettingsVisible(window, false);
         Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
             Find(window, "WorkflowActivity").Current.Name == "Ready" &&
             Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace." &&

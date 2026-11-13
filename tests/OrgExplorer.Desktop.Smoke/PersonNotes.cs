@@ -33,6 +33,7 @@ internal static partial class Program
             var workspace = Path.Combine(root, "workspace");
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -100,14 +101,18 @@ internal static partial class Program
                 SelectTreePerson(window, "casey@example.com", expectNavigation: false);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 var otherWorkspace = Path.Combine(root, "other-workspace");
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", otherWorkspace);
                 Click(window, "OpenWorkspace");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 if (Directory.Exists(otherWorkspace))
                     throw new InvalidOperationException("Unsaved Person note did not block Workspace navigation.");
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", workspace);
                 process.CloseMainWindow();
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+                Await(() => !IsVisible(window, "SettingsTitle"));
+                AssertNoteView(window, "Person", editing: true);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
             }
             Click(window, "RetryPersonNoteSave");
