@@ -18,17 +18,17 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-load", () =>
             {
-                Click(window, "OpenWorkspace");
+                PickWorkspaceFolder(window, fixture.Workspace);
                 // Settings must work while actual filesystem work is outstanding, not after a blocked dispatcher returns.
-                Await(() => Find(window, "WorkflowActivity").Current.Name.Contains("Opening"));
+                Await(() => Activity(window).Contains("Opening"));
                 SetSettingsVisible(window, true);
-                Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
-                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Opening"))
+                Await(() => !Find(window, "SettingsTitle").Current.IsOffscreen &&
+                    !Find(window, "WorkspacePath").Current.IsOffscreen);
+                if (!Activity(window).Contains("Opening"))
                     throw new InvalidOperationException("Settings was not responsive while the real scale open was pending.");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+                AwaitScale(() => Activity(window) == "Ready");
                 SetSettingsVisible(window, false);
             });
             ScaleFixture.Measure("UI-tree", () =>
@@ -174,11 +174,10 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-mutation-open", () =>
             {
-                Click(window, "OpenWorkspace");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+                PickWorkspaceFolder(window, fixture.Workspace);
+                AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
             });
             Set(window, "SearchQuery", "handle01000");
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
@@ -190,19 +189,20 @@ internal static partial class Program
                 BeginProfileEditing(window);
                 Set(window, "OfficeNumber", "0009U");
                 Click(window, "SaveProfile");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"));
+                AwaitScale(() => Activity(window).Contains("Saving complete profile"));
                 Click(window, "OpenSettings");
-                Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
-                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"))
+                Await(() => !Find(window, "SettingsTitle").Current.IsOffscreen &&
+                    !Find(window, "WorkspacePath").Current.IsOffscreen);
+                if (!Activity(window).Contains("Saving complete profile"))
                     throw new InvalidOperationException("Settings only rendered after the actual scale mutation completed.");
                 Click(window, "OpenSettings");
                 Click(window, "NavigateManager");
-                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
-                if (!Find(window, "Status").Current.Name.Contains("in progress") ||
-                    !Find(window, "Status").Current.Name.Contains("Please wait") ||
+                Await(() => Status(window).StartsWith("Navigation blocked:"));
+                if (!Status(window).Contains("in progress") ||
+                    !Status(window).Contains("Please wait") ||
                     Find(window, "Email").Current.Name != ScaleFixture.Target)
                     throw new InvalidOperationException("Navigation during a save did not explain waiting or retain the current Person.");
-                AwaitScale(() => Find(window, "Status").Current.Name == "Profile saved locally.");
+                AwaitScale(() => Status(window) == "Profile saved locally.");
             });
             ScaleFixture.Measure("UI-favorite-mutation", () =>
             {
@@ -233,7 +233,7 @@ internal static partial class Program
                 ScaleFixture.Measure("UI-import-apply", () =>
                 {
                     Click(window, "ApplyImport");
-                    AwaitScale(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+                    AwaitScale(() => Status(window).Contains("Import applied"));
                 });
                 ScaleFixture.Measure("UI-import-return", () =>
                 {

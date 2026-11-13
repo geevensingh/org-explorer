@@ -10,6 +10,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
+    private readonly Func<Window, string?> chooseWorkspaceFolder;
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -18,10 +19,14 @@ public partial class MainWindow : Window
 
     public MainWindow() : this(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener())) { }
 
-    internal MainWindow(IApplicationWorkflow application)
+    internal MainWindow(IApplicationWorkflow application) : this(application, ChooseWorkspaceFolder) { }
+
+    internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder)
     {
+        this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         workflow = new(application, workspaceSettings);
         InitializeComponent();
+        InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
@@ -56,10 +61,10 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) => workflow.Dispose();
     }
-    private void ChooseWorkspace(object sender, RoutedEventArgs e)
+    private static string? ChooseWorkspaceFolder(Window owner)
     {
-        var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
-        if (dialog.ShowDialog(this) == true) WorkspacePath.Text = dialog.FolderName;
+        var dialog = new OpenFolderDialog { Title = "Open Workspace" };
+        return dialog.ShowDialog(owner) == true ? dialog.FolderName : null;
     }
     private void ChooseImport(object sender, RoutedEventArgs e)
     {
@@ -114,9 +119,17 @@ public partial class MainWindow : Window
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        if (chooseWorkspaceFolder(this) is not { } path) return;
         SettingsPanel.Visibility = Visibility.Collapsed;
         UpdateMainViews();
-        await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+        await OpenWorkspaceAtPathAsync(path);
+    }
+
+    private void ConfirmImportPath(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter || e.IsRepeat || !PreviewButton.IsEnabled) return;
+        e.Handled = true;
+        PreviewImport(sender, e);
     }
 
     private void PresentWorkspaceOpen()
@@ -408,6 +421,10 @@ public partial class MainWindow : Window
         WorkspaceName.Text = path is null ? "No Workspace open" : new DirectoryInfo(path).Name;
         WorkspaceName.ToolTip = WorkspaceName.Text;
         System.Windows.Automation.AutomationProperties.SetHelpText(WorkspaceName, path ?? "");
+        WorkspacePath.Text = path ?? "No Workspace open";
+        WorkspacePathLabel.Text = workflow.IsWorkspaceCurrent || path is null
+            ? "Current Workspace folder" : "Workspace folder (unavailable)";
+        System.Windows.Automation.AutomationProperties.SetName(WorkspacePath, WorkspacePath.Text);
         UpdateMainViews();
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
@@ -429,6 +446,8 @@ public partial class MainWindow : Window
             (workflow.ProfileEdit is not null || HasUnsavedRelationship);
         DiscardProfileButton.IsEnabled = !workPending &&
             (workflow.ProfileEdit is not null || HasUnsavedRelationship);
+        RetryProfileButton.Visibility = RetryProfileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        DiscardProfileButton.Visibility = DiscardProfileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
@@ -440,6 +459,7 @@ public partial class MainWindow : Window
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }
+        ShowOperationalNotice();
     }
 
     internal void ShowViewPreferenceStatus()

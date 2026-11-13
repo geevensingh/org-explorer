@@ -31,17 +31,18 @@ internal static partial class Program
                 """;
             File.WriteAllText(import, initialImport);
             var workspace = Path.Combine(root, "workspace");
+            Directory.CreateDirectory(workspace);
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
@@ -107,14 +108,24 @@ internal static partial class Program
                 SelectTreePerson(window, "casey@example.com", expectNavigation: false);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 var otherWorkspace = Path.Combine(root, "other-workspace");
+                Directory.CreateDirectory(otherWorkspace);
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", otherWorkspace);
-                Click(window, "OpenWorkspace");
+                var preferencesBeforePicker = File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json"));
+                var savedNote = File.ReadAllBytes(noteFile);
+                PickWorkspaceFolder(window, null);
+                if (!IsVisible(window, "SettingsTitle") ||
+                    !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
+                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote))
+                    throw new InvalidOperationException("Picker cancellation changed failed writing or its successful startup preference.");
+                PickWorkspaceFolder(window, otherWorkspace);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                if (Directory.Exists(otherWorkspace))
-                    throw new InvalidOperationException("Unsaved Person note did not block Workspace navigation.");
+                if (Directory.GetFileSystemEntries(otherWorkspace).Length != 0 ||
+                    !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
+                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote) || IsVisible(window, "SettingsTitle") ||
+                    !IsVisible(window, "OperationalNotice"))
+                    throw new InvalidOperationException("Unsaved Person note did not reject Workspace opening with unchanged bytes/preference and visible retained writing.");
+                CaptureVisualEvidence(window, "settings-open-rejected-retained-note");
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", workspace);
                 process.CloseMainWindow();
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
                 Await(() => !IsVisible(window, "SettingsTitle"));

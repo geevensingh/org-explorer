@@ -39,18 +39,24 @@ Keep the everyday toolbar focused on search and Settings. A quiet,
 non-interactive Workspace-name label provides orientation; it is not a separate
 Workspace selector or dropdown.
 
-Move the full folder path and Choose/open Workspace controls into Settings.
+Display the full copyable current folder path in Settings. One **Open Workspace...**
+action opens the native folder picker and immediately attempts the validated open
+after acceptance; cancellation leaves writing, selection and startup preferences
+unchanged. There is no editable pending path or separate Choose/Open sequence.
 Workspace changes are expected to be very rare. Import is also infrequent,
 roughly every week or two rather than daily, so put a clearly labelled Import
 action in Settings instead of permanently occupying toolbar space. Import still
 opens its dedicated preview/review/explicit-Apply workflow; opening Settings is
-not applying an import.
+not applying an import. Enter in the Import path previews, never applies.
+Keep Workspace, Import and Updates in a bounded scrollable in-app page, with
+compatibility/recovery/technical material behind a disclosure.
 
 Keep Settings accessible before opening a Workspace and during invalid,
 incompatible, or unavailable Workspace states. Preserve existing opening,
 validation/conversion, recovery, update, and draft-protection flows.
 
-Routine status should be quiet. Errors, stale/unavailable data, pending or failed
+Healthy reading omits routine Ready/validated/saved rows and inactive recovery
+actions. Concise notices and accessible Details retain errors, stale/unavailable data, pending or failed
 saves, unsaved-work warnings, and relevant Team-note review warnings must remain
 conspicuous. Moving management controls must not hide operational problems or
 turn failed actions into success-shaped status.

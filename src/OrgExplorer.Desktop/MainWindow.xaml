@@ -4,6 +4,8 @@
         xmlns:workflow="clr-namespace:OrgExplorer.Workflow;assembly=OrgExplorer.Workflow"
         xmlns:local="clr-namespace:OrgExplorer.Desktop"
         Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500"
+        AutomationProperties.ItemStatus="{Binding Text, ElementName=WorkflowActivity}"
+        AutomationProperties.HelpText="{Binding Text, ElementName=StatusText}"
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
@@ -334,6 +336,7 @@
                 AutomationProperties.AutomationId="OpenPeople" AutomationProperties.Name="People"
                 Click="TogglePeople" Margin="0,0,12,0"/>
         <TextBlock x:Name="WorkspaceName" AutomationProperties.AutomationId="WorkspaceName" Text="No Workspace open"
+                   AutomationProperties.ItemStatus="{Binding Text, ElementName=WorkspaceFreshness}"
                    Foreground="DimGray" MaxWidth="150" Margin="0,0,16,0" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis"/>
         <Grid Margin="0,0,16,0">
@@ -375,6 +378,8 @@
                  TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
       <TextBlock x:Name="ViewPreferenceStatus" AutomationProperties.AutomationId="ViewPreferenceStatus"
                  TextWrapping="Wrap" Foreground="#8A3B12" Visibility="Collapsed" Margin="0,0,0,8"/>
+      <TextBlock x:Name="PanePreferenceStatus" AutomationProperties.AutomationId="PanePreferenceStatus"
+                 TextWrapping="Wrap" Foreground="#8A3B12" Visibility="Collapsed" Margin="0,0,0,8"/>
       <StackPanel x:Name="WorkspaceStartupPanel" Visibility="Collapsed" Margin="0,0,0,12">
         <TextBlock x:Name="WorkspaceStartupStatus" AutomationProperties.AutomationId="WorkspaceStartupStatus"
                    TextWrapping="Wrap"/>
@@ -389,45 +394,69 @@
     <Border x:Name="SettingsPanel" Grid.Row="2" Visibility="Collapsed" BorderBrush="#D0D7DE" BorderThickness="0,1,0,0"
             Background="White" Padding="12">
       <DockPanel>
-        <TextBlock x:Name="SettingsTitle" DockPanel.Dock="Top" Text="Settings" FontSize="20" FontWeight="SemiBold"
+        <TextBlock x:Name="SettingsTitle" DockPanel.Dock="Top" Text="Settings" FontSize="28" FontWeight="SemiBold"
                    AutomationProperties.AutomationId="SettingsTitle"/>
         <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel>
-            <TextBlock Text="Workspace folder" Margin="0,8,0,4"/>
-            <TextBox x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath"
-                     AutomationProperties.Name="Workspace folder" ToolTip="Workspace folder, separate from installation"/>
-            <WrapPanel x:Name="WorkspaceControls" Margin="0,8">
-              <Button Content="Choose folder…" AutomationProperties.AutomationId="ChooseWorkspace" Click="ChooseWorkspace" Margin="0,0,8,0"/>
-              <Button x:Name="OpenWorkspaceButton" Content="Open Workspace" AutomationProperties.AutomationId="OpenWorkspace" Click="OpenWorkspace"/>
-              <Button x:Name="OpenImportButton" Content="_Import..." AutomationProperties.AutomationId="OpenImport"
-                      Click="OpenImportView" Margin="16,0,0,0"/>
+          <StackPanel MaxWidth="840" HorizontalAlignment="Left">
+            <TextBlock Text="Workspace" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,12"/>
+            <TextBlock x:Name="WorkspacePathLabel" Text="Current Workspace folder"
+                       Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+            <TextBlock x:Name="WorkspacePath" AutomationProperties.AutomationId="WorkspacePath"
+                       AutomationProperties.Name="No Workspace open" Text="No Workspace open"
+                       TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                       ToolTip="Current Workspace folder. Use the context menu to copy its full path.">
+              <TextBlock.ContextMenu>
+                <ContextMenu><MenuItem Header="Copy path"
+                    Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                    Click="CopyProfileValue"/></ContextMenu>
+              </TextBlock.ContextMenu>
+            </TextBlock>
+            <WrapPanel x:Name="WorkspaceControls" Margin="0,16,0,24">
+              <Button x:Name="OpenWorkspaceButton" Content="_Open Workspace..."
+                      Style="{StaticResource PrimaryButton}"
+                      AutomationProperties.AutomationId="OpenWorkspace" AutomationProperties.Name="Open Workspace..."
+                      Click="OpenWorkspace"/>
             </WrapPanel>
-            <TextBlock Text="Import opens a separate preview and review. Nothing changes until Apply." TextWrapping="Wrap" Foreground="DimGray"/>
-            <TextBlock Text="Workspace compatibility and recovery" FontWeight="SemiBold" Margin="0,12,0,0"/>
-            <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,8"/>
-            <WrapPanel Margin="0,8">
+            <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
+            <TextBlock Text="Import" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
+            <TextBlock Text="Review the proposed changes before applying them." TextWrapping="Wrap"
+                       Foreground="{StaticResource MutedBrush}"/>
+            <Button x:Name="OpenImportButton" Content="_Import..." AutomationProperties.AutomationId="OpenImport"
+                    Click="OpenImportView" HorizontalAlignment="Left" Margin="0,16,0,24"/>
+            <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
+            <TextBlock Text="Updates" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
+            <WrapPanel Margin="0,8,0,12">
               <Button x:Name="CheckForUpdatesButton" Content="Check for updates" AutomationProperties.AutomationId="CheckForUpdates"
                       Click="CheckForUpdates" Margin="0,0,12,0"/>
+            </WrapPanel>
+            <StackPanel Margin="0,0,0,24">
               <CheckBox x:Name="StartupUpdateChecks" Content="Check for updates on startup" IsChecked="True"
                         AutomationProperties.AutomationId="StartupUpdateChecks" VerticalAlignment="Center"
                         Checked="ChangeStartupUpdateChecks" Unchecked="ChangeStartupUpdateChecks"/>
-            </WrapPanel>
-            <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap"/>
-            <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap"/>
-            <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
-                       TextWrapping="Wrap"/>
-            <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
-                       TextWrapping="Wrap" Margin="0,8"/>
-            <Button Content="Retry Workspace validation / storage maintenance" AutomationProperties.AutomationId="RetryWorkspace"
-                    Click="RetryWorkspace" HorizontalAlignment="Left"/>
-            <TextBlock x:Name="PublicationConflictDetails" AutomationProperties.AutomationId="PublicationConflictDetails"
-                       TextWrapping="Wrap" Margin="0,8"/>
-            <WrapPanel>
-              <Button x:Name="ReviewPublicationConflictsButton" Content="Review publication conflicts"
-                      AutomationProperties.AutomationId="ReviewPublicationConflicts" Click="ReviewPublicationConflicts"/>
-              <Button x:Name="ResolvePublicationConflictsButton" Content="Acknowledge external resolution"
-                      AutomationProperties.AutomationId="ResolvePublicationConflicts" Click="ResolvePublicationConflicts" Margin="8,0"/>
-            </WrapPanel>
+            </StackPanel>
+            <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
+            <Expander x:Name="TechnicalDetails" Header="Compatibility, recovery and technical details"
+                      AutomationProperties.AutomationId="TechnicalDetails" IsExpanded="False" Margin="0,20,0,12">
+              <StackPanel Margin="0,12,0,0">
+                <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <Button x:Name="RetryWorkspaceButton" Content="Retry Workspace validation / storage maintenance"
+                        AutomationProperties.AutomationId="RetryWorkspace" Click="RetryWorkspace" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="PublicationConflictDetails" AutomationProperties.AutomationId="PublicationConflictDetails"
+                           TextWrapping="Wrap" Margin="0,8"/>
+                <WrapPanel>
+                  <Button x:Name="ReviewPublicationConflictsButton" Content="Review publication conflicts"
+                          AutomationProperties.AutomationId="ReviewPublicationConflicts" Click="ReviewPublicationConflicts"/>
+                  <Button x:Name="ResolvePublicationConflictsButton" Content="Acknowledge external resolution"
+                          AutomationProperties.AutomationId="ResolvePublicationConflicts" Click="ResolvePublicationConflicts" Margin="8,0"/>
+                </WrapPanel>
+                <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap" Margin="0,16,0,8"/>
+                <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="Installer rollback does not restore Workspace data. Preserve the entire Workspace and recoverable originals before resolving files externally."
+                           TextWrapping="Wrap" Margin="0,8"/>
+              </StackPanel>
+            </Expander>
           </StackPanel>
         </ScrollViewer>
       </DockPanel>
@@ -445,7 +474,7 @@
         <Button x:Name="PreviewButton" DockPanel.Dock="Right" Content="Preview import" AutomationProperties.AutomationId="PreviewImport" Click="PreviewImport"/>
         <Button DockPanel.Dock="Right" Content="Choose JSON…" AutomationProperties.AutomationId="ChooseImportFile" Click="ChooseImport" Margin="8,0"/>
         <TextBox x:Name="ImportPath" AutomationProperties.AutomationId="ImportPath" ToolTip="Version-1 import JSON file"
-                 TextChanged="ChangeImportPath"/>
+                 TextChanged="ChangeImportPath" KeyDown="ConfirmImportPath"/>
       </DockPanel>
       <DockPanel x:Name="ImportPreviewPanel" Grid.Row="2" Margin="0,0,0,12">
         <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
@@ -892,9 +921,39 @@
               AutomationProperties.Name="Close People overlay" Click="ClosePeople"/>
     </Grid>
     </GroupBox>
-    <StackPanel Grid.Row="3" Margin="0,16,0,0">
-      <TextBlock x:Name="PanePreferenceStatus" AutomationProperties.AutomationId="PanePreferenceStatus"
-                 TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Visibility="Collapsed"/>
+    <GroupBox x:Name="OperationalNotice" Grid.Row="1" Visibility="Collapsed" Background="#FFF4DC"
+            BorderBrush="#E6D3AB" BorderThickness="0,1" Padding="12,8" Margin="0,0,0,12"
+            AutomationProperties.AutomationId="OperationalNotice" AutomationProperties.Name="Workspace notice">
+    <GroupBox.Template>
+      <ControlTemplate TargetType="GroupBox">
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter/>
+        </Border>
+      </ControlTemplate>
+    </GroupBox.Template>
+    <StackPanel>
+      <DockPanel>
+        <Button x:Name="NoticeRecoveryButton" Content="Settings" DockPanel.Dock="Right"
+                AutomationProperties.AutomationId="NoticeRecovery" Click="OpenRecoverySettings"
+                Style="{StaticResource QuietButton}" Margin="8,0,0,0"/>
+        <Button x:Name="NoticeRetryButton" Content="Retry" DockPanel.Dock="Right" Visibility="Collapsed"
+                AutomationProperties.AutomationId="NoticeRetry" Click="RetryWorkspace" Style="{StaticResource QuietButton}"/>
+        <TextBlock x:Name="NoticeSummary" AutomationProperties.AutomationId="NoticeSummary" TextWrapping="Wrap"
+                   VerticalAlignment="Center"/>
+      </DockPanel>
+      <WrapPanel>
+        <Button x:Name="DiscardImportButton" Content="Discard failed Import (not other drafts)" Click="DiscardImportChanges"
+                AutomationProperties.AutomationId="DiscardImport" Visibility="Collapsed" IsEnabled="False" Margin="0,4,8,0"/>
+        <Button x:Name="RetryProfileButton" Content="Retry unsaved profile / quick action" Click="RetryProfileSave"
+                AutomationProperties.AutomationId="RetryProfileSave" Visibility="Collapsed" IsEnabled="False" Margin="0,4,0,0"/>
+        <Button x:Name="DiscardProfileButton" Content="Discard profile / quick draft (not notes)" Click="DiscardProfileDraft"
+                AutomationProperties.AutomationId="DiscardProfileDraft" Visibility="Collapsed" IsEnabled="False" Margin="8,4,0,0"/>
+      </WrapPanel>
+      <Expander x:Name="OperationalDetails" Header="Details" AutomationProperties.AutomationId="OperationalDetails"
+                IsExpanded="False" Margin="0,4,0,0">
+      <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel>
       <TextBlock x:Name="WorkflowActivity" AutomationProperties.AutomationId="WorkflowActivity" Text="Ready">
         <TextBlock.Style>
           <Style TargetType="TextBlock">
@@ -923,14 +982,7 @@
           </Style>
         </TextBlock.Style>
       </TextBlock>
-      <WrapPanel>
-        <Button x:Name="DiscardImportButton" Content="Discard failed Import (not other drafts)" Click="DiscardImportChanges"
-                AutomationProperties.AutomationId="DiscardImport" Visibility="Collapsed" IsEnabled="False" Margin="0,0,8,0"/>
-        <Button x:Name="RetryProfileButton" Content="Retry unsaved profile / quick action" Click="RetryProfileSave"
-                AutomationProperties.AutomationId="RetryProfileSave" IsEnabled="False"/>
-        <Button x:Name="DiscardProfileButton" Content="Discard profile / quick draft (not notes)" Click="DiscardProfileDraft"
-                AutomationProperties.AutomationId="DiscardProfileDraft" IsEnabled="False" Margin="8,0"/>
-      </WrapPanel>
+      <TextBlock x:Name="LocalWritingDetails" TextWrapping="Wrap"/>
       <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="Status" TextWrapping="Wrap" Text="Choose a Workspace.">
         <TextBlock.Style>
           <Style TargetType="TextBlock">
@@ -953,6 +1005,10 @@
           </Style>
         </TextBlock.Style>
       </TextBlock>
+      </StackPanel>
+      </ScrollViewer>
+      </Expander>
     </StackPanel>
+    </GroupBox>
   </Grid>
 </Window>

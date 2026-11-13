@@ -9,6 +9,7 @@ public sealed class UpdateRestartJournal
     private Attempt? attempt;
     public string Message => attempt?.Message ?? "";
     public string? PendingWorkspace => attempt is { Pending: true } ? attempt.Workspace : null;
+    public bool RequiresAttention => attempt is { Pending: true } or { Failed: true };
 
     public UpdateRestartJournal(string path)
     {

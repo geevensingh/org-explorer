@@ -494,8 +494,8 @@ internal static partial class Program
         var draft = Value(window, "PersonNoteMarkdown");
         EnsurePeopleBrowsing(window);
         SelectTreePerson(window, "casey@example.com", expectNavigation: false);
-        Await(() => Find(window, "Status").Current.Name.Contains("Person note") &&
-            Find(window, "Status").Current.Name.Contains("Retry or discard"));
+        Await(() => Status(window).Contains("Person note") &&
+            Status(window).Contains("Retry or discard"));
         if (!IsVisible(window, "PeopleNavigation") ||
             before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
             Find(window, "Email").Current.Name != "avery@example.com" || Value(window, "PersonNoteTitle") != "")
@@ -503,8 +503,8 @@ internal static partial class Program
         AssertSelectionMatchesProfile(window);
         CaptureVisualEvidence(window, "reading-rejected-overlay-exact-draft-retained");
         QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", expectNavigation: false);
-        Await(() => Find(window, "Status").Current.Name.Contains("Person note") &&
-            Find(window, "Status").Current.Name.Contains("Retry or discard"));
+        Await(() => Status(window).Contains("Person note") &&
+            Status(window).Contains("Retry or discard"));
         if (!IsVisible(window, "PeopleNavigation") || Value(window, "SearchQuery") != "casey@example" ||
             before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
             Find(window, "Email").Current.Name != "avery@example.com" ||
@@ -528,7 +528,7 @@ internal static partial class Program
                 $"windowPx={window.Current.BoundingRectangle}; hostPx={Find(window, "AdaptiveWorkspace").Current.BoundingRectangle}; " +
                 $"viewportPx={Find(window, "ProfileScroll").Current.BoundingRectangle}; " +
                 $"owner={Find(window, "Email").Current.Name}; title={Value(window, "PersonNoteTitle")}; " +
-                $"status={Find(window, "Status").Current.Name}; {NativeResizeBounds((IntPtr)window.Current.NativeWindowHandle)}", error);
+                $"status={Status(window)}; {NativeResizeBounds((IntPtr)window.Current.NativeWindowHandle)}", error);
         }
     }
 }
