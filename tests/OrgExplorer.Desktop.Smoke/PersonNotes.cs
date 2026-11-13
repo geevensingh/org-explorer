@@ -146,7 +146,7 @@ internal static partial class Program
             if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
                 throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
             AssertEmptyDocument(window, "Person");
-            CaptureVisualEvidence(window, "person-note-exact-other-empty-search");
+            CaptureVisualEvidence(window, "search-exact-empty-other-person-note");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");

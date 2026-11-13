@@ -19,6 +19,18 @@ public partial class TeamNotesControl : UserControl
     private readonly OwnedNotePresentation presentation;
     private NoteDraft? noteBase;
     public event Action<Guid>? OwnerRequested;
+    internal FlowDocumentScrollViewer InheritedNoteReading => InheritedReading;
+    internal FlowDocumentScrollViewer NoteReading => Reading;
+
+    internal Section RevealInheritedNote(Guid id)
+    {
+        CurrentTeamContext.IsExpanded = true;
+        var note = InheritedReading.Document.Blocks.OfType<Section>().Single(section => Equals(section.Tag, id));
+        var context = workflow!.GetInheritedTeamNotes(owner!).Single(item => item.Note.Id == id);
+        AutomationProperties.SetHelpText(InheritedReading, $"Current inherited Team note {id}; '{context.Note.Title}'; " +
+            $"owned by {context.Owner.Heading} ({context.Owner.Email}); {context.Note.ReviewStatus}");
+        return note;
+    }
 
     public TeamNotesControl()
     {
@@ -285,6 +297,7 @@ public partial class TeamNotesControl : UserControl
 
     private void RefreshContext()
     {
+        AutomationProperties.SetHelpText(InheritedReading, "");
         var inherited = workflow is null || owner is null ? [] : workflow.GetInheritedTeamNotes(owner);
         var warnings = inherited.Where(n => n.Note.NeedsReview).ToArray();
         InheritedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
@@ -300,14 +313,16 @@ public partial class TeamNotesControl : UserControl
         var document = PrivateMarkdownReading.Create("", OpenExternalLink);
         foreach (var context in inherited)
         {
-            document.Blocks.Add(new Paragraph(new Bold(new Run($"{context.Note.Title} — owned by {context.Owner.Heading} ({context.Owner.Email})"))));
-            document.Blocks.Add(new Paragraph(new Run(context.Note.ReviewStatus)));
+            var section = new Section { Tag = context.Note.Id };
+            section.Blocks.Add(new Paragraph(new Bold(new Run($"{context.Note.Title} — owned by {context.Owner.Heading} ({context.Owner.Email})"))));
+            section.Blocks.Add(new Paragraph(new Run(context.Note.ReviewStatus)));
             var rendered = PrivateMarkdownReading.Create(context.Note.Markdown, OpenExternalLink);
             while (rendered.Blocks.FirstBlock is { } block)
             {
                 rendered.Blocks.Remove(block);
-                document.Blocks.Add(block);
+                section.Blocks.Add(block);
             }
+            document.Blocks.Add(section);
             var button = new Button
             {
                 Content = new TextBlock

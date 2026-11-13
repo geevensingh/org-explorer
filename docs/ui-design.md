@@ -208,6 +208,20 @@ Search replaces Favorites/tree with a full-height result list. Clearing restores
 their in-session expansion and scroll position, including after overlay use.
 Exact current, archived and frozen search destinations remain distinct.
 
+The #77 slice adds single-line reporting names with modest guide-line indentation,
+quiet selection and starred Favorites. Full email/Directory-name identity remains
+available to accessibility and through row tooltips; virtualization and reporting
+depth are unchanged. Only root containers reserve the bookmarked measured width,
+so restoring a horizontal offset does not compound minimum widths down the tree.
+Results show name, source and a query-relevant excerpt. Query Enter focuses the
+results without opening a Person; selecting a row alone is not activation.
+Click or selected-row Enter uses the same draft/profile/navigation guards.
+Profile matches focus/highlight their actual field; exact owned notes open in
+Read, and inherited/frozen notes reveal their exact attributed section in current
+context/History. The duplicate generic search inspector is removed. Rejection
+retains the overlay, query and exact failed editor. These implementation and
+invisible replay checks do not claim hosted input/layout or owner visual acceptance.
+
 The numeric implementation choices are:
 
 | Token | DIP value / behavior |
