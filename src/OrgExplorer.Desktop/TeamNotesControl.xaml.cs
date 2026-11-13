@@ -365,7 +365,7 @@ public partial class TeamNotesControl : UserControl
     private async void DesignateOngoing(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
-        if (await RunAsync(() => workflow.DesignateOngoingNote(NoteScope.Team, id))) RefreshNotes();
+        if (await workflow.DesignateOngoingNoteAsync(NoteScope.Team, id, operation => RunAsync(operation))) RefreshNotes();
         ShowPresentation();
         changed?.Invoke();
     }

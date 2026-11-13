@@ -74,6 +74,9 @@ People and exact-note browsing remain available after failed Import or recovery
 maintenance without clearing either error or claiming safe close. Independent
 writing and publication conflicts still reject navigation; rejected startup
 restoration reports recovery without publishing a partial remembered view.
+Blocked Workspace navigation is distinct from an attempted open failure. The
+compiled Retry action must still complete current storage maintenance without
+reopening or creating the blocked destination or resetting the current view.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -416,6 +419,9 @@ transaction. Existing failed-save and publication-conflict guards still apply.
 The same real controls receive timestamp-only note delivery while clean, then
 save from the refreshed immutable base. Person and Team archive/restore actions
 also require the restored exact note to become the durable Read destination.
+Ongoing designation keeps note/navigation mutations on the dispatcher while
+its host runner performs preference I/O. Compiled controls retain query/overlay
+changes made during that write and publish the resulting navigation on the UI thread.
 These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on the folder, including closure before a queued focus request.

@@ -112,27 +112,48 @@ public sealed partial class WorkspaceViewModel
 
     public bool DesignateOngoingNote(NoteScope scope, Guid id) => Observe(() =>
     {
-        if (!TryLeaveOwnedNote(scope)) return false;
+        var owner = PrepareOngoingDesignation(scope, id);
+        return owner is not null && CompleteOngoingDesignation(scope, owner, id,
+            settings?.SetOngoingNote(Compatibility.WorkspacePath!, scope, owner, id) ?? true);
+    });
+
+    public async Task<bool> DesignateOngoingNoteAsync(NoteScope scope, Guid id,
+        Func<Func<bool>, Task<bool>> writePreference)
+    {
+        var owner = Observe(() => PrepareOngoingDesignation(scope, id));
+        if (owner is null) return false;
+        var path = Compatibility.WorkspacePath;
+        // Only preference I/O leaves the caller's presentation context.
+        var saved = await writePreference(() => settings?.SetOngoingNote(path!, scope, owner, id) ?? true);
+        return Observe(() => CompleteOngoingDesignation(scope, owner, id, saved));
+    }
+
+    private string? PrepareOngoingDesignation(NoteScope scope, Guid id)
+    {
+        if (!TryLeaveOwnedNote(scope)) return null;
         var view = NoteViewFor(scope);
         if (view.Owner is null || !OwnedNotes(scope, view.Owner).Any(n => n.Id == id && !n.Archived))
         {
             noteViews[scope] = view with { Error = "Choose an available, active owned note. The ongoing choice is unchanged." };
+            return null;
+        }
+        return view.Owner;
+    }
+
+    private bool CompleteOngoingDesignation(NoteScope scope, string owner, Guid id, bool saved)
+    {
+        var view = NoteViewFor(scope);
+        if (!saved)
+        {
+            noteViews[scope] = view with { Error = ongoingPreferenceError = settings!.PreferenceError };
             return false;
         }
-        if (settings is not null)
-        {
-            if (!settings.SetOngoingNote(Compatibility.WorkspacePath!, scope, view.Owner, id))
-            {
-                noteViews[scope] = view with { Error = ongoingPreferenceError = settings.PreferenceError };
-                return false;
-            }
-        }
-        else ongoingNotes[OngoingKey(scope, view.Owner)] = id;
+        if (settings is null) ongoingNotes[OngoingKey(scope, owner)] = id;
         ongoingPreferenceError = null;
         noteViews[scope] = view with { Selected = id, Editing = false, OtherNotes = false, Error = null, Exact = false };
         RememberCurrentView(scope);
         return true;
-    });
+    }
 
     private bool TryLeaveOwnedNote(NoteScope scope, bool changingOwner = false)
     {

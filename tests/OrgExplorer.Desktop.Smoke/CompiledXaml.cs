@@ -258,6 +258,7 @@ internal static partial class Program
             }
         }
         VerifyOwnedTeamPresentation(window, folder);
+        VerifyMaintenanceRetryAfterBlockedOpen(window, folder);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Person);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
@@ -510,6 +511,80 @@ internal static partial class Program
             reopened.GetOwnedNotesView(scope).IsEditing)
             throw new InvalidOperationException($"Restored {scope} writing did not reopen by exact identity in Read.");
         Console.WriteLine($"PASS: actual compiled restored {scope} note becomes the durable exact Read destination.");
+
+        var navigation = workflow.PeopleNavigation;
+        var offDispatcher = 0;
+        PropertyChangedEventHandler observe = (_, change) =>
+        {
+            if (change.PropertyName != nameof(WorkspaceViewModel.PeopleNavigation)) return;
+            var current = workflow.PeopleNavigation;
+            if (!ReferenceEquals(Interlocked.Exchange(ref navigation, current), current) &&
+                !window.Dispatcher.CheckAccess()) Interlocked.Increment(ref offDispatcher);
+        };
+        var query = workflow.PeopleNavigation.Query;
+        var overlay = workflow.PeopleNavigation.OverlayOpen;
+        workflow.PropertyChanged += observe;
+        try
+        {
+            Invoke("DesignateButton");
+            workflow.ChangePeopleQuery("Query during ongoing designation");
+            workflow.ShowPeopleOverlay(true);
+            PumpUntil(() => Control<TextBlock>("NoteKind").Text == $"Ongoing {scope} note");
+            if (offDispatcher != 0 ||
+                workflow.PeopleNavigation.Query != "Query during ongoing designation" ||
+                !workflow.PeopleNavigation.OverlayOpen)
+                throw new InvalidOperationException($"Ongoing {scope} designation mutated navigation off the dispatcher or lost concurrent query/overlay changes.");
+        }
+        finally
+        {
+            workflow.PropertyChanged -= observe;
+            workflow.ChangePeopleQuery(query);
+            workflow.ShowPeopleOverlay(overlay);
+        }
+        Console.WriteLine($"PASS: actual compiled {scope} designation keeps presentation mutations on the dispatcher and retains active query/overlay changes.");
+    }
+
+    private static void VerifyMaintenanceRetryAfterBlockedOpen(Window window, string folder)
+    {
+        var workflow = (WorkspaceViewModel)window.GetType()
+            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var pending = window.GetType().GetProperty("HasPendingWork", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        void Settled() => PumpUntil(() => !(bool)pending.GetValue(window)!);
+        var selected = workflow.PeopleNavigation.SelectedEmail!;
+        var destination = workflow.PeopleNavigation.LastValidView;
+        var preferredName = workflow.GetRelationships(selected)!.Person.PreferredName;
+        using (File.Open(Path.Combine(folder, "recovery", "current.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            if (!workflow.EditPreferredName(selected, "Maintenance retry fixture"))
+                throw new InvalidOperationException(workflow.Status);
+        if (workflow.CanSafelyClose || !workflow.LocalSaveError!.Contains("recovery maintenance incomplete", StringComparison.Ordinal))
+            throw new InvalidOperationException("The compiled retry fixture did not retain a committed maintenance failure.");
+        var alternate = Path.Combine(Path.GetDirectoryName(folder)!, "blocked-workspace");
+        ((TextBox)window.FindName("WorkspacePath")).Text = alternate;
+        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (workflow.Compatibility.WorkspacePath != folder ||
+            workflow.PeopleNavigation.SelectedEmail != selected ||
+            workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate))
+            throw new InvalidOperationException("Blocked Workspace navigation changed the current presentation or created the destination.");
+        var retry = LogicalDescendants((DependencyObject)window.FindName("SettingsPanel")).OfType<Button>()
+            .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "RetryWorkspace");
+        retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (!workflow.CanSafelyClose || workflow.LocalSaveError is not null ||
+            workflow.Compatibility.WorkspacePath != folder || Directory.Exists(alternate))
+            throw new InvalidOperationException("Retry after blocked Workspace navigation did not complete current storage maintenance: " + workflow.Status);
+        if (!workflow.EditPreferredName(selected, preferredName))
+            throw new InvalidOperationException(workflow.Status);
+        Console.WriteLine("PASS: actual compiled blocked Workspace navigation retains presentation and Retry completes current maintenance without retrying the unopened destination.");
+    }
+
+    private static IEnumerable<DependencyObject> LogicalDescendants(DependencyObject parent)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+        {
+            yield return child;
+            foreach (var descendant in LogicalDescendants(child)) yield return descendant;
+        }
     }
 
     private static void VerifyPersonNoteUpdateFlush(Window window, string folder)

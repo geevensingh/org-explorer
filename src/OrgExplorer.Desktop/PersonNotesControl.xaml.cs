@@ -298,7 +298,7 @@ public partial class PersonNotesControl : UserControl
     private async void DesignateOngoing(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
-        if (await RunAsync(() => workflow.DesignateOngoingNote(NoteScope.Person, id)))
+        if (await workflow.DesignateOngoingNoteAsync(NoteScope.Person, id, operation => RunAsync(operation)))
             RefreshNotes();
         ShowPresentation();
         changed?.Invoke();

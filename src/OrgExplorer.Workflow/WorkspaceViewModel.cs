@@ -20,6 +20,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool CanNavigatePeople => workflow.CanNavigatePeople;
     public bool CanEnterImport => workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
+    public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
     public string? LocalSaveError => workflow.LocalSaveError;
     public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
@@ -68,8 +69,10 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool OpenWorkspace(string path, WorkspaceOpenMode mode) =>
         Observe(() =>
         {
+            LastWorkspaceOpenWasRejected = false;
             if (!workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
             {
+                LastWorkspaceOpenWasRejected = true;
                 navigationError = "Workspace navigation blocked: local writing is pending or was NOT saved. " +
                     "Save, retry or discard the independent draft before reopening a Workspace. " +
                     (workflow.LocalSaveError ?? workflow.Status);
@@ -125,6 +128,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanNavigatePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));

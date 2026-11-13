@@ -64,6 +64,30 @@ try {
         }
     }
     $runner = Get-Content "$root\eng\Run-UiScale.ps1" -Raw
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile("$root\eng\Run-UiScale.ps1", [ref]$tokens, [ref]$parseErrors)
+    $selection = $ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$displayCommand'
+    }, $true)
+    if (!$selection -or $parseErrors.Count) { throw 'UI-scale display selection could not be inspected.' }
+    $selectDisplay = [scriptblock]::Create($selection.Extent.Text + '; $displayCommand')
+    $previousDisplayEnvironment = @($env:GITHUB_ACTIONS, $env:RUNNER_ENVIRONMENT, $env:RUNNER_OS)
+    try {
+        foreach ($case in @(
+            @('true', 'github-hosted', 'Windows', '--prepare-high-resolution'),
+            @('true', 'self-hosted', 'Windows', '--verify-high-resolution'),
+            @('true', 'github-hosted', 'Linux', '--verify-high-resolution'),
+            @('', '', '', '--verify-high-resolution')
+        )) {
+            $env:GITHUB_ACTIONS, $env:RUNNER_ENVIRONMENT, $env:RUNNER_OS = $case[0..2]
+            if ((& $selectDisplay) -cne $case[3]) {
+                throw "UI-scale display selection must prepare only disposable hosted Windows; actual environment: $($case[0..2] -join ', ')."
+            }
+        }
+    } finally { $env:GITHUB_ACTIONS, $env:RUNNER_ENVIRONMENT, $env:RUNNER_OS = $previousDisplayEnvironment }
+    Write-Host 'PASS: actual UI-scale selection prepares only GitHub-hosted Windows and verifies other authorized desktops read-only.'
     foreach ($required in @('Assert-DesktopResults', 'UiScaleScenarios.json', "'--ui-scale'", 'Invoke-ScaleSuite')) {
         if (!$runner.Contains($required)) { throw "UI-scale entry point is missing $required" }
     }
