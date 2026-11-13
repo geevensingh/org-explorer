@@ -88,6 +88,7 @@ jobs:
           path: |
             .ci-results/desktop/*.json
             .ci-results/desktop/*.log
+            .ci-results/desktop/*.png
 
   high-resolution:
     name: High-resolution Windows smoke
@@ -110,6 +111,7 @@ jobs:
           path: |
             .ci-results/high-resolution/*.json
             .ci-results/high-resolution/*.log
+            .ci-results/high-resolution/*.png
 
   ci:
     name: CI
