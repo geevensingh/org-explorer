@@ -217,7 +217,8 @@ public partial class TeamNotesControl : UserControl
         var ongoing = workflow.TeamNotesView.OngoingNoteId == id;
         if (await RunAsync(() => workflow.ArchiveTeamNote(id, !note.Archived)))
         {
-            if (ongoing && !note.Archived) workflow.OpenOngoingNote(NoteScope.Team);
+            if (note.Archived) workflow.OpenOwnedNote(NoteScope.Team, id);
+            else if (ongoing) workflow.OpenOngoingNote(NoteScope.Team);
             RefreshNotes();
         }
         RefreshContext();
@@ -262,6 +263,8 @@ public partial class TeamNotesControl : UserControl
             if (!notes.SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
                 selected != workflow.TeamNotesView.SelectedNote?.Id ||
                 workflow.TeamNotesView.IsEditing != (Views.SelectedItem == EditTab)) RefreshNotes();
+            else if (workflow.IsWorkspaceCurrent && selected is { } id)
+                noteBase = workflow.BeginNoteDraft(NoteScope.Team, owner, id);
         }
         RefreshContext();
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;

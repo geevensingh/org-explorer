@@ -34,7 +34,8 @@ public sealed partial class WorkspaceViewModel
         ((Compatibility.WorkspacePath ?? "").ToUpperInvariant(), scope, owner.ToUpperInvariant());
 
     private Guid? OngoingId(NoteScope scope, string? owner, IReadOnlyList<OwnedNote> notes) =>
-        owner is not null && settings?.GetOngoingNote(Compatibility.WorkspacePath!, scope, owner) is { } saved ? saved :
+        owner is not null && Compatibility.WorkspacePath is { } path &&
+            settings?.GetOngoingNote(path, scope, owner) is { } saved ? saved :
         ongoingPreferenceError is not null || settings is { HasValidPreferenceSnapshot: false } ? null :
         owner is not null && ongoingNotes.TryGetValue(OngoingKey(scope, owner), out var id) ? id :
         notes.Count(n => !n.Archived) == 1 ? notes.Single(n => !n.Archived).Id : null;
@@ -136,7 +137,7 @@ public sealed partial class WorkspaceViewModel
     private bool TryLeaveOwnedNote(NoteScope scope, bool changingOwner = false)
     {
         var id = GetOwnedNotesView(scope).SelectedNote?.Id ?? NoteViewFor(scope).Selected;
-        if (changingOwner ? workflow.CanSafelyClose : id is null || !workflow.HasUnsavedNoteDraft(scope, id.Value))
+        if (changingOwner ? workflow.CanNavigatePeople : id is null || !workflow.HasUnsavedNoteDraft(scope, id.Value))
             return true;
         const string message = "Navigation blocked: local writing is pending or was NOT saved. Retry or discard the draft before leaving or changing the ongoing note.";
         noteViews[scope] = NoteViewFor(scope) with { Error = message };

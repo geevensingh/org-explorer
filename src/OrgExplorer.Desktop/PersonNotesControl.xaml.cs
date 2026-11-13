@@ -199,7 +199,8 @@ public partial class PersonNotesControl : UserControl
         var ongoing = workflow.PersonNotesView.OngoingNoteId == id;
         if (await RunAsync(() => workflow.ArchivePersonNote(id, !note.Archived)))
         {
-            if (ongoing && !note.Archived) workflow.OpenOngoingNote(NoteScope.Person);
+            if (note.Archived) workflow.OpenOwnedNote(NoteScope.Person, id);
+            else if (ongoing) workflow.OpenOngoingNote(NoteScope.Person);
             RefreshNotes();
         }
         ShowStatus();
@@ -243,6 +244,8 @@ public partial class PersonNotesControl : UserControl
             if (!notes.SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
                 selected != workflow.PersonNotesView.SelectedNote?.Id ||
                 workflow.PersonNotesView.IsEditing != (Views.SelectedItem == EditTab)) RefreshNotes();
+            else if (workflow.IsWorkspaceCurrent && selected is { } id)
+                noteBase = workflow.BeginNoteDraft(NoteScope.Person, owner, id);
         }
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
         if (!draft.HasUnsavedChanges)

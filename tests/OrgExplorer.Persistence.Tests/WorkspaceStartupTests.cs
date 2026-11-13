@@ -14,6 +14,166 @@ public sealed class WorkspaceStartupTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public void Review_failed_open_keeps_note_views_readable_without_a_Workspace_path(NoteScope scope)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+        var note = scope == NoteScope.Person
+            ? app.CreatePersonNote("avery@example.com", "Remembered", "")!.Id
+            : app.CreateTeamNote("avery@example.com", "Remembered", "")!.Id;
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.DesignateOngoingNote(scope, note));
+        Assert.False(app.OpenWorkspace(Path.Combine(root, "missing"), WorkspaceOpenMode.ExistingOnly));
+        Assert.Null(app.Compatibility.WorkspacePath);
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.Null(Record.Exception(() => app.GetOwnedNotesView(scope)));
+        Assert.Equal(note, new WorkspaceSettings(Preferences).GetOngoingNote(workspace, scope, "avery@example.com"));
+    }
+
+    [Fact]
+    public void Review_failed_Import_retains_its_error_without_blocking_People_or_exact_search_browsing()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(workspace), app.Status);
+        var note = app.CreatePersonNote("avery@example.com", "Review reading", "Retained note writing")!;
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        var preview = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-12T17:00:00Z","people":[{"email":"avery@example.com","jobTitle":"Rejected"}]}
+            """);
+        Assert.True(preview.CanApply, app.Status);
+        using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.False(app.ApplyImport(preview.Id));
+        var error = app.LocalSaveError;
+        Assert.True(app.HasFailedImport);
+        Assert.True(app.NavigatePerson("casey@example.com"), app.Status);
+        app.ChangePeopleQuery("Review reading");
+        var match = Assert.Single(app.Search("Review reading"), r => r.Source == SearchSource.PersonNote);
+        Assert.True(app.NavigateSearchResult(match), app.Status);
+        Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.HasFailedImport);
+        Assert.Equal(error, app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        Assert.False(app.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly));
+    }
+
+    [Fact]
+    public void Review_incomplete_recovery_allows_browsing_and_exact_restore_without_claiming_safe_close()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        Guid note;
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
+        {
+            Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+            note = app.CreatePersonNote("avery@example.com", "Review reading", "Retained note writing")!.Id;
+            Assert.True(app.NavigatePerson("avery@example.com"));
+            Assert.True(app.OpenOwnedNote(NoteScope.Person, note));
+            using (File.Open(Path.Combine(workspace, "recovery", "current.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+                Assert.True(app.EditPreferredName("avery@example.com", "Review Ave"), app.Status);
+            Assert.Contains("recovery maintenance incomplete", app.LocalSaveError);
+            var error = app.LocalSaveError;
+            Assert.True(app.NavigatePerson("casey@example.com"), app.Status);
+            Assert.True(app.NavigatePerson("avery@example.com"), app.Status);
+            Assert.True(app.OpenOwnedNote(NoteScope.Person, note), app.Status);
+            Assert.Equal(error, app.LocalSaveError);
+            Assert.False(app.CanSafelyClose);
+        }
+        var reopenedSettings = new WorkspaceSettings(Preferences);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
+        Assert.True(reopenedSettings.RestoreWorkspace(reopened), reopened.Status);
+        Assert.Equal("avery@example.com", reopened.PeopleNavigation.SelectedEmail);
+        Assert.Equal(note, reopened.PersonNotesView.SelectedNote!.Id);
+        Assert.Null(reopened.ViewRecoveryFeedback);
+        Assert.False(reopened.CanSafelyClose);
+    }
+
+    [Fact]
+    public void Review_rejected_restore_reports_recovery_without_publishing_a_partial_remembered_destination()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        var publisher = new ReviewPublisher();
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher), settings))
+        {
+            Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+            var note = app.CreatePersonNote("avery@example.com", "Review reading", "Retained note writing")!;
+            Assert.True(app.NavigatePerson("avery@example.com"));
+            Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id));
+            var person = WorkspaceFixtures.IndexedDocuments(workspace)["people:avery@example.com"];
+            publisher.BeforePublish = destination =>
+            {
+                if (destination != Path.Combine(workspace, "workspace.json")) return;
+                publisher.BeforePublish = null;
+                var delivered = JsonNode.Parse(File.ReadAllText(person))!;
+                delivered["preferredName"] = "Provider Avery";
+                File.WriteAllText(person, delivered.ToJsonString());
+            };
+            Assert.True(app.EditPreferredName("avery@example.com", "Local Avery"), app.Status);
+            Assert.NotEmpty(app.GetWorkspaceConflicts());
+        }
+        var remembered = new WorkspaceSettings(Preferences).GetLastView(workspace);
+        var reopenedSettings = new WorkspaceSettings(Preferences);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
+        Assert.True(reopenedSettings.RestoreWorkspace(reopened), reopened.Status);
+        Assert.NotEmpty(reopened.GetWorkspaceConflicts());
+        Assert.Null(reopened.PeopleNavigation.SelectedEmail);
+        Assert.Null(reopened.PeopleNavigation.LastValidView);
+        Assert.Contains("blocked", reopened.ViewRecoveryFeedback);
+        Assert.Equal(remembered, reopenedSettings.GetLastView(workspace));
+        Assert.False(reopened.CanSafelyClose);
+    }
+
+    [Theory]
+    [InlineData("note")]
+    [InlineData("profile")]
+    [InlineData("quick")]
+    public void Review_People_browsing_still_rejects_independent_person_writing(string kind)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(workspace));
+        var note = app.CreatePersonNote("avery@example.com", "Review reading", "")!;
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        if (kind == "note")
+            app.RetainNoteDraft(app.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id)!);
+        else if (kind == "profile")
+        {
+            Assert.True(app.BeginProfileEdit("avery@example.com"));
+            Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained profile writing"));
+        }
+        else
+        {
+            using var held = File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            Assert.False(app.EditFavorite("avery@example.com", false));
+        }
+        Assert.False(app.NavigatePerson("casey@example.com"));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.False(app.CanSafelyClose);
+    }
+
+    private sealed class ReviewPublisher : IWorkspaceFilePublisher
+    {
+        public Action<string>? BeforePublish { get; set; }
+        public void Publish(string staged, string destination, string? backup,
+            WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
+        {
+            BeforePublish?.Invoke(destination);
+            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public void Validated_reopen_restores_the_exact_secondary_note_by_identity_in_Read_mode(NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");

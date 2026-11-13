@@ -36,6 +36,7 @@ public partial interface IApplicationWorkflow : IDisposable
     event EventHandler? WorkspaceChanged;
     bool IsWorkspaceCurrent { get; }
     bool CanSafelyClose { get; }
+    bool CanNavigatePeople { get; }
     bool CanEnterImport { get; }
     bool HasFailedImport { get; }
     string? LocalSaveError { get; }
@@ -136,6 +137,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         {
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
             Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
+            Volatile.Write(ref navigationBlockedSnapshot,
+                failedSaves.Keys.Any(operation => operation is not ("import" or "storage-maintenance")));
             Volatile.Write(ref saveErrorSnapshot, error);
             if (storageReclamationDeferred && !value.Contains("Storage reclamation deferred", StringComparison.Ordinal))
                 value += "\nStorage reclamation deferred for preserved unretired transactions.";

@@ -70,6 +70,10 @@ The explicit Import-only discard clears the rejected batch and review without
 clearing independent Person/Team-note errors, Preferred-name errors or profile
 drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
 safe-close/restart becoming available only when no other writing remains.
+People and exact-note browsing remain available after failed Import or recovery
+maintenance without clearing either error or claiming safe close. Independent
+writing and publication conflicts still reject navigation; rejected startup
+restoration reports recovery without publishing a partial remembered view.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -409,6 +413,9 @@ retry, then deliberate preference recovery and archived-choice feedback.
 Save completion requires Ready and the note-specific success message, allowing
 the explicit informational storage-reclamation deferral suffix after a failed
 transaction. Existing failed-save and publication-conflict guards still apply.
+The same real controls receive timestamp-only note delivery while clean, then
+save from the refreshed immutable base. Person and Team archive/restore actions
+also require the restored exact note to become the durable Read destination.
 These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on the folder, including closure before a queued focus request.

@@ -60,7 +60,12 @@ public sealed partial class WorkspaceViewModel
         changingDestination = true;
         try
         {
-            NavigatePeopleCore(person.Email, destination);
+            if (!NavigatePeopleCore(person.Email, destination))
+            {
+                ViewRecoveryFeedback = "The remembered view could not be restored. " +
+                    (navigationError ?? workflow.Status) + " Your preference and writing are retained; no replacement was opened.";
+                return;
+            }
             PeopleNavigation = PeopleNavigation with
             {
                 SelectedResult = destination?.Source is SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote
@@ -204,7 +209,7 @@ public sealed partial class WorkspaceViewModel
             return false;
         }
         if ((result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
-            !workflow.CanSafelyClose)
+            !workflow.CanNavigatePeople)
         {
             navigationError = "Navigation blocked: local writing is pending or was NOT saved. Save, retry or discard the draft before leaving. " +
                 (workflow.LocalSaveError ?? workflow.Status);

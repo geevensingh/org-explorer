@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
@@ -257,6 +258,8 @@ internal static partial class Program
             }
         }
         VerifyOwnedTeamPresentation(window, folder);
+        VerifyOwnedNoteRevisions(window, folder, NoteScope.Person);
+        VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
     }
@@ -450,11 +453,72 @@ internal static partial class Program
         Console.WriteLine("PASS: actual compiled owned Team interactions retain ambiguous choice, exact empty notes, preference failures and protected drafts without showing a window.");
     }
 
+    private static void VerifyOwnedNoteRevisions(Window window, string folder, NoteScope scope)
+    {
+        var workflow = (WorkspaceViewModel)window.GetType()
+            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var notes = (FrameworkElement)window.FindName(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
+        T Control<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
+        void Open(Guid id) => notes.GetType().GetMethod("OpenNote")!.Invoke(notes, [id]);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        bool Archived(Guid id) => workflow.GetOwnedNotesView(scope).Notes.Single(n => n.Id == id).Archived;
+        void Ready() => PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready");
+        var owner = workflow.PeopleNavigation.SelectedEmail!;
+        var prior = workflow.GetOwnedNotesView(scope).Notes.First(n => !n.Archived).Id;
+        var id = scope == NoteScope.Person
+            ? workflow.CreatePersonNote(owner, "Review secondary Person", "")!.Id
+            : workflow.CreateTeamNote(owner, "Review secondary Team", "")!.Id;
+        Open(id);
+        var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", id.ToString("D") + ".md");
+        var text = File.ReadAllText(file);
+        var headerStart = text.IndexOf('\n') + 1;
+        var headerEnd = text.IndexOf("\n---", headerStart, StringComparison.Ordinal);
+        var header = JsonNode.Parse(text[headerStart..headerEnd])!;
+        header["updatedAt"] = DateTimeOffset.Parse(header["updatedAt"]!.GetValue<string>()).AddMinutes(1).ToString("O");
+        File.WriteAllText(file, text[..headerStart] + header.ToJsonString() + text[headerEnd..]);
+        if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+        notes.GetType().GetMethod("RefreshExternalWorkspace")!.Invoke(notes, null);
+        if (Control<TextBox>("MarkdownEditor").Text != "")
+            throw new InvalidOperationException("Timestamp-only delivery changed the displayed note writing.");
+        Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
+        Control<TextBox>("MarkdownEditor").Text = "Writing after timestamp-only delivery";
+        var flush = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+        PumpUntil(() => flush.IsCompleted);
+        if (!flush.GetAwaiter().GetResult() ||
+            !File.ReadAllText(file).Contains("Writing after timestamp-only delivery", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Clean {scope} editor retained a stale timestamp base: " +
+                Control<TextBlock>("NoteStatus").Text);
+        Ready();
+        Console.WriteLine($"PASS: actual compiled clean {scope} editor accepts timestamp-only delivery before its next save.");
+
+        Invoke("ArchiveButton");
+        PumpUntil(() => Archived(id));
+        Ready();
+        Open(prior);
+        Open(id);
+        var preferencePath = Path.Combine(Path.GetDirectoryName(folder)!, "workspace-settings.json");
+        if (new WorkspaceSettings(preferencePath).GetLastView(folder)?.NoteId != prior)
+            throw new InvalidOperationException("Opening archived writing unexpectedly replaced the prior valid view.");
+        Invoke("ArchiveButton");
+        PumpUntil(() => !Archived(id));
+        Ready();
+        if (new WorkspaceSettings(preferencePath).GetLastView(folder)?.NoteId != id)
+            throw new InvalidOperationException($"Restored active {scope} note was not remembered as the exact destination.");
+        var settings = new WorkspaceSettings(preferencePath);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        if (!settings.RestoreWorkspace(reopened) || reopened.GetOwnedNotesView(scope).SelectedNote?.Id != id ||
+            reopened.GetOwnedNotesView(scope).IsEditing)
+            throw new InvalidOperationException($"Restored {scope} writing did not reopen by exact identity in Read.");
+        Console.WriteLine($"PASS: actual compiled restored {scope} note becomes the durable exact Read destination.");
+    }
+
     private static void VerifyPersonNoteUpdateFlush(Window window, string folder)
     {
         var notes = (FrameworkElement)window.FindName("PersonNotes");
         T NoteControl<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
-        var file = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
+        var selected = NoteControl<ListBox>("NotesList").SelectedItem as OwnedNote ??
+            throw new InvalidOperationException("The update-flush fixture has no exact selected Person note.");
+        var file = Path.Combine(folder, "notes", selected.Id.ToString("D") + ".md");
         Task<bool> Flush() => (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
         void WaitForSave() => PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text.StartsWith(
             "Person note saved locally.", StringComparison.Ordinal) &&

@@ -17,6 +17,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
     public bool CanSafelyClose => workflow.CanSafelyClose;
+    public bool CanNavigatePeople => workflow.CanNavigatePeople;
     public bool CanEnterImport => workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
@@ -121,6 +122,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsWorkspaceCurrent)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Compatibility)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanNavigatePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
