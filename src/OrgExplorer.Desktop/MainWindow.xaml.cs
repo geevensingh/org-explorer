@@ -517,5 +517,9 @@ public partial class MainWindow : Window
         return false;
     }
 
-    internal void ShowNavigationBlocked(string message) => StatusText.Text = message;
+    internal void ShowNavigationBlocked(string message, bool retainedFailure = false)
+    {
+        retainedWritingNavigationFeedback = retainedFailure ? message : null;
+        StatusText.Text = message;
+    }
 }

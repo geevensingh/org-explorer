@@ -420,6 +420,13 @@ before/failure pixels, viewport percentages, bounds and focus without corrective
 actions or a longer deadline.
 The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
 with the exact failed Person-note editor retained and actionable feedback.
+An isolated compiled retained-draft probe records post-resize, settled,
+overlay-open and rejected-selection viewport/notice geometry. A failed note's
+already reported guard does not add another global notice line and move the
+underlay; new pending work, retries and independent errors remain distinct.
+The full guard stays available in the local editor, accessible operation status
+and Details. Hosted failures retain exact geometry/owner/title/document checks
+and add before/after metrics plus a failure frame, without layout repair.
 Selection helpers deliberately open compact browsing when needed; they do not
 treat a hidden tree or a closed panel as successful navigation. Existing exact
 current/archived/frozen destinations and independent draft assertions remain.
@@ -567,6 +574,10 @@ revoke it or permit premature close, and newer input waits for another explicit
 Save. The Popup is never opened while the window is invisible. Its actual
 discovery, focus and physical Enter/Escape/outside-click behavior remain hosted
 proof, not an inference from these controls.
+The existing native profile journey also focuses the failure Details header,
+expands it with one Space key and captures the technical reason inside the same
+open entry, requiring retained input, unsafe state and unchanged Workspace bytes.
+No second disclosure action or new scenario is used.
 These checks use the existing observable People DataContext, actual control
 activation/enablement and public workflow refresh notifications, never private
 window methods or work-completion fields. The generic update-drain refusal is
@@ -606,6 +617,12 @@ attribution with details still collapsed, and exact empty-document Edit
 invitations for both scopes. The window stays invisible without a native handle;
 these measurements do not supply rendered, keyboard, hosted or visual-acceptance
 evidence.
+Native note-reading timeout diagnostics retain the original one
+`ScrollIntoView` action and cached-range visibility requirement. Read-only
+observations before/after that action and at timeout record reader/window
+offscreen state, cached versus fresh target rectangles and outer viewport
+geometry/scroll percentages. Timeout keeps failing and captures a unique frame;
+the helper never retries scrolling or switches to a fresh range to pass.
 Selected note tabs accent only their header, not the reading content. The
 compiled check observes actual saved Markdown headings and Person/Team document
 paragraphs inheriting the Window's body ink while the real selected header

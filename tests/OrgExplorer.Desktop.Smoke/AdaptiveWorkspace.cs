@@ -499,16 +499,32 @@ internal static partial class Program
     {
         ResizeWindow(window, 700, 900);
         var before = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        string Metrics(string phase) => $"{phase}: viewport={Find(window, "ProfileScroll").Current.BoundingRectangle}; " +
+            $"owner={Find(window, "Email").Current.Name}; title='{Value(window, "PersonNoteTitle")}'; " +
+            $"editor={Find(window, "PersonNoteMarkdown").Current.BoundingRectangle}; panel={IsVisible(window, "PeopleNavigation")}; " +
+            $"note={Find(window, "PersonNoteHeading").Current.HelpText}; markdown='{Value(window, "PersonNoteMarkdown")}'; " +
+            $"editing={((SelectionItemPattern)Find(window, "PersonNoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected}; " +
+            $"notice={Find(window, "OperationalNotice").Current.BoundingRectangle}; " +
+            $"summary={Find(window, "NoticeSummary").Current.Name}";
+        var initialMetrics = Metrics("immediately-after-resize");
         var note = Find(window, "PersonNoteHeading").Current.HelpText;
         var draft = Value(window, "PersonNoteMarkdown");
         EnsurePeopleBrowsing(window);
+        var openedMetrics = Metrics("overlay-open");
         SelectTreePerson(window, "casey@example.com", expectNavigation: false);
         Await(() => Status(window).Contains("Person note") &&
             Status(window).Contains("Retry or discard"));
         if (!IsVisible(window, "PeopleNavigation") ||
             before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
-            Find(window, "Email").Current.Name != "avery@example.com" || Value(window, "PersonNoteTitle") != "")
-            throw new InvalidOperationException("Rejected overlay navigation lost the original owner, exact failed editor, geometry or navigation panel.");
+            Find(window, "Email").Current.Name != "avery@example.com" || Value(window, "PersonNoteTitle") != "" ||
+            Find(window, "PersonNoteHeading").Current.HelpText != note || Value(window, "PersonNoteMarkdown") != draft)
+        {
+            var rejectedMetrics = Metrics("rejected-selection");
+            CaptureFailureEvidence(window, "reading-rejected-overlay-failure");
+            throw new InvalidOperationException("Rejected overlay navigation lost the original owner, exact failed editor, geometry or navigation panel. " +
+                $"{initialMetrics}; {openedMetrics}; {rejectedMetrics}");
+        }
+        Console.WriteLine($"OVERLAY-OBSERVATION {initialMetrics}; {openedMetrics}; {Metrics("rejected-selection")}");
         AssertSelectionMatchesProfile(window);
         CaptureVisualEvidence(window, "reading-rejected-overlay-exact-draft-retained");
         QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", expectNavigation: false);
@@ -519,7 +535,12 @@ internal static partial class Program
             Find(window, "Email").Current.Name != "avery@example.com" ||
             Find(window, "PersonNoteHeading").Current.HelpText != note || Value(window, "PersonNoteTitle") != "" ||
             Value(window, "PersonNoteMarkdown") != draft)
-            throw new InvalidOperationException("Rejected search activation lost overlay/query, exact failed editor, owner or unchanged viewport.");
+        {
+            var rejectedMetrics = Metrics("rejected-search");
+            CaptureFailureEvidence(window, "search-rejected-overlay-failure");
+            throw new InvalidOperationException("Rejected search activation lost overlay/query, exact failed editor, owner or unchanged viewport. " +
+                $"{initialMetrics}; {openedMetrics}; {rejectedMetrics}");
+        }
         AssertNoteView(window, "Person", editing: true);
         CaptureVisualEvidence(window, "search-rejected-overlay-exact-draft-retained");
         Click(window, "ClearSearch");

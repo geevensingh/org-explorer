@@ -319,8 +319,47 @@ internal static partial class Program
         var reading = Find(window, readingId);
         var range = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange
             .FindText(expected, false, false) ?? throw new InvalidOperationException("Missing actual note prose: " + expected);
+        string Observe(string label, Func<string> read)
+        {
+            try { return label + "=" + read(); }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
+                System.Runtime.InteropServices.COMException)
+            {
+                return label + "=<diagnostic read failed: " + error.Message + ">";
+            }
+        }
+        string Rectangles(System.Windows.Rect[] values) => string.Join(";", values.Select(value =>
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        string Metrics(string phase) => $"{phase}: reading={readingId}; target='{expected}'; " +
+            Observe("window", () => $"{window.Current.BoundingRectangle}; offscreen={window.Current.IsOffscreen}") + "; " +
+            Observe("reading", () => $"{reading.Current.BoundingRectangle}; offscreen={reading.Current.IsOffscreen}; " +
+                $"attribution={reading.Current.HelpText}") + "; " +
+            Observe("cachedRects", () => Rectangles(range.GetBoundingRectangles())) + "; " +
+            Observe("freshRects", () =>
+            {
+                var fresh = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange.FindText(expected, false, false);
+                return fresh is null ? "<target missing>" : Rectangles(fresh.GetBoundingRectangles());
+            }) + "; " +
+            Observe("outerScroll", () =>
+            {
+                var viewport = Find(window, "ProfileScroll");
+                var scroll = ((ScrollPattern)viewport.GetCurrentPattern(ScrollPattern.Pattern)).Current;
+                return $"{viewport.Current.BoundingRectangle}; offscreen={viewport.Current.IsOffscreen}; " +
+                    $"vertical={scroll.VerticallyScrollable}/{scroll.VerticalScrollPercent}/{scroll.VerticalViewSize}; " +
+                    $"horizontal={scroll.HorizontallyScrollable}/{scroll.HorizontalScrollPercent}/{scroll.HorizontalViewSize}";
+            });
+        var before = Metrics("before-single-scroll");
         range.ScrollIntoView(true);
-        Await(() => !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0);
+        var after = Metrics("after-single-scroll");
+        Console.WriteLine($"READING-OBSERVATION {state}: {before}; {after}");
+        try { Await(() => !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0); }
+        catch (TimeoutException error)
+        {
+            var failure = Metrics("timeout");
+            Console.Error.WriteLine($"READING-OBSERVATION {state}: {failure}");
+            CaptureFailureEvidence(window, state + "-failure");
+            throw new TimeoutException($"Single-scroll reading visibility was not established. {before}; {after}; {failure}", error);
+        }
         if (reading.Current.BoundingRectangle.Width / DpiScale(window) > 601 ||
             reading.TryGetCurrentPattern(ScrollPattern.Pattern, out var inner) && ((ScrollPattern)inner).Current.VerticallyScrollable ||
             ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
