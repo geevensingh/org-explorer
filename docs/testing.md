@@ -25,6 +25,11 @@ not proxies for restored content: a horizontal scrollbar disappearing increases
 the vertical viewport and changes the percentage even at an unchanged offset.
 The owner approved this assertion correction after the hosted #71 captures.
 The original 20-second observation budget and full fixture/size matrix remain.
+Fixture preparation still makes one end-measurement request and one interior
+scroll request, without replaying either. If virtualization remeasures the extent
+after that request, a genuinely interior position establishes the recorded row
+baseline; an unchanged endpoint still fails. The later exact-row restoration
+check, not the requested percentage, proves that browsing was preserved.
 
 ## Placement
 
