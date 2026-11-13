@@ -66,11 +66,15 @@ public partial class MainWindow
     private void ShowOperationalNotice()
     {
         var messages = new List<string>();
-        if (workPending || HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose)
+        var error = workflow.LocalSaveError;
+        var retainedErrors = error?.Split('\n', StringSplitOptions.RemoveEmptyEntries) ?? [];
+        var feedback = StatusText.Text != workflow.Status ? StatusText.Text : workflow.OperationError;
+        if (workPending || error is null && string.IsNullOrEmpty(feedback) &&
+            (HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose))
             messages.Add(WorkflowActivity.Text);
         if (!workflow.IsWorkspaceCurrent && workflow.Compatibility.State != Workflow.WorkspaceCompatibilityState.NotOpened)
             messages.Add("Workspace unavailable. Showing last validated information, if any.");
-        if (workflow.LocalSaveError is { } error)
+        if (error is not null)
         {
             var publication = workflow.PublicationOutcome switch
             {
@@ -81,14 +85,15 @@ public partial class MainWindow
                 _ => null
             };
             if (publication is not null) messages.Add(publication);
-            foreach (var line in error.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var line in retainedErrors)
             {
                 var separator = line.IndexOf(": ", StringComparison.Ordinal);
                 messages.Add(separator < 0 ? line : line[..separator] + ".");
             }
         }
-        var feedback = StatusText.Text != workflow.Status ? StatusText.Text : workflow.OperationError;
-        if (!string.IsNullOrEmpty(feedback)) messages.Add(feedback.Split('\n')[0]);
+        var feedbackLine = feedback?.Split('\n')[0];
+        if (!string.IsNullOrEmpty(feedbackLine) && !retainedErrors.Contains(feedbackLine, StringComparer.Ordinal))
+            messages.Add(feedbackLine);
         NoticeSummary.Text = string.Join("\n", messages.Distinct());
         LocalWritingDetails.Text = workflow.LocalSaveError ?? "";
         OperationalNotice.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;

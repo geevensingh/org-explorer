@@ -503,6 +503,13 @@ reading quiet. Both note sections collapse routine operation feedback while
 exposing that same feedback through their surface's accessible ItemStatus.
 Pending/failed drafts remain visible; independent save and preference errors,
 stale data, publication outcomes and committed maintenance remain actionable.
+An idle failed operation is summarized once, without an additional generic
+pending row or a second copy of its technical rejection. Real in-flight work
+and distinct failures still appear. Preferred-name failure keeps a short local
+retained-entry message, full diagnostic HelpText and a keyboard-accessible
+Details disclosure inside the same popup; reading Details does not require
+an outside click. The compiled check activates that real disclosure and retains
+the failed input, original saved bytes and unsafe-close state.
 Hosted note waits read the real accessible feedback rather than requiring a
 permanent success TextBlock. Discard checks the restored saved reading and bytes.
 
@@ -585,6 +592,11 @@ attribution with details still collapsed, and exact empty-document Edit
 invitations for both scopes. The window stays invisible without a native handle;
 these measurements do not supply rendered, keyboard, hosted or visual-acceptance
 evidence.
+Selected note tabs accent only their header, not the reading content. The
+compiled check observes actual saved Markdown headings and Person/Team document
+paragraphs inheriting the Window's body ink while the real selected header
+retains AccentBrush. Markdown parsing, code formatting and deliberate external
+link handling remain unchanged; native pixels still require hosted capture.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on Open Workspace, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged
