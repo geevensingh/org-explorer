@@ -490,6 +490,8 @@ internal static partial class Program
     {
         ResizeWindow(window, 700, 900);
         var before = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var note = Find(window, "PersonNoteHeading").Current.HelpText;
+        var draft = Value(window, "PersonNoteMarkdown");
         EnsurePeopleBrowsing(window);
         SelectTreePerson(window, "casey@example.com", expectNavigation: false);
         Await(() => Find(window, "Status").Current.Name.Contains("Person note") &&
@@ -500,7 +502,21 @@ internal static partial class Program
             throw new InvalidOperationException("Rejected overlay navigation lost the original owner, exact failed editor, geometry or navigation panel.");
         AssertSelectionMatchesProfile(window);
         CaptureVisualEvidence(window, "reading-rejected-overlay-exact-draft-retained");
+        QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", expectNavigation: false);
+        Await(() => Find(window, "Status").Current.Name.Contains("Person note") &&
+            Find(window, "Status").Current.Name.Contains("Retry or discard"));
+        if (!IsVisible(window, "PeopleNavigation") || Value(window, "SearchQuery") != "casey@example" ||
+            before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
+            Find(window, "Email").Current.Name != "avery@example.com" ||
+            Find(window, "PersonNoteHeading").Current.HelpText != note || Value(window, "PersonNoteTitle") != "" ||
+            Value(window, "PersonNoteMarkdown") != draft)
+            throw new InvalidOperationException("Rejected search activation lost overlay/query, exact failed editor, owner or unchanged viewport.");
+        AssertNoteView(window, "Person", editing: true);
+        CaptureVisualEvidence(window, "search-rejected-overlay-exact-draft-retained");
+        Click(window, "ClearSearch");
+        Await(() => IsVisible(window, "People"));
         Click(window, "ClosePeople");
+        Await(() => !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus);
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
         state.SetWindowVisualState(WindowVisualState.Maximized);
         try { Await(() => !IsVisible(window, "OpenPeople")); }

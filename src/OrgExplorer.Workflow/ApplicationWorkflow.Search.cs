@@ -16,7 +16,10 @@ public sealed record SearchResult(PersonProfile Person, SearchContext Context, S
     public ProfileChange? ProfileChange { get; init; }
     public DateTimeOffset? CapturedAt { get; init; }
     public bool IsWorkspaceCurrent { get; init; } = true;
-    public string Label => (IsWorkspaceCurrent ? "" : "STALE retained — ") + $"{Person.Heading} ({Person.Email}) — " +
+    public string Excerpt { get; init; } = MatchText;
+    public string Label => (IsWorkspaceCurrent ? "" : "STALE retained — ") + $"{Person.Heading} ({Person.Email}) — " + DestinationLabel;
+    public string SourceLabel => (IsWorkspaceCurrent ? "" : "STALE retained — ") + DestinationLabel;
+    private string DestinationLabel =>
         (Context == SearchContext.Historical ? "Historical" : Person.Archived ? "Archived person" :
             NoteArchived ? "Archived note — not current writing" : "Current") +
         (Context == SearchContext.Historical && Person.Archived ? " / Archived person" : "") +
@@ -56,8 +59,18 @@ public sealed partial class ApplicationWorkflow
             searchIndex ??= BuildSearchIndex();
             return searchIndex.Where(r => r.MatchText.Contains(text, StringComparison.OrdinalIgnoreCase) ||
                     r.NoteTitle?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
-                .Select(r => r with { IsWorkspaceCurrent = workspaceCurrent }).ToArray();
+                .Select(r => r with { IsWorkspaceCurrent = workspaceCurrent, Excerpt = Excerpt(r.MatchText, text) }).ToArray();
         }
+    }
+
+    private static string Excerpt(string value, string query)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(value, @"\s+", " ").Trim();
+        if (text.Length == 0) return "Empty note";
+        var match = text.IndexOf(System.Text.RegularExpressions.Regex.Replace(query, @"\s+", " "), StringComparison.OrdinalIgnoreCase);
+        var start = Math.Max(0, match - 48);
+        var length = Math.Min(160, text.Length - start);
+        return (start > 0 ? "…" : "") + text.Substring(start, length) + (start + length < text.Length ? "…" : "");
     }
 
     private IReadOnlyList<SearchResult> BuildSearchIndex()

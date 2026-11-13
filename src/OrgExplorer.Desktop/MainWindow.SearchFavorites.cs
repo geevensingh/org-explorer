@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -15,6 +16,36 @@ public partial class MainWindow
     private bool queryDirty = true;
     private string? lastQuery;
     private int queryRequest;
+    private bool activatingSearch;
+    private FrameworkElement? matchedProfileValue;
+    private string? matchedProfileHelp;
+    private Paragraph? matchedFormerFact;
+
+    private void ConfirmSearchQuery(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        if (workflow.PeopleNavigation.IsBrowsing) return;
+        if (!wideWorkspace) workflow.ShowPeopleOverlay(true);
+        UpdatePeopleNavigation();
+        FocusManager.SetFocusedElement(this, SearchResults);
+        if (IsVisible) SearchResults.Focus();
+    }
+
+    private async void ActivateSearchWithKeyboard(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        if (SearchResults.SelectedItem is SearchResult result) await ActivateSearchResult(result);
+    }
+
+    private async void ActivateSearchWithMouse(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source ||
+            ItemsControl.ContainerFromElement(SearchResults, source) is not ListBoxItem { DataContext: SearchResult result }) return;
+        e.Handled = true;
+        await ActivateSearchResult(result);
+    }
 
     private void ClearSearch(object sender, RoutedEventArgs e)
     {
@@ -66,12 +97,11 @@ public partial class MainWindow
             var results = snapshot.Results;
             if (!results.SequenceEqual(SearchResults.Items.Cast<SearchResult>())) SearchResults.ItemsSource = results;
             SearchCount.Text = string.IsNullOrWhiteSpace(SearchQuery.Text) ? "Enter text to search local information." :
-                $"Local matches: {results.Count} — current, archived and historical labels identify applicability.";
+                $"Local matches: {results.Count} — profiles and notes";
             if (selectedMatch is not null)
             {
                 var match = results.FirstOrDefault(r => SameSearchDestination(r, selectedMatch));
                 if (match is null) ClearSearchContext();
-                else ShowSearchContext(match);
             }
             var favorites = snapshot.Favorites.Select(p => new FavoriteRow(p,
                 (snapshot.Current ? "" : "STALE retained — ") +
@@ -87,56 +117,54 @@ public partial class MainWindow
     private static bool SameSearchDestination(SearchResult left, SearchResult right) =>
         WorkspaceViewModel.SameSearchDestination(left, right);
 
-    private async void SelectSearchResult(object sender, SelectionChangedEventArgs e)
+    private async Task ActivateSearchResult(SearchResult result)
     {
-        if (refreshingQueries || SearchResults.SelectedItem is not SearchResult result) return;
-        var query = SearchQuery.Text;
-        var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
-        if (query != SearchQuery.Text) return;
-        if (workPending)
+        if (refreshingQueries || activatingSearch) return;
+        activatingSearch = true;
+        try
         {
-            TryLeaveLocalEdits();
-            RestoreSearchSelection();
-            return;
+            var query = SearchQuery.Text;
+            var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
+            if (query != SearchQuery.Text) return;
+            if (workPending)
+            {
+                TryLeaveLocalEdits();
+                RestoreSearchSelection();
+                return;
+            }
+            if (current is null)
+            {
+                RefreshSearchAndFavorites();
+                StatusText.Text = "That search match is no longer available in the validated Workspace.";
+                return;
+            }
+            result = current;
+            if (!TryLeaveLocalEdits())
+            {
+                RestoreSearchSelection();
+                return;
+            }
+            if (!workflow.NavigateSearchResult(result))
+            {
+                RestoreSearchSelection();
+                ShowNavigationBlocked(workflow.Status);
+                return;
+            }
+            result = workflow.PeopleNavigation.SelectedResult!;
+            if (!NavigateTo(result.Person.Email, searchNavigation: true))
+            {
+                RestoreSearchSelection();
+                return;
+            }
+            if (result.Source == SearchSource.PersonNote && result.NoteId is { } personNote)
+                PersonNotes.OpenNote(personNote);
+            else if (result.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote)
+                TeamNotes.OpenNote(teamNote);
+            ClearSearchContext(clearSelection: false);
+            ShowSearchContext(result);
+            ShowStatus();
         }
-        if (current is null)
-        {
-            RefreshSearchAndFavorites();
-            StatusText.Text = "That search match is no longer available in the validated Workspace.";
-            return;
-        }
-        result = current;
-        if (!TryLeaveLocalEdits())
-        {
-            RestoreSearchSelection();
-            return;
-        }
-        if (!workflow.NavigateSearchResult(result))
-        {
-            RestoreSearchSelection();
-            ShowNavigationBlocked(workflow.Status);
-            return;
-        }
-        result = workflow.PeopleNavigation.SelectedResult!;
-        if (!NavigateTo(result.Person.Email, searchNavigation: true))
-        {
-            RestoreSearchSelection();
-            return;
-        }
-        if (result.Source == SearchSource.PersonNote && result.NoteId is { } personNote)
-            PersonNotes.OpenNote(personNote);
-        else if (result.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote)
-            TeamNotes.OpenNote(teamNote);
-        ShowSearchContext(result);
-        SearchContextPanel.BringIntoView();
-        ShowStatus();
-        _ = Dispatcher.BeginInvoke(() =>
-        {
-            if (ExplorerPanel.Visibility != Visibility.Visible || workflow.PeopleNavigation.OverlayOpen ||
-                selectedMatch is null || !SameSearchDestination(result, selectedMatch)) return;
-            FocusManager.SetFocusedElement(this, SearchContextText);
-            if (IsVisible) SearchContextText.Focus();
-        }, System.Windows.Threading.DispatcherPriority.Input);
+        finally { activatingSearch = false; }
     }
 
     private void RestoreSearchSelection()
@@ -149,37 +177,94 @@ public partial class MainWindow
 
     private void ShowSearchContext(SearchResult result)
     {
-        SearchContextPanel.Visibility = Visibility.Visible;
-        SearchContextText.Text = result.Label;
-        var markdown = result.MatchText;
-        if (result.HistoricalContext is { } capture)
+        var target = SearchDestinationSurface(result);
+        Block? readingBlock = null;
+        switch (result.Source)
         {
-            SearchContextText.Text += "\n" + FormerChain(capture) + "\n" + capture.DisplayProvenance;
-            if (result.NoteId is { } noteId)
-            {
-                var note = capture.TeamNotes.Single(n => n.Id == noteId);
-                SearchContextText.Text += "\n" + FrozenNoteLabel(capture, note);
-                markdown = note.Markdown;
-            }
+            case SearchSource.Profile:
+                matchedProfileValue = target;
+                matchedProfileHelp = System.Windows.Automation.AutomationProperties.GetHelpText(target);
+                System.Windows.Automation.AutomationProperties.SetHelpText(target, result.Label);
+                if (target is TextBlock value) value.Background = (Brush)FindResource("SearchMatchBrush");
+                else if (target is Control control) control.Background = (Brush)FindResource("SearchMatchBrush");
+                if (result.Field == "archived" && !result.Person.Archived)
+                {
+                    PersonArchivalStatus.Text = "Not archived";
+                    PersonArchivalStatus.ToolTip = "This Person is not archived. This is not employment or presence information.";
+                    PersonArchivalStatus.Visibility = Visibility.Visible;
+                }
+                break;
+            case SearchSource.InheritedTeamNote:
+                readingBlock = TeamNotes.RevealInheritedNote(result.NoteId!.Value);
+                break;
+            case SearchSource.ProfileHistory:
+                HistoryAccess.IsExpanded = true;
+                break;
+            case SearchSource.HistoricalTeamNote:
+            case SearchSource.FormerReportingChain:
+                HistoryAccess.IsExpanded = true;
+                var capture = HistoricalTeamReading.Document.Blocks.OfType<Section>()
+                    .Single(section => Equals(section.Tag, result.HistoricalContextId));
+                readingBlock = result.NoteId is { } id
+                    ? capture.Blocks.OfType<Section>().Single(section => Equals(section.Tag, id)) : capture;
+                if (result.Source == SearchSource.FormerReportingChain)
+                {
+                    matchedFormerFact = new Paragraph(new Run(result.SourceLabel + "\n" + result.MatchText))
+                        { Background = (Brush)FindResource("SearchMatchBrush") };
+                    capture.Blocks.InsertBefore(capture.Blocks.FirstBlock, matchedFormerFact);
+                }
+                System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading,
+                    $"{result.Label}; capture {result.HistoricalContextId}; note {result.NoteId}");
+                break;
         }
-        else if (result.ProfileChange is { } change)
-            SearchContextText.Text += "\n" + new ProfileTimeline([change], [], []).DisplayChanges;
-        if (result.Source is SearchSource.Profile or SearchSource.ProfileHistory or SearchSource.FormerReportingChain)
+        _ = Dispatcher.BeginInvoke(() =>
         {
-            var document = PrivateMarkdownReading.Create("", OpenHistoricalLink);
-            document.Blocks.Add(new Paragraph(new Run(markdown)));
-            SearchResultReading.Document = document;
-        }
-        else SearchResultReading.Document = PrivateMarkdownReading.Create(markdown, OpenHistoricalLink);
+            if (ExplorerPanel.Visibility != Visibility.Visible || workflow.PeopleNavigation.OverlayOpen ||
+                selectedMatch is null || !SameSearchDestination(result, selectedMatch)) return;
+            FocusManager.SetFocusedElement(this, target);
+            if (IsVisible) target.Focus();
+            if (readingBlock is not null) readingBlock.BringIntoView();
+            else target.BringIntoView(new Rect(0, 0, target.ActualWidth, Math.Min(40, target.ActualHeight)));
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
-    private void CloseSearchContext(object sender, RoutedEventArgs e) => ClearSearchContext();
+    private FrameworkElement SearchDestinationSurface(SearchResult result) => result.Source switch
+    {
+        SearchSource.PersonNote => PersonNotes.NoteReading,
+        SearchSource.OwnedTeamNote => TeamNotes.NoteReading,
+        SearchSource.InheritedTeamNote => TeamNotes.InheritedNoteReading,
+        SearchSource.HistoricalTeamNote or SearchSource.FormerReportingChain => HistoricalTeamReading,
+        SearchSource.ProfileHistory => ProfileTimelineText,
+        _ => result.Field switch
+        {
+            "displayName" => DirectoryName, "preferredName" => ProfileHeading, "email" => Email,
+            "alias" => AliasValue, "jobTitle" => JobTitleValue, "department" => DepartmentValue,
+            "officeBuilding" => OfficeBuildingValue, "officeNumber" => OfficeNumberValue,
+            "officeState" => OfficeStateValue, "officeCountry" => OfficeCountryValue,
+            "linkedInProfileUrl" => LinkedInProfileUrlValue, "managerEmail" => Manager,
+            "isFavorite" => FavoriteButton, "archived" => PersonArchivalStatus, "photoPath" => Photo,
+            _ => ProfileHeading
+        }
+    };
+
     private void ClearSearchContext(bool clearSelection = true)
     {
         if (clearSelection) workflow.CloseSearchContext();
-        SearchContextPanel.Visibility = Visibility.Collapsed;
-        SearchContextText.Text = "";
-        SearchResultReading.Document = new FlowDocument();
+        if (matchedProfileValue == PersonArchivalStatus && selectedEmail is { } email &&
+            workflow.GetRelationships(email)?.Person is { Archived: false })
+        {
+            PersonArchivalStatus.Text = "";
+            PersonArchivalStatus.Visibility = Visibility.Collapsed;
+        }
+        if (matchedProfileValue is TextBlock value) value.ClearValue(TextBlock.BackgroundProperty);
+        else if (matchedProfileValue is Control control) control.ClearValue(Control.BackgroundProperty);
+        if (matchedProfileValue is not null)
+            System.Windows.Automation.AutomationProperties.SetHelpText(matchedProfileValue, matchedProfileHelp ?? "");
+        matchedProfileValue = null;
+        matchedProfileHelp = null;
+        if (matchedFormerFact?.Parent is Section section) section.Blocks.Remove(matchedFormerFact);
+        matchedFormerFact = null;
+        System.Windows.Automation.AutomationProperties.SetHelpText(HistoricalTeamReading, "");
     }
 
     private void SelectFavoritePerson(object sender, SelectionChangedEventArgs e)

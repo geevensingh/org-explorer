@@ -160,9 +160,8 @@ public partial class MainWindow : Window
         ShowStatus();
         FrameworkElement? surface = destination.LastValidView?.Source switch
         {
-            SearchSource.PersonNote => PersonNotes,
-            SearchSource.OwnedTeamNote => TeamNotes,
-            SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote => SearchContextPanel,
+            SearchSource.PersonNote => PersonNotes.NoteReading,
+            SearchSource.OwnedTeamNote => TeamNotes.NoteReading,
             _ => null
         };
         if (surface is not null)
@@ -171,7 +170,7 @@ public partial class MainWindow : Window
                 if (selectedEmail == destination.SelectedEmail &&
                     workflow.PeopleNavigation.LastValidView == destination.LastValidView &&
                     !workflow.IsImportOpen && SettingsPanel.Visibility != Visibility.Visible)
-                    surface.BringIntoView();
+                    surface.BringIntoView(new Rect(0, 0, surface.ActualWidth, Math.Min(40, surface.ActualHeight)));
             }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
@@ -302,6 +301,7 @@ public partial class MainWindow : Window
         ShowFavorite(person);
         ShowPersonArchival(person);
         Photo.Show(workflow.GetPhoto(person.Email), person.Heading);
+        Photo.ToolTip = person.PhotoPath is { } path ? $"Local photo: {path}" : "No local photo";
         UpdateProfileMode();
         var context = workflow.GetRelationships(person.Email)!;
         Manager.Content = (person.Archived ? "Last stored: " : "") +
