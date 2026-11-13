@@ -46,10 +46,10 @@
       <Button x:Name="DesignateButton" Content="Use as ongoing" Margin="8,0,0,0" Visibility="Collapsed"
               AutomationProperties.AutomationId="UseAsOngoingTeamNote" Click="DesignateOngoing"/>
     </WrapPanel>
-    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
+    <TabControl x:Name="Views" Margin="0,8,0,0" BorderThickness="0" Padding="0" Background="Transparent"
+                HorizontalContentAlignment="Stretch" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
       <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
-        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
-                                  MaxWidth="600" Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"/>
       </TabItem>
       <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="TeamNoteEditTab">
         <StackPanel>
@@ -85,8 +85,7 @@
       <StackPanel>
         <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" TextWrapping="Wrap"/>
         <StackPanel x:Name="ReviewOwners" Margin="0,4"/>
-        <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"
-                                 MaxWidth="600" Height="240" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+        <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"/>
       </StackPanel>
     </Expander>
     <TextBlock Text="Team scope is not sharing. Person notes never inherit. Images and raw HTML are never loaded."

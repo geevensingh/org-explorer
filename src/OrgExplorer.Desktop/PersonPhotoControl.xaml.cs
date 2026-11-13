@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -29,11 +30,17 @@ public partial class PersonPhotoControl : UserControl
 
     private void ClearPhoto(object sender, RoutedEventArgs e) => PhotoEdited?.Invoke(null);
 
-    public void Show(PersonPhoto? photo)
+    public void Show(PersonPhoto? photo, string? name = null)
     {
         PhotoImage.Source = null;
         PhotoImage.Visibility = Visibility.Collapsed;
         Placeholder.Visibility = Visibility.Visible;
+        var words = name?.Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
+        Placeholder.Text = words.Length == 0 ? "?" :
+            string.Concat((words.Length == 1 ? words : new[] { words[0], words[^1] })
+                .Select(word => StringInfo.GetNextTextElement(word))).ToUpperInvariant();
+        AutomationProperties.SetName(Placeholder, $"No local photo. Initials: {Placeholder.Text}");
+        Placeholder.ToolTip = name is null ? "No local photo" : $"No local photo for {name}";
         if (photo is null) return;
         using var stream = new MemoryStream(photo.Bytes.ToArray(), false);
         var image = new BitmapImage();

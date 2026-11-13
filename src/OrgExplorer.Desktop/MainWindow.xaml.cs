@@ -251,8 +251,8 @@ public partial class MainWindow : Window
         }
         if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
         {
-            ProfileDetails.IsExpanded = false;
             HistoryAccess.IsExpanded = false;
+            PersonScroll.ScrollToTop();
         }
         selectedEmail = person.Email;
         if (navigation) ClearSearchContext();
@@ -297,15 +297,18 @@ public partial class MainWindow : Window
     private void ShowPerson(PersonProfile person)
     {
         ProfileHeading.Text = person.Heading;
-        DirectoryName.Text = person.DirectoryName ?? "(unknown)";
+        DirectoryName.Text = person.DirectoryName ?? "—";
         Email.Text = person.Email;
         ShowFavorite(person);
         ShowPersonArchival(person);
-        Photo.Show(workflow.GetPhoto(person.Email));
+        Photo.Show(workflow.GetPhoto(person.Email), person.Heading);
         UpdateProfileMode();
         var context = workflow.GetRelationships(person.Email)!;
-        Manager.Content = (person.Archived ? "Last stored Manager: " : "Manager: ") +
-            (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "(explicit no-Manager)");
+        Manager.Content = (person.Archived ? "Last stored: " : "") +
+            (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "—");
+        Manager.ToolTip = context.Manager is { } known
+            ? $"{known.Heading} ({known.Email})"
+            : "No stored Manager relationship.";
         Manager.Tag = context.Manager?.Email;
         Manager.IsEnabled = context.Manager is not null;
         ReportsList.ItemsSource = context.ImportedReports;

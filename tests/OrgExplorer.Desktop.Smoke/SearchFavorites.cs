@@ -23,7 +23,12 @@ internal static partial class Program
              "managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
-            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
+            """ + (responsive ? """
+            ,{"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
+              "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
+              "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
+              "managerEmail":null}
+            """ : "") + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
                 {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
                 """)), 1));
         try
@@ -38,17 +43,20 @@ internal static partial class Program
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
+            if (responsive) AssertLongAndMissingFacts(window);
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
-            Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>");
+            Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>" +
+                (responsive ? "\n\n" + string.Join("\n\n", Enumerable.Range(1, 32).Select(i =>
+                    $"Private Person writing paragraph {i}. Keep decisions and their context readable while the same Person identity remains anchored.")) : ""));
             QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
             AssertNoteView(window, "Person", editing: false);
-            OrgExplorer.Workflow.PaneProportions? paneBalance = null;
+            double? peopleBalance = null;
             if (responsive)
             {
-                paneBalance = AssertAdaptiveWorkspace(window);
+                peopleBalance = AssertAdaptiveWorkspace(window);
                 AssertSearchBrowsingRestoration(window);
             }
             if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
@@ -84,7 +92,7 @@ internal static partial class Program
                 Await(() => Find(window, "Status").Current.Name.Contains("Unsaved local changes prevent safe closing"));
             }
             Click(window, "RetryProfileSave");
-            Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"));
+            Await(() => Find(window, "ToggleFavorite").Current.Name == "Unmark favorite");
             AssertPreferredNameReading(window, "Ave Preferred", "Edit");
             SelectFavorite(window, "alex@example.com");
             SelectFavorite(window, "avery@example.com");
@@ -116,14 +124,13 @@ internal static partial class Program
             AssertWorkspaceBytes(workspace, beforeReopen);
             SelectFavorite(window, "avery@example.com");
             if (responsive)
-                Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance!.PeoplePercent) < .5 &&
-                    Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
+                Await(() => Math.Abs(RenderedPeoplePercent(window) - peopleBalance!.Value) < .5);
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Former Team writing");
             Click(window, "ToggleFavorite");
-            Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Not marked"));
+            Await(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
             Close(process);
             Console.WriteLine("PASS: actual WPF exact search, retained writing, invalid-target startup recovery, deliberate archived access and reopen proportions.");
         }

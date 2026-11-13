@@ -303,9 +303,10 @@ Local helper/file/control checks do not prove hosted reopen or UI-scale executio
 The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at
 700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
 959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport
-bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
-600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
-divider effects, wide/compact/wide and actual reopen proportions, and real
+bounds, all-facts-before-full-width-notes composition, anchored identity during
+actual long reading, People 240 / Person allocation 420 minimums,
+600-DIP bounded actual note prose, stable long/missing fact slots, unchanged compact typography, mouse/keyboard
+People-divider effects, wide/compact/wide and actual reopen proportions, and real
 reporting-tree expansion/scroll restoration during persistent and overlay search.
 Wide browsing setup expands its fixture branch only if needed. Compact setup
 only observes the already-restored expanded state: it never reissues Expand or
@@ -408,17 +409,21 @@ delivery refresh and dirty-note retention. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
-The same invisible-control regression exercises the essential profile summary,
-collapsed/populated More details, full editing of an empty field and Cancel,
+The same invisible-control regression exercises all ordinary facts, labelled
+missing-value slots, long identity/facts, compact initials, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
 It also measures/arranges the actual compiled content and drives its real
-splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
-drags, an outer-pane change, 36% profile recovery and a narrower wide viewport.
-Both panes and the divider must remain inside the actual ScrollViewer viewport
-while held and after completion. This locks down the mixed pixel/star column
-overflow reproduced without a native window; paired proportional columns keep
-both opposing minimums in WPF's shared resize constraint. It does not replace
+People splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
+drags, 27% balance recovery and a narrower wide viewport. Facts and notes must
+remain full-width and ordered inside the actual ScrollViewer viewport while
+held and after completion. A long document must size to content, move with facts
+under the main scroll, and leave identity fixed. Compact layout uses fewer fact
+columns, and opening its overlay must not move the Person viewport. The actual
+clear-search action returns to browsing without replacing the selected Person.
+These are compiled wiring/measurement checks, not rendered acceptance.
+Paired proportional columns keep both opposing People/Person minimums in WPF's
+shared resize constraint. This does not replace
 hosted physical gesture/hit-target or rendered-pixel acceptance.
 The same real control also receives routed Left/Right keys after the maximum
 drag, requiring the exact 10-DIP change to survive layout and preference
@@ -547,7 +552,7 @@ without changing its display. They cover:
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
   quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
-  essential summary and populated More details,
+  all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
@@ -612,8 +617,9 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
 
 - `responsive-workspace`: the search/Favorites journey plus the complete
   700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
-  Segoe UI text, 240/240/360 minimums, 600-DIP prose cap, overlay bounds/focus,
-  mouse/keyboard dividers, percentage resize/reopen and search/clear position.
+  Segoe UI text, People 240 / Person allocation 420 minimums, 600-DIP prose cap,
+  all-facts ordering and long/missing text, anchored main scrolling, overlay bounds/focus,
+  mouse/keyboard People resizing, percentage resize/reopen and search/clear position.
 - `responsive-draft-navigation`: the complete draft-protection journey plus
   actual compact overlay rejection retaining the exact owner/editor and feedback.
 - `responsive-team-history`: the complete owned/inherited Team, independent

@@ -11,13 +11,11 @@ public partial class MainWindow
 {
     private const double WideWorkspaceWidth = 960;
     private const double PeopleMinimum = 240;
-    private const double ProfileMinimum = 240;
-    private const double NotesMinimum = 360;
+    private const double PersonMinimum = 420;
     private const double DividerWidth = 8;
     private bool wideWorkspace;
     private bool arrangingPanes;
     private bool draggingPane;
-    private bool draggingPeople;
 
     private void ResizeWorkspace(object sender, SizeChangedEventArgs e) => ArrangeWorkspace();
     private void ResizePersonBody(object sender, SizeChangedEventArgs e) => ArrangePersonBody();
@@ -38,20 +36,16 @@ public partial class MainWindow
             }
             wideWorkspace = wide;
             PeopleColumn.MinWidth = wide ? PeopleMinimum : 0;
-            ExplorerPanel.ColumnDefinitions[2].MinWidth = wide ? ProfileMinimum + NotesMinimum + DividerWidth + 40 : 0;
+            ExplorerPanel.ColumnDefinitions[2].MinWidth = wide ? PersonMinimum : 0;
             PeopleDividerColumn.Width = new(wide ? DividerWidth : 0);
             var proportions = workflow.PaneProportions;
             // Mixed pixel/star splitter resizing can grow content beyond the viewport instead of constraining both panes.
             PeopleColumn.Width = wide ? new(proportions.PeoplePercent, GridUnitType.Star) : new(0);
             ExplorerPanel.ColumnDefinitions[2].Width = new(wide ? 100 - proportions.PeoplePercent : 100, GridUnitType.Star);
-            PersonScroll.Padding = new Thickness(wide ? 12 : 0, 0, 0, 0);
+            PersonWorkspace.Margin = new Thickness(wide ? 12 : 0, 0, 0, 0);
             OpenPeopleButton.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
             PeopleDivider.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-            ProfileDivider.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
             ClosePeopleButton.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
-            Grid.SetColumn(ProfileSummary, wide ? 0 : 2);
-            Grid.SetRow(NotesPane, wide ? 0 : 1);
-            NotesPane.Margin = new Thickness(0, wide ? 0 : 12, 0, 0);
             UpdatePeopleNavigation();
             if (transition && wide && workflow.PeopleNavigation.IsBrowsing) RestorePeopleBrowsing();
         }
@@ -61,41 +55,32 @@ public partial class MainWindow
 
     private void ArrangePersonBody()
     {
-        if (PersonBody is null || arrangingPanes || draggingPane && !draggingPeople) return;
-        arrangingPanes = true;
-        try
-        {
-            ProfileColumn.MinWidth = wideWorkspace ? ProfileMinimum : 0;
-            PersonBody.ColumnDefinitions[2].MinWidth = wideWorkspace ? NotesMinimum : 0;
-            ProfileDividerColumn.Width = new(wideWorkspace ? DividerWidth : 0);
-            var proportions = workflow.PaneProportions;
-            ProfileColumn.Width = wideWorkspace ? new(proportions.ProfilePercent, GridUnitType.Star) : new(0);
-            PersonBody.ColumnDefinitions[2].Width = new(wideWorkspace ? 100 - proportions.ProfilePercent : 100, GridUnitType.Star);
-        }
-        finally { arrangingPanes = false; }
+        if (PersonBody is null || PersonBody.ActualWidth <= 0) return;
+        FactsGrid.Columns = Math.Clamp((int)(PersonBody.ActualWidth / 240), 1, 4);
+        var actionsBelow = PersonWorkspace.ActualWidth < 720;
+        Grid.SetRow(IdentityActions, actionsBelow ? 1 : 0);
+        Grid.SetColumn(IdentityActions, actionsBelow ? 1 : 2);
+        IdentityActions.Margin = new Thickness(actionsBelow ? 0 : 12, actionsBelow ? 8 : 0, 0, 0);
     }
 
     private void BeginPaneResize(object sender, DragStartedEventArgs e)
     {
         draggingPane = true;
-        draggingPeople = ReferenceEquals(sender, PeopleDivider);
     }
 
     private void SavePaneBalance(object sender, DragCompletedEventArgs e)
     {
         draggingPane = false;
-        draggingPeople = false;
-        if (!e.Canceled && sender is GridSplitter divider) PersistPaneBalance(divider);
+        if (!e.Canceled) PersistPaneBalance();
         ArrangeWorkspace();
     }
 
     private void ResizePaneWithKeyboard(object sender, KeyEventArgs e)
     {
-        if (!wideWorkspace || sender is not GridSplitter divider || e.Key is not (Key.Left or Key.Right)) return;
+        if (!wideWorkspace || e.Key is not (Key.Left or Key.Right)) return;
         e.Handled = true;
-        var people = ReferenceEquals(divider, PeopleDivider);
-        var column = people ? PeopleColumn : ProfileColumn;
-        var grid = people ? ExplorerPanel : PersonBody;
+        var column = PeopleColumn;
+        var grid = ExplorerPanel;
         var maximum = grid.ActualWidth - DividerWidth - grid.ColumnDefinitions[2].MinWidth;
         // SizeChanged must not restore the previous ratio before the key's new balance is saved.
         arrangingPanes = true;
@@ -103,20 +88,19 @@ public partial class MainWindow
         {
             column.Width = new(Math.Clamp(column.ActualWidth + (e.Key == Key.Right ? 10 : -10), column.MinWidth, maximum));
             grid.UpdateLayout();
-            PersistPaneBalance(divider);
+            PersistPaneBalance();
         }
         finally { arrangingPanes = false; }
         ArrangeWorkspace();
     }
 
-    private void PersistPaneBalance(GridSplitter divider)
+    private void PersistPaneBalance()
     {
         if (!wideWorkspace || ExplorerPanel.ActualWidth < WideWorkspaceWidth || workflow.Compatibility.WorkspacePath is null) return;
         var current = workflow.PaneProportions;
-        var people = ReferenceEquals(divider, PeopleDivider);
         workflow.SavePaneProportions(
-            people ? 100 * PeopleColumn.ActualWidth / (ExplorerPanel.ActualWidth - DividerWidth) : current.PeoplePercent,
-            people ? current.ProfilePercent : 100 * ProfileColumn.ActualWidth / (PersonBody.ActualWidth - DividerWidth));
+            100 * PeopleColumn.ActualWidth / (ExplorerPanel.ActualWidth - DividerWidth),
+            current.ProfilePercent);
         ShowPanePreferenceStatus();
         ShowWorkspaceStartup();
     }

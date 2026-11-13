@@ -42,11 +42,10 @@
       <Button x:Name="DesignateButton" Content="Use as ongoing" Margin="8,0,0,0" Visibility="Collapsed"
               AutomationProperties.AutomationId="UseAsOngoingPersonNote" Click="DesignateOngoing"/>
     </WrapPanel>
-    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
+    <TabControl x:Name="Views" Margin="0,8,0,0" BorderThickness="0" Padding="0" Background="Transparent"
+                HorizontalContentAlignment="Stretch" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
       <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="PersonNoteReadTab">
-        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="PersonNoteReading"
-                                  MaxWidth="600"
-                                  Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="PersonNoteReading"/>
       </TabItem>
       <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="PersonNoteEditTab">
         <StackPanel>
