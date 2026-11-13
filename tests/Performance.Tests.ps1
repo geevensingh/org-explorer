@@ -116,11 +116,17 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
 '@ | Set-Content -LiteralPath $heartbeatProbe
     $previousTiming = $env:SCALE_TIMING_FILE
     try {
-        foreach ($transport in @('stdout', 'timing-file')) {
+        foreach ($transport in @('stdout', 'timing-file', 'stdout-with-inherited-timing-file')) {
             $heartbeatResults = Join-Path $results "heartbeat-$transport"
+            if ($transport -eq 'stdout-with-inherited-timing-file') {
+                $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
+                'SCALE BEGIN unrelated-run' | Set-Content -LiteralPath $env:SCALE_TIMING_FILE
+            }
             Invoke-ScaleSuite -Suite contract -Label "Scale heartbeat $transport" -ResultsDirectory $heartbeatResults -Selection @{} -Verify {
                 param($run, $build)
-                $env:SCALE_TIMING_FILE = Join-Path $run 'scale-measurements.log'
+                if ($transport -ne 'stdout-with-inherited-timing-file') {
+                    $env:SCALE_TIMING_FILE = Join-Path $run 'scale-measurements.log'
+                }
                 Invoke-ScaleProcess heartbeat-probe pwsh @('-NoProfile', '-File', $heartbeatProbe,
                     (Join-Path $run 'result.json'), $transport)
             }
@@ -133,7 +139,7 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
     } finally {
         $env:SCALE_TIMING_FILE = $previousTiming
     }
-    Write-Host 'PASS: stdout and dedicated timing files retain live and final phase evidence.'
+    Write-Host 'PASS: stdout and current-run timing files retain live and final phase evidence, ignoring unrelated inherited logs.'
     $diagnostic = Join-Path $results 'diagnostic-only'
     Assert-Rejected {
         Invoke-ScaleSuite -Suite contract -Label 'Diagnostic observation' -ResultsDirectory $diagnostic `

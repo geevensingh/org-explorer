@@ -60,8 +60,9 @@ function Invoke-ScaleSuite(
     }
 
     function Read-ScaleProgress([string] $Log) {
-        $progressLog = if ($env:SCALE_TIMING_FILE -and (Test-Path -LiteralPath $env:SCALE_TIMING_FILE -PathType Leaf)) {
-            $env:SCALE_TIMING_FILE
+        $timingLog = Join-Path $run 'scale-measurements.log'
+        $progressLog = if (Test-Path -LiteralPath $timingLog -PathType Leaf) {
+            $timingLog
         } else { $Log }
         $active = [Collections.Generic.List[string]]::new()
         foreach ($line in Get-Content -LiteralPath $progressLog) {
