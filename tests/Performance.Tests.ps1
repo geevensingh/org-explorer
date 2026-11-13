@@ -94,6 +94,37 @@ try {
         throw 'Failed shared execution lost the failing exit code or skipped cleanup.'
     }
     Write-Host 'PASS: shared scale execution records fresh running/success/failure evidence and cleans owned build trees.'
+    $reportFailureProbe = Join-Path $results 'report-failure-probe.ps1'
+    $reportFailurePid = Join-Path $results 'report-failure.pid'
+    @'
+param([string] $Report, [string] $PidFile)
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText($PidFile, $PID.ToString())
+New-Item -ItemType Directory -Path "$Report.writing" | Out-Null
+Start-Sleep -Seconds 30
+'@ | Set-Content -LiteralPath $reportFailureProbe
+    $reportFailureStarted = $env:SCALE_STARTED_AT
+    try {
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-654).ToString('O')
+        Assert-Rejected {
+            Invoke-ScaleSuite -Suite contract -Label 'Blocked scale report' `
+                -ResultsDirectory (Join-Path $results 'blocked-report') -Selection @{} -Verify {
+                    param($run, $build)
+                    Invoke-ScaleProcess report-failure pwsh @('-NoProfile', '-File', $reportFailureProbe,
+                        (Join-Path $run 'result.json'), $reportFailurePid)
+                }
+        } 'a failed report write'
+        $childId = 0
+        if (![int]::TryParse((Get-Content -LiteralPath $reportFailurePid -Raw), [ref] $childId) -or $childId -le 0) {
+            throw 'The report-failure probe did not identify its owned process.'
+        }
+        $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
+        if ($null -ne $child) {
+            Stop-Process -Id $childId -Force
+            throw 'Report writing failure prevented termination of the owned command.'
+        }
+    } finally { $env:SCALE_STARTED_AT = $reportFailureStarted }
+    Write-Host 'PASS: report writing failure cannot prevent owned-command termination.'
     $heartbeatProbe = Join-Path $results 'heartbeat-probe.ps1'
     @'
 param([string] $Report, [string] $Transport)

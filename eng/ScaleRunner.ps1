@@ -110,8 +110,8 @@ function Invoke-ScaleSuite(
                 try {
                     if (!$process.HasExited) {
                         $state.phase = 'terminating'
-                        Write-ScaleReport
-                        $process.Kill($true); $process.WaitForExit()
+                        try { Write-ScaleReport }
+                        finally { $process.Kill($true); $process.WaitForExit() }
                     }
                     $state.steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds; exitCode = $process.ExitCode })
                 } finally { $process.Dispose() }

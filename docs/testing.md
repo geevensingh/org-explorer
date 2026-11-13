@@ -547,6 +547,8 @@ directory, not buffered passing-test stdout. The reader ignores unrelated inheri
 file exists, using the same source for the final progress capture.
 Reports distinguish command execution, termination and cleanup, and become terminal
 only after cleanup and the unchanged budget check.
+Owned-command termination does not depend on successfully publishing its report;
+report-write failures still reject verification.
 
 Scale logs retain `SCALE BEGIN`/`SCALE END` markers even when an operation fails.
 Fixture generation, current files/indexes, open/validation and independent recovery
