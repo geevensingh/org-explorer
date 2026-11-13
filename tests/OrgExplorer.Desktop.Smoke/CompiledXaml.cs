@@ -378,6 +378,19 @@ internal static partial class Program
             TreeItemRealization.PrepareMeasuredScrollPosition(70,
                 percent => provider.SetScrollPercent(-1, percent), () => provider.VerticalScrollPercent,
                 condition => PumpUntil(() => { Layout(compact); return condition(); }));
+            TreeItemRealization.BrowsingPosition ReadPosition()
+            {
+                var viewport = new Rect(tree.RenderSize);
+                var rows = VisualDescendants(tree).OfType<TreeViewItem>()
+                    .Where(item => item.DataContext is ReportingNode && item.ActualWidth > 0 && item.ActualHeight > 0)
+                    .Select(item => (Node: (ReportingNode)item.DataContext,
+                        Bounds: item.TransformToAncestor(tree).TransformBounds(new Rect(item.RenderSize))))
+                    .Where(row => row.Bounds.IntersectsWith(viewport))
+                    .Select(row => new TreeItemRealization.BrowsingRow(row.Node.Person.Email,
+                        row.Bounds.Left, row.Bounds.Top)).ToArray();
+                return new(provider.VerticalScrollPercent, rows);
+            }
+            var originalPosition = ReadPosition();
             Control<TextBox>("SearchQuery").Text = "orchid";
             PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
             Settle(compact);
@@ -389,10 +402,11 @@ internal static partial class Program
             Control<TextBox>("SearchQuery").Clear();
             if (compact) Invoke("OpenPeopleButton");
             Settle(compact);
-            if (Math.Abs(provider.VerticalScrollPercent - 70) >= 1 ||
+            if (!TreeItemRealization.IsBrowsingPositionRestored(originalPosition, ReadPosition()) ||
                 Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
                 throw new InvalidOperationException($"Compiled search/clear lost browsing restoration: compact={compact}; " +
-                    $"expected=70%; actual={provider.VerticalScrollPercent}%; offset={scrolling.VerticalOffset}; " +
+                    $"originalRows={DescribeBrowsingRows(originalPosition)}; currentRows={DescribeBrowsingRows(ReadPosition())}; " +
+                    $"originalPercent={originalPosition.Percent}%; actual={provider.VerticalScrollPercent}%; offset={scrolling.VerticalOffset}; " +
                     $"extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}.");
             provider.SetScrollPercent(-1, 0);
             Settle(compact);

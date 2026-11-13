@@ -16,6 +16,16 @@ the taskbar region, and labels its scope separately from a window-bounds capture
 Captures follow the same desktop-isolation rules below; they are comparison
 material, not behavioral proof or owner visual acceptance.
 
+Browsing-restoration acceptance compares every originally visible Person's exact
+identity and viewport-relative horizontal/vertical position within one rendered
+pixel, together with the existing Favorites, expansion and guarded-destination
+checks. A larger viewport may expose additional bottom rows; it cannot move or
+replace any original row. Scroll percentages and view sizes remain diagnostics,
+not proxies for restored content: a horizontal scrollbar disappearing increases
+the vertical viewport and changes the percentage even at an unchanged offset.
+The owner approved this assertion correction after the hosted #71 captures.
+The original 20-second observation budget and full fixture/size matrix remain.
+
 ## Placement
 
 | Category | Observes | Examples and limits |

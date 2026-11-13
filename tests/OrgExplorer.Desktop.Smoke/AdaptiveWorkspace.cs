@@ -331,7 +331,8 @@ internal static partial class Program
             TreeItemRealization.PrepareMeasuredScrollPosition(70,
                 percent => scroll.SetScrollPercent(ScrollPattern.NoScroll, percent),
                 () => scroll.Current.VerticalScrollPercent, Await);
-            var offset = scroll.Current.VerticalScrollPercent;
+            var originalPosition = ReadBrowsingPosition(Find(window, "People"));
+            var offset = originalPosition.Percent;
             var originalView = scroll.Current.VerticalViewSize;
             var originalBounds = Find(window, "People").Current.BoundingRectangle;
             var originalFocus = AutomationElement.FocusedElement?.Current.AutomationId;
@@ -339,7 +340,8 @@ internal static partial class Program
                 throw new InvalidOperationException("Measuring the browsing fixture changed its selected Person.");
             Console.WriteLine($"Browsing baseline measurement: compact={compact}; " +
                 $"unmeasuredViewPercent={unmeasuredView}; measuredViewPercent={originalView}; targetPercent={offset}; " +
-                $"focusBefore='{focusBeforeMeasurement}'; focusAfter='{originalFocus}'; owner='{ownerBeforeMeasurement}'.");
+                $"focusBefore='{focusBeforeMeasurement}'; focusAfter='{originalFocus}'; owner='{ownerBeforeMeasurement}'; " +
+                $"rows={DescribeBrowsingRows(originalPosition)}.");
             CaptureVisualEvidence(window, compact ? "search-browsing-before-compact" : "search-browsing-before-wide");
             Set(window, "SearchQuery", "orchid");
             Await(() => !IsVisible(window, "People") && !IsVisible(window, "Favorites"));
@@ -351,13 +353,15 @@ internal static partial class Program
             EnsurePeopleBrowsing(window);
             var observedOffset = double.NaN;
             var favoritesVisible = false;
+            TreeItemRealization.BrowsingPosition? observedPosition = null;
             try
             {
                 Await(() =>
                 {
-                    observedOffset = scroll.Current.VerticalScrollPercent;
+                    observedPosition = ReadBrowsingPosition(Find(window, "People"));
+                    observedOffset = observedPosition.Percent;
                     favoritesVisible = IsVisible(window, "Favorites");
-                    return Math.Abs(observedOffset - offset) < 1 && favoritesVisible;
+                    return TreeItemRealization.IsBrowsingPositionRestored(originalPosition, observedPosition) && favoritesVisible;
                 });
             }
             catch (TimeoutException error)
@@ -366,7 +370,7 @@ internal static partial class Program
                 var currentScroll = (ScrollPattern)currentTree.GetCurrentPattern(ScrollPattern.Pattern);
                 var focused = AutomationElement.FocusedElement?.Current;
                 CaptureVisualEvidence(window, compact ? "search-browsing-restoration-failed-compact" : "search-browsing-restoration-failed-wide");
-                throw new TimeoutException("Search/clear did not restore the original browsing position within the unchanged 20 seconds. " +
+                throw new TimeoutException("Search/clear did not restore the original visible Person rows and pixel positions within 20 seconds. " +
                     $"compact={compact}; expectedPercent={offset}; lastPercent={observedOffset}; " +
                     $"freshPercent={currentScroll.Current.VerticalScrollPercent}; " +
                     $"originalViewPercent={originalView}; oldViewPercent={scroll.Current.VerticalViewSize}; freshViewPercent={currentScroll.Current.VerticalViewSize}; " +
@@ -374,8 +378,15 @@ internal static partial class Program
                     $"originalTreeBounds={originalBounds}; treeBounds={currentTree.Current.BoundingRectangle}; " +
                     $"peopleBounds={Find(window, "PeopleNavigation").Current.BoundingRectangle}; " +
                     $"originalFocusedId='{originalFocus}'; focusedId='{focused?.AutomationId}'; focusedName='{focused?.Name}'; " +
-                    $"owner='{Find(window, "Email").Current.Name}'. No corrective actions were attempted.", error);
+                    $"owner='{Find(window, "Email").Current.Name}'; " +
+                    $"originalRows={DescribeBrowsingRows(originalPosition)}; " +
+                    $"observedRows={(observedPosition is null ? "unavailable" : DescribeBrowsingRows(observedPosition))}. " +
+                    "No corrective actions were attempted.", error);
             }
+            Console.WriteLine($"PASS: browsing restored every original visible Person at its original position; compact={compact}; " +
+                $"originalPercent={offset}; observedPercent={observedOffset}; originalViewPercent={originalView}; " +
+                $"observedViewPercent={scroll.Current.VerticalViewSize}.");
+            CaptureVisualEvidence(window, compact ? "search-browsing-restored-compact" : "search-browsing-restored-wide");
             scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
             Await(() => ((ExpandCollapsePattern)Find(Find(window, "People"), "morgan@example.com")
                 .GetCurrentPattern(ExpandCollapsePattern.Pattern)).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
@@ -383,6 +394,24 @@ internal static partial class Program
         ((WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
         Await(() => !IsVisible(window, "OpenPeople"));
     }
+
+    private static TreeItemRealization.BrowsingPosition ReadBrowsingPosition(AutomationElement tree)
+    {
+        var viewport = tree.Current.BoundingRectangle;
+        var rows = tree.FindAll(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem))
+            .Cast<AutomationElement>().Select(row => row.Current)
+            .Where(row => !row.IsOffscreen && !row.BoundingRectangle.IsEmpty &&
+                row.BoundingRectangle.IntersectsWith(viewport))
+            .Select(row => new TreeItemRealization.BrowsingRow(row.AutomationId,
+                row.BoundingRectangle.Left - viewport.Left, row.BoundingRectangle.Top - viewport.Top)).ToArray();
+        if (rows.Length == 0 || rows.Any(row => string.IsNullOrEmpty(row.Email)))
+            throw new InvalidOperationException("Browsing restoration requires actual visible Person identities and geometry.");
+        return new(((ScrollPattern)tree.GetCurrentPattern(ScrollPattern.Pattern)).Current.VerticalScrollPercent, rows);
+    }
+
+    private static string DescribeBrowsingRows(TreeItemRealization.BrowsingPosition position) =>
+        string.Join("; ", position.Rows.Select(row => $"{row.Email}:({row.Left:F1},{row.Top:F1})"));
 
     private static bool IsVisible(AutomationElement window, string id) =>
         window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element &&

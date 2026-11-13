@@ -2,6 +2,11 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal static bool IsBrowsingPositionRestored(BrowsingPosition original, BrowsingPosition current) =>
+        original.Rows.Count > 0 && original.Rows.All(expected => current.Rows.Any(actual =>
+            string.Equals(expected.Email, actual.Email, StringComparison.OrdinalIgnoreCase) &&
+            Math.Abs(expected.Left - actual.Left) < 1 && Math.Abs(expected.Top - actual.Top) < 1));
+
     internal static void PrepareMeasuredScrollPosition(double percent, Action<double> scrollTo,
         Func<double> currentPercent, Action<Func<bool>> awaitState)
     {
@@ -10,6 +15,9 @@ internal static class TreeItemRealization
         scrollTo(percent);
         awaitState(() => Math.Abs(currentPercent() - percent) < 1);
     }
+
+    internal sealed record BrowsingRow(string Email, double Left, double Top);
+    internal sealed record BrowsingPosition(double Percent, IReadOnlyList<BrowsingRow> Rows);
 
     internal static void AwaitExpanded(bool initializeBranch, Func<bool> isExpanded, Action expand,
         Action<Func<bool>> awaitState)
