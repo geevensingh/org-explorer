@@ -141,8 +141,8 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitUnavailableView(window, workspace);
+            EnsurePeopleBrowsing(window);
             ((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectArchivedPerson(window, "avery@example.com");
             AssertPhotoVisible(window);

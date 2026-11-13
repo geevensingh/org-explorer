@@ -172,8 +172,9 @@ Invalid data/versions and read/write failures are explicit and cannot overwrite
 previous preferences or mutate note documents. Owned Team writing reuses this
 same observable interaction and designation storage.
 
-This status covers ongoing-note behavior and shared designation support, not
-exact startup-view restoration or complete hosted WPF acceptance.
+This section covers ongoing-note behavior and shared designation support.
+Exact startup restoration is described below; hosted WPF acceptance remains
+an exact-candidate delivery gate.
 
 ### Implemented adaptive host
 
@@ -225,8 +226,7 @@ launch; prerequisite failure never skips or shrinks the matrix. Explicit
 10,000-Person UI scale stays separate and reuses that preparation.
 These are implemented assertions, not a
 claim that hosted acceptance has run for this candidate; compiled/invisible
-local checks do not prove these rendered numeric choices. Exact startup-view
-restoration remains separate delivery work.
+local checks do not prove these rendered numeric choices.
 
 ## Team context and history
 
@@ -276,8 +276,7 @@ durable Team designation, preference failures/nonmutation and retained drafts.
 The existing hosted Team/history journey adds actual ongoing/Other, collapsed
 warnings, protected owner navigation and current/frozen evidence assertions at
 700 x 500 and 1100 x 900. These are implemented assertions, not a claim that
-hosted acceptance has run for this candidate. Exact last-view restoration is
-still unimplemented by this slice.
+hosted acceptance has run for this candidate.
 
 ## Startup and remembered view
 
@@ -293,6 +292,48 @@ create replacement records, or conceal a failed Workspace reopen.
 
 Remembered view preferences do not imply restoration of unsaved drafts or a new
 draft-recovery system. Preserve the existing save/navigation/restart safeguards.
+
+### Implemented exact-view restoration
+
+The shared observable People navigation now retains the last valid destination.
+Successful existing-only reopening resolves that destination against validated
+current Workspace data before presenting a Person. Existing secondary Person
+and owned Team notes override their ordinary ongoing default and reopen in Read
+mode. Other notes and search remain exact, and Open ongoing note is deliberate.
+Same-Person navigation and compact/wide transitions do not substitute a different
+note or write over remembered pane proportions.
+
+Version-1 app-local WorkspaceSettings accepts optional `lastView` on each
+canonical, case-insensitive Workspace entry. It contains stable Person email;
+note destinations additionally identify source, owner email and existing GUID.
+Frozen Team destinations also identify the historical capture GUID. Resolution
+uses current notes, current formal inheritance or the specified frozen capture,
+not title, list order or a later current note with the same GUID. A Person-only
+destination is valid when no note was selected. No synchronized schema changes
+or unsaved-buffer persistence are involved.
+
+Unavailable/archived Persons or notes leave the remembered preference and all
+writing intact. The UI explains the failure and offers search/Favorites/People
+re-selection without opening ongoing replacement writing, creating records or
+unarchiving anything. First use and absent view preferences use the same
+purposeful start rather than a disabled profile. Failed Workspace reopen never
+attempts selection restoration or creates a missing folder.
+
+All preference writes preserve ongoing choices, pane proportions, other
+Workspaces and the successful startup folder. Atomic publication and explicit
+read/write/version/identity errors retain prior durable values. A failed view
+write does not remove valid in-session reading or claim that it was remembered;
+deliberate destination selection retries it. Existing profile Save/Discard/Stay,
+independent note drafts, external-change checks, safe close and safe restart
+remain in force, including settings-driven reopen.
+
+Real-file tests exercise exact secondary reopen/rename, owner/context identity,
+unavailable targets, compatibility, failed preference publication and retained
+writing. Existing Person-note, Team/history and search journeys reuse their
+scenario-local settings and repeated launches for exact GUID/Read-mode reopen
+and invalid-target recovery. Responsive Team reopen retains the 700/1100 matrix.
+These are implemented assertions, not a claim that the final candidate's hosted
+lanes or the overall #57 joint delivery are complete.
 
 ## Scope and implementation decisions still required
 
@@ -310,12 +351,8 @@ Resolve these details before their dependent implementation:
 
 - Hosted acceptance of the adaptive numeric choices above against rendered WPF,
   rather than treating compilation or a computed mode as usable-layout evidence.
-- Exact selection/restoration persistence, including compatibility treatment.
-  Device-local per-Workspace scope is agreed; proportions and ongoing choices
-  already extend app-local settings without a Workspace migration.
-- Explicit handling of a remembered or designated note that becomes unavailable
-  or archived, preserving user choice, existing writing, and clear feedback
-  rather than silently selecting or creating a different ongoing note.
+- Final exact-candidate hosted acceptance of remembered secondary-note reopen
+  and unavailable-target recovery alongside the existing safety journeys.
 
 Visual research inspected a running isolated sample Workspace at normal and
 maximized sizes, including profile view/edit and note reading. Minimum-size

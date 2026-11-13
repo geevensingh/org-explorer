@@ -106,16 +106,17 @@ internal static partial class Program
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical / Archived person", "Frozen Team note");
             AssertSearchReading(window, "Former Team writing");
             if (listener.Pending()) throw new InvalidOperationException("Search or selected current/frozen Markdown fetched remote content.");
+            var beforeReopen = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
             Close(process);
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitUnavailableView(window, workspace);
+            AssertWorkspaceBytes(workspace, beforeReopen);
+            SelectFavorite(window, "avery@example.com");
             if (responsive)
                 Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance!.PeoplePercent) < .5 &&
                     Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
-            SelectFavorite(window, "avery@example.com");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
@@ -123,7 +124,7 @@ internal static partial class Program
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Not marked"));
             Close(process);
-            Console.WriteLine("PASS: actual WPF current/frozen/archived search destinations, private reading, favorites, rejected navigation and reopen.");
+            Console.WriteLine("PASS: actual WPF exact search, retained writing, invalid-target startup recovery, deliberate archived access and reopen proportions.");
         }
         finally
         {

@@ -244,7 +244,8 @@ public partial class TeamNotesControl : UserControl
         {
             var notes = workflow.TeamNotesView.Notes.Where(n => includeArchived || !n.Archived);
             if (!notes.SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
-                selected != workflow.TeamNotesView.SelectedNote?.Id) RefreshNotes();
+                selected != workflow.TeamNotesView.SelectedNote?.Id ||
+                workflow.TeamNotesView.IsEditing != (Views.SelectedItem == EditTab)) RefreshNotes();
         }
         RefreshContext();
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
@@ -316,6 +317,8 @@ public partial class TeamNotesControl : UserControl
         OngoingStatus.Text = view.Feedback;
         NoteKind.Text = view.SelectedNote is null ? "" :
             (view.IsOngoing ? "Ongoing Team note" : "Other Team note") + (view.SelectedNote.Archived ? " - Archived" : "");
+        AutomationProperties.SetHelpText(NoteHeading, view.SelectedNote?.Id.ToString() ?? "");
+        ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         DesignateButton.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         DesignateButton.IsEnabled = workflow.IsWorkspaceCurrent;
         OngoingButton.Visibility = view.OngoingNoteId is not null && !view.IsOngoing ? Visibility.Visible : Visibility.Collapsed;

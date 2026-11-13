@@ -52,6 +52,8 @@
       </DockPanel>
       <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
                  TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
+      <TextBlock x:Name="ViewPreferenceStatus" AutomationProperties.AutomationId="ViewPreferenceStatus"
+                 TextWrapping="Wrap" Foreground="#8A3B12" Visibility="Collapsed" Margin="0,0,0,8"/>
       <StackPanel x:Name="WorkspaceStartupPanel" Visibility="Collapsed" Margin="0,0,0,12">
         <TextBlock x:Name="WorkspaceStartupStatus" AutomationProperties.AutomationId="WorkspaceStartupStatus"
                    TextWrapping="Wrap"/>
@@ -210,7 +212,19 @@
       <ScrollViewer x:Name="PersonScroll" Grid.Column="2" AutomationProperties.AutomationId="ProfileScroll"
                     Padding="12,0,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
-        <Grid x:Name="PersonIdentity">
+        <GroupBox x:Name="WorkspaceStartPanel" Margin="0,12" BorderThickness="0" Padding="0"
+                  AutomationProperties.AutomationId="WorkspaceStart" AutomationProperties.Name="Find a Person">
+          <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
+          <StackPanel>
+          <TextBlock Text="Find a Person" FontSize="24" FontWeight="SemiBold"/>
+          <TextBlock x:Name="WorkspaceStartGuidance" AutomationProperties.AutomationId="WorkspaceStartGuidance"
+                     Text="Open Settings to choose a Workspace, or use the recovery actions above."
+                     TextWrapping="Wrap" Margin="0,8"/>
+          <Button Content="Search / browse People" Click="FindPersonFromStart"
+                  AutomationProperties.AutomationId="FindPerson" HorizontalAlignment="Left"/>
+          </StackPanel>
+        </GroupBox>
+        <Grid x:Name="PersonIdentity" Visibility="Collapsed">
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <local:PersonPhotoControl x:Name="Photo" Margin="0,0,16,0" VerticalAlignment="Top"/>
           <StackPanel Grid.Column="1">
@@ -261,7 +275,7 @@
                        Text="Select a Person." Foreground="DimGray" TextWrapping="Wrap"/>
           </StackPanel>
         </Grid>
-        <Grid x:Name="PersonBody" Margin="0,12,0,0" SizeChanged="ResizePersonBody">
+        <Grid x:Name="PersonBody" Visibility="Collapsed" Margin="0,12,0,0" SizeChanged="ResizePersonBody">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="ProfileColumn" Width="35*"/>

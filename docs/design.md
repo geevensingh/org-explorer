@@ -39,6 +39,13 @@ If reopening fails, explain the failure and offer Retry or Choose another folder
 Do not silently create a replacement workspace at the old location or present a
 failed reopen as a successfully opened empty workspace.
 
+After successful existing-only reopening and current-data validation, restore
+the last valid Person and exact note, including secondary owned writing or its
+actual inherited/frozen context. Keep these preferences device-local per Workspace.
+Missing or archived targets retain preferences and writing with visible recovery
+and a purposeful search/Favorites start, never automatic replacement or unarchival.
+This restores reading context, not unsaved edit buffers.
+
 ## Local files and the sync boundary
 
 All canonical person data, notes, photos, and history belong in a user-chosen local

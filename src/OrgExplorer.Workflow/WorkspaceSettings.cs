@@ -12,6 +12,11 @@ public sealed record PaneProportions(
         double.IsFinite(ProfilePercent) && ProfilePercent is > 0 and < 100;
 }
 
+public sealed record RememberedView(
+    [property: JsonRequired] string PersonEmail,
+    SearchSource? Source = null, Guid? NoteId = null, string? NoteOwnerEmail = null,
+    Guid? HistoricalContextId = null);
+
 public sealed class WorkspaceSettings
 {
     private sealed record Preference(
@@ -21,7 +26,8 @@ public sealed class WorkspaceSettings
     private sealed record WorkspacePreference(
         [property: JsonRequired] string Path,
         [property: JsonRequired] OngoingDesignation[] OngoingNotes,
-        PaneProportions? PaneProportions = null);
+        PaneProportions? PaneProportions = null,
+        RememberedView? LastView = null);
     private sealed record OngoingDesignation(
         [property: JsonRequired] NoteScope Scope,
         [property: JsonRequired] string OwnerEmail,
@@ -31,13 +37,15 @@ public sealed class WorkspaceSettings
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter<NoteScope>(allowIntegerValues: false) }
+        Converters = { new JsonStringEnumConverter<NoteScope>(allowIntegerValues: false),
+            new JsonStringEnumConverter<SearchSource>(allowIntegerValues: false) }
     };
     private readonly string preferencePath;
     private Preference? preference;
 
     public string? LastWorkspacePath { get; private set; }
     public string? PreferenceError { get; private set; }
+    internal bool HasValidPreferenceSnapshot => preference is not null || PreferenceError is null;
 
     public WorkspaceSettings(string preferencePath)
     {
@@ -49,7 +57,7 @@ public sealed class WorkspaceSettings
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException)
         {
-            PreferenceError = "Workspace preferences could not be read; no remembered Workspace, ongoing choice or pane proportions were restored. " +
+            PreferenceError = "Workspace preferences could not be read; no remembered Workspace, exact view, ongoing choice or pane proportions were restored. " +
                 "Resolve local preference data/file access. Choosing a folder can still open the Workspace without replacing invalid preferences. " + error.Message;
         }
     }
@@ -79,6 +87,7 @@ public sealed class WorkspaceSettings
                 throw new FormatException("Workspace presentation preferences require unique absolute folders and ongoing-note entries.");
             if (workspace.PaneProportions is { IsValid: false })
                 throw new FormatException("Pane proportions require finite percentages greater than zero and less than 100.");
+            if (workspace.LastView is { } view) ValidateView(view);
             var owners = new HashSet<(NoteScope, string)>();
             foreach (var note in workspace.OngoingNotes)
                 if (note is null || !Enum.IsDefined(note.Scope) || string.IsNullOrWhiteSpace(note.OwnerEmail) ||
@@ -106,8 +115,8 @@ public sealed class WorkspaceSettings
             var notes = (index < 0 ? [] : workspaces[index].OngoingNotes)
                 .Where(n => n.Scope != scope || !n.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase)).ToList();
             notes.Add(new(scope, ownerEmail.Trim().ToLowerInvariant(), noteId));
-            var updated = new WorkspacePreference(path, notes.ToArray(),
-                index < 0 ? null : workspaces[index].PaneProportions);
+            var updated = index < 0 ? new WorkspacePreference(path, notes.ToArray()) :
+                workspaces[index] with { OngoingNotes = notes.ToArray() };
             if (index < 0) workspaces.Add(updated);
             else workspaces[index] = updated;
             return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
@@ -128,6 +137,40 @@ public sealed class WorkspaceSettings
             else workspaces[index] = workspaces[index] with { PaneProportions = proportions };
             return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
         }, "Pane proportions were NOT saved; the previous durable proportions are unchanged.");
+
+    public RememberedView? GetLastView(string workspacePath) =>
+        preference?.Workspaces?.FirstOrDefault(w => SamePath(w.Path, workspacePath))?.LastView;
+
+    public bool SetLastView(string workspacePath, RememberedView view) =>
+        SavePreference(current =>
+        {
+            ValidateView(view);
+            if (!Path.IsPathFullyQualified(workspacePath))
+                throw new ArgumentException("A remembered view requires an absolute Workspace folder.");
+            var path = CanonicalPath(workspacePath);
+            var workspaces = (current?.Workspaces ?? []).ToList();
+            var index = workspaces.FindIndex(w => SamePath(w.Path, path));
+            if (index < 0) workspaces.Add(new(path, [], LastView: view));
+            else workspaces[index] = workspaces[index] with { LastView = view };
+            return new(1, current?.LastWorkspacePath ?? path, workspaces.ToArray());
+        }, "The current view was NOT remembered; the previous durable view is unchanged.");
+
+    private static void ValidateView(RememberedView view)
+    {
+        if (string.IsNullOrWhiteSpace(view.PersonEmail) || !ApplicationWorkflow.IsPlainEmail(view.PersonEmail) ||
+            (view.Source is null
+                ? view.NoteId is not null || view.NoteOwnerEmail is not null || view.HistoricalContextId is not null
+                : view.Source is not (SearchSource.PersonNote or SearchSource.OwnedTeamNote or
+                      SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote) ||
+                  view.NoteId is null || view.NoteId == Guid.Empty ||
+                  string.IsNullOrWhiteSpace(view.NoteOwnerEmail) || !ApplicationWorkflow.IsPlainEmail(view.NoteOwnerEmail) ||
+                  (view.Source == SearchSource.HistoricalTeamNote
+                      ? view.HistoricalContextId is null || view.HistoricalContextId == Guid.Empty
+                      : view.HistoricalContextId is not null) ||
+                  (view.Source is SearchSource.PersonNote or SearchSource.OwnedTeamNote &&
+                      !view.PersonEmail.Equals(view.NoteOwnerEmail, StringComparison.OrdinalIgnoreCase))))
+            throw new FormatException("Exact-view preferences require a Person email and a stable note identity with its actual owner and context.");
+    }
 
     public bool RestoreWorkspace(IApplicationWorkflow workflow, string? restartWorkspace = null) =>
         (restartWorkspace ?? LastWorkspacePath) is { } path && OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.ExistingOnly);

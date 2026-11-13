@@ -172,7 +172,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             AssertImportHidden(window);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");

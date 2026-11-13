@@ -234,14 +234,16 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
+            var rememberedNote = Find(window, "PersonNoteHeading").Current.HelpText;
             Close(process);
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-reopen", () =>
             {
-                Click(window, "OpenWorkspace");
-                AwaitScale(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
+                AwaitRestoredWorkspace(window, fixture.Workspace, ScaleFixture.Target, AwaitScale);
+                AwaitScale(() => Find(window, "PersonNoteHeading").Current.HelpText == rememberedNote);
+                AssertNoteView(window, "Person", editing: false);
+                AwaitScale(() => ReadingText(window).Contains("Delivered tulip 1000."));
                 Set(window, "SearchQuery", "handle01000");
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);

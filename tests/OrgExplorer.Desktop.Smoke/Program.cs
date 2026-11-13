@@ -167,8 +167,9 @@ internal static partial class Program
         Await(() =>
             Find(window, "WorkflowActivity").Current.Name == "Ready" &&
             !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-            !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-            !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
+            (CurrentPersonEmail(window).Length == 0 ||
+                !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+                !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal)));
     }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {

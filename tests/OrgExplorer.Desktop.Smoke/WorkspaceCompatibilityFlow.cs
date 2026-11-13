@@ -77,7 +77,7 @@ internal static partial class Program
         try
         {
             var window = Window(recovery);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             Set(window, "WorkspacePath", recoveryWorkspace);
             using (File.Open(Path.Combine(recoveryWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
@@ -86,7 +86,9 @@ internal static partial class Program
                 SetSettingsVisible(window, true);
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Recoverable originals"));
                 SetSettingsVisible(window, false);
-                if (Find(window, "EditPreferredName").Current.IsEnabled)
+                var edit = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "EditPreferredName"));
+                if (edit?.Current.IsEnabled == true || CurrentPersonEmail(window).Length != 0)
                     throw new InvalidOperationException("Failed migration falsely loaded a writable profile.");
                 OpenImportView(window);
                 if (Find(window, "ApplyImport").Current.IsEnabled)
@@ -125,7 +127,7 @@ internal static partial class Program
                     throw new InvalidOperationException("Startup recreated a missing Workspace.");
                 Directory.Move(moved, workspace);
                 Click(window, "RetryStartupWorkspace");
-                AwaitRestoredWorkspace(window, workspace);
+                AwaitRestoredWorkspace(window, workspace, "avery@example.com");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
                 AssertProfileValue(window, "OfficeNumber", "0009C");
@@ -183,17 +185,56 @@ internal static partial class Program
         finally { StopApplication(reopened); }
     }
 
-    private static void AwaitRestoredWorkspace(AutomationElement window, string workspace)
+    private static void AwaitRestoredWorkspace(AutomationElement window, string workspace, string expectedEmail = "",
+        Action<Func<bool>>? awaitState = null)
     {
         SetSettingsVisible(window, false);
         WorkspaceRestoration.AssertRestored(() =>
         {
             var recovery = window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
+            var viewRecovery = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewPreferenceStatus"));
             return new(Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkflowActivity").Current.Name,
-                Find(window, "WorkspaceFreshness").Current.Name, Find(window, "Email").Current.Name,
-                recovery?.Current.IsOffscreen);
-        }, Path.GetFullPath(workspace), Await);
+                Find(window, "WorkspaceFreshness").Current.Name, CurrentPersonEmail(window),
+                viewRecovery?.Current.IsOffscreen == false ? false : recovery?.Current.IsOffscreen);
+        }, Path.GetFullPath(workspace), awaitState ?? Await, expectedEmail);
+    }
+
+    private static void AwaitUnavailableView(AutomationElement window, string workspace)
+    {
+        SetSettingsVisible(window, false);
+        Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+            Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace." &&
+            CurrentPersonEmail(window).Length == 0 &&
+            !Find(window, "WorkspaceStart").Current.IsOffscreen &&
+            !Find(window, "ViewPreferenceStatus").Current.IsOffscreen &&
+            Find(window, "ViewPreferenceStatus").Current.Name.Contains("unavailable or archived") &&
+            Find(window, "WorkspaceStartGuidance").Current.Name.Contains("Favorites"));
+        var startup = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
+        if (startup?.Current.IsOffscreen == false)
+            throw new InvalidOperationException("A valid Workspace with unavailable selection falsely reported Workspace reopen failure.");
+    }
+
+    private static void AssertRestoredNote(AutomationElement window, string scope, string id, string title)
+    {
+        if (!Guid.TryParse(id, out _)) throw new InvalidOperationException("The selected note did not expose its stable GUID.");
+        Await(() => Find(window, scope + "NoteHeading").Current.HelpText == id &&
+            Find(window, scope + "NoteHeading").Current.Name == title &&
+            Find(window, scope + "NoteKind").Current.Name == "Other " + scope + " note");
+        AssertNoteView(window, scope, editing: false);
+    }
+
+    private static string CurrentPersonEmail(AutomationElement window)
+    {
+        var email = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "Email"));
+        if (email is not null) return email.Current.Name;
+        if (Find(window, "WorkspaceStart").Current.IsOffscreen)
+            throw new InvalidOperationException("Startup has neither a Person identity nor a purposeful starting view.");
+        return "";
     }
 
     private static void AwaitStartupRecovery(AutomationElement window, string workspace)
@@ -204,7 +245,7 @@ internal static partial class Program
             Find(window, "WorkflowActivity").Current.Name == "Ready");
         if (!Find(window, "RetryStartupWorkspace").Current.IsEnabled ||
             !Find(window, "ChooseAnotherWorkspace").Current.IsEnabled ||
-            Find(window, "Email").Current.Name.Length != 0 ||
+            CurrentPersonEmail(window).Length != 0 ||
             Find(window, "People").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)) is not null)
             throw new InvalidOperationException("Failed startup did not remain empty with actionable recovery controls.");

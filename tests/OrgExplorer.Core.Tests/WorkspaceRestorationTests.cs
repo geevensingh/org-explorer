@@ -18,14 +18,33 @@ public sealed class WorkspaceRestorationTests
     }
 
     [Theory]
+    [InlineData("avery@example.com", null, true)]
+    [InlineData("", null, false)]
+    [InlineData("casey@example.com", null, false)]
+    [InlineData("avery@example.com", false, false)]
+    [Trait("Category", "Runner")]
+    public void Saved_view_restore_requires_the_exact_Person_and_no_visible_recovery_error(
+        string actualEmail, bool? recoveryIsOffscreen, bool succeeds)
+    {
+        void Restore() => WorkspaceRestoration.AssertRestored(
+            () => new(Workspace, "Ready", "Current validated local Workspace.", actualEmail, recoveryIsOffscreen),
+            Workspace, AwaitReady, "avery@example.com");
+        if (succeeds) Restore();
+        else if (actualEmail != "avery@example.com") Assert.Throws<TimeoutException>(Restore);
+        else Assert.Throws<InvalidOperationException>(Restore);
+    }
+
+    [Theory]
     [InlineData("", false)]
     [InlineData("avery@example.com", null)]
     [Trait("Category", "Runner")]
     public void A_visible_recovery_error_or_restored_person_is_not_a_success(string email, bool? recoveryIsOffscreen)
     {
-        Assert.Throws<InvalidOperationException>(() => WorkspaceRestoration.AssertRestored(
+        void Restore() => WorkspaceRestoration.AssertRestored(
             () => new(Workspace, "Ready", "Current validated local Workspace.", email, recoveryIsOffscreen),
-            Workspace, AwaitReady));
+            Workspace, AwaitReady);
+        if (email.Length == 0) Assert.Throws<InvalidOperationException>(Restore);
+        else Assert.Throws<TimeoutException>(Restore);
     }
 
     [Theory]
@@ -49,6 +68,19 @@ public sealed class WorkspaceRestorationTests
             new(Workspace, "Ready", "Current validated local Workspace.", "", null)
         ]);
         WorkspaceRestoration.AssertRestored(observations.Dequeue, Workspace, AwaitReady);
+        Assert.Empty(observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Earlier_open_success_text_without_the_saved_destination_cannot_complete_a_reopen_wait()
+    {
+        var observations = new Queue<WorkspaceRestoration.Observation>([
+            new(Workspace, "Ready", "Current validated local Workspace.", "", null),
+            new(Workspace, "Opening Workspace...", "Current validated local Workspace.", "", null),
+            new(Workspace, "Ready", "Current validated local Workspace.", "avery@example.com", null)
+        ]);
+        WorkspaceRestoration.AssertRestored(observations.Dequeue, Workspace, AwaitReady, "avery@example.com");
         Assert.Empty(observations);
     }
 
