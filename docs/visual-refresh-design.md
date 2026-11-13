@@ -227,6 +227,10 @@ The small pencil beside the primary name opens a compact single-purpose editor.
 Save or Enter submits the value. Do not autosave while typing or on blur.
 Only a successful save closes as a saved edit; failure retains input and shows
 the error so Save can retry.
+Keep that local error short. Full technical evidence remains available through
+accessible Details inside the entry, without requiring an outside click that
+would cancel it. The global notice summarizes an idle rejection once rather
+than repeating pending, generic and technical versions of the same failure.
 
 Cancel, Escape, **or clicking outside cancels this entry and closes the editor**.
 Cancellation never saves the typed value and affects only this entry, not other

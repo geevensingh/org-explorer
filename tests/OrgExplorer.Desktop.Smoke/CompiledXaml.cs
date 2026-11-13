@@ -455,6 +455,19 @@ internal static partial class Program
                 Team<TextBlock>("InheritedSummary").ActualWidth > 600)
                 throw new InvalidOperationException($"Full-width context sections must align their title and bounded prose at {size}: title={title.X}, prose={prose.X}.");
         }
+        foreach (var notes in new[] { person, team })
+        {
+            var tab = (TabItem)notes.FindName("ReadTab");
+            var reader = (FlowDocumentScrollViewer)notes.FindName("Reading");
+            var body = reader.Document.Blocks.OfType<Paragraph>().First();
+            if (!tab.IsSelected || !Equals(body.Foreground, window.Foreground) ||
+                !Equals(reader.Document.Foreground, window.Foreground))
+                throw new InvalidOperationException($"Selected note Read styling lost body ink: selected={tab.IsSelected}; " +
+                    $"body={body.Foreground}; document={reader.Document.Foreground}; window={window.Foreground}.");
+            if (!VisualDescendants(tab).OfType<TextBlock>().Any(label =>
+                    label.Text == "Read" && Equals(label.Foreground, window.FindResource("AccentBrush"))))
+                throw new InvalidOperationException("The selected note header lost its accent while restoring normal body ink.");
+        }
         Console.WriteLine("PASS: actual compiled long Person/owned/current/frozen reading stays bounded in one scroll at 700/1100/maximized sizes, with collapsed attributed warnings.");
     }
 
@@ -521,6 +534,7 @@ internal static partial class Program
         var save = Control<Button>("SavePreferredNameButton");
         var panel = Control<FrameworkElement>("PreferredNameEditorPanel");
         var error = Control<TextBlock>("PreferredNameError");
+        var details = Control<TextBlock>("PreferredNameErrorDetails");
         void Settled() => PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
         void ObserveNoAutosave()
         {
@@ -541,14 +555,31 @@ internal static partial class Program
 
         Invoke("EditPreferredNameButton");
         editor.Text = " ";
+        var beforeFailure = WorkspaceFixtures.Bytes(folder);
         save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Settled();
         if (panel.Visibility != Visibility.Visible || editor.Text != " " ||
-            error.Visibility != Visibility.Visible || !error.Text.Contains("preferredName", StringComparison.Ordinal))
+            error.Visibility != Visibility.Visible || !details.Text.Contains("preferredName", StringComparison.Ordinal))
             throw new InvalidOperationException("An explicit rejected save must retain input and its inline error.");
+        if (Control<TextBlock>("NoticeSummary").Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1 ||
+            error.Text.Contains("expected nonblank", StringComparison.Ordinal))
+            throw new InvalidOperationException("One rejected Preferred name repeated global status or exposed technical schema prose as its local summary.");
+        var disclosure = Control<Expander>("PreferredNameFailureDetails");
+        disclosure.ApplyTemplate();
+        var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+        if (!disclosure.IsExpanded || !ReferenceEquals(Control<Popup>("PreferredNamePopup").Child, panel) ||
+            !LogicalDescendants(panel).Contains(disclosure) || !LogicalDescendants(disclosure).Contains(details) ||
+            !details.Focusable || !KeyboardNavigation.GetIsTabStop(details) ||
+            !System.Windows.Automation.AutomationProperties.GetHelpText(error).Contains("preferredName", StringComparison.Ordinal) ||
+            editor.Text != " " || workflow.CanSafelyClose)
+            throw new InvalidOperationException("Retained-name technical Details must be accessible inside the same entry without cancelling writing.");
+        AssertWorkspaceBytes(folder, beforeFailure);
+        if (Control<TextBlock>("LocalWritingDetails").Text != workflow.LocalSaveError)
+            throw new InvalidOperationException("Concise notice presentation dropped retained technical save evidence.");
         Invoke("FavoriteButton");
         Settled();
-        if (error.Visibility != Visibility.Visible || !error.Text.Contains("preferredName", StringComparison.Ordinal))
+        if (error.Visibility != Visibility.Visible || !details.Text.Contains("preferredName", StringComparison.Ordinal))
             throw new InvalidOperationException("An unrelated successful Favorite action hid the failed Preferred-name entry.");
         Invoke("CancelPreferredNameButton");
         if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose ||
@@ -639,7 +670,7 @@ internal static partial class Program
             save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Settled();
             if (panel.Visibility != Visibility.Visible || editor.Text != "Retained stale entry" ||
-                !error.Text.Contains("changed externally", StringComparison.Ordinal) ||
+                !details.Text.Contains("changed externally", StringComparison.Ordinal) ||
                 workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Delivered during entry")
                 throw new InvalidOperationException($"Explicit stale Preferred-name attempt {attempt} lost its original base/input or overwrote delivery.");
         }
@@ -1043,6 +1074,8 @@ internal static partial class Program
         var personNotes = Control<FrameworkElement>("PersonNotes");
         var reading = (FlowDocumentScrollViewer)personNotes.FindName("Reading");
         var original = reading.Document;
+        if (original.Blocks.OfType<Paragraph>().Any(paragraph => !Equals(paragraph.Foreground, window.Foreground)))
+            throw new InvalidOperationException("Actual saved Markdown headings must retain normal body ink in the selected Read tab.");
         var longReading = new FlowDocument { PagePadding = new Thickness(0) };
         foreach (var paragraph in Enumerable.Range(1, 40))
             longReading.Blocks.Add(new Paragraph(new Run($"Paragraph {paragraph}: the same Person remains identifiable while reading.")));

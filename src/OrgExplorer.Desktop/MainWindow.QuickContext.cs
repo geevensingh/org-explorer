@@ -158,7 +158,18 @@ public partial class MainWindow
             (!workPending || preferredNameSavePending);
         SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && workflow.IsWorkspaceCurrent;
         CancelPreferredNameButton.IsEnabled = preferredNameEditing;
-        PreferredNameError.Text = preferredNameSaveError ?? "";
+        PreferredNameError.Text = preferredNameSaveError is null ? "" : workflow.PublicationOutcome switch
+        {
+            WorkspacePublicationOutcome.PublishedConflict =>
+                "A saved change has a conflict. Your entry is retained. See Details.",
+            WorkspacePublicationOutcome.Indeterminate =>
+                "A save outcome is unknown. Your entry is retained. Preserve the evidence in Details.",
+            _ => "Could not save. Your entry is retained. See Details before retrying."
+        };
         PreferredNameError.Visibility = preferredNameSaveError is null ? Visibility.Collapsed : Visibility.Visible;
+        System.Windows.Automation.AutomationProperties.SetHelpText(PreferredNameError, preferredNameSaveError ?? "");
+        PreferredNameErrorDetails.Text = preferredNameSaveError ?? "";
+        PreferredNameFailureDetails.Visibility = PreferredNameError.Visibility;
+        if (preferredNameSaveError is null) PreferredNameFailureDetails.IsExpanded = false;
     }
 }

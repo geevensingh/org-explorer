@@ -167,7 +167,7 @@ internal static partial class Program
             CaptureVisualEvidence(window, "preferred-name-normal-entry");
             Set(entry, "PreferredName", " ");
             Click(entry, "SavePreferredName");
-            Await(() => Find(entry, "PreferredNameError").Current.Name.Contains("preferredName") &&
+            Await(() => Find(entry, "PreferredNameError").Current.HelpText.Contains("preferredName") &&
                 Find(entry, "SavePreferredName").Current.IsEnabled);
             AssertValue(entry, "PreferredName", " ");
             CaptureVisualEvidence(window, "preferred-name-retained-failure");

@@ -178,11 +178,23 @@
     </Style>
     <Style x:Key="NoteModeTab" TargetType="TabItem">
       <Setter Property="Padding" Value="10,5"/>
+      <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Window}}"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/>
+      <Setter Property="HeaderTemplate">
+        <Setter.Value>
+          <DataTemplate>
+            <TextBlock x:Name="HeaderLabel" Text="{Binding}"/>
+            <DataTemplate.Triggers>
+              <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=TabItem}}" Value="True">
+                <Setter TargetName="HeaderLabel" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+              </DataTrigger>
+            </DataTemplate.Triggers>
+          </DataTemplate>
+        </Setter.Value>
+      </Setter>
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
           <Setter Property="Background" Value="#EAF3FF"/>
         </Trigger>
         <Trigger Property="IsKeyboardFocused" Value="True">
@@ -650,12 +662,17 @@
                              TextChanged="EditPersonAttribute"/>
                     <TextBlock Text="Empty clears the preferred name." Foreground="{StaticResource MutedBrush}"
                                TextWrapping="Wrap" Margin="0,8"/>
-                    <ScrollViewer MaxHeight="140" Focusable="False"
-                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                      <TextBlock x:Name="PreferredNameError" AutomationProperties.AutomationId="PreferredNameError"
-                                 Foreground="#A4262C" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,8"
-                                 AutomationProperties.LiveSetting="Assertive"/>
-                    </ScrollViewer>
+                    <TextBlock x:Name="PreferredNameError" AutomationProperties.AutomationId="PreferredNameError"
+                               Foreground="#A4262C" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,8"
+                               AutomationProperties.LiveSetting="Assertive"/>
+                    <Expander x:Name="PreferredNameFailureDetails" Header="Details" IsExpanded="False" Visibility="Collapsed"
+                              AutomationProperties.AutomationId="PreferredNameFailureDetails" Margin="0,0,0,8">
+                      <ScrollViewer MaxHeight="140" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <TextBlock x:Name="PreferredNameErrorDetails" TextWrapping="Wrap" Focusable="True"
+                                   KeyboardNavigation.IsTabStop="True"
+                                   AutomationProperties.AutomationId="PreferredNameErrorDetails"/>
+                      </ScrollViewer>
+                    </Expander>
                     <StackPanel Orientation="Horizontal">
                       <Button x:Name="SavePreferredNameButton" Content="Save" MinWidth="80" Style="{StaticResource PrimaryButton}"
                               AutomationProperties.AutomationId="SavePreferredName" Click="SavePreferredName"/>
