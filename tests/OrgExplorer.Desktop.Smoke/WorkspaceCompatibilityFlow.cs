@@ -15,16 +15,16 @@ internal static partial class Program
         try
         {
             var window = Window(process);
-            Await(() => Find(window, "Status").Current.Name == "Choose a Workspace.");
+            Await(() => Status(window) == "Choose a Workspace.");
             AssertEverydayChrome(window, "No Workspace open");
-            SetSettingsVisible(window, true);
-            AssertValue(window, "WorkspacePath", "");
+            ShowTechnicalSettings(window);
+            if (Find(window, "WorkspacePath").Current.Name != "No Workspace open")
+                throw new InvalidOperationException("First-run Settings invented a current Workspace path.");
             if (!Find(window, "OpenWorkspace").Current.IsEnabled)
                 throw new InvalidOperationException("First launch did not leave usable Workspace-opening controls.");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
             AwaitRestoredWorkspace(window, workspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
@@ -37,7 +37,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Current profile lost its Directory name.");
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", "Indexed UI edit");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            Await(() => Status(window) == "Saved locally.");
             var pointer = Path.Combine(workspace, "workspace.json");
             var compatible = File.ReadAllBytes(pointer);
             var data = JsonNode.Parse(compatible)!;
@@ -45,7 +45,7 @@ internal static partial class Program
             data["futureRequiredField"] = "Must not discard";
             File.WriteAllText(pointer, data.ToJsonString());
             var before = WorkspaceFixtures.Bytes(workspace);
-            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            Await(() => Status(window).Contains("Upgrade"));
             if (Find(window, "PreferredName").Current.IsEnabled ||
                 Find(window, "ToggleFavorite").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
@@ -53,11 +53,11 @@ internal static partial class Program
             if (Find(window, "ApplyImport").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
             ReturnToPeople(window);
-            SetSettingsVisible(window, true);
+            ShowTechnicalSettings(window);
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
             AssertNoFakeUpdater(window);
             Click(window, "RetryWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
+            Await(() => Status(window).Contains("Upgrade"));
             AssertWorkspaceBytes(workspace, before);
             File.WriteAllBytes(pointer, compatible);
             SetSettingsVisible(window, false);
@@ -81,12 +81,11 @@ internal static partial class Program
             var window = Window(recovery);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", legacyWorkspace);
             using (File.Open(Path.Combine(legacyWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                Click(window, "OpenWorkspace");
-                Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
-                SetSettingsVisible(window, true);
+                PickWorkspaceFolder(window, legacyWorkspace);
+                Await(() => Status(window).Contains("does not migrate"));
+                ShowTechnicalSettings(window);
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("does not migrate"));
                 SetSettingsVisible(window, false);
                 var edit = window.FindFirst(TreeScope.Descendants,
@@ -101,14 +100,13 @@ internal static partial class Program
             }
             SetSettingsVisible(window, true);
             Click(window, "RetryWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
+            Await(() => Status(window).Contains("does not migrate"));
             AssertWorkspaceBytes(legacyWorkspace, originals);
             if (File.Exists(Path.Combine(legacyWorkspace, ".workspace.lock")) ||
                 !directories.SequenceEqual(Directory.GetDirectories(legacyWorkspace, "*", SearchOption.AllDirectories).Order()))
                 throw new InvalidOperationException("Older Workspace rejection mutated its directories or lock.");
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", recoveryWorkspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, recoveryWorkspace);
             AwaitRestoredWorkspace(window, recoveryWorkspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009C");
@@ -146,8 +144,10 @@ internal static partial class Program
         }
 
         Directory.Move(workspace, moved);
-        var invalid = Path.Combine(root, "not-a-folder");
-        File.WriteAllText(invalid, "Not a Workspace directory.");
+        var invalid = Path.Combine(root, "invalid-workspace");
+        Directory.CreateDirectory(invalid);
+        File.WriteAllText(Path.Combine(invalid, "workspace.json"), "{invalid");
+        var invalidBytes = WorkspaceFixtures.Bytes(invalid);
         using (var failedManual = Launch(executable))
         {
             try
@@ -155,9 +155,9 @@ internal static partial class Program
                 var window = Window(failedManual);
                 AwaitStartupRecovery(window, workspace);
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", invalid);
-                Click(window, "OpenWorkspace");
-                Await(() => Find(window, "Status").Current.Name.Contains("could not be opened"));
+                PickWorkspaceFolder(window, invalid);
+                Await(() => Status(window).Contains("could not be opened"));
+                AssertWorkspaceBytes(invalid, invalidBytes);
                 Close(failedManual);
             }
             finally { StopApplication(failedManual); }
@@ -174,8 +174,7 @@ internal static partial class Program
                 if (Directory.Exists(workspace))
                     throw new InvalidOperationException("A failed manual attempt replaced the remembered Workspace.");
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", alternate);
-                Click(window, "OpenWorkspace");
+                PickWorkspaceFolder(window, alternate, "ChooseAnotherWorkspace");
                 AwaitRestoredWorkspace(window, alternate);
                 Close(choose);
             }
@@ -204,8 +203,8 @@ internal static partial class Program
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
             var viewRecovery = window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewPreferenceStatus"));
-            return new(Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkflowActivity").Current.Name,
-                Find(window, "WorkspaceFreshness").Current.Name, CurrentPersonEmail(window),
+            return new(Find(window, "WorkspaceName").Current.HelpText, Activity(window),
+                Freshness(window), CurrentPersonEmail(window),
                 viewRecovery?.Current.IsOffscreen == false ? false : recovery?.Current.IsOffscreen);
         }, Path.GetFullPath(workspace), awaitState ?? Await, expectedEmail);
     }
@@ -213,8 +212,8 @@ internal static partial class Program
     private static void AwaitUnavailableView(AutomationElement window, string workspace)
     {
         Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-            Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace." &&
+            Activity(window) == "Ready" &&
+            Freshness(window) == "Current validated local Workspace." &&
             CurrentPersonEmail(window).Length == 0 &&
             !Find(window, "WorkspaceStart").Current.IsOffscreen &&
             !Find(window, "ViewPreferenceStatus").Current.IsOffscreen &&
@@ -250,7 +249,7 @@ internal static partial class Program
         Await(() => !Find(window, "WorkspaceStartupStatus").Current.IsOffscreen &&
             Find(window, "WorkspaceStartupStatus").Current.Name.Contains(workspace) &&
             Find(window, "WorkspaceStartupStatus").Current.Name.Contains("could not be reopened") &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
+            Activity(window) == "Ready");
         if (!Find(window, "RetryStartupWorkspace").Current.IsEnabled ||
             !Find(window, "ChooseAnotherWorkspace").Current.IsEnabled ||
             CurrentPersonEmail(window).Length != 0 ||

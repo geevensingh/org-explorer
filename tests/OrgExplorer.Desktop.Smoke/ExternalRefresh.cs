@@ -13,6 +13,7 @@ internal static partial class Program
     private static void RunExternalRefreshFlow(string executable, string root)
     {
         var folder = Path.Combine(root, "external-workspace");
+        Directory.CreateDirectory(folder);
         var import = Path.Combine(root, "external-import.json");
         var photo = Path.Combine(root, "external.png");
         CreatePhotoFixture(photo);
@@ -27,14 +28,14 @@ internal static partial class Program
         {
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", folder);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, folder);
+            AwaitRestoredWorkspace(window, folder);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
@@ -102,7 +103,7 @@ internal static partial class Program
             person["managerEmail"] = "missing@example.com";
             File.WriteAllText(personFile, person.ToJsonString());
             File.WriteAllText(noteFile, File.ReadAllText(noteFile).Replace("# External context", "# Pending context"));
-            Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("STALE"));
+            Await(() => Freshness(window).Contains("STALE"));
             if (Find(window, "ProfileHeading").Current.Name != "External Avery" ||
                 !Find(window, "NavigateManager").Current.Name.Contains("Casey Example"))
                 throw new InvalidOperationException("Invalid Workspace fabricated a new Person or reporting root.");
@@ -111,7 +112,7 @@ internal static partial class Program
             if (Find(window, "EditPreferredName").Current.IsEnabled)
                 throw new InvalidOperationException("Stale Workspace still claims writable current Person state.");
             File.WriteAllText(personFile, valid);
-            Await(() => Find(window, "WorkspaceFreshness").Current.Name.Contains("Current validated"));
+            Await(() => Freshness(window).Contains("Current validated"));
             Await(() => ReadingText(window).Contains("Pending context"));
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
                 throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
@@ -151,11 +152,11 @@ internal static partial class Program
         }
         AssertValue(window, "OfficeNumber", local);
         Click(window, "SaveProfile");
-        Await(() => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal));
+        Await(() => Status(window).Contains("changed externally", StringComparison.Ordinal));
         AssertRejectedRetry(window, "RetryProfileSave", "Saving complete profile…",
-            () => Find(window, "Status").Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            Find(window, "Status").Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            () => Status(window).Contains("changed externally", StringComparison.Ordinal) &&
+            Status(window).Contains("NOT saved", StringComparison.Ordinal) &&
+            Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
             Find(window, "SaveProfile").Current.IsEnabled && Find(window, "RetryProfileSave").Current.IsEnabled &&
             window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
@@ -218,7 +219,7 @@ internal static partial class Program
         AssertRejectedRetry(window, $"Retry{kind}NoteSave", $"Saving private {kind} note…",
             () => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
             status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
-            Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits", StringComparison.Ordinal) &&
+            Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
             Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
             window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
@@ -230,7 +231,7 @@ internal static partial class Program
         Click(window, $"Discard{kind}NoteDraft");
         var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
         Await(() => Find(window, $"{kind}NoteHeading").Current.Name.Length > 0 &&
-            Find(window, "WorkflowActivity").Current.Name == "Ready");
+            Activity(window) == "Ready");
         AssertNoteView(window, kind, editing: false);
         SelectTab(window, $"{kind}NoteEditTab");
         Await(() => Value(window, $"{kind}NoteMarkdown") == deliveredMarkdown);
@@ -250,7 +251,7 @@ internal static partial class Program
         var retry = ControlReadiness.AwaitPattern(() => Find(window, button), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
         RetryRejection.AssertCompleted(
-            changed => new ActivitySubscription(Find(window, "WorkflowActivity"), changed),
+            changed => new ActivitySubscription(window, changed),
             retry.Invoke, savingActivity, isRejected, Await);
     }
 
@@ -267,7 +268,7 @@ internal static partial class Program
                 if (e.NewValue is string name) changed(name);
             };
             Automation.AddAutomationPropertyChangedEventHandler(activity, TreeScope.Element, handler,
-                AutomationElement.NameProperty);
+                AutomationElement.ItemStatusProperty);
         }
 
         public void Dispose() => Automation.RemoveAutomationPropertyChangedEventHandler(activity, handler);

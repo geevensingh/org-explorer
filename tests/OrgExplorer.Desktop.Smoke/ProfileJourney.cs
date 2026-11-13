@@ -25,6 +25,7 @@ internal static partial class Program
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}]}
             """);
         var workspace = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(workspace);
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var link = $"https://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/profile";
@@ -39,27 +40,41 @@ internal static partial class Program
                 throw new InvalidOperationException("Settings lacks a meaningful, keyboard-accessible action.");
             settings.SetFocus();
             PressCopyKey(0x20);
-            try { Await(() => Find(window, "WorkspacePath").Current.HasKeyboardFocus); }
+            try { Await(() => Find(window, "OpenWorkspace").Current.HasKeyboardFocus); }
             catch (TimeoutException error)
             {
-                var path = Find(window, "WorkspacePath").Current;
+                var path = Find(window, "OpenWorkspace").Current;
                 var focused = AutomationElement.FocusedElement.Current;
                 throw new TimeoutException(
-                    "Settings opened but Workspace folder did not receive keyboard focus. " +
+                    "Settings opened but Open Workspace did not receive keyboard focus. " +
                     $"Folder: enabled={path.IsEnabled}, focusable={path.IsKeyboardFocusable}, offscreen={path.IsOffscreen}, bounds={path.BoundingRectangle}. " +
                     $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
             }
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            AwaitLocalWorkIdle(window);
+            CaptureVisualEvidence(window, "settings-grouped-first-run");
+            PickWorkspaceFolder(window, null, observePicker: () => CaptureVisualEvidence(window, "settings-native-picker-cancel"));
+            Await(() => Find(window, "OpenWorkspace").Current.HasKeyboardFocus);
+            if (Find(window, "WorkspaceName").Current.HelpText.Length != 0 ||
+                Directory.GetFileSystemEntries(workspace).Length != 0)
+                throw new InvalidOperationException("Cancelling the native picker opened or initialized a Workspace.");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             AssertEverydayChrome(window, "workspace");
             AssertImportHidden(window);
+            SetSettingsVisible(window, true);
+            if (Find(window, "WorkspacePath").Current.ControlType != ControlType.Text ||
+                Find(window, "WorkspacePath").Current.Name != Path.GetFullPath(workspace))
+                throw new InvalidOperationException("Settings did not display the full current Workspace path.");
+            AssertKeyboardCopy(window, "WorkspacePath", Path.GetFullPath(workspace), "Copy path");
+            CaptureVisualEvidence(window, "settings-grouped-current-workspace");
+            SetSettingsVisible(window, false);
             OpenImportView(window);
             Set(window, "ImportPath", import);
-            Click(window, "PreviewImport");
+            Find(window, "ImportPath").SetFocus();
+            PressCopyKey(0x0D);
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            CaptureVisualEvidence(window, "settings-import-enter-preview");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
                 if (!saved.OpenWorkspace(workspace) || saved.People.Count != 0)
@@ -67,25 +82,25 @@ internal static partial class Program
             }
             Set(window, "ImportPath", import + ".missing");
             Await(() => !Find(window, "ApplyImport").Current.IsEnabled &&
-                Find(window, "Status").Current.Name.Contains("Preview again"));
+                Status(window).Contains("Preview again"));
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
             {
                 Click(window, "ApplyImport");
-                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                Await(() => Status(window).Contains("NOT saved") &&
                     Find(window, "DiscardImport").Current.IsEnabled);
                 ReturnToPeople(window);
                 Click(window, "DiscardImport");
-                Await(() => Find(window, "Status").Current.Name.Contains("Import discarded") &&
-                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+                Await(() => Status(window).Contains("Import discarded") &&
+                    Activity(window) == "Ready");
             }
             OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
@@ -120,7 +135,7 @@ internal static partial class Program
                 """);
             OpenImportView(window);
             Click(window, "PreviewImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
+            Await(() => Status(window).Contains("Import rejected"));
             if (Find(window, "ApplyImport").Current.IsEnabled ||
                 !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
@@ -128,12 +143,12 @@ internal static partial class Program
             AssertPreferredNameReading(window, "", "Add preferred name");
             Click(window, "EditPreferredName");
             Set(window, "PreferredName", " ");
-            Await(() => Find(window, "Status").Current.Name.Contains("preferredName"));
+            Await(() => Status(window).Contains("preferredName"));
             AssertValue(window, "PreferredName", " ");
             Click(window, "ReadPreferredName");
             AssertValue(window, "PreferredName", " ");
             Set(window, "PreferredName", "Ave");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            Await(() => Status(window) == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Click(window, "ReadPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
@@ -159,7 +174,7 @@ internal static partial class Program
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
@@ -212,7 +227,7 @@ internal static partial class Program
         keybd_event(key, 0, 2, 0);
     }
 
-    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected)
+    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
     {
         var value = Find(window, name);
         if (!value.Current.IsKeyboardFocusable)
@@ -224,7 +239,7 @@ internal static partial class Program
         Await(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
-            new PropertyCondition(AutomationElement.NameProperty, "Copy value"))) is not null);
+            new PropertyCondition(AutomationElement.NameProperty, copyAction))) is not null);
         PressCopyKey(0x28);
         PressCopyKey(0x0D);
         Await(() => System.Windows.Clipboard.GetText() == expected);
@@ -234,7 +249,7 @@ internal static partial class Program
     {
         Click(window, "SaveProfile");
         Await(() => Find(window, "EditProfile").Current.IsEnabled &&
-            Find(window, "Status").Current.Name.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+            Status(window).StartsWith("Profile saved locally.", StringComparison.Ordinal));
     }
 
     private static void CancelProfileEditing(AutomationElement window)

@@ -32,11 +32,14 @@ dotnet run --project src\OrgExplorer.Desktop
 ```
 
 Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
-label. In **Settings**, choose an empty local folder outside the installation,
-then **Open Workspace**. The full folder path and folder-opening controls live
-there rather than in the everyday toolbar.
+label. In **Settings → Open Workspace...**, select or create an empty local
+folder outside the installation in the native folder picker. Accepting the
+picker immediately attempts the validated open; cancelling changes nothing.
+Settings displays the full current path with keyboard/context-menu **Copy path**,
+not an editable pending path or a second Open step.
 Choose **Settings → Import...** without entering Edit profile, choose a version-1
-JSON file, review **Preview import**, and deliberately **Apply reviewed import**.
+JSON file, review **Preview import** (also Enter in its path), and deliberately
+**Apply reviewed import**. Enter never applies the batch.
 **Back to people** returns to reading; file selection, preview and Apply controls
 are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
@@ -78,6 +81,13 @@ Renaming a note does not change its identity. An unavailable or archived target
 retains the saved preference and writing, explains the problem, and shows a
 purposeful search/Favorites/People start instead of opening replacement writing.
 No unsaved edit buffer is restored.
+
+Settings groups Workspace, Import and Updates in one bounded scrolling page.
+**Compatibility, recovery and technical details** retains validation/maintenance,
+revision-bound conflict review and update/signing/rollback guidance. Healthy
+reading has no permanent Ready/validated/saved rows or inactive recovery buttons.
+Actual activity and unresolved problems appear beneath the toolbar, with scoped
+actions and Details; editor failures remain beside the retained writing.
 
 Preferred name normally appears as the primary name. Its adjacent pencil
 (**Edit preferred name**, or **Add preferred name** when unset) reveals its

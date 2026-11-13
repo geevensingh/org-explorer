@@ -1,8 +1,10 @@
 # Person workspace visual refresh
 
-Status: approved design, implementation not started. Agreed and approved in the
-November 12, 2026 interview. No implementation or acceptance of the proposed
-refresh is claimed.
+Status: approved design, implementation in progress on the #70 integration branch.
+Agreed and approved in the November 12, 2026 interview. The grouped Settings and
+scoped-notice slice is implemented in #73; hosted native-picker evidence and
+whole-pass actual-WPF/reference review are still required. No whole-pass
+completion or visual acceptance is claimed.
 
 ## Purpose and precedence
 

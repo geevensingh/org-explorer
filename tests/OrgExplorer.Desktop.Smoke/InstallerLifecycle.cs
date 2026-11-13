@@ -104,15 +104,15 @@ internal static partial class Program
         foreach (var unsafeWorkspace in new[] { applicationDirectory, installation, Path.Combine(installation, "private-data"),
             Path.GetDirectoryName(installation)!, Path.GetPathRoot(installation)! })
         {
+            Directory.CreateDirectory(unsafeWorkspace);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", unsafeWorkspace);
-            Click(window, "OpenWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("outside the application installation"));
+            PickWorkspaceFolder(window, unsafeWorkspace);
+            Await(() => Status(window).Contains("outside the application installation"));
         }
+        Directory.CreateDirectory(workspace);
         SetSettingsVisible(window, true);
-        Set(window, "WorkspacePath", workspace);
-        Click(window, "OpenWorkspace");
-        Await(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
+        PickWorkspaceFolder(window, workspace);
+        AwaitRestoredWorkspace(window, workspace);
         return window;
     }
 

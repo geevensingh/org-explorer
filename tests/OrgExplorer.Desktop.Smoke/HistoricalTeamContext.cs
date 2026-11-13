@@ -12,6 +12,7 @@ internal static partial class Program
     {
         Process? process = null;
         var workspace = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(workspace);
         var import = Path.Combine(root, "import.json");
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -29,8 +30,8 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
@@ -261,8 +262,8 @@ internal static partial class Program
         Click(window, "PreviewImport");
         Await(() => Find(window, "ApplyImport").Current.IsEnabled);
         Click(window, "ApplyImport");
-        Await(() => Find(window, "Status").Current.Name.Contains("applied") ||
-            Find(window, "Status").Current.Name.Contains("no changes"));
+        Await(() => Status(window).Contains("applied") ||
+            Status(window).Contains("no changes"));
         ReturnToPeople(window);
     }
     private static void OpenImportView(AutomationElement window)

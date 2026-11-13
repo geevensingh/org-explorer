@@ -116,8 +116,10 @@ public partial class MainWindow
 
     private void SetUpdateWorkEnabled(bool enabled)
     {
-        ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = WorkspaceStartupPanel.IsEnabled =
+        ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = OpenImportButton.IsEnabled = WorkspaceStartupPanel.IsEnabled =
             ImportControls.IsEnabled = ImportPreviewPanel.IsEnabled = enabled;
+        ShowPublicationConflicts();
+        ShowOperationalNotice();
     }
 
     private void ChangeStartupUpdateChecks(object sender, RoutedEventArgs e)
@@ -137,7 +139,14 @@ public partial class MainWindow
         var message = showInstallProgress ? updateInstaller?.Message : updateCheckPending
             ? "Checking project-authorized updates… Local browsing and editing remain available."
             : updates?.Result.Message;
-        UpdateSummary.Text = UpdateGuidance.Text = updateConfigurationError ??
+        UpdateGuidance.Text = updateConfigurationError ??
             string.Join("\n", new[] { message, updates?.PreferenceError, updateRecoveryError, updateJournal?.Message }.Where(text => !string.IsNullOrEmpty(text)));
+        UpdateSummary.Text = string.Join("\n", new[] { updateConfigurationError, message, updates?.PreferenceError,
+                updateRecoveryError, updateJournal?.Message }.Where(text => !string.IsNullOrEmpty(text))
+            .Select(text => text!.Split('\n')[0]).Distinct());
+        UpdateSummary.Visibility = updateConfigurationError is not null || updateCheckPending || showInstallProgress ||
+            updates?.PreferenceError is not null || updateRecoveryError is not null || updateJournal?.RequiresAttention == true ||
+            updates?.Result.Status is not (null or ReleaseCheckStatus.NotChecked or ReleaseCheckStatus.UpToDate)
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 }
