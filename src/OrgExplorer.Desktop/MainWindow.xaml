@@ -314,6 +314,7 @@
             </TextBlock>
             <WrapPanel x:Name="WorkspaceControls" Margin="0,16,0,24">
               <Button x:Name="OpenWorkspaceButton" Content="_Open Workspace..."
+                      Style="{StaticResource PrimaryButton}"
                       AutomationProperties.AutomationId="OpenWorkspace" AutomationProperties.Name="Open Workspace..."
                       Click="OpenWorkspace"/>
             </WrapPanel>

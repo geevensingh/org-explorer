@@ -503,8 +503,8 @@ internal static partial class Program
         AssertSelectionMatchesProfile(window);
         CaptureVisualEvidence(window, "reading-rejected-overlay-exact-draft-retained");
         QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", expectNavigation: false);
-        Await(() => Find(window, "Status").Current.Name.Contains("Person note") &&
-            Find(window, "Status").Current.Name.Contains("Retry or discard"));
+        Await(() => Status(window).Contains("Person note") &&
+            Status(window).Contains("Retry or discard"));
         if (!IsVisible(window, "PeopleNavigation") || Value(window, "SearchQuery") != "casey@example" ||
             before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
             Find(window, "Email").Current.Name != "avery@example.com" ||
