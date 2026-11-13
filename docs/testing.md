@@ -11,6 +11,8 @@ without opening, focusing, resizing or repairing a view. The existing hosted
 desktop lanes retain these PNGs beside JSON recording the source revision,
 run/attempt, executable hash, DPI and captured bounds. Calls require unique
 state names within a scenario and never overwrite an earlier observation.
+Optional application-monitor capture retains the full actual monitor, including
+the taskbar region, and labels its scope separately from a window-bounds capture.
 Captures follow the same desktop-isolation rules below; they are comparison
 material, not behavioral proof or owner visual acceptance.
 
@@ -497,7 +499,13 @@ The existing profile and installed desktop journeys compare the live window's
 small/large `WM_GETICON` pixels with the matching produced native frames, saving
 unscaled PNGs and a light/dark compositing plate with executable hash and candidate
 metadata. This is native-resource evidence, not a screenshot of the taskbar or
-Start menu. The isolated installed lifecycle also resolves the real Desktop/Start
+Start menu. Alongside the existing window screenshot, those journeys also save
+actual full application-monitor pixels with the same candidate/executable
+identity. Review the monitor PNG for the visible taskbar and app button; neither
+registrations nor the HICON plate proves those shell pixels. Capture does not
+open Start, reveal an auto-hidden taskbar, change theme/focus, or replay setup.
+Start-menu and setup-dialog appearance therefore remains unproven by this path.
+The isolated installed lifecycle also resolves the real Desktop/Start
 shortcuts and Installed Apps icon target after install, upgrade and reinstall.
 These checks do not replace actual Windows small-size/surface review or the
 whole-pass owner review. They must not be run on the shared local desktop.
