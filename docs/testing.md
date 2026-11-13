@@ -548,8 +548,10 @@ viewport offset and selected email; it retains the existing 180-second bound.
 ## Nightly and manual execution
 
 `.github\workflows\scale-verification.yml` owns **both** independent jobs and
-calls the exact commands above. UI scenarios are serial within their own job,
-not parallel competing windows. Each suite records the same exact candidate SHA
+calls the exact commands above. Separate invocations can overlap on the same ref;
+no scale concurrency group serializes or cancels them. Each job uses its own
+hosted Windows runner. UI scenarios are serial within their own job, not parallel
+competing windows. Each suite records the same exact candidate SHA
 in independently named results/artifacts; artifacts upload even on failure, and
 missing artifacts fail. Neither job is another required PR check.
 
