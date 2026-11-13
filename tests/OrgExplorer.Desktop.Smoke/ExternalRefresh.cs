@@ -181,11 +181,11 @@ internal static partial class Program
         AwaitLocalWorkIdle(window);
         SelectTab(window, $"{kind}NoteEditTab");
         var editor = (ValuePattern)Find(window, $"{kind}NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
-        var status = Find(window, $"{kind}NoteStatus");
+        var noteSurface = Find(window, $"{kind}NotesSurface");
         var original = File.ReadAllText(noteFile);
         var local = $"# Local {kind} draft";
         editor.SetValue(local);
-        if (!status.Current.Name.StartsWith("Pending", StringComparison.Ordinal) || File.ReadAllText(noteFile) != original)
+        if (!noteSurface.Current.ItemStatus.StartsWith("Pending", StringComparison.Ordinal) || File.ReadAllText(noteFile) != original)
             throw new InvalidOperationException($"The first {kind} autosave was not still pending before delivery.");
         var delivered = original + $"\r\n# Delivered {kind} writing\r\n";
         File.WriteAllText(noteFile, delivered);
@@ -201,24 +201,24 @@ internal static partial class Program
         {
             if (timer.Elapsed >= TimeSpan.FromSeconds(20))
                 throw new TimeoutException($"External {kind} delivery was not accepted while typing within 20 seconds.");
-            if (status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) ||
+            if (noteSurface.Current.ItemStatus.Contains("NOT saved", StringComparison.Ordinal) ||
                 !File.ReadAllBytes(noteFile).SequenceEqual(bytes))
                 throw new InvalidOperationException($"The first {kind} save ran before delivery acceptance was observed.");
             local = $"# Local {kind} draft {++edits}";
             editor.SetValue(local);
             Thread.Sleep(10);
         }
-        Await(() => status.Current.Name.Contains("changed externally", StringComparison.Ordinal));
+        Await(() => noteSurface.Current.ItemStatus.Contains("changed externally", StringComparison.Ordinal));
         AssertValue(window, $"{kind}NoteMarkdown", local);
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
             throw new InvalidOperationException($"The first {kind} autosave overwrote delivered writing.");
         Click(window, "NavigateManager");
-        Await(() => status.Current.Name.Contains("before leaving or closing", StringComparison.Ordinal));
+        Await(() => noteSurface.Current.ItemStatus.Contains("before leaving or closing", StringComparison.Ordinal));
         if (Find(window, "Email").Current.Name != "avery@example.com")
             throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
         AssertRejectedRetry(window, $"Retry{kind}NoteSave", $"Saving private {kind} note…",
-            () => status.Current.Name.Contains("changed externally", StringComparison.Ordinal) &&
-            status.Current.Name.Contains("NOT saved", StringComparison.Ordinal) &&
+            () => noteSurface.Current.ItemStatus.Contains("changed externally", StringComparison.Ordinal) &&
+            noteSurface.Current.ItemStatus.Contains("NOT saved", StringComparison.Ordinal) &&
             Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
             Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
             window.FindFirst(TreeScope.Descendants,
@@ -239,7 +239,7 @@ internal static partial class Program
         if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
             throw new InvalidOperationException($"{kind} discard rewrote the delivered document.");
         Set(window, $"{kind}NoteMarkdown", $"# Intentional {kind} edit after discard");
-        Await(() => status.Current.Name.Contains("saved locally", StringComparison.Ordinal));
+        Await(() => noteSurface.Current.ItemStatus.Contains("saved locally", StringComparison.Ordinal));
         if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
             throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
     }

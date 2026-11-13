@@ -289,13 +289,15 @@ internal static partial class Program
         var ids = new[] { "NavigateManager", "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue",
             "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" };
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
-        scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
         QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
         Click(window, "ClearSearch");
         Await(() => Value(window, "SearchQuery") == "" && IsVisible(window, "People") &&
             Find(window, "Email").Current.Name == "longread@example.com");
-        scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         for (var index = 0; index < ids.Length; index++)
             if (Math.Abs(Find(window, ids[index]).Current.BoundingRectangle.Left - lefts[index]) > 2)
                 throw new InvalidOperationException("Populated and missing facts repacked a width-stable labelled slot: " + ids[index]);
@@ -430,7 +432,14 @@ internal static partial class Program
         Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
         void AtSize(string state)
         {
-            var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+            var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
+                control =>
+                {
+                    var observed = control.Current;
+                    return observed.IsEnabled && !observed.IsOffscreen && !observed.BoundingRectangle.IsEmpty &&
+                        observed.BoundingRectangle.Width > 0 && observed.BoundingRectangle.Height > 0;
+                }, control => control.TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)
+                    ? (ScrollPattern)pattern : null, Await);
             if (scroll.Current.HorizontallyScrollable)
                 throw new InvalidOperationException("Inline profile editing requires horizontal page scrolling.");
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);

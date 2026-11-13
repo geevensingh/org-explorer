@@ -347,6 +347,20 @@ and locked publication are explicit; a failed view write retains valid in-sessio
 reading without creating a designation. Settings-driven existing-only reopen
 cannot replace retained independent drafts or enable unsafe close/restart.
 
+Team/history explicitly selects Read after profile Save preserves the new
+independent Team note's Edit mode, before its reading capture. First-autosave
+external-delivery checks observe the note surface's actual ItemStatus from
+pending-before-delivery through failure, retained typing and explicit retry;
+they never depend on an absent healthy status row.
+The compiled 44-Person wide fixture also observes empty reading before long-note
+setup: the main viewport can fit its complete content and reports no vertical
+scrolling. Scroll-to-top skips that invalid axis; a genuinely scrollable long
+document still receives one real provider action. Provider failures propagate,
+without action retry or a process-token-error waiver. Responsive form preparation
+waits read-only for a visible positive viewport and an available ScrollPattern
+within the existing bounded wait before acting or measuring; it does not repair
+layout or substitute outer-window size for interior readiness.
+
 The existing Person-note journey's second launch requires the exact secondary
 Person GUID/title/kind in Read mode before deliberately opening ongoing writing.
 Both normal and responsive Team/history journeys similarly reopen the secondary

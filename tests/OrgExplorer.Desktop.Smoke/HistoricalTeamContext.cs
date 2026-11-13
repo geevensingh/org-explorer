@@ -136,11 +136,15 @@ internal static partial class Program
             BeginProfileEditing(window);
             Set(window, "JobTitle", "Director");
             SaveProfileEditing(window);
+            AssertNoteView(window, "Team", editing: true);
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             AssertOtherTeamNotesCollapsed(window);
             var ownedWarning = Find(window, "OwnedTeamReviewWarnings").Current.Name;
             if (!ownedWarning.Contains("Morgan context") || !ownedWarning.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Collapsed Other Team notes concealed the reviewed note's exact ownership.");
+            SelectTab(window, "TeamNoteReadTab");
+            AssertNoteView(window, "Team", editing: false);
+            Await(() => IsVisible(window, "TeamNoteReading"));
             ReadAndCaptureNote(window, "TeamNoteReading", "Original direct", "team-owned-review-warning-outside-other-notes");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             Click(window, "NewPersonNote");
