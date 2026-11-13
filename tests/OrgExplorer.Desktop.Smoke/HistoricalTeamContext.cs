@@ -76,6 +76,7 @@ internal static partial class Program
             AssertNoteView(window, "Team", editing: false);
             if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note"))
                 throw new InvalidOperationException("Team search redirected a secondary note to the ongoing note.");
+            CaptureVisualEvidence(window, "search-exact-empty-other-team-note");
             var secondaryFile = Directory.GetFiles(Path.Combine(workspace, "team-notes"), "*.md")
                 .Single(path => File.ReadAllText(path).Contains("Secondary empty Team note", StringComparison.Ordinal));
             var savedSecondary = File.ReadAllBytes(secondaryFile);
@@ -217,8 +218,8 @@ internal static partial class Program
                         throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
                 }
             QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
-            AssertSearchReading(window, "Original direct", "Later writing");
-            if (!Find(window, "SearchContext").Current.Name.Contains("morgan@example.com"))
+            AssertSearchReading(window, "Original direct", "Later writing", "HistoricalTeamReading");
+            if (!Find(window, "HistoricalTeamReading").Current.HelpText.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
             SelectTreePerson(window, "casey@example.com");
             SelectTeamNote(window, "Secondary empty Team note");

@@ -10,6 +10,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="#0969DA"/>
     <SolidColorBrush x:Key="MutedBrush" Color="#576B82"/>
     <SolidColorBrush x:Key="SeparatorBrush" Color="#DCE5EF"/>
+    <SolidColorBrush x:Key="SearchMatchBrush" Color="#DDEEFF"/>
     <Style TargetType="Button">
       <Setter Property="Padding" Value="10,5"/>
       <Setter Property="MinHeight" Value="30"/>
@@ -78,14 +79,102 @@
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
+    <Style x:Key="NavigationRow" TargetType="ListBoxItem">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="Row" Background="Transparent" BorderBrush="Transparent" BorderThickness="2,0,0,0"
+                    CornerRadius="3" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F0F5FB"/></Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Row" Property="Background" Value="#E2EEFD"/>
+                <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Row" Property="Opacity" Value=".6"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
-      <Setter Property="AutomationProperties.Name" Value="{Binding Person.Heading}"/>
+      <Setter Property="AutomationProperties.Name">
+        <Setter.Value>
+          <MultiBinding StringFormat="{}{0} ({1}); Directory name: {2}">
+            <Binding Path="Person.Heading"/><Binding Path="Person.Email"/><Binding Path="Person.DirectoryName"/>
+          </MultiBinding>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="ToolTip" Value="{Binding Path=(AutomationProperties.Name), RelativeSource={RelativeSource Self}}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <EventSetter Event="Loaded" Handler="RestoreTreeItem"/>
       <EventSetter Event="Expanded" Handler="ExpandPerson"/>
       <EventSetter Event="Collapsed" Handler="CollapsePerson"/>
       <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
       <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="TreeViewItem">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <Border x:Name="Row" Grid.ColumnSpan="2" MinHeight="28" CornerRadius="3"
+                      BorderThickness="2,0,0,0" BorderBrush="Transparent" Background="Transparent">
+                <ContentPresenter x:Name="PART_Header" ContentSource="Header" Margin="22,4,8,4"
+                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+              </Border>
+              <ToggleButton x:Name="Expander" Width="18" Height="28" Focusable="False"
+                            AutomationProperties.Name="Expand or collapse reporting subtree"
+                            IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border Background="Transparent">
+                      <Path x:Name="Chevron" Data="M 0 0 L 4 4 L 0 8" Stroke="#576B82" StrokeThickness="1.5"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin=".5,.5"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="Chevron" Property="RenderTransform"><Setter.Value><RotateTransform Angle="90"/></Setter.Value></Setter>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <Border Grid.Row="1" BorderBrush="#CEDCEC" BorderThickness="1,0,0,0" Margin="9,0,0,0"/>
+              <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsExpanded" Value="False">
+                <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/>
+              </Trigger>
+              <Trigger Property="HasItems" Value="False">
+                <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+              </Trigger>
+              <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                <Setter TargetName="Row" Property="Background" Value="#F0F5FB"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Row" Property="Background" Value="#E2EEFD"/>
+                <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Row" Property="Opacity" Value=".6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style x:Key="ReportingRootItem" TargetType="TreeViewItem" BasedOn="{StaticResource ReportingItem}">
       <Setter Property="MinWidth"
@@ -93,7 +182,7 @@
     </Style>
     <HierarchicalDataTemplate DataType="{x:Type workflow:ReportingNode}" ItemsSource="{Binding Reports}"
                               ItemContainerStyle="{StaticResource ReportingItem}">
-      <TextBlock Text="{Binding Person.Heading}" ToolTip="{Binding Person.Email}"/>
+      <TextBlock Text="{Binding Person.Heading}" MaxHeight="20"/>
     </HierarchicalDataTemplate>
   </Window.Resources>
   <Grid Margin="20">
@@ -120,7 +209,8 @@
         <Grid Margin="0,0,16,0">
           <TextBox x:Name="SearchQuery" AutomationProperties.AutomationId="SearchQuery" AutomationProperties.Name="Local search"
                    Padding="32,6,36,6" VerticalContentAlignment="Center"
-                   TextChanged="ChangeSearchQuery" ToolTip="Search profiles and private notes, including archived and historical context"/>
+                   TextChanged="ChangeSearchQuery" PreviewKeyDown="ConfirmSearchQuery"
+                   ToolTip="Search profiles and private notes, including archived and historical context"/>
           <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons" Foreground="{StaticResource MutedBrush}"
                      VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0" IsHitTestVisible="False"/>
           <TextBlock Text="Search here..." Foreground="{StaticResource MutedBrush}" Margin="32,0,36,0"
@@ -260,18 +350,28 @@
           <TextBlock DockPanel.Dock="Top" x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount"
                      Text="Enter text to search local information." TextWrapping="Wrap" Margin="0,0,0,8"/>
           <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" AutomationProperties.Name="Local search results"
-                   SelectionChanged="SelectSearchResult" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                   PreviewKeyDown="ActivateSearchWithKeyboard" MouseLeftButtonUp="ActivateSearchWithMouse"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0">
             <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem">
+              <Style TargetType="ListBoxItem" BasedOn="{StaticResource NavigationRow}">
                 <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+                <Setter Property="AutomationProperties.HelpText">
+                  <Setter.Value>
+                    <MultiBinding StringFormat="{}note {0}; capture {1}">
+                      <Binding Path="NoteId"/><Binding Path="HistoricalContextId"/>
+                    </MultiBinding>
+                  </Setter.Value>
+                </Setter>
+                <Setter Property="ToolTip" Value="{Binding Label}"/>
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
               </Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="0,4">
-                  <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
-                  <TextBlock Text="{Binding MatchText}" TextTrimming="CharacterEllipsis" Foreground="DimGray" MaxHeight="20"/>
+                  <TextBlock Text="{Binding Person.Heading}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Text="{Binding SourceLabel}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}" Margin="0,2"/>
+                  <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="40"/>
                 </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -281,13 +381,30 @@
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
           <TextBlock x:Name="FavoriteCount" AutomationProperties.AutomationId="FavoriteCount" Text="Favorites: 0" FontWeight="SemiBold" Margin="0,8,0,4"/>
           <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" AutomationProperties.Name="Favorites" MaxHeight="90"
-                   DisplayMemberPath="Label" SelectionChanged="SelectFavoritePerson">
+                   SelectionChanged="SelectFavoritePerson" Background="Transparent" BorderThickness="0">
             <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem">
+              <Style TargetType="ListBoxItem" BasedOn="{StaticResource NavigationRow}">
                 <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
                 <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+                <Setter Property="ToolTip" Value="{Binding Label}"/>
               </Style>
             </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="&#xE735;" FontFamily="Segoe Fluent Icons" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
+                  <TextBlock Text="{Binding Person.Heading}" MaxHeight="20"/>
+                  <TextBlock Text=" (Archived)" Foreground="{StaticResource MutedBrush}">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers><DataTrigger Binding="{Binding Person.Archived}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
           </ListBox>
         </StackPanel>
         <TextBlock DockPanel.Dock="Top" Text="Imported reporting population" FontWeight="SemiBold" Margin="0,0,0,8"/>
@@ -307,6 +424,7 @@
           </ListBox>
         </StackPanel>
         <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People" AutomationProperties.Name="Imported reporting population"
+                  Background="Transparent" BorderThickness="0"
                   VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                   ScrollViewer.CanContentScroll="True"
                   ItemContainerStyle="{StaticResource ReportingRootItem}" SelectedItemChanged="SelectPerson"/>
@@ -323,7 +441,7 @@
         <Grid x:Name="PersonIdentity" Visibility="Collapsed" Margin="0,8,12,16">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <local:PersonPhotoControl x:Name="Photo" Grid.RowSpan="2" Margin="0,0,16,0" VerticalAlignment="Top"/>
+          <local:PersonPhotoControl x:Name="Photo" Grid.RowSpan="2" Margin="0,0,16,0" VerticalAlignment="Top" Focusable="True"/>
           <StackPanel Grid.Column="1">
             <DockPanel HorizontalAlignment="Left">
               <StackPanel x:Name="PreferredNameContext" DockPanel.Dock="Right" IsEnabled="False">
@@ -333,7 +451,7 @@
                           ToolTip="Add preferred name" Click="EditPreferredName"/>
                 </WrapPanel>
               </StackPanel>
-              <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"
+              <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24" Focusable="True"
                          FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
             </DockPanel>
             <Grid Margin="0,4">
@@ -359,7 +477,7 @@
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
             <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
-                       Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                       Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0" Focusable="True"/>
             <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed" Margin="0,8,0,0">
               <TextBlock Text="Preferred name" Foreground="{StaticResource MutedBrush}"/>
               <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
@@ -540,15 +658,6 @@
                   VerticalAlignment="Top" AutomationProperties.AutomationId="NotesPane">
         <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
         <StackPanel>
-        <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
-          <StackPanel Margin="8">
-            <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
-                    Click="CloseSearchContext" HorizontalAlignment="Right"/>
-            <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"
-                       Focusable="True" KeyboardNavigation.IsTabStop="False"/>
-            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"/>
-          </StackPanel>
-        </GroupBox>
         <local:PersonNotesControl x:Name="PersonNotes" AutomationProperties.AutomationId="PersonNotesSurface" Margin="0,16,0,0"/>
         <local:TeamNotesControl x:Name="TeamNotes" AutomationProperties.AutomationId="TeamNotesSurface" Margin="0,16,0,0"/>
         <Expander x:Name="HistoryAccess" Header="History" AutomationProperties.AutomationId="HistoryAccess" Margin="0,16,0,0">
@@ -558,7 +667,7 @@
             <TextBlock Text="Structured Profile timeline — most recent recording first" TextWrapping="Wrap"/>
           </GroupBox.Header>
           <TextBlock x:Name="ProfileTimelineText" AutomationProperties.AutomationId="ProfileTimeline"
-                     Text="Select a Person to review Profile changes." TextWrapping="Wrap" Margin="8"/>
+                     Text="Select a Person to review Profile changes." TextWrapping="Wrap" Margin="8" Focusable="True"/>
         </GroupBox>
         <Expander Header="Field-specific confirmations" Margin="0,8,0,0" IsExpanded="True">
           <TextBlock x:Name="FieldConfirmationsText" AutomationProperties.AutomationId="FieldConfirmations"
