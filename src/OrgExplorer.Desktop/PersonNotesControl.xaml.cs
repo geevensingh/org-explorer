@@ -225,7 +225,8 @@ public partial class PersonNotesControl : UserControl
         {
             var notes = workflow.PersonNotesView.Notes.Where(n => includeArchived || !n.Archived);
             if (!notes.SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
-                selected != workflow.PersonNotesView.SelectedNote?.Id) RefreshNotes();
+                selected != workflow.PersonNotesView.SelectedNote?.Id ||
+                workflow.PersonNotesView.IsEditing != (Views.SelectedItem == EditTab)) RefreshNotes();
         }
         NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
         if (!draft.HasUnsavedChanges)
@@ -257,6 +258,8 @@ public partial class PersonNotesControl : UserControl
         OngoingStatus.Text = view.Feedback;
         NoteKind.Text = view.SelectedNote is null ? "" :
             (view.IsOngoing ? "Ongoing Person note" : "Other Person note") + (view.SelectedNote.Archived ? " - Archived" : "");
+        System.Windows.Automation.AutomationProperties.SetHelpText(NoteHeading, view.SelectedNote?.Id.ToString() ?? "");
+        ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         DesignateButton.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         DesignateButton.IsEnabled = workflow.IsWorkspaceCurrent;
         OngoingButton.Visibility = view.OngoingNoteId is not null && !view.IsOngoing ? Visibility.Visible : Visibility.Collapsed;

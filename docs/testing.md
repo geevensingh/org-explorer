@@ -136,6 +136,34 @@ canonical per-Workspace identity, interleaved designation/startup writes, unchan
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
+Exact startup view uses the same observable People/owned-note state and real
+settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
+and owned Team notes by GUID after rename, retain Read mode and ongoing choices,
+preserve same-Person Team selection and interleaved per-Workspace percentages,
+and resolve inherited/frozen note ownership without substituting current writing.
+Unavailable/archived Persons/notes, failed Workspace validation and missing
+folders preserve preferences and writing. Corrupt/unsupported/invalid preferences
+and locked publication are explicit; a failed view write retains valid in-session
+reading without creating a designation. Settings-driven existing-only reopen
+cannot replace retained independent drafts or enable unsafe close/restart.
+
+The existing Person-note journey's second launch requires the exact secondary
+Person GUID/title/kind in Read mode before deliberately opening ongoing writing.
+Both normal and responsive Team/history journeys similarly reopen the secondary
+owned Team note; the latter also retains the 700/1100 resize assertions.
+Normal/responsive search journeys observe archived-target startup recovery,
+unchanged Workspace bytes and deliberate archived access with reopened ratios.
+No additional whole journeys, manifest changes or deadline increases are needed.
+Startup helpers require the exact Workspace, completed activity, current
+validated data, expected Person and absence of visible Workspace/view recovery
+errors. No-selection expectations remain for fixtures without saved valid views.
+Their runner regression rejects an earlier open-success observation until the
+saved destination is actually present. The full UI-scale mutation journey now
+waits for that validated startup restoration instead of issuing a redundant
+manual open whose completion could clear its new query. Its 10,000-Person fixture,
+180-second waits and final durable profile/Manager/favorite/photo checks remain.
+Local helper/file/control checks do not prove hosted reopen or UI-scale execution.
+
 The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at
 700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
 959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport

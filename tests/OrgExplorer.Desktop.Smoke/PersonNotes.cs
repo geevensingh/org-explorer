@@ -147,12 +147,15 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: false);
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteMarkdown", markdown);
+            SelectNote(window, "Secondary empty note");
+            var secondaryId = Find(window, "PersonNoteHeading").Current.HelpText;
             Close(process);
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            OpenPerson(window, "casey@example.com");
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            AssertRestoredNote(window, "Person", secondaryId, "Secondary empty note");
+            Await(() => !Find(window, "PersonNoteHeading").Current.IsOffscreen);
+            Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
@@ -170,6 +173,7 @@ internal static partial class Program
             Await(() => ReadingText(window).Contains("Private context"));
             if (listener.Pending()) throw new InvalidOperationException("Markdown rendering fetched remote content.");
             Close(process);
+            Console.WriteLine("PASS: exact secondary Person-note GUID restored in Read mode before deliberate ongoing navigation.");
         }
         finally
         {

@@ -74,7 +74,7 @@ internal static partial class Program
                 if (window.FindName(name) is not GridSplitter { Focusable: true } divider ||
                     string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(divider)))
                     failures.Add($"{name}: proportional dividers must expose a meaningful keyboard-accessible control.");
-            foreach (var name in new[] { "WorkspaceSurface", "PeoplePanel", "ProfileSummary", "NotesPane" })
+            foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane" })
                 if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
                     failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
             if (KeyboardNavigation.GetTabNavigation((DependencyObject)window.FindName("PeoplePanel")) == KeyboardNavigationMode.Cycle)

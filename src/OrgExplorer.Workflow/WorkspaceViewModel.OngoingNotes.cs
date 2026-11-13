@@ -15,6 +15,7 @@ public sealed partial class WorkspaceViewModel
         bool OtherNotes = false, string? Error = null, bool Exact = false);
     private readonly Dictionary<NoteScope, NoteView> noteViews = [];
     private readonly Dictionary<(string Workspace, NoteScope Scope, string Owner), Guid> ongoingNotes = [];
+    private string? ongoingPreferenceError;
 
     public OwnedNotesView PersonNotesView => GetOwnedNotesView(NoteScope.Person);
     public OwnedNotesView TeamNotesView => GetOwnedNotesView(NoteScope.Team);
@@ -34,7 +35,7 @@ public sealed partial class WorkspaceViewModel
 
     private Guid? OngoingId(NoteScope scope, string? owner, IReadOnlyList<OwnedNote> notes) =>
         owner is not null && settings?.GetOngoingNote(Compatibility.WorkspacePath!, scope, owner) is { } saved ? saved :
-        settings?.PreferenceError is not null ? null :
+        ongoingPreferenceError is not null || settings is { HasValidPreferenceSnapshot: false } ? null :
         owner is not null && ongoingNotes.TryGetValue(OngoingKey(scope, owner), out var id) ? id :
         notes.Count(n => !n.Archived) == 1 ? notes.Single(n => !n.Archived).Id : null;
 
@@ -45,7 +46,7 @@ public sealed partial class WorkspaceViewModel
         var ongoing = OngoingId(scope, view.Owner, notes);
         var selectedId = view.Exact ? view.Selected : ongoing;
         var selected = notes.FirstOrDefault(n => n.Id == selectedId && (view.Exact || !n.Archived));
-        var feedback = view.Error ?? settings?.PreferenceError ?? (view.Owner is null ? "" :
+        var feedback = view.Error ?? ongoingPreferenceError ?? settings?.PreferenceError ?? (view.Owner is null ? "" :
             ongoing is { } id && !notes.Any(n => n.Id == id && !n.Archived)
                 ? "The ongoing note is unavailable or archived. Your choice is retained. Use Other notes to restore it or choose another ongoing note."
                 : view.Exact && view.Selected is not null && selected is null
@@ -82,6 +83,7 @@ public sealed partial class WorkspaceViewModel
             return false;
         }
         noteViews[scope] = view with { Selected = id, Editing = editing && !note.Archived, Error = null, Exact = true };
+        if (!note.Archived) RememberCurrentView(scope);
         return true;
     });
 
@@ -96,7 +98,9 @@ public sealed partial class WorkspaceViewModel
             Selected = notes.FirstOrDefault(n => n.Id == id && !n.Archived)?.Id,
             Editing = false, OtherNotes = false, Error = null, Exact = false
         };
-        return GetOwnedNotesView(scope).SelectedNote is not null;
+        var opened = GetOwnedNotesView(scope).SelectedNote is not null;
+        if (opened) RememberCurrentView(scope);
+        return opened;
     });
 
     public void ShowOtherNotes(NoteScope scope, bool show) => Observe(() =>
@@ -118,12 +122,14 @@ public sealed partial class WorkspaceViewModel
         {
             if (!settings.SetOngoingNote(Compatibility.WorkspacePath!, scope, view.Owner, id))
             {
-                noteViews[scope] = view with { Error = settings.PreferenceError };
+                noteViews[scope] = view with { Error = ongoingPreferenceError = settings.PreferenceError };
                 return false;
             }
         }
         else ongoingNotes[OngoingKey(scope, view.Owner)] = id;
+        ongoingPreferenceError = null;
         noteViews[scope] = view with { Selected = id, Editing = false, OtherNotes = false, Error = null, Exact = false };
+        RememberCurrentView(scope);
         return true;
     });
 

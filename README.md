@@ -68,7 +68,12 @@ If the previous folder cannot be reopened, the app stays empty, explains the fai
 never creates a missing replacement folder; intentional manual open/create
 remains available. Failed opens never replace the remembered successful folder.
 Preference read/save errors are visible, and the startup-update preference is
-independent. No selected Person or unsaved draft is restored.
+independent. After validated reopening, the last valid Person and exact last-viewed
+note reopen in Read mode, including a secondary Person or owned Team note.
+Renaming a note does not change its identity. An unavailable or archived target
+retains the saved preference and writing, explains the problem, and shows a
+purposeful search/Favorites/People start instead of opening replacement writing.
+No unsaved edit buffer is restored.
 
 Preferred name normally appears as readable text. **Edit** (or **Add preferred
 name** when unset) reveals its independent autosaving inline editor; **Done**
@@ -149,6 +154,15 @@ changes. Missing/archived ongoing targets retain the recorded choice and show
 explicit recovery/re-selection guidance; no replacement is created or chosen.
 Invalid/unsupported preferences are not overwritten, and read/write failures
 remain visible without claiming that a new choice was remembered.
+The same optional per-Workspace entry stores `lastView`, using `personEmail`,
+the note's `source`, `noteId` and `noteOwnerEmail`, plus `historicalContextId`
+for frozen Team writing. A Person-only view needs only the email. Inherited
+and frozen note destinations retain their actual context, not an owned ongoing
+substitute. Exact-view, ongoing-choice, pane-percentage and startup-folder writes
+preserve each other and other Workspaces, using the existing atomic publication.
+Failed view writes leave the in-session choice visible with an explicit
+**NOT remembered** warning and retain the prior durable view. Deliberately
+selecting the destination again retries the preference write.
 
 The app watches local folder events and automatically reflects valid external
 Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same

@@ -168,9 +168,9 @@ public partial class MainWindow
     }
 
     private void CloseSearchContext(object sender, RoutedEventArgs e) => ClearSearchContext();
-    private void ClearSearchContext()
+    private void ClearSearchContext(bool clearSelection = true)
     {
-        workflow.CloseSearchContext();
+        if (clearSelection) workflow.CloseSearchContext();
         SearchContextPanel.Visibility = Visibility.Collapsed;
         SearchContextText.Text = "";
         SearchResultReading.Document = new FlowDocument();

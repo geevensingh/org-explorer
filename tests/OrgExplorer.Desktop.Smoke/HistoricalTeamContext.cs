@@ -219,11 +219,21 @@ internal static partial class Program
             AssertSearchReading(window, "Original direct", "Later writing");
             if (!Find(window, "SearchContext").Current.Name.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
+            SelectTreePerson(window, "casey@example.com");
+            SelectTeamNote(window, "Secondary empty Team note");
+            var secondaryId = Find(window, "TeamNoteHeading").Current.HelpText;
             Close(process);
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitRestoredWorkspace(window, workspace, "casey@example.com");
+            AssertRestoredNote(window, "Team", secondaryId, "Secondary empty Team note");
+            Await(() => !Find(window, "TeamNoteHeading").Current.IsOffscreen);
+            if (responsive)
+                foreach (var size in new[] { (Width: 700d, Height: 500d), (Width: 1100d, Height: 900d) })
+                {
+                    ResizeWindow(window, size.Width, size.Height);
+                    AssertRestoredNote(window, "Team", secondaryId, "Secondary empty Team note");
+                }
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
                 throw new InvalidOperationException("Reopening lost separate current and Historical writing.");
@@ -239,6 +249,7 @@ internal static partial class Program
                 throw new InvalidOperationException("The reopened owned Team designation cannot be changed explicitly.");
             if (listener.Pending()) throw new InvalidOperationException("Team Markdown fetched remote content.");
             Close(process);
+            Console.WriteLine("PASS: exact secondary owned-Team GUID restored before deliberate navigation, with frozen/current context retained.");
         }
         finally { if (process is not null) StopApplication(process); }
     }

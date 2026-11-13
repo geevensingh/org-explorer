@@ -120,16 +120,20 @@ public partial class MainWindow : Window
 
     private void PresentWorkspaceOpen()
     {
-        PersonNotes.OpenPerson(null);
-        TeamNotes.OpenPerson(null);
+        var destination = workflow.PeopleNavigation;
+        if (destination.SelectedEmail is null)
+        {
+            PersonNotes.OpenPerson(null);
+            TeamNotes.OpenPerson(null);
+        }
         ClearImportPreview();
         selectedEmail = null;
-        ClearSearchContext();
+        ClearSearchContext(clearSelection: false);
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
         loading = true;
-        SearchQuery.Text = "";
+        SearchQuery.Text = destination.Query;
         loading = false;
         queryDirty = true;
         ArrangeWorkspace();
@@ -145,7 +149,29 @@ public partial class MainWindow : Window
         Photo.Show(null);
         Photo.CanEdit = false;
         RefreshPeople();
+        if (destination.SelectedEmail is { } email && workflow.GetRelationships(email) is { } restored)
+        {
+            OpenPerson(restored.Person, navigation: false);
+            PersonNotes.RefreshExternalWorkspace();
+            TeamNotes.RefreshExternalWorkspace();
+            if (destination.SelectedResult is { } result) ShowSearchContext(result);
+        }
         ShowStatus();
+        FrameworkElement? surface = destination.LastValidView?.Source switch
+        {
+            SearchSource.PersonNote => PersonNotes,
+            SearchSource.OwnedTeamNote => TeamNotes,
+            SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote => SearchContextPanel,
+            _ => null
+        };
+        if (surface is not null)
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (selectedEmail == destination.SelectedEmail &&
+                    workflow.PeopleNavigation.LastValidView == destination.LastValidView &&
+                    !workflow.IsImportOpen && SettingsPanel.Visibility != Visibility.Visible)
+                    surface.BringIntoView();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
     {
@@ -233,6 +259,7 @@ public partial class MainWindow : Window
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
+        UpdateStartView();
         RefreshSearchAndFavorites();
         UpdatePeopleNavigation();
         return true;
@@ -371,7 +398,7 @@ public partial class MainWindow : Window
 
     private void ShowStatus()
     {
-        ShowWorkspaceStartup();
+        ShowViewPreferenceStatus();
         ShowPanePreferenceStatus();
         var path = workflow.Compatibility.WorkspacePath;
         WorkspaceName.Text = path is null ? "No Workspace open" : new DirectoryInfo(path).Name;
@@ -406,13 +433,39 @@ public partial class MainWindow : Window
         }
     }
 
+    internal void ShowViewPreferenceStatus()
+    {
+        ViewPreferenceStatus.Text = string.Join("\n", new[] { workflow.ViewRecoveryFeedback, workflow.ViewPreferenceFeedback }
+            .Where(text => !string.IsNullOrEmpty(text)));
+        ViewPreferenceStatus.Visibility = ViewPreferenceStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ShowWorkspaceStartup();
+    }
+
     private void UpdateMainViews()
     {
         var settingsOpen = SettingsPanel.Visibility == Visibility.Visible;
         ImportPanel.Visibility = !settingsOpen && workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
         ExplorerPanel.Visibility = !settingsOpen && !workflow.IsImportOpen ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceSurface.Visibility = ExplorerPanel.Visibility;
+        UpdateStartView();
         UpdatePeopleNavigation();
+    }
+
+    private void UpdateStartView()
+    {
+        var selected = selectedEmail is not null;
+        WorkspaceStartPanel.Visibility = selected ? Visibility.Collapsed : Visibility.Visible;
+        PersonIdentity.Visibility = PersonBody.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+        WorkspaceStartGuidance.Text = workflow.IsWorkspaceCurrent
+            ? "Search local information, open Favorites or browse People to choose a Person. No replacement writing has been opened."
+            : "Open Settings to choose a Workspace, or use the recovery actions above. No Person or note has been restored.";
+    }
+
+    private void FindPersonFromStart(object sender, RoutedEventArgs e)
+    {
+        if (!wideWorkspace) workflow.ShowPeopleOverlay(true);
+        UpdatePeopleNavigation();
+        SearchQuery.Focus();
     }
 
     private bool TryLeaveLocalEdits()
