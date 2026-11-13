@@ -82,6 +82,8 @@ internal static partial class Program
             source = "Actual live WPF WM_GETICON pixels, unscaled on light/dark plates. Not a taskbar/Start screenshot or visual acceptance."
         }, new JsonSerializerOptions { WriteIndented = true }));
         CaptureVisualEvidence(window, "native-icon-" + state + "-" + window.Current.ProcessId);
+        CaptureVisualEvidence(window, "native-icon-" + state + "-" + window.Current.ProcessId + "-monitor",
+            captureMonitor: true);
     }
 
     [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]

@@ -14,7 +14,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void CaptureVisualEvidence(AutomationElement window, string state)
+    private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
     {
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
@@ -24,6 +24,21 @@ internal static partial class Program
         var bounds = Rect.Intersect(windowBounds, desktop);
         if (window.Current.IsOffscreen || bounds.IsEmpty || bounds.Width < 1 || bounds.Height < 1)
             throw new InvalidOperationException("Visual evidence requires a visible window on an unlocked interactive desktop.");
+        if (captureMonitor)
+        {
+            var handle = (IntPtr)window.Current.NativeWindowHandle;
+            var monitor = MonitorFromWindow(handle, 2);
+            if (handle == IntPtr.Zero || monitor == IntPtr.Zero)
+                throw new InvalidOperationException("Cannot identify the visible application's actual monitor.");
+            var info = new ResizeMonitorInfo { Size = Marshal.SizeOf<ResizeMonitorInfo>() };
+            if (!GetMonitorInfo(monitor, ref info))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot read the application monitor bounds.");
+            var monitorBounds = new Rect(info.Monitor.Left, info.Monitor.Top,
+                info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top);
+            bounds = Rect.Intersect(monitorBounds, desktop);
+            if (bounds.IsEmpty || bounds != monitorBounds)
+                throw new InvalidOperationException("Visual evidence cannot capture the complete application monitor.");
+        }
         var left = (int)Math.Floor(bounds.Left);
         var top = (int)Math.Floor(bounds.Top);
         var width = (int)Math.Ceiling(bounds.Right) - left;
@@ -48,7 +63,7 @@ internal static partial class Program
             if (previous == IntPtr.Zero || previous == new IntPtr(-1))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             if (!BitBlt(memory, 0, 0, width, height, screen, left, top, 0x40CC0020))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Actual window pixel capture failed.");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Actual desktop pixel capture failed.");
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(Imaging.CreateBitmapSourceFromHBitmap(
                 bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions())));
@@ -69,6 +84,7 @@ internal static partial class Program
         File.WriteAllText(path + ".json", JsonSerializer.Serialize(new
         {
             state,
+            scope = captureMonitor ? "application-monitor" : "application-window",
             capturedAt = DateTimeOffset.UtcNow,
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
@@ -78,6 +94,9 @@ internal static partial class Program
             dpi = GetDpiForWindow((IntPtr)window.Current.NativeWindowHandle),
             windowBounds = new { windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height },
             capturedBounds = new { left, top, width, height },
+            shellEvidenceLimit = captureMonitor
+                ? "Actual monitor pixels include the taskbar region, not a reconstructed icon plate. Review visibility and the app button in the PNG. Start/setup surfaces were not opened or observed by this capture."
+                : null,
             source = "Actual desktop pixels; not an offscreen control render or visual acceptance."
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
