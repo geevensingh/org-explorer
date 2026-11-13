@@ -25,8 +25,7 @@ public partial class MainWindow
         foreach (var editor in PersonEditors) editor.Clear();
         ShowProfileValues(null);
         preferredNameOwner = null;
-        PreferredNameValue.Text = "";
-        EditPreferredNameButton.Content = "Add preferred name";
+        System.Windows.Automation.AutomationProperties.SetName(EditPreferredNameButton, "Add preferred name");
         SetPreferredNameEditing(false);
         PreferredNameContext.IsEnabled = false;
         AttributeEditors.IsEnabled = false;

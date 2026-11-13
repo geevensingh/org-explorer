@@ -6,14 +6,76 @@
         Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
+    <SolidColorBrush x:Key="AccentBrush" Color="#0969DA"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#576B82"/>
+    <SolidColorBrush x:Key="SeparatorBrush" Color="#DCE5EF"/>
     <Style TargetType="Button">
       <Setter Property="Padding" Value="10,5"/>
-      <Setter Property="Background" Value="#F6F8FA"/>
-      <Setter Property="BorderBrush" Value="#D0D7DE"/>
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#EAF3FF"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#D8E9FC"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#738294"/>
+                <Setter TargetName="Chrome" Property="Opacity" Value="0.65"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
+    <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
+      <Setter Property="MinWidth" Value="30"/>
+      <Setter Property="Padding" Value="5"/>
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
     </Style>
     <Style TargetType="TextBox">
       <Setter Property="Padding" Value="6,4"/>
-      <Setter Property="BorderBrush" Value="#D0D7DE"/>
+      <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/>
+      <Style.Triggers>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+          <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="FlowDocumentScrollViewer">
+      <Setter Property="MaxWidth" Value="600"/>
+      <Setter Property="HorizontalAlignment" Value="Left"/>
+      <Setter Property="VerticalScrollBarVisibility" Value="Disabled"/>
+      <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+      <Setter Property="IsToolBarVisible" Value="False"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style x:Key="FactSlot" TargetType="StackPanel">
+      <Setter Property="Margin" Value="0,8,16,12"/>
+    </Style>
+    <Style x:Key="FactLabel" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
@@ -36,19 +98,53 @@
     </Grid.RowDefinitions>
     <StackPanel>
       <DockPanel Margin="0,0,0,12">
-        <Button x:Name="OpenSettingsButton" DockPanel.Dock="Right" Content="_Settings" AutomationProperties.AutomationId="OpenSettings"
-                Click="ToggleSettings" HorizontalAlignment="Right"/>
+        <Button x:Name="OpenSettingsButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}"
+                AutomationProperties.AutomationId="OpenSettings" AutomationProperties.Name="Settings"
+                Click="ToggleSettings" HorizontalAlignment="Right">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons" Margin="0,0,8,0" VerticalAlignment="Center"/>
+            <AccessText Text="_Settings"/>
+          </StackPanel>
+        </Button>
         <Button x:Name="OpenPeopleButton" DockPanel.Dock="Left" Content="_People" Visibility="Collapsed"
                 AutomationProperties.AutomationId="OpenPeople" AutomationProperties.Name="People"
                 Click="TogglePeople" Margin="0,0,12,0"/>
         <TextBlock x:Name="WorkspaceName" AutomationProperties.AutomationId="WorkspaceName" Text="No Workspace open"
                    Foreground="DimGray" MaxWidth="150" Margin="0,0,16,0" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis"/>
-        <StackPanel Margin="0,0,16,0">
-          <TextBlock Text="Search local information" Foreground="DimGray"/>
+        <Grid Margin="0,0,16,0">
           <TextBox x:Name="SearchQuery" AutomationProperties.AutomationId="SearchQuery" AutomationProperties.Name="Local search"
+                   Padding="32,6,36,6" VerticalContentAlignment="Center"
                    TextChanged="ChangeSearchQuery" ToolTip="Search profiles and private notes, including archived and historical context"/>
-        </StackPanel>
+          <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons" Foreground="{StaticResource MutedBrush}"
+                     VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10,0" IsHitTestVisible="False"/>
+          <TextBlock Text="Search here..." Foreground="{StaticResource MutedBrush}" Margin="32,0,36,0"
+                     VerticalAlignment="Center" IsHitTestVisible="False">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Text, ElementName=SearchQuery}" Value="">
+                    <Setter Property="Visibility" Value="Visible"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+          <Button x:Name="ClearSearchButton" Content="&#xE711;" HorizontalAlignment="Right" Margin="2"
+                  AutomationProperties.AutomationId="ClearSearch" AutomationProperties.Name="Clear local search"
+                  Click="ClearSearch" ToolTip="Clear search and return to browsing">
+            <Button.Style>
+              <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Text, ElementName=SearchQuery}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+        </Grid>
       </DockPanel>
       <TextBlock x:Name="UpdateSummary" AutomationProperties.AutomationId="UpdateSummary"
                  TextWrapping="Wrap" Foreground="DimGray" Margin="0,0,0,8"/>
@@ -217,9 +313,80 @@
                     Focusable="True" KeyboardIncrement="10" DragStarted="BeginPaneResize" DragCompleted="SavePaneBalance"
                     PreviewKeyDown="ResizePaneWithKeyboard"
                     AutomationProperties.AutomationId="PeopleDivider" AutomationProperties.Name="Resize People and Person workspace"/>
-      <ScrollViewer x:Name="PersonScroll" Grid.Column="2" AutomationProperties.AutomationId="ProfileScroll"
-                    Padding="12,0,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel>
+      <Grid x:Name="PersonWorkspace" Grid.Column="2" Margin="12,0,0,0" Background="White">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid x:Name="PersonIdentity" Visibility="Collapsed" Margin="0,8,12,16">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <local:PersonPhotoControl x:Name="Photo" Grid.RowSpan="2" Margin="0,0,16,0" VerticalAlignment="Top"/>
+          <StackPanel Grid.Column="1">
+            <DockPanel HorizontalAlignment="Left">
+              <StackPanel x:Name="PreferredNameContext" DockPanel.Dock="Right" IsEnabled="False">
+                <WrapPanel x:Name="PreferredNameReadPanel">
+                  <Button x:Name="EditPreferredNameButton" Content="&#xE70F;" Style="{StaticResource IconButton}"
+                          AutomationProperties.AutomationId="EditPreferredName" AutomationProperties.Name="Add preferred name"
+                          ToolTip="Add preferred name" Click="EditPreferredName"/>
+                </WrapPanel>
+              </StackPanel>
+              <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"
+                         FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+            </DockPanel>
+            <Grid Margin="0,4">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed" Margin="0,0,12,0">
+                <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue"
+                           MaxHeight="44"
+                           Foreground="{StaticResource MutedBrush}" Focusable="True" KeyboardNavigation.IsTabStop="True">
+                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+                </TextBlock>
+              </StackPanel>
+              <StackPanel x:Name="DepartmentValueRow" Grid.Column="1" Visibility="Collapsed">
+                <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
+                           MaxHeight="44"
+                           Foreground="{StaticResource MutedBrush}" Focusable="True" KeyboardNavigation.IsTabStop="True">
+                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+                </TextBlock>
+              </StackPanel>
+            </Grid>
+            <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" TextWrapping="Wrap" MaxHeight="44"
+                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+            <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
+                       Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0"/>
+            <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed" Margin="0,8,0,0">
+              <TextBlock Text="Preferred name" Foreground="{StaticResource MutedBrush}"/>
+              <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
+                       AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
+              <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
+                         Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
+              <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
+                      Click="ReadPreferredName" HorizontalAlignment="Left"/>
+            </StackPanel>
+          </StackPanel>
+          <StackPanel x:Name="IdentityActions" Grid.Column="2" VerticalAlignment="Top">
+            <WrapPanel>
+              <Button x:Name="FavoriteButton" Content="&#xE734;" Style="{StaticResource IconButton}"
+                      AutomationProperties.AutomationId="ToggleFavorite" AutomationProperties.Name="Mark favorite"
+                      Click="ChangeFavorite" IsEnabled="False" Margin="0,0,4,0"/>
+              <Button x:Name="EditProfileButton" Content="Edit profile" Style="{StaticResource QuietButton}"
+                      AutomationProperties.AutomationId="EditProfile" Click="BeginProfileEdit" IsEnabled="False"/>
+              <Menu VerticalAlignment="Center" Margin="4,0" Background="Transparent">
+                <MenuItem x:Name="PersonMoreMenu" Header="More" AutomationProperties.AutomationId="PersonMore" IsEnabled="False">
+                  <MenuItem x:Name="ArchivePersonMenuItem" Header="Archive Person…" AutomationProperties.AutomationId="ArchivePerson" Click="ArchivePerson"/>
+                  <MenuItem x:Name="ReactivatePersonMenuItem" Header="Reactivate Person…" AutomationProperties.AutomationId="ReactivatePerson"
+                            Click="ReactivatePerson" Visibility="Collapsed"/>
+                </MenuItem>
+              </Menu>
+            </WrapPanel>
+            <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
+                       Visibility="Collapsed" Foreground="#8A3B12" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Grid>
+      <ScrollViewer x:Name="PersonScroll" Grid.Row="1" AutomationProperties.AutomationId="ProfileScroll"
+                    VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="0,0,12,0">
         <GroupBox x:Name="WorkspaceStartPanel" Margin="0,12" BorderThickness="0" Padding="0"
                   AutomationProperties.AutomationId="WorkspaceStart" AutomationProperties.Name="Find a Person">
           <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
@@ -232,82 +399,12 @@
                   AutomationProperties.AutomationId="FindPerson" HorizontalAlignment="Left"/>
           </StackPanel>
         </GroupBox>
-        <Grid x:Name="PersonIdentity" Visibility="Collapsed">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-          <local:PersonPhotoControl x:Name="Photo" Margin="0,0,16,0" VerticalAlignment="Top"/>
-          <StackPanel Grid.Column="1">
-            <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24"
-                       FontWeight="SemiBold" TextWrapping="Wrap"/>
-            <TextBlock Text="Directory name" Foreground="DimGray" Margin="0,4,0,0"/>
-            <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName" TextWrapping="Wrap"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-            <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" Margin="0,4" TextWrapping="Wrap"
-                       ToolTip="Stable email identity; not editable" Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-            <StackPanel x:Name="PreferredNameContext" IsEnabled="False" Margin="0,4">
-              <TextBlock Text="Preferred name" Foreground="DimGray"/>
-              <WrapPanel x:Name="PreferredNameReadPanel">
-                <TextBlock x:Name="PreferredNameValue" AutomationProperties.AutomationId="PreferredNameValue"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button x:Name="EditPreferredNameButton" Content="Add preferred name"
-                        AutomationProperties.AutomationId="EditPreferredName" Click="EditPreferredName"/>
-              </WrapPanel>
-              <StackPanel x:Name="PreferredNameEditorPanel" Visibility="Collapsed">
-                <TextBox x:Name="PreferredName" Tag="PreferredName" AutomationProperties.AutomationId="PreferredName"
-                         AutomationProperties.Name="Preferred name" TextChanged="EditPersonAttribute"/>
-                <TextBlock Text="Autosaved independently. Empty clears; whitespace alone is invalid."
-                           Foreground="DimGray" TextWrapping="Wrap" Margin="0,4"/>
-                <Button Content="Done" AutomationProperties.AutomationId="ReadPreferredName"
-                        Click="ReadPreferredName" HorizontalAlignment="Left"/>
-              </StackPanel>
-            </StackPanel>
-            <WrapPanel Margin="0,4">
-              <Button x:Name="EditProfileButton" Content="Edit profile" AutomationProperties.AutomationId="EditProfile"
-                      Click="BeginProfileEdit" IsEnabled="False" Margin="0,0,8,4"/>
-              <Button x:Name="FavoriteButton" Content="Mark favorite" AutomationProperties.AutomationId="ToggleFavorite"
-                      Click="ChangeFavorite" IsEnabled="False" Margin="0,0,0,4"/>
-              <Menu VerticalAlignment="Center" Margin="8,0" Background="Transparent">
-                <MenuItem x:Name="PersonMoreMenu" Header="More" AutomationProperties.AutomationId="PersonMore"
-                          IsEnabled="False">
-                  <MenuItem x:Name="ArchivePersonMenuItem" Header="Archive Person…" AutomationProperties.AutomationId="ArchivePerson"
-                            Click="ArchivePerson"/>
-                  <MenuItem x:Name="ReactivatePersonMenuItem" Header="Reactivate Person…" AutomationProperties.AutomationId="ReactivatePerson"
-                            Click="ReactivatePerson" Visibility="Collapsed"/>
-                </MenuItem>
-              </Menu>
-            </WrapPanel>
-            <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
-                       Text="Select a Person." Foreground="DimGray" TextWrapping="Wrap"/>
-          </StackPanel>
-        </Grid>
-        <Grid x:Name="PersonBody" Visibility="Collapsed" Margin="0,12,0,0" SizeChanged="ResizePersonBody">
+        <Grid x:Name="PersonBody" Visibility="Collapsed" SizeChanged="ResizePersonBody">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="ProfileColumn" Width="35*"/>
-            <ColumnDefinition x:Name="ProfileDividerColumn" Width="8"/>
-            <ColumnDefinition Width="65*"/>
-          </Grid.ColumnDefinitions>
-        <GroupBox x:Name="ProfileSummary" Header="Profile summary" BorderThickness="0" Padding="0"
+        <GroupBox x:Name="ProfileSummary" BorderThickness="0" Padding="0"
                   VerticalAlignment="Top" AutomationProperties.AutomationId="ProfileSummary">
+        <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
         <StackPanel>
-        <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
-                   Text="Select a Person." TextWrapping="Wrap" Margin="0,8">
-          <TextBlock.Style>
-            <Style TargetType="TextBlock">
-              <Setter Property="Foreground" Value="#8A3B12"/>
-              <Setter Property="FontWeight" Value="SemiBold"/>
-              <Style.Triggers>
-                <Trigger Property="Text" Value="Active — included in the current imported org.">
-                  <Setter Property="Foreground" Value="DimGray"/>
-                  <Setter Property="FontWeight" Value="Normal"/>
-                </Trigger>
-              </Style.Triggers>
-            </Style>
-          </TextBlock.Style>
-        </TextBlock>
         <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
                    Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>
         <WrapPanel x:Name="ProfileSessionActions" Visibility="Collapsed" Margin="0,8">
@@ -315,83 +412,73 @@
           <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile" Click="CancelProfileEdit" Margin="8,0"/>
           <TextBlock Text="Unsaved until Save. Cancel discards profile text, Manager and photo only." TextWrapping="Wrap" Margin="8,0"/>
         </WrapPanel>
-        <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
-                HorizontalAlignment="Left" Margin="0,4,0,8" IsEnabled="False">
-          <Button.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Button.ContentTemplate>
-        </Button>
-        <StackPanel x:Name="ProfileValues">
-          <WrapPanel>
-            <WrapPanel.Resources>
-              <Style TargetType="StackPanel">
-                <Setter Property="Width" Value="200"/>
-                <Setter Property="Margin" Value="0,4,12,4"/>
-              </Style>
-            </WrapPanel.Resources>
-          <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed">
-            <TextBlock Text="Job title" Foreground="DimGray"/>
-            <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+        <Border x:Name="ProfileValues" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,1" Padding="0,8">
+          <UniformGrid x:Name="FactsGrid" Columns="4">
+          <StackPanel x:Name="ManagerReadingSlot" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Manager" Style="{StaticResource FactLabel}"/>
+            <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
+                    Style="{StaticResource QuietButton}" Padding="0" HorizontalContentAlignment="Left" IsEnabled="False">
+              <Button.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Button.ContentTemplate>
+              <Button.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Content, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></Button.ContextMenu>
+            </Button>
           </StackPanel>
-          <StackPanel x:Name="DepartmentValueRow" Visibility="Collapsed">
-            <TextBlock Text="Department" Foreground="DimGray"/>
-            <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="OfficeBuildingValueRow" Visibility="Collapsed">
-            <TextBlock Text="Office building" Foreground="DimGray"/>
+          <StackPanel x:Name="OfficeBuildingValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Office building" Style="{StaticResource FactLabel}"/>
             <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-          <StackPanel x:Name="OfficeStateValueRow" Visibility="Collapsed">
-            <TextBlock Text="Office state / province" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="OfficeCountryValueRow" Visibility="Collapsed">
-            <TextBlock Text="Office country" Foreground="DimGray"/>
-            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          </WrapPanel>
-          <Expander x:Name="ProfileDetails" Header="More details" AutomationProperties.AutomationId="ProfileDetails"
-                    AutomationProperties.Name="More profile details" Margin="0,6">
-            <StackPanel Margin="12,4,0,0">
-          <StackPanel x:Name="AliasValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="Alias" Foreground="DimGray"/>
-            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="OfficeNumberValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="Office number" Foreground="DimGray"/>
+          <StackPanel x:Name="OfficeNumberValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Office number" Style="{StaticResource FactLabel}"/>
             <TextBlock x:Name="OfficeNumberValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeNumberValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-          <StackPanel x:Name="LinkedInProfileUrlValueRow" Margin="0,6" Visibility="Collapsed">
-            <TextBlock Text="LinkedIn profile URL" Foreground="DimGray"/>
-            <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
+          <StackPanel x:Name="OfficeStateValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Office state / province" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
           </StackPanel>
-            </StackPanel>
-          </Expander>
+          <StackPanel x:Name="OfficeCountryValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Office country" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel Style="{StaticResource FactSlot}">
+            <TextBlock Text="Directory name" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName" TextWrapping="Wrap"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel x:Name="AliasValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Alias" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+          </StackPanel>
+          <StackPanel x:Name="LinkedInProfileUrlValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="LinkedIn profile URL" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
+                       Focusable="True" KeyboardNavigation.IsTabStop="True">
+              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+            </TextBlock>
+            <Button x:Name="OpenLinkedInButton" Content="Open LinkedIn" IsEnabled="False" Visibility="Collapsed"
+                    Style="{StaticResource QuietButton}" Padding="0" HorizontalContentAlignment="Left"
+                    AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn"/>
+          </StackPanel>
+          </UniformGrid>
+        </Border>
+        <StackPanel x:Name="ProfileEditLinks" Visibility="Collapsed" Margin="0,8">
+          <TextBlock Text="Saved Manager" Foreground="{StaticResource MutedBrush}"/>
         </StackPanel>
-        <Button x:Name="OpenLinkedInButton" Content="Open saved LinkedIn URL in browser" IsEnabled="False" Visibility="Collapsed"
-                AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn" HorizontalAlignment="Left" Margin="0,8"/>
         <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed" Margin="0,0,0,12">
           <TextBlock Text="Manager in this profile draft (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
           <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
@@ -444,25 +531,17 @@
         </StackPanel>
         </StackPanel>
         </GroupBox>
-        <GridSplitter x:Name="ProfileDivider" Grid.Column="1" Width="8" HorizontalAlignment="Stretch"
-                      Background="#EAECEF" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
-                      Focusable="True" KeyboardIncrement="10" DragStarted="BeginPaneResize" DragCompleted="SavePaneBalance"
-                      PreviewKeyDown="ResizePaneWithKeyboard"
-                      AutomationProperties.AutomationId="ProfileDivider" AutomationProperties.Name="Resize profile summary and notes"/>
-        <GroupBox x:Name="NotesPane" Grid.Column="2" Header="Notes and context" BorderThickness="0" Padding="0"
+        <GroupBox x:Name="NotesPane" Grid.Row="1" BorderThickness="0" Padding="0"
                   VerticalAlignment="Top" AutomationProperties.AutomationId="NotesPane">
-        <StackPanel Margin="12,0,0,0">
+        <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
+        <StackPanel>
         <GroupBox x:Name="SearchContextPanel" Header="Selected search context — separate from the current profile" Visibility="Collapsed" Margin="0,0,0,12">
           <StackPanel Margin="8">
             <Button Content="Close search context" AutomationProperties.AutomationId="CloseSearchContext"
                     Click="CloseSearchContext" HorizontalAlignment="Right"/>
-            <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto">
-              <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"
-                         Focusable="True" KeyboardNavigation.IsTabStop="False"/>
-            </ScrollViewer>
-            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"
-                                      MaxWidth="600"
-                                      Height="160" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto"/>
+            <TextBlock x:Name="SearchContextText" AutomationProperties.AutomationId="SearchContext" TextWrapping="Wrap"
+                       Focusable="True" KeyboardNavigation.IsTabStop="False"/>
+            <FlowDocumentScrollViewer x:Name="SearchResultReading" AutomationProperties.AutomationId="SearchResultReading"/>
           </StackPanel>
         </GroupBox>
         <local:PersonNotesControl x:Name="PersonNotes" AutomationProperties.AutomationId="PersonNotesSurface" Margin="0,16,0,0"/>
@@ -473,10 +552,8 @@
           <GroupBox.Header>
             <TextBlock Text="Structured Profile timeline — most recent recording first" TextWrapping="Wrap"/>
           </GroupBox.Header>
-          <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
-            <TextBlock x:Name="ProfileTimelineText" AutomationProperties.AutomationId="ProfileTimeline"
-                       Text="Select a Person to review Profile changes." TextWrapping="Wrap" Margin="8"/>
-          </ScrollViewer>
+          <TextBlock x:Name="ProfileTimelineText" AutomationProperties.AutomationId="ProfileTimeline"
+                     Text="Select a Person to review Profile changes." TextWrapping="Wrap" Margin="8"/>
         </GroupBox>
         <Expander Header="Field-specific confirmations" Margin="0,8,0,0" IsExpanded="True">
           <TextBlock x:Name="FieldConfirmationsText" AutomationProperties.AutomationId="FieldConfirmations"
@@ -486,23 +563,18 @@
           <Expander.Header>
             <TextBlock Text="Source observations and local recordings" TextWrapping="Wrap"/>
           </Expander.Header>
-          <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
-            <TextBlock x:Name="ProfileObservationsText" AutomationProperties.AutomationId="ProfileObservations"
-                       TextWrapping="Wrap" Margin="8"/>
-          </ScrollViewer>
+          <TextBlock x:Name="ProfileObservationsText" AutomationProperties.AutomationId="ProfileObservations"
+                     TextWrapping="Wrap" Margin="8"/>
         </Expander>
         <GroupBox Margin="0,16,0,0">
           <GroupBox.Header>
             <TextBlock Text="Historical team context — frozen former context, not current inheritance" TextWrapping="Wrap"/>
           </GroupBox.Header>
           <StackPanel Margin="8">
-            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
-              <TextBlock x:Name="HistoricalTeamSummary" AutomationProperties.AutomationId="HistoricalTeamSummary"
-                         Text="Select a Person to review Historical team context." TextWrapping="Wrap"/>
-            </ScrollViewer>
+            <TextBlock x:Name="HistoricalTeamSummary" AutomationProperties.AutomationId="HistoricalTeamSummary"
+                       Text="Select a Person to review Historical team context." TextWrapping="Wrap"/>
             <TextBlock Text="Frozen Team-note reading — read-only, attributable local captures" Margin="0,8,0,4" TextWrapping="Wrap"/>
             <FlowDocumentScrollViewer x:Name="HistoricalTeamReading" AutomationProperties.AutomationId="HistoricalTeamReading"
-                                      MaxWidth="600" IsToolBarVisible="False" VerticalScrollBarVisibility="Auto" Height="280"
                                       AutomationProperties.Name="Historical frozen Team notes; never current inheritance"/>
           </StackPanel>
         </GroupBox>
@@ -513,6 +585,7 @@
         </Grid>
       </StackPanel>
       </ScrollViewer>
+      </Grid>
       <Button x:Name="PeopleDismissSurface" Grid.ColumnSpan="3" Panel.ZIndex="10" Visibility="Collapsed"
               Background="#33000000" BorderThickness="0" Focusable="False" IsTabStop="False"
               AutomationProperties.Name="Close People overlay" Click="ClosePeople"/>

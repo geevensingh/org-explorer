@@ -14,8 +14,9 @@ public partial class MainWindow
             preferredNameOwner = person.Email;
             SetPreferredNameEditing(false);
         }
-        PreferredNameValue.Text = person.PreferredName ?? "";
-        EditPreferredNameButton.Content = person.PreferredName is null ? "Add preferred name" : "Edit";
+        var action = person.PreferredName is null ? "Add preferred name" : "Edit preferred name";
+        System.Windows.Automation.AutomationProperties.SetName(EditPreferredNameButton, action);
+        EditPreferredNameButton.ToolTip = action;
         if (!unsavedPreferredNameEdits.ContainsKey(PersonTextField.PreferredName))
             PreferredName.Text = person.PreferredName ?? "";
         PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent;

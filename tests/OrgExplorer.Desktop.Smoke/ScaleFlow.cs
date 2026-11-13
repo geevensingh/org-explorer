@@ -207,7 +207,7 @@ internal static partial class Program
             ScaleFixture.Measure("UI-favorite-mutation", () =>
             {
                 Click(window, "ToggleFavorite");
-                AwaitScale(() => Find(window, "FavoriteStatus").Current.Name == "Not marked favorite");
+                AwaitScale(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
             });
             var import = Path.Combine(fixture.Root, "refresh.json");
             ScaleFixture.Measure("UI-import-file", () => File.WriteAllText(import, ScaleFixture.Batch(Enumerable.Range(0, ScaleFixture.Population).Select(i =>
@@ -272,7 +272,7 @@ internal static partial class Program
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))
                     throw new InvalidOperationException("Durable scale reporting mutation was lost.");
-                if (Find(window, "FavoriteStatus").Current.Name != "Not marked favorite")
+                if (Find(window, "ToggleFavorite").Current.Name != "Mark favorite")
                     throw new InvalidOperationException("Durable scale favorite mutation was lost.");
             });
             ScaleFixture.Measure("UI-close", () => Close(process));

@@ -92,9 +92,9 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
-            Find(window, "DirectoryName").SetFocus();
+            Find(window, "JobTitleValue").SetFocus();
             PressCopyKey(0x09);
-            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
+            Await(() => Find(window, "DepartmentValue").Current.HasKeyboardFocus);
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
@@ -244,7 +244,6 @@ internal static partial class Program
 
     private static void AssertProfileValue(AutomationElement window, string field, string expected)
     {
-        if (field is "Alias" or "OfficeNumber" or "LinkedInProfileUrl") ExpandProfileDetails(window);
         var observed = "not yet observed";
         try
         {
@@ -254,7 +253,9 @@ internal static partial class Program
                     new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
                 observed = value is null ? "missing" :
                     $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
-                if (expected.Length == 0) return value is null;
+                if (expected.Length == 0)
+                    return field is "JobTitle" or "Department" ? value is null :
+                        value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == "—";
                 return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
             });
         }
@@ -262,17 +263,6 @@ internal static partial class Program
         {
             throw new TimeoutException($"{field} reading expected '{expected}'; last UI observation: {observed}.", error);
         }
-    }
-
-    private static void ExpandProfileDetails(AutomationElement window)
-    {
-        var details = window.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileDetails"));
-        if (details is null) return;
-        var expansion = (ExpandCollapsePattern)details.GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        if (expansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
-            expansion.Expand();
-        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
     }
 
     private static void AssertEverydayChrome(AutomationElement window, string workspaceName)
@@ -290,12 +280,19 @@ internal static partial class Program
 
     private static void AssertCompactProfile(AutomationElement window)
     {
-        var details = (ExpandCollapsePattern)Find(window, "ProfileDetails").GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        if (details.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
-            throw new InvalidOperationException("A Person did not open with a concise initial summary.");
+        if (window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileDetails")) is not null)
+            throw new InvalidOperationException("Ordinary facts still require a More details disclosure.");
         AssertProfileValue(window, "JobTitle", "Research engineer");
         AssertProfileValue(window, "Department", "Research");
         AssertProfileValue(window, "OfficeCountry", "Canada");
+        AssertProfileValue(window, "OfficeBuilding", "");
+        AssertProfileValue(window, "OfficeState", "");
+        AssertProfileValue(window, "LinkedInProfileUrl", "");
+        AssertProfileValue(window, "OfficeNumber", "007B");
+        AssertProfileValue(window, "Alias", "avery");
+        if (IsVisible(window, "PersonArchivalStatus"))
+            throw new InvalidOperationException("Ordinary reading must not imply Active employment or presence.");
         foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager" })
             if (Find(window, id).Current.IsOffscreen)
                 throw new InvalidOperationException($"Essential profile information is not initially visible: {id}.");
@@ -307,6 +304,7 @@ internal static partial class Program
             Find(window, "Email").Current.Name != "avery@example.com" ||
             Find(window, "Email").Current.ControlType != ControlType.Text)
             throw new InvalidOperationException("The compact header lost Directory name or stable, non-editable email.");
+        CaptureVisualEvidence(window, "profile-reading-photo-all-facts");
     }
 
     private static AutomationElement ProfileLeaveWindow(AutomationElement window)
@@ -323,8 +321,9 @@ internal static partial class Program
     {
         Await(() =>
         {
-            if (Find(window, "PreferredNameValue").Current.Name != value ||
-                Find(window, "EditPreferredName").Current.Name != action) return false;
+            var expectedHeading = value.Length == 0 ? Find(window, "DirectoryName").Current.Name : value;
+            if (Find(window, "ProfileHeading").Current.Name != expectedHeading ||
+                Find(window, "EditPreferredName").Current.Name != (action == "Edit" ? "Edit preferred name" : action)) return false;
             var editor = window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "PreferredName"));
             return editor is null || editor.Current.IsOffscreen;

@@ -79,7 +79,7 @@ internal static partial class Program
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
             Await(() => Find(window, "Status").Current.Name.Contains("avery@example.com.managerEmail"));
             AssertProfileValue(window, "OfficeNumber", "0011");
-            if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active") ||
+            if (HasArchivedIdentity(window) ||
                 !Find(window, "Status").Current.Name.Contains("No cascade"))
                 throw new InvalidOperationException("In-app Manager archival did not visibly reject inconsistent active reports.");
 
@@ -106,7 +106,7 @@ internal static partial class Program
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, "Status").Current.Name.Contains("NOT saved"));
                 AssertProfileValue(window, "OfficeCountry", "");
-                if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"))
+                if (HasArchivedIdentity(window))
                     throw new InvalidOperationException("Failed archival falsely published an Archived profile.");
                 AssertPhotoVisible(window);
                 Click(window, "NavigateManager");
@@ -183,7 +183,7 @@ internal static partial class Program
             Set(window, "OfficeCountry", "France");
             RequestPersonArchival(window, archived: false);
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-            Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"));
+            Await(() => !HasArchivedIdentity(window));
             AssertProfileValue(window, "OfficeCountry", "France");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             AssertPhotoVisible(window);
@@ -195,7 +195,7 @@ internal static partial class Program
             SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");
             Click(window, "ApplyManagerChange");
             SaveProfileEditing(window);
-            if (!Find(window, "NavigateManager").Current.Name.Contains("explicit no-Manager"))
+            if (Find(window, "NavigateManager").Current.Name != "—" || Find(window, "NavigateManager").Current.IsEnabled)
                 throw new InvalidOperationException("Explicit in-app Manager clear was not applied.");
             if (CurrentReadingText(window).Contains("Later Manager writing"))
                 throw new InvalidOperationException("Cleared Manager relationship retained current inheritance.");
@@ -242,10 +242,15 @@ internal static partial class Program
     private static void AssertArchivalOwner(AutomationElement window, string email, bool archived)
     {
         if (Find(window, "Email").Current.Name != email ||
-            !Find(window, "PersonArchivalStatus").Current.Name.StartsWith(archived ? "Archived" : "Active"))
+            HasArchivedIdentity(window) != archived)
             throw new InvalidOperationException("The archival action changed the retained owner or durable state unexpectedly.");
         AssertSelectionMatchesProfile(window);
     }
+
+    private static bool HasArchivedIdentity(AutomationElement window) =>
+        window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonArchivalStatus")) is { } status &&
+        status.Current.Name.StartsWith("Archived", StringComparison.Ordinal);
 
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {
