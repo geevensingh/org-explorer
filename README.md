@@ -46,12 +46,16 @@ changes or a profile draft; any other unsaved writing still blocks close/restart
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Profiles open in **View** mode with photo, identity and principal actions together.
-Role, department, Manager, location and email are immediately readable.
-**More details** reveals populated Alias, office number and LinkedIn URL fields;
-the saved LinkedIn link still opens only through an explicit action.
+Profiles open in **View** mode with a compact circular photo or initials,
+identity and principal actions together. Name, role, department and stable email
+stay visible while facts and full-width notes scroll together below them.
+Manager, office building/number/state or province/country, Directory name, Alias
+and LinkedIn URL have consistently ordered labelled slots; missing facts show
+a neutral dash rather than disappearing behind More details. The grid uses
+fewer columns at narrower available widths. Saved links still open only through
+an explicit action.
 Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
-Empty optional rows are omitted. **Edit profile** reveals all
+**Edit profile** reveals all
 ordinary fields and stages text, Manager and photo changes together.
 **Save profile** validates and publishes the complete change; **Cancel**
 discards it without changing saved data or history. Empty editor text explicitly
@@ -75,11 +79,20 @@ retains the saved preference and writing, explains the problem, and shows a
 purposeful search/Favorites/People start instead of opening replacement writing.
 No unsaved edit buffer is restored.
 
-Preferred name normally appears as readable text. **Edit** (or **Add preferred
-name** when unset) reveals its independent autosaving inline editor; **Done**
+Preferred name normally appears as the primary name. Its adjacent pencil
+(**Edit preferred name**, or **Add preferred name** when unset) reveals its
+independent autosaving inline editor; **Done**
 returns to reading after the save succeeds. Pending or failed writing stays in
 the editor with the existing retry/discard protections. **Mark favorite** remains
 an independent one-click saved action.
+
+Wide reading keeps a resizable People pane beside one Person workspace; compact
+People opens from the left over unchanged Person bounds. Only the People divider
+is used now. Its remembered balance preserves existing version-1 preferences,
+including the unused inner profile ratio and unrelated Workspace/view/note entries.
+One toolbar search includes a clear action returning to browsing.
+This is the reading slice of the [visual refresh](docs/visual-refresh-design.md),
+not completion or visual acceptance of the whole pass.
 
 Loading, validation and local writes run off the desktop dispatcher. Rapid
 Preferred-name/Markdown typing is coalesced after a short quiet interval; the visible

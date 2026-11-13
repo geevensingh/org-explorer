@@ -16,7 +16,7 @@ internal static class PrivateMarkdownReading
     {
         var document = new FlowDocument
         {
-            PagePadding = new Thickness(12), FontSize = 14,
+            PagePadding = new Thickness(0), FontSize = 14,
             FontFamily = new System.Windows.Media.FontFamily("Segoe UI")
         };
         foreach (var block in Markdown.Parse(markdown, Pipeline)) AddBlock(document.Blocks, block, openLink);

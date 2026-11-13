@@ -29,7 +29,7 @@ internal static partial class Program
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 3");
-            if (!Find(window, "FavoriteStatus").Current.Name.Contains("Marked favorite"))
+            if (Find(window, "ToggleFavorite").Current.Name != "Unmark favorite")
                 throw new InvalidOperationException("Current Workspace lost favorite state.");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             AssertPhotoVisible(window);

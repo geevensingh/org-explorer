@@ -16,6 +16,12 @@ public partial class MainWindow
     private string? lastQuery;
     private int queryRequest;
 
+    private void ClearSearch(object sender, RoutedEventArgs e)
+    {
+        SearchQuery.Clear();
+        SearchQuery.Focus();
+    }
+
     private void ChangeSearchQuery(object sender, TextChangedEventArgs e)
     {
         if (SearchResults is null || loading) return;
@@ -191,10 +197,14 @@ public partial class MainWindow
 
     private void ShowFavorite(PersonProfile person)
     {
-        FavoriteButton.Content = person.IsFavorite ? "Unmark favorite" : "Mark favorite";
+        var action = person.IsFavorite ? "Unmark favorite" : "Mark favorite";
+        FavoriteButton.Content = person.IsFavorite ? "\uE735" : "\uE734";
+        System.Windows.Automation.AutomationProperties.SetName(FavoriteButton, action);
+        FavoriteButton.ToolTip = action;
         FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent;
         FavoriteStatus.Text = (person.IsFavorite ? "Marked favorite" : "Not marked favorite") +
             (unsavedFavorite.HasValue ? " — pending action NOT saved" : "");
+        FavoriteStatus.Visibility = unsavedFavorite.HasValue ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void ChangeFavorite(object sender, RoutedEventArgs e)

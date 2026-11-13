@@ -36,13 +36,19 @@ internal static partial class Program
             var image = Find(window, "PersonPhoto");
             var bounds = image.Current.BoundingRectangle;
             if (image.Current.IsOffscreen || bounds.IsEmpty || bounds.Width < 1 || bounds.Height < 1) return false;
+            if (Math.Abs(bounds.Width - bounds.Height) > 1 || bounds.Width / DpiScale(window) > 64)
+                throw new InvalidOperationException("Person photos must be compact circular identity, not oversized rectangular furniture.");
             var dc = GetDC(IntPtr.Zero);
             try
             {
                 var color = GetPixel(dc, (int)(bounds.Left + bounds.Width / 2), (int)(bounds.Top + bounds.Height / 2));
                 if (color == uint.MaxValue)
                     throw new InvalidOperationException("Actual UI pixels are unavailable. Desktop smoke requires an interactive, unlocked Windows desktop; image assertions cannot be skipped.");
-                return (color & 0xff) >= 240 && ((color >> 8) & 0xff) <= 20 && ((color >> 16) & 0xff) >= 240;
+                var corner = GetPixel(dc, (int)bounds.Left + 1, (int)bounds.Top + 1);
+                if (corner == uint.MaxValue)
+                    throw new InvalidOperationException("Actual circular photo-edge pixels are unavailable; hosted evidence cannot skip them.");
+                return (color & 0xff) >= 240 && ((color >> 8) & 0xff) <= 20 && ((color >> 16) & 0xff) >= 240 &&
+                    !((corner & 0xff) >= 240 && ((corner >> 8) & 0xff) <= 20 && ((corner >> 16) & 0xff) >= 240);
             }
             finally { ReleaseDC(IntPtr.Zero, dc); }
         });
@@ -76,7 +82,8 @@ internal static partial class Program
         BeginProfileEditing(window);
         Click(window, "ClearPhoto");
         SaveProfileEditing(window);
-        Await(() => Find(window, "PhotoPlaceholder").Current.Name == "Photo unavailable");
+        Await(() => Find(window, "PhotoPlaceholder").Current.Name.StartsWith("No local photo. Initials:", StringComparison.Ordinal));
+        CaptureVisualEvidence(window, "profile-reading-cleared-photo-initials");
         ExpandHistory(window);
         Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("Photo:") &&
                     Find(window, "ProfileTimeline").Current.Name.Contains(".jpg → (clear)") &&

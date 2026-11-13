@@ -9,6 +9,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -76,10 +77,20 @@ internal static partial class Program
             if (window.FindName("OpenPeopleButton") is not Button people ||
                 System.Windows.Automation.AutomationProperties.GetName(people) != "People" || !people.Focusable)
                 failures.Add("Compact People navigation needs a labelled keyboard-accessible entry.");
-            foreach (var name in new[] { "PeopleDivider", "ProfileDivider" })
+            foreach (var name in new[] { "PeopleDivider" })
                 if (window.FindName(name) is not GridSplitter { Focusable: true } divider ||
                     string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(divider)))
                     failures.Add($"{name}: proportional dividers must expose a meaningful keyboard-accessible control.");
+            var readingScroll = (ScrollViewer)window.FindName("PersonScroll");
+            if (Contains(readingScroll, (DependencyObject)window.FindName("PersonIdentity")) ||
+                !Contains(readingScroll, (DependencyObject)window.FindName("ProfileSummary")) ||
+                !Contains(readingScroll, (DependencyObject)window.FindName("NotesPane")))
+                failures.Add("Identity must stay outside the shared facts-and-notes reading scroll.");
+            if (window.FindName("ProfileDivider") is not null || window.FindName("ProfileDetails") is not null)
+                failures.Add("Ordinary reading must not retain an inner divider or a More details gate.");
+            if (window.FindName("ClearSearchButton") is not Button { Focusable: true } clearSearch ||
+                string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(clearSearch)))
+                failures.Add("The single search field needs a named keyboard-accessible clear action.");
             foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane" })
                 if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
                     failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
@@ -169,10 +180,16 @@ internal static partial class Program
                      "observedAt":"2026-11-01T17:00:00Z","people":[
                      {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
                       "jobTitle":"Researcher","department":"Research","officeCountry":"Canada",
-                      "alias":"ave","officeNumber":"007B"}]}
+                      "alias":"ave","officeNumber":"007B"},
+                     {"email":"zara@example.com","displayName":"Zara with a deliberately long Directory name for accessible identity",
+                      "officeBuilding":"South campus research and collaboration building with a long descriptive location",
+                      "managerEmail":null}]}
                     """).Id) || seed.CreatePersonNote("avery@example.com", "Saved title", "# Saved note") is null)
                 throw new InvalidOperationException("Profile refresh fixture failed: " + seed.Status);
         }
+        var preferences = Path.Combine(settings, "workspace-settings.json");
+        if (!new WorkspaceSettings(preferences).SetPaneProportions(folder, new(25, 92)))
+            throw new InvalidOperationException("Could not seed the existing version-1 inner-ratio preference.");
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Control<TextBox>("WorkspacePath").Text = folder;
@@ -187,22 +204,26 @@ internal static partial class Program
         Invoke("OpenSettingsButton");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
-        VerifyAdaptiveDividerLayout(window);
-        if (window.FindName("ProfileDetails") is not Expander details || details.IsExpanded)
-            throw new InvalidOperationException("Person reading must start with secondary profile details collapsed.");
+        VerifyAdaptiveReadingLayout(window);
+        if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
+            throw new InvalidOperationException("People resizing or compact transitions erased the unused existing inner ratio.");
         if (Control<TextBlock>("JobTitleValue").Text != "Researcher" ||
             Control<TextBlock>("DepartmentValue").Text != "Research" ||
             Control<TextBlock>("OfficeCountryValue").Text != "Canada")
             throw new InvalidOperationException("The essential profile summary lost role, department or location.");
-        details.IsExpanded = true;
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B" ||
-            Control<FrameworkElement>("LinkedInProfileUrlValueRow").Visibility != Visibility.Collapsed)
-            throw new InvalidOperationException("More details must expose populated attributes without empty rows.");
+            Control<TextBlock>("LinkedInProfileUrlValue").Text != "—" ||
+            Control<FrameworkElement>("LinkedInProfileUrlValueRow").Visibility != Visibility.Visible ||
+            Control<TextBlock>("OfficeBuildingValue").Text != "—" ||
+            Control<TextBlock>("PersonArchivalStatus").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("All ordinary facts need stable populated/missing slots without an Active badge.");
         Invoke("EditProfileButton");
         if (Control<FrameworkElement>("AttributeEditors").Visibility != Visibility.Visible ||
             Control<TextBox>("LinkedInProfileUrl").Text != "" ||
             Control<FrameworkElement>("ProfileValues").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("Full Edit must expose empty fields without duplicate reading values.");
+        if (Control<Button>("Manager").IsDescendantOf(Control<Border>("ProfileValues")))
+            throw new InvalidOperationException("Profile editing hid saved-Manager navigation, preventing the existing guarded leave flow.");
         Invoke("CancelProfileButton");
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B")
             throw new InvalidOperationException("Profile Cancel changed the readable saved value.");
@@ -270,7 +291,7 @@ internal static partial class Program
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
     }
 
-    private static void VerifyAdaptiveDividerLayout(Window window)
+    private static void VerifyAdaptiveReadingLayout(Window window)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var root = (FrameworkElement)window.Content;
@@ -278,7 +299,7 @@ internal static partial class Program
         var body = Control<Grid>("PersonBody");
         var profile = Control<GroupBox>("ProfileSummary");
         var notes = Control<GroupBox>("NotesPane");
-        var profileDivider = Control<GridSplitter>("ProfileDivider");
+        var identity = Control<Grid>("PersonIdentity");
         var peopleDivider = Control<GridSplitter>("PeopleDivider");
         var people = Control<GroupBox>("PeoplePanel");
         var host = Control<Grid>("ExplorerPanel");
@@ -292,17 +313,18 @@ internal static partial class Program
         }
         void Contained(string stage)
         {
-            var content = (FrameworkElement)viewport.Content;
-            var dividerBounds = profileDivider.TransformToAncestor(content).TransformBounds(new Rect(profileDivider.RenderSize));
-            var noteBounds = notes.TransformToAncestor(content).TransformBounds(new Rect(notes.RenderSize));
+            var profileBounds = profile.TransformToAncestor(body).TransformBounds(new Rect(profile.RenderSize));
+            var noteBounds = notes.TransformToAncestor(body).TransformBounds(new Rect(notes.RenderSize));
             var viewportBounds = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
-            if (viewport.ViewportWidth <= 0 || people.ActualWidth < 239 || profile.ActualWidth < 239 || notes.ActualWidth < 359 ||
+            if (viewport.ViewportWidth <= 0 || people.ActualWidth < 239 || notes.ActualWidth < 359 ||
                 viewportBounds.Right > host.ActualWidth + 1 ||
                 body.ActualWidth > viewport.ViewportWidth + 1 ||
-                dividerBounds.Right > viewport.ViewportWidth + 1 || noteBounds.Right > viewport.ViewportWidth + 1)
-                throw new InvalidOperationException($"Compiled divider overflow {stage}: viewport={viewport.ViewportWidth}, " +
+                noteBounds.Right > viewport.ViewportWidth + 1 ||
+                Math.Abs(profileBounds.Left - noteBounds.Left) > 1 ||
+                Math.Abs(profileBounds.Width - noteBounds.Width) > 1 || profileBounds.Bottom > noteBounds.Top + 1)
+                throw new InvalidOperationException($"Compiled reading overflow/order {stage}: viewport={viewport.ViewportWidth}, " +
                     $"body={body.ActualWidth}, profile={profile.ActualWidth}, notes={notes.ActualWidth}, " +
-                    $"divider={dividerBounds}, noteBounds={noteBounds}.");
+                    $"profileBounds={profileBounds}, noteBounds={noteBounds}.");
         }
         void Drag(GridSplitter divider, double delta, string stage)
         {
@@ -337,21 +359,84 @@ internal static partial class Program
         }
         Layout();
         Contained("initial");
+        var photo = Control<FrameworkElement>("Photo");
+        var placeholder = (TextBlock)photo.FindName("Placeholder");
+        if (placeholder.Text != "A" || photo.ActualWidth > 64 || photo.ActualHeight > 64 ||
+            !System.Windows.Automation.AutomationProperties.GetName(placeholder).Contains("No local photo", StringComparison.Ordinal))
+            throw new InvalidOperationException("Missing photos need compact, accessible initials rather than oversized missing-photo furniture.");
         Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
-        Drag(profileDivider, 240 - profile.ActualWidth, "profile minimum");
-        var content = (FrameworkElement)viewport.Content;
-        var start = profileDivider.TransformToAncestor(content).Transform(new Point(0, 0)).X;
-        Drag(profileDivider, viewport.ViewportWidth - 20 - start, "profile maximum");
-        ResizeWithKey(profileDivider, profile, Key.Left, -10);
         ResizeWithKey(peopleDivider, people, Key.Right, 10);
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");
-        Drag(profileDivider, (profile.ActualWidth + notes.ActualWidth) * .36 - profile.ActualWidth, "profile 36%");
-        if (Math.Abs(profile.ActualWidth / (profile.ActualWidth + notes.ActualWidth) - .36) > .01)
-            throw new InvalidOperationException("The actual compiled profile divider cannot reach 36% within the visible viewport.");
         Drag(peopleDivider, host.ActualWidth - people.ActualWidth, "People maximum");
+        ResizeWithKey(peopleDivider, people, Key.Left, -10);
         Layout(1100, 900);
         Contained("narrower wide viewport");
-        Console.WriteLine("PASS: real compiled splitter drags and 10-DIP routed keys retain both panes/divider inside the viewport through minimum, maximum, outer resize and 36% recovery; no visible window/native handle.");
+        var personNotes = Control<FrameworkElement>("PersonNotes");
+        var reading = (FlowDocumentScrollViewer)personNotes.FindName("Reading");
+        var original = reading.Document;
+        var longReading = new FlowDocument { PagePadding = new Thickness(0) };
+        foreach (var paragraph in Enumerable.Range(1, 40))
+            longReading.Blocks.Add(new Paragraph(new Run($"Paragraph {paragraph}: the same Person remains identifiable while reading.")));
+        try
+        {
+            reading.Document = longReading;
+            Layout();
+            var identityBefore = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
+            var factsBefore = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
+            if (reading.ActualHeight <= 600 || reading.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                reading.ActualWidth > 600 || viewport.ScrollableHeight <= 0)
+                throw new InvalidOperationException($"Long note reading is still an independently bounded box: reading={reading.RenderSize}, outerExtent={viewport.ExtentHeight}.");
+            viewport.ScrollToVerticalOffset(240);
+            Layout();
+            var identityAfter = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
+            var factsAfter = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
+            if (identityBefore != identityAfter || Math.Abs(factsBefore.Top - factsAfter.Top - 240) > 1)
+                throw new InvalidOperationException("The shared scroll moved identity or failed to move facts with notes.");
+        }
+        finally
+        {
+            reading.Document = original;
+            viewport.ScrollToTop();
+            Layout();
+        }
+        Layout();
+        Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "restored People 27%");
+        var facts = Control<UniformGrid>("FactsGrid");
+        var slots = facts.Children.Cast<FrameworkElement>().ToArray();
+        var columns = facts.Columns;
+        var lefts = slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X).ToArray();
+        var tree = Control<TreeView>("PeopleList");
+        var originalPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "avery@example.com");
+        var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
+        Layout();
+        if (facts.Children.Count != 8 || facts.Columns != columns ||
+            slots.Any(slot => slot.Visibility != Visibility.Visible) ||
+            slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
+            Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
+            Control<TextBlock>("OfficeNumberValue").Text != "—" ||
+            Control<TextBlock>("LinkedInProfileUrlValue").Text != "—")
+            throw new InvalidOperationException("Long or missing values repacked facts, lost full text, or hid labelled slots.");
+        var wideColumns = facts.Columns;
+        Layout(700, 500);
+        if (facts.Columns >= wideColumns || Control<Button>("OpenPeopleButton").Visibility != Visibility.Visible ||
+            profile.ActualWidth != notes.ActualWidth || profile.ActualWidth > viewport.ViewportWidth)
+            throw new InvalidOperationException("Compact facts must use fewer columns above full-width notes without shrinking type.");
+        var beforeOverlay = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        if (people.Visibility != Visibility.Visible || beforeOverlay != viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize)))
+            throw new InvalidOperationException("The compiled compact overlay moved or squeezed the Person viewport.");
+        Control<Button>("ClosePeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(longPerson, originalPerson, TreeView.SelectedItemChangedEvent));
+        Layout();
+        Contained("restored original Person");
+        Control<TextBox>("SearchQuery").Text = "Researcher";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (Control<TextBox>("SearchQuery").Text != "" || Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
+        Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
     }
 
     private sealed class UnshownInputSource : PresentationSource

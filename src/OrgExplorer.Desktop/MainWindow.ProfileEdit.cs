@@ -53,6 +53,9 @@ public partial class MainWindow
         AttributeEditors.Visibility = ManagerEditor.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
+        ProfileEditLinks.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
+        PlaceProfileLink(Manager, editing ? ProfileEditLinks : ManagerReadingSlot);
+        PlaceProfileLink(OpenLinkedInButton, editing ? ProfileEditLinks : LinkedInProfileUrlValueRow);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
         ProfilePhotoDraft.Text = workflow.ProfileEdit?.PhotoLocalPath is { } path
@@ -61,26 +64,32 @@ public partial class MainWindow
         PreferredNameContext.IsEnabled = PreferredName.IsEnabled = writable;
     }
 
+    private static void PlaceProfileLink(Button link, Panel host)
+    {
+        if (ReferenceEquals(link.Parent, host)) return;
+        if (link.Parent is Panel previous) previous.Children.Remove(link);
+        host.Children.Add(link);
+    }
+
     private void ShowProfileValues(PersonProfile? person)
     {
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
-        ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle);
-        ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department);
+        ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
+        ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department, reserveSlot: false);
         ShowProfileValue(OfficeBuildingValueRow, OfficeBuildingValue, person?.OfficeBuilding);
         ShowProfileValue(OfficeNumberValueRow, OfficeNumberValue, person?.OfficeNumber);
         ShowProfileValue(OfficeStateValueRow, OfficeStateValue, person?.OfficeState);
         ShowProfileValue(OfficeCountryValueRow, OfficeCountryValue, person?.OfficeCountry);
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
-        ProfileDetails.Visibility = person?.Alias is not null || person?.OfficeNumber is not null ||
-            person?.LinkedInProfileUrl is not null ? Visibility.Visible : Visibility.Collapsed;
-        DirectoryName.Visibility = person?.DirectoryName is null ? Visibility.Collapsed : Visibility.Visible;
+        DirectoryName.Text = person?.DirectoryName ?? "—";
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text)
+    private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text, bool reserveSlot = true)
     {
-        value.Text = text ?? "";
-        row.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
+        value.Text = text ?? "—";
+        value.ToolTip = text;
+        row.Visibility = reserveSlot || text is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CopyProfileValue(object sender, RoutedEventArgs e)
