@@ -22,6 +22,8 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static readonly Queue<string?> CompiledWorkspaceChoices = new();
+
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
         AssertDisplayInterop();
@@ -45,10 +47,9 @@ internal static partial class Program
             if (verifyProfileRefresh || verifyUpdateYield)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
-            var window = heldPublisher is not null
-                ? (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher)], null)!
-                : (Window)Activator.CreateInstance(type)!;
+            Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
+            var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher), chooseFolder], null)!;
             var failures = new List<string>();
             if (window.Icon is not BitmapFrame { Decoder: IconBitmapDecoder icon } ||
                 !icon.Frames.Select(frame => frame.PixelWidth).Order().SequenceEqual(
@@ -67,6 +68,15 @@ internal static partial class Program
                 if (!Contains(settingsPanel, control))
                     failures.Add($"{name}: infrequent management belongs in Settings, not everyday chrome.");
             }
+            if (window.FindName("WorkspacePath") is not TextBlock { Focusable: true, ContextMenu: not null } currentPath ||
+                !KeyboardNavigation.GetIsTabStop(currentPath) ||
+                LogicalDescendants(settingsPanel).OfType<TextBox>().Any())
+                failures.Add("Settings must display the actual copyable Workspace path, with no editable pending path.");
+            var folderActions = LogicalDescendants(settingsPanel).OfType<Button>().Where(button =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(button) is "ChooseWorkspace" or "OpenWorkspace").ToArray();
+            if (folderActions.Length != 1 ||
+                System.Windows.Automation.AutomationProperties.GetAutomationId(folderActions[0]) != "OpenWorkspace")
+                failures.Add("Settings must offer one picker-and-open action, not separate Choose and Open steps.");
             if (window.FindName("WorkspaceName") is not TextBlock workspaceName || workspaceName.Focusable)
                 failures.Add("Everyday chrome needs a quiet, non-interactive Workspace name.");
             var search = (FrameworkElement)window.FindName("SearchQuery");
@@ -91,7 +101,7 @@ internal static partial class Program
             if (window.FindName("ClearSearchButton") is not Button { Focusable: true } clearSearch ||
                 string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(clearSearch)))
                 failures.Add("The single search field needs a named keyboard-accessible clear action.");
-            foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane" })
+            foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane", "OperationalNotice" })
                 if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
                     failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
             if (KeyboardNavigation.GetTabNavigation((DependencyObject)window.FindName("PeoplePanel")) == KeyboardNavigationMode.Cycle)
@@ -142,6 +152,7 @@ internal static partial class Program
             SynchronizationContext.SetSynchronizationContext(previousContext);
             AssemblyLoadContext.Default.Resolving -= Resolve;
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
+            CompiledWorkspaceChoices.Clear();
             Directory.Delete(settings, true);
         }
     }
@@ -149,7 +160,7 @@ internal static partial class Program
     private static void VerifySettingsFocus(Window window)
     {
         var settings = (Button)window.FindName("OpenSettingsButton");
-        var folder = (TextBox)window.FindName("WorkspacePath");
+        var folder = (Button)window.FindName("OpenWorkspaceButton");
         void Toggle() => settings.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         void Settle()
         {
@@ -161,14 +172,24 @@ internal static partial class Program
         Toggle();
         Settle();
         if (!ReferenceEquals(FocusManager.GetFocusedElement(window), folder))
-            throw new InvalidOperationException("Opening Settings did not establish the Workspace folder as its logical focus destination.");
+            throw new InvalidOperationException("Opening Settings did not establish Open Workspace as its logical focus destination.");
         Toggle();
         Toggle();
         Toggle();
         Settle();
         if (!ReferenceEquals(FocusManager.GetFocusedElement(window), settings))
             throw new InvalidOperationException("A queued Settings focus request stole logical focus after Settings closed.");
-        Console.WriteLine("PASS: Settings logical focus settles on its folder and stale requests cannot focus closed Settings; physical keyboard focus still requires hosted WPF.");
+        Console.WriteLine("PASS: Settings logical focus settles on Open Workspace and stale requests cannot focus closed Settings; physical keyboard focus still requires hosted WPF.");
+    }
+
+    private static void ChooseCompiledWorkspace(Window window, string? folder)
+    {
+        if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Visible)
+            throw new InvalidOperationException("The compiled picker action requires explicit Settings preparation.");
+        CompiledWorkspaceChoices.Enqueue(folder);
+        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (CompiledWorkspaceChoices.Count != 0)
+            throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)
@@ -193,9 +214,19 @@ internal static partial class Program
             throw new InvalidOperationException("Could not seed the existing version-1 inner-ratio preference.");
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Control<TextBox>("WorkspacePath").Text = folder;
-        Invoke("OpenWorkspaceButton");
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<TextBlock>("WorkspacePath").Text != folder)
+            throw new InvalidOperationException("Settings did not display the opened Workspace's actual full path.");
+        if (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Collapsed })
+            throw new InvalidOperationException("Healthy reading must not retain permanent Ready, validated, saved or inactive recovery furniture.");
+        if (System.Windows.Automation.AutomationProperties.GetItemStatus(window) != "Ready" ||
+            System.Windows.Automation.AutomationProperties.GetItemStatus(Control<TextBlock>("WorkspaceName")) !=
+                "Current validated local Workspace.")
+            throw new InvalidOperationException("Quiet reading lost its actual accessible activity or Workspace validation state.");
+        VerifyRejectedPickerChoice(window, folder, preferences);
+        VerifyImportPreviewKey(window, folder);
         Invoke("OpenSettingsButton");
         if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Collapsed ||
             Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
@@ -288,6 +319,9 @@ internal static partial class Program
                     throw new InvalidOperationException($"Profile Save displayed stale or discarded Person-note writing: '{observed}'.");
                 if (File.ReadAllText(noteFile) != delivered)
                     throw new InvalidOperationException("Profile Save rewrote delivered Person-note bytes.");
+                if (dirtyNote && (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Visible } ||
+                    !Control<TextBlock>("NoticeSummary").Text.Contains("NOT saved", StringComparison.Ordinal)))
+                    throw new InvalidOperationException("Unrelated profile success concealed the independent failed Person-note writing.");
             }
             finally { property.RemoveValueChanged(status, saved); }
             if (dirtyNote)
@@ -295,6 +329,23 @@ internal static partial class Program
                 Invoke("OpenSettingsButton");
                 if (NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note")
                     throw new InvalidOperationException("Opening Settings changed independent writing.");
+                var previousPreference = File.ReadAllBytes(preferences);
+                var previousStatus = status.Text;
+                ChooseCompiledWorkspace(window, null);
+                if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible ||
+                    status.Text != previousStatus || Control<TextBlock>("Email").Text != "avery@example.com" ||
+                    NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    throw new InvalidOperationException("Cancelling the picker changed retained writing, status, selection or the startup preference.");
+                var blockedFolder = Path.Combine(settings, "blocked-by-note");
+                ChooseCompiledWorkspace(window, blockedFolder);
+                if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Collapsed ||
+                    Control<TextBlock>("Email").Text != "avery@example.com" ||
+                    NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
+                    !status.Text.Contains("Person note", StringComparison.Ordinal) || Directory.Exists(blockedFolder) ||
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    throw new InvalidOperationException("Picker acceptance bypassed the failed note or stranded its exact writing behind Settings.");
+                Invoke("OpenSettingsButton");
                 Invoke("OpenImportButton");
                 if (Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
                     Control<TextBlock>("Email").Text != "avery@example.com" ||
@@ -312,6 +363,59 @@ internal static partial class Program
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
+    }
+
+    private static void VerifyImportPreviewKey(Window window, string folder)
+    {
+        var before = WorkspaceFixtures.Bytes(folder);
+        var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000073",
+             "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"avery@example.com","officeNumber":"123"}]}
+            """);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var path = (TextBox)window.FindName("ImportPath");
+        path.Text = import;
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice,
+            new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent };
+        path.RaiseEvent(enter);
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        if (!enter.Handled || !((ListBox)window.FindName("PreviewText")).Items.Cast<string>().Any(text =>
+                text.Contains("123", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Import-path Enter did not produce the same explicit reviewed preview.");
+        AssertWorkspaceBytes(folder, before);
+        var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
+            .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
+        back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (((Button)window.FindName("ApplyButton")).IsEnabled)
+            throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
+        Console.WriteLine("PASS: compiled Import-path Enter previews without applying or changing saved Workspace bytes.");
+    }
+
+    private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)
+    {
+        var savedPreference = File.ReadAllBytes(preferences);
+        var savedWorkspace = WorkspaceFixtures.Bytes(folder);
+        var invalid = Path.Combine(Path.GetDirectoryName(folder)!, "invalid-picker-choice");
+        Directory.CreateDirectory(invalid);
+        File.WriteAllText(Path.Combine(invalid, "workspace.json"), "{invalid");
+        var invalidBytes = WorkspaceFixtures.Bytes(invalid);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, invalid);
+        PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
+            ((TextBlock)window.FindName("StatusText")).Text.Contains("could not be opened", StringComparison.Ordinal));
+        if (((FrameworkElement)window.FindName("OperationalNotice")).Visibility != Visibility.Visible ||
+            ((TextBlock)window.FindName("WorkspacePathLabel")).Text != "Workspace folder (unavailable)" ||
+            !File.ReadAllBytes(preferences).SequenceEqual(savedPreference))
+            throw new InvalidOperationException("A rejected picker choice claimed a successful current Workspace or replaced the successful startup preference.");
+        AssertWorkspaceBytes(folder, savedWorkspace);
+        AssertWorkspaceBytes(invalid, invalidBytes);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
+            ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
+        Console.WriteLine("PASS: rejected picker acceptance preserves both Workspace byte sets and the last successful startup preference; native selection remains hosted-only evidence.");
     }
 
     private static void VerifyPreferredNameEntry(Window window, string folder, HeldNotePublisher publisher)
@@ -616,8 +720,8 @@ internal static partial class Program
             PumpUntil(() => settled);
             Layout(compact);
         }
-        Control<TextBox>("WorkspacePath").Text = folder;
-        Invoke("OpenWorkspaceButton");
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
             Control<TextBlock>("WorkspaceName").Text == "responsive-browsing");
         var tree = Control<TreeView>("PeopleList");
@@ -700,9 +804,23 @@ internal static partial class Program
             var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
             if (!provider.VerticallyScrollable)
                 throw new InvalidOperationException("The responsive replay must exercise a real reporting-tree scroll extent.");
-            TreeItemRealization.PrepareMeasuredScrollPosition(70,
-                percent => provider.SetScrollPercent(-1, percent), () => provider.VerticalScrollPercent,
-                condition => PumpUntil(() => { Layout(compact); return condition(); }));
+            try
+            {
+                TreeItemRealization.PrepareMeasuredScrollPosition(70,
+                    percent =>
+                    {
+                        Console.WriteLine($"BROWSE-PREP compact={compact}; request={percent}; actual={provider.VerticalScrollPercent}; " +
+                            $"offset={scrolling.VerticalOffset}; extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}");
+                        provider.SetScrollPercent(-1, percent);
+                    }, () => provider.VerticalScrollPercent,
+                    condition => PumpUntil(() => { Layout(compact); return condition(); }));
+            }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException($"Compiled browsing preparation: compact={compact}; percent={provider.VerticalScrollPercent}; " +
+                    $"offset={scrolling.VerticalOffset}; extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}; " +
+                    $"notice={Control<TextBlock>("NoticeSummary").Text}.", error);
+            }
             if (compact)
             {
                 scrolling.ScrollToHorizontalOffset(39);
@@ -895,7 +1013,11 @@ internal static partial class Program
             Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
             Control<TextBlock>("OfficeNumberValue").Text != "—" ||
             Control<TextBlock>("LinkedInProfileUrlValue").Text != "—")
-            throw new InvalidOperationException("Long or missing values repacked facts, lost full text, or hid labelled slots.");
+            throw new InvalidOperationException("Long or missing values repacked facts, lost full text, or hid labelled slots. " +
+                $"Columns: {columns} -> {facts.Columns}; X: {string.Join(",", lefts)} -> " +
+                $"{string.Join(",", slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X))}; " +
+                $"Directory name={Control<TextBlock>("DirectoryName").Text}; office={Control<TextBlock>("OfficeNumberValue").Text}; " +
+                $"URL={Control<TextBlock>("LinkedInProfileUrlValue").Text}; viewport={viewport.ViewportWidth}x{viewport.ViewportHeight}.");
         var wideColumns = facts.Columns;
         Layout(700, 500);
         if (facts.Columns >= wideColumns || Control<Button>("OpenPeopleButton").Visibility != Visibility.Visible ||
@@ -963,7 +1085,8 @@ internal static partial class Program
         PumpUntil(() => Control<TextBox>("NoteTitle").Text == "New Team note");
         Control<TextBox>("NoteTitle").Text = "Secondary Team";
         Saved();
-        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
         var tree = (TreeView)window.FindName("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
@@ -1165,12 +1288,14 @@ internal static partial class Program
         if (workflow.CanSafelyClose || !workflow.LocalSaveError!.Contains("recovery maintenance incomplete", StringComparison.Ordinal))
             throw new InvalidOperationException("The compiled retry fixture did not retain a committed maintenance failure.");
         var alternate = Path.Combine(Path.GetDirectoryName(folder)!, "blocked-workspace");
-        ((TextBox)window.FindName("WorkspacePath")).Text = alternate;
-        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, alternate);
         Settled();
         if (workflow.Compatibility.WorkspacePath != folder ||
             workflow.PeopleNavigation.SelectedEmail != selected ||
-            workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate))
+            workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate) ||
+            !((TextBlock)window.FindName("NoticeSummary")).Text.Contains("Saved locally; recovery maintenance incomplete", StringComparison.Ordinal) ||
+            workflow.CanSafelyClose)
             throw new InvalidOperationException("Blocked Workspace navigation changed the current presentation or created the destination.");
         var retry = LogicalDescendants((DependencyObject)window.FindName("SettingsPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "RetryWorkspace");

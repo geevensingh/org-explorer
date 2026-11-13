@@ -39,8 +39,9 @@ internal static partial class Program
         }
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Control<TextBox>("WorkspacePath").Text = folder;
-        Invoke("OpenWorkspaceButton");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible)
+            Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
@@ -73,6 +74,7 @@ internal static partial class Program
         var bytesUnchanged = false;
         var updatePendingAtObservation = false;
         var noEarlyHandoff = false;
+        var importBlockedAtObservation = false;
         Exception? experimentFailure = null;
         Task? saving = null;
         Task<bool>? noteSave = null;
@@ -113,6 +115,7 @@ internal static partial class Program
                     {
                         updatePendingAtObservation = !Control<Button>("CheckForUpdatesButton").IsEnabled;
                         noEarlyHandoff = !File.Exists(handoff);
+                        importBlockedAtObservation = !Control<Button>("OpenImportButton").IsEnabled;
                         heldAtObservation = publisher.Entered.IsSet && !publisher.Release.IsSet && saving is { IsCompleted: false };
                         bytesUnchanged = File.ReadAllBytes(file).SequenceEqual(original);
                     }
@@ -141,7 +144,7 @@ internal static partial class Program
             if (experimentFailure is not null) throw experimentFailure;
             PumpUntil(() => saving is { IsCompleted: true } && Control<Button>("CheckForUpdatesButton").IsEnabled);
             if (noteSave is not null && !noteSave.GetAwaiter().GetResult() || !intercepted || !heldAtObservation ||
-                !bytesUnchanged || !updatePendingAtObservation || !noEarlyHandoff)
+                !bytesUnchanged || !updatePendingAtObservation || !noEarlyHandoff || !importBlockedAtObservation)
                 throw new InvalidOperationException("The experiment did not preserve the intended yield/publication barriers.");
         }
         finally

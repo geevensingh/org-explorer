@@ -15,6 +15,7 @@ internal static partial class Program
         listener.Start();
         var remote = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/never-load";
         var workspace = Path.Combine(root, "search-workspace");
+        Directory.CreateDirectory(workspace);
         var import = Path.Combine(root, "search-import.json");
         File.WriteAllText(import, SearchImport("""
             {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
@@ -36,8 +37,8 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
@@ -91,7 +92,7 @@ internal static partial class Program
             using (new FileStream(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 Click(window, "ToggleFavorite");
-                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved"));
+                Await(() => Status(window).Contains("NOT saved"));
                 if (Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
                     throw new InvalidOperationException("Failed favorite save falsely showed a saved star.");
                 QueryAndSelect(window, "alex@example", "alex@example.com", "Current", "Profile:", expectNavigation: false);
@@ -99,7 +100,7 @@ internal static partial class Program
                     throw new InvalidOperationException("Search discarded an unsaved favorite action.");
                 CaptureVisualEvidence(window, "search-rejected-favorite-writing-retained");
                 process.CloseMainWindow();
-                Await(() => Find(window, "Status").Current.Name.Contains("Unsaved local changes prevent safe closing"));
+                Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Unmark favorite");

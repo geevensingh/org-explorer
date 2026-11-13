@@ -469,6 +469,13 @@ The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
 operational feedback and startup recovery stay outside that scrolling view.
+It requires one Open Workspace action and a focusable, copyable displayed path,
+without a pending-path TextBox or separate Choose action. Healthy reading collapses
+the operational notice rather than keeping Ready/validated/saved furniture.
+The Window's accessible ItemStatus and HelpText expose the actual existing
+workflow activity and operation feedback; the Workspace label's ItemStatus exposes
+actual validation/freshness. These are bound to the same detailed status, not
+test-only readiness or success flags.
 
 The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
@@ -537,9 +544,18 @@ Read/Edit changes immediately present locked/corrupt exact-view preference error
 and clear the warning after a successful explicit retry, without an extra refresh.
 These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
-logical focus on the folder, including closure before a queued focus request.
+logical focus on Open Workspace, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged
 hosted Space-key/`HasKeyboardFocus` assertion remains the physical-focus proof.
+The existing internal application-construction seam substitutes only the external
+folder-picker result in invisible checks. Accept/cancel, rejected invalid delivery,
+retained note writing, startup-preference bytes and explicit Import-path Enter
+preview all run through the actual compiled handlers and real file-backed workflow.
+This does not establish native picker discovery, input, selection or cancellation.
+The ordinary profile and Person-note journeys use the actual native dialog once,
+with explicit selectable-folder setup, exact accepted/cancelled outcomes and
+unchanged preference/writing assertions. Installed, responsive and scale callers
+use that same visible picker, never a hidden direct-path adapter.
 
 It also exercises the existing public note-flush boundary after a failed save,
 successful retry and newer writing while Settings hides the editor. With the
@@ -832,9 +848,22 @@ covers the collapsed-label hosted failure and rejects wrong-folder, pending and
 stale observations without retrying Open. Failed-startup smoke still requires
 the actual visible error and enabled Retry/Choose recovery controls.
 The exact opened folder is read from the quiet Workspace label's accessibility
-description; the visible full-path editor remains in Settings. Restore checks
+description; the full copyable path is display text in Settings. Restore checks
 still require the exact folder and live current-data/owner/recovery observations
 within the same bounded wait, not just a successful folder-name match.
+The native-picker helper invokes the visible action once, fills the native folder
+entry and accepts or cancels once, then observes dialog closure. It never creates
+folders, repairs Settings, retries Open or substitutes an app-side path setter.
+Empty folders and malformed selectable Workspaces are explicit scenario fixtures;
+the rejected-open checks retain their complete byte/preference assertions.
+Quiet status is read through the real accessible properties above, without
+expanding Details as a hidden prerequisite. Retry observation subscribes to the
+same actual activity on the Window, preserving saving-to-Pending completion.
+The larger healthy reading viewport also keeps the Person scroll gutter reserved:
+switching to shorter content must not shift labelled fact slots by 17 DIP.
+Cold invisible browsing logs retain each requested scroll and its actual
+extent/viewport. Exact-row/both-axis assertions and deadlines remain unchanged;
+there is no corrective action after restoration.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,

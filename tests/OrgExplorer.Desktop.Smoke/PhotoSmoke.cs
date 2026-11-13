@@ -74,7 +74,7 @@ internal static partial class Program
         Preview(",\"photoPath\":\"avery.jpg\"", 25);
         Await(() => Find(window, "ApplyImport").Current.IsEnabled);
         Click(window, "ApplyImport");
-        Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+        Await(() => Status(window).Contains("Import applied"));
         ReturnToPeople(window);
         AssertPhotoVisible(window);
         if (!Find(window, "PersonPhoto").Current.Name.Contains("image/jpeg"))
