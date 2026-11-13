@@ -20,6 +20,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool CanNavigatePeople => workflow.CanNavigatePeople;
     public bool CanEnterImport => workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
+    public bool HasPendingStorageMaintenance => workflow.HasPendingStorageMaintenance;
     public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
     public string? LocalSaveError => workflow.LocalSaveError;
@@ -47,6 +48,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
     public string Status => navigationError ?? workflow.Status;
+    public string? OperationError => navigationError ?? workflow.OperationError;
     public bool IsImportOpen { get; private set; }
     public bool TryOpenImport() => Observe(() =>
     {
@@ -124,12 +126,14 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FavoritePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReportingRoots)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OperationError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsWorkspaceCurrent)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Compatibility)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanNavigatePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingStorageMaintenance)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));

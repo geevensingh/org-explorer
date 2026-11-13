@@ -15,6 +15,19 @@ internal sealed class OwnedNotePresentation(NoteScope scope)
     internal required Button New { get; init; }
     internal required TextBlock Empty { get; init; }
     internal required TextBlock EmptyBody { get; init; }
+    internal required TextBlock OperationStatus { get; init; }
+    internal required FrameworkElement Surface { get; init; }
+
+    internal void ShowOperationStatus(string message, bool requiresAttention = true)
+    {
+        OperationStatus.Text = message;
+        OperationStatus.Visibility = requiresAttention && message.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetItemStatus(Surface, message);
+    }
+
+    internal void ShowOperationStatus(WorkspaceViewModel workflow, bool retainedDraft) =>
+        ShowOperationStatus(workflow.Status, retainedDraft || workflow.OperationError is not null ||
+            workflow.LocalSaveError is not null || !workflow.IsWorkspaceCurrent);
 
     internal void Show(OwnedNotesView view, bool workspaceCurrent, bool retainedDraft)
     {

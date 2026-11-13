@@ -17,21 +17,7 @@ internal static partial class Program
         var workspace = Path.Combine(root, "search-workspace");
         Directory.CreateDirectory(workspace);
         var import = Path.Combine(root, "search-import.json");
-        File.WriteAllText(import, SearchImport("""
-            {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
-             "jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper","officeNumber":"007B",
-             "officeState":"Ontario","officeCountry":"Canada","linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery",
-             "managerEmail":"morgan@example.com"},
-            {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
-            {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
-            """ + (responsive ? """
-            ,{"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
-              "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
-              "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
-              "managerEmail":null}
-            """ : "") + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
-                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
-                """)), 1));
+        File.WriteAllText(import, SearchImport(SearchBrowsingPeople(responsive), 1));
         try
         {
             process = Launch(executable);
@@ -55,8 +41,7 @@ internal static partial class Program
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
             Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>" +
-                (responsive ? "\n\n" + string.Join("\n\n", Enumerable.Range(1, 32).Select(i =>
-                    $"Private Person writing paragraph {i}. Keep decisions and their context readable while the same Person identity remains anchored.")) : ""));
+                (responsive ? "\n\n" + SearchBrowsingParagraphs() : ""));
             QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
@@ -152,6 +137,25 @@ internal static partial class Program
             if (process is not null) StopApplication(process);
         }
     }
+
+    private static string SearchBrowsingPeople(bool responsive) => """
+            {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
+             "jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper","officeNumber":"007B",
+             "officeState":"Ontario","officeCountry":"Canada","linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery",
+             "managerEmail":"morgan@example.com"},
+            {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+            {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
+            """ + (responsive ? """
+            ,{"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
+              "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
+              "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
+              "managerEmail":null}
+            """ : "") + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
+                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
+                """));
+
+    private static string SearchBrowsingParagraphs() => string.Join("\n\n", Enumerable.Range(1, 32).Select(i =>
+        $"Private Person writing paragraph {i}. Keep decisions and their context readable while the same Person identity remains anchored."));
 
     private static string SearchImport(string records, int id) => $$"""
         {"schemaVersion":1,"batchId":"13000000-0000-4000-8000-{{id:000000000000}}",

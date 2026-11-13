@@ -68,7 +68,7 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: true);
             AssertValue(window, "PersonNoteMarkdown", "");
             Set(window, "PersonNoteMarkdown", markdown);
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("saved locally"));
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Secondary empty note");
             AwaitLocalWorkIdle(window);
@@ -134,7 +134,7 @@ internal static partial class Program
                 CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
             }
             Click(window, "RetryPersonNoteSave");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("saved locally"));
             markdown += "\nRecovered draft.";
             SelectNote(window, "Secondary empty note");
             var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
@@ -189,7 +189,7 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Meeting with Avery."));
             Click(window, "ArchivePersonNote");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("archived locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("archived locally"));
             Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
             AssertNoEmptyInvitation(window, "Person");
             CaptureVisualEvidence(window, "person-note-unavailable-ongoing-choice");

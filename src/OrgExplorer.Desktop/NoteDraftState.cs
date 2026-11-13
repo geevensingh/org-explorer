@@ -90,7 +90,7 @@ internal sealed class NoteDraftState
         var refreshed = await refresh();
         discard();
         reload();
-        showStatus(refreshed ? "Unsaved draft discarded; last saved local document shown." :
+        showStatus(refreshed ? "" :
             "Unsaved draft discarded. " + status());
     }
 }

@@ -39,12 +39,12 @@ public partial class TeamNotesControl : UserControl
         {
             Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
             Designate = DesignateButton, Ongoing = OngoingButton,
-            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody
+            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody, OperationStatus = NoteStatus, Surface = this
         };
         draft = new NoteDraftState("Team note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
-            message => NoteStatus.Text = message,
+            message => presentation.ShowOperationStatus(message),
             message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
         Unloaded += (_, _) => draft.Stop();
     }
@@ -64,7 +64,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (workflow is { } current && current.GetWorkspaceConflicts().Count != 0)
         {
-            NoteStatus.Text = current.Status;
+            presentation.ShowOperationStatus(current.Status);
             ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(current.Status);
             return false;
         }
@@ -286,7 +286,7 @@ public partial class TeamNotesControl : UserControl
                 workflow.IsWorkspaceCurrent && workflow.TeamNotesView.SelectedNote is { Archived: false };
             ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
         }
-        if (!draft.HasUnsavedChanges) NoteStatus.Text = workflow.Status;
+        if (!draft.HasUnsavedChanges) presentation.ShowOperationStatus(workflow, retainedDraft: false);
         ShowPresentation();
     }
 
@@ -343,7 +343,7 @@ public partial class TeamNotesControl : UserControl
 
     private void ShowStatus()
     {
-        NoteStatus.Text = workflow?.Status ?? "";
+        if (workflow is not null) presentation.ShowOperationStatus(workflow, draft.HasUnsavedChanges);
         ShowPresentation();
         changed?.Invoke();
     }
@@ -397,6 +397,6 @@ public partial class TeamNotesControl : UserControl
     {
         try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        { NoteStatus.Text = "External link could not be opened: " + ex.Message; }
+        { presentation.ShowOperationStatus("External link could not be opened: " + ex.Message); }
     }
 }

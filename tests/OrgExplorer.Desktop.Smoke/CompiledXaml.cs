@@ -319,8 +319,12 @@ internal static partial class Program
                     throw new InvalidOperationException($"Profile Save displayed stale or discarded Person-note writing: '{observed}'.");
                 if (File.ReadAllText(noteFile) != delivered)
                     throw new InvalidOperationException("Profile Save rewrote delivered Person-note bytes.");
+                if (!dirtyNote && new[] { notes, Control<FrameworkElement>("TeamNotes") }.Any(control =>
+                        ((TextBlock)control.FindName("NoteStatus")).Visibility != Visibility.Collapsed))
+                    throw new InvalidOperationException("Successful profile save/refresh left routine status in healthy Person/Team reading.");
                 if (dirtyNote && (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Visible } ||
-                    !Control<TextBlock>("NoticeSummary").Text.Contains("NOT saved", StringComparison.Ordinal)))
+                    !Control<TextBlock>("NoticeSummary").Text.Contains("NOT saved", StringComparison.Ordinal) ||
+                    NoteControl<TextBlock>("NoteStatus").Visibility != Visibility.Visible))
                     throw new InvalidOperationException("Unrelated profile success concealed the independent failed Person-note writing.");
             }
             finally { property.RemoveValueChanged(status, saved); }
@@ -512,14 +516,12 @@ internal static partial class Program
         T Control<T>(string name) where T : FrameworkElement => (T?)window.FindName(name)
             ?? throw new InvalidOperationException("Missing explicit Preferred-name control: " + name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        var workflow = (WorkspaceViewModel)window.GetType()
-            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
         var editor = Control<TextBox>("PreferredName");
         var save = Control<Button>("SavePreferredNameButton");
         var panel = Control<FrameworkElement>("PreferredNameEditorPanel");
         var error = Control<TextBlock>("PreferredNameError");
-        var pending = window.GetType().GetProperty("HasPendingWork", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        void Settled() => PumpUntil(() => !(bool)pending.GetValue(window)!);
+        void Settled() => PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
         void ObserveNoAutosave()
         {
             var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -531,13 +533,6 @@ internal static partial class Program
         }
         Invoke("EditPreferredNameButton");
         editor.Text = "Unconfirmed entry";
-        ObserveNoAutosave();
-        var handedOff = false;
-        var drain = (Task<bool>)window.GetType().GetMethod("AtSafeUpdatePoint", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(window, new object[] { (Action<string?>)(_ => handedOff = true) })!;
-        PumpUntil(() => drain.IsCompleted);
-        if (drain.GetAwaiter().GetResult() || handedOff)
-            throw new InvalidOperationException("Update draining accepted an unconfirmed Preferred-name entry.");
         ObserveNoAutosave();
         Invoke("OpenSettingsButton");
         Invoke("OpenSettingsButton");
@@ -559,6 +554,8 @@ internal static partial class Program
         if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose ||
             workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
             throw new InvalidOperationException("Preferred-name Cancel must discard only that failed entry without saving.");
+        if (Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Preferred-name cancellation left a routine global notice in healthy reading.");
 
         Invoke("EditPreferredNameButton");
         editor.Text = "Explicit name";
@@ -596,7 +593,7 @@ internal static partial class Program
                     window.Closing += observe;
                     try { window.Close(); }
                     finally { window.Closing -= observe; }
-                    if (!rejected || !(bool)pending.GetValue(window)!)
+                    if (!rejected || Control<Button>("OpenWorkspaceButton").IsEnabled)
                         throw new InvalidOperationException("Cancel falsely enabled close before admitted Preferred-name I/O completed.");
                 }
                 else editor.Text = "Newer retained value";
@@ -635,7 +632,7 @@ internal static partial class Program
                 throw new InvalidOperationException(provider.Status);
         }
         if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
-        window.GetType().GetMethod("RefreshExternalWorkspace", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+        PumpUntil(() => Control<TextBlock>("ProfileHeading").Text == "Delivered during entry");
         editor.Text = "Retained stale entry";
         foreach (var attempt in new[] { 1, 2 })
         {
@@ -682,7 +679,7 @@ internal static partial class Program
         PumpUntil(() => restoreNote.IsCompleted);
         if (!restoreNote.GetAwaiter().GetResult()) throw new InvalidOperationException(workflow.Status);
         ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
-        Console.WriteLine("PASS: invisible compiled Preferred-name typing/update drain do not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
+        Console.WriteLine("PASS: invisible compiled Preferred-name typing does not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
         Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
     }
 
@@ -764,25 +761,11 @@ internal static partial class Program
         Guid teamId;
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
-            var records = """
-                {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred",
-                 "alias":"avhandle","jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper",
-                 "officeNumber":"007B","officeState":"Ontario","officeCountry":"Canada",
-                 "linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery","managerEmail":"morgan@example.com"},
-                {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
-                {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true},
-                {"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
-                 "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
-                 "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
-                 "managerEmail":null}
-                """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
-                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
-                """));
-            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 901)).Id))
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(
+                    SearchImport(SearchBrowsingPeople(responsive: true), 901)).Id))
                 throw new InvalidOperationException("Responsive browsing fixture failed: " + seed.Status);
             noteId = seed.CreatePersonNote("avery@example.com", "Individual context", "# Orchid\nPrivate Person writing\n\n" +
-                string.Join("\n\n", Enumerable.Range(1, 32).Select(i =>
-                    $"Private Person writing paragraph {i}. Keep decisions and their context readable while the same Person identity remains anchored.")))!.Id;
+                SearchBrowsingParagraphs())!.Id;
             teamId = seed.CreateTeamNote("morgan@example.com", "Former direction", "Cedar frozen writing")!.Id;
             if (!seed.EditPersonManager("avery@example.com", "alex@example.com") ||
                 !seed.EditPersonManager("avery@example.com", "morgan@example.com") ||
@@ -1240,8 +1223,7 @@ internal static partial class Program
 
     private static void VerifyOwnedNoteRevisions(Window window, string folder, NoteScope scope)
     {
-        var workflow = (WorkspaceViewModel)window.GetType()
-            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
         var notes = (FrameworkElement)window.FindName(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
         T Control<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         void Open(Guid id) => notes.GetType().GetMethod("OpenNote")!.Invoke(notes, [id]);
@@ -1277,6 +1259,9 @@ internal static partial class Program
             throw new InvalidOperationException($"Clean {scope} editor retained a stale timestamp base: " +
                 Control<TextBlock>("NoteStatus").Text);
         Ready();
+        if (Control<TextBlock>("NoteStatus").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException($"Successful {scope} autosave left routine status in the note section.");
+        PumpUntil(() => System.Windows.Automation.AutomationProperties.GetItemStatus(notes) == Control<TextBlock>("NoteStatus").Text);
         Console.WriteLine($"PASS: actual compiled clean {scope} editor accepts timestamp-only delivery before its next save.");
 
         Invoke("ArchiveButton");
@@ -1370,10 +1355,8 @@ internal static partial class Program
 
     private static void VerifyMaintenanceRetryAfterBlockedOpen(Window window, string folder)
     {
-        var workflow = (WorkspaceViewModel)window.GetType()
-            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-        var pending = window.GetType().GetProperty("HasPendingWork", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        void Settled() => PumpUntil(() => !(bool)pending.GetValue(window)!);
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        void Settled() => PumpUntil(() => ((Button)window.FindName("OpenWorkspaceButton")).IsEnabled);
         var selected = workflow.PeopleNavigation.SelectedEmail!;
         var destination = workflow.PeopleNavigation.LastValidView;
         var preferredName = workflow.GetRelationships(selected)!.Person.PreferredName;

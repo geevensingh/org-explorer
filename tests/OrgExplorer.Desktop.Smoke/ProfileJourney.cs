@@ -51,11 +51,20 @@ internal static partial class Program
                     $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
             }
             CaptureVisualEvidence(window, "settings-grouped-first-run");
+            var orientation = (Find(window, "WorkspaceName").Current.Name,
+                Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkspaceName").Current.ItemStatus,
+                Find(window, "WorkspacePath").Current.Name);
+            var preferencePath = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var preference = File.Exists(preferencePath) ? File.ReadAllBytes(preferencePath) : null;
             PickWorkspaceFolder(window, null, observePicker: () => CaptureVisualEvidence(window, "settings-native-picker-cancel"));
             Await(() => Find(window, "OpenWorkspace").Current.HasKeyboardFocus);
-            if (Find(window, "WorkspaceName").Current.HelpText.Length != 0 ||
+            if (orientation != (Find(window, "WorkspaceName").Current.Name,
+                    Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkspaceName").Current.ItemStatus,
+                    Find(window, "WorkspacePath").Current.Name) ||
+                File.Exists(preferencePath) != (preference is not null) ||
+                preference is not null && !File.ReadAllBytes(preferencePath).SequenceEqual(preference) ||
                 Directory.GetFileSystemEntries(workspace).Length != 0)
-                throw new InvalidOperationException("Cancelling the native picker opened or initialized a Workspace.");
+                throw new InvalidOperationException("Cancelling the native picker changed orientation, preferences or initialized a Workspace.");
             PickWorkspaceFolder(window, workspace);
             AwaitRestoredWorkspace(window, workspace);
             AssertEverydayChrome(window, "workspace");

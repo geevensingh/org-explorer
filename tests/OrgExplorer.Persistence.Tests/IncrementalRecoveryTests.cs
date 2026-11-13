@@ -159,18 +159,22 @@ public sealed class IncrementalRecoveryTests : IDisposable
             commit = Commit(current);
             Assert.Equal(protectedSelector, File.ReadAllBytes(Path.Combine(current, "recovery", "current.json")));
             Assert.Contains("Saved locally; recovery maintenance incomplete", app.LocalSaveError);
+            Assert.True(app.HasPendingStorageMaintenance);
             Assert.DoesNotContain("NOT saved", app.Status);
             Assert.False(app.CanSafelyClose);
             app.DiscardUnsavedChanges();
+            Assert.True(app.HasPendingStorageMaintenance);
             Assert.False(app.CanSafelyClose);
             if (blockedReceipt is not null) Directory.Delete(blockedReceipt);
         }
         using var reopened = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         Assert.True(reopened.OpenWorkspace(current), reopened.Status);
+        Assert.True(reopened.HasPendingStorageMaintenance);
         Assert.False(reopened.CanSafelyClose);
         var bytes = WorkspaceFixtures.IndexedDocuments(current).ToDictionary(e => e.Value, e => File.ReadAllBytes(e.Value));
         observer.Effects.Clear();
         Assert.True(reopened.RetryStorageMaintenance(), reopened.Status);
+        Assert.False(reopened.HasPendingStorageMaintenance);
         Assert.True(reopened.CanSafelyClose);
         Assert.Equal(commit, Commit(current));
         Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);

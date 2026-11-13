@@ -107,7 +107,10 @@ internal static partial class Program
                 CaptureVisualEvidence(window, "team-note-retained-secondary-save-failure");
             }
             Click(window, "DiscardTeamNoteDraft");
-            Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
+            AwaitLocalWorkIdle(window);
+            AssertEmptyDocument(window, "Team");
+            if (!savedSecondary.SequenceEqual(File.ReadAllBytes(secondaryFile)))
+                throw new InvalidOperationException("Discard changed the saved secondary Team note.");
             AssertNoteView(window, "Team", editing: false);
             var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
             var savedPreferences = File.ReadAllBytes(preferences);
@@ -177,7 +180,10 @@ internal static partial class Program
                 throw new InvalidOperationException("Inherited review bypassed the selected Person's retained writing.");
             CaptureVisualEvidence(window, "team-owner-review-rejected-independent-person-draft");
             Click(window, "DiscardPersonNoteDraft");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("Unsaved draft discarded"));
+            AwaitLocalWorkIdle(window);
+            if (Find(window, "PersonNoteHeading").Current.Name != "Primary Person context" ||
+                !ReadingText(window).Contains("Everyday individual writing"))
+                throw new InvalidOperationException("Discard did not restore the exact saved Person note for reading.");
             ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
             Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
             AssertNoteView(window, "Team", editing: false);
@@ -187,7 +193,7 @@ internal static partial class Program
             Click(window, "ConfirmTeamNote");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Confirmed"));
             Click(window, "ArchiveTeamNote");
-            Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("archived locally"));
+            Await(() => NoteFeedback(window, "Team").Contains("archived locally"));
             Await(() => Find(window, "TeamOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
             AssertNoEmptyInvitation(window, "Team");
             CaptureVisualEvidence(window, "team-note-unavailable-archived-choice");

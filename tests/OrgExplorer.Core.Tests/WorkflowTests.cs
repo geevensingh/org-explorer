@@ -44,6 +44,33 @@ public class WorkflowTests
     }
 
     [Fact]
+    public void Rejected_operations_remain_explicit_while_success_cannot_clear_independent_failed_writing()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.False(app.PreviewImport("{invalid").CanApply);
+        Assert.Contains("Import rejected", app.OperationError);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.CanSafelyClose);
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id));
+        Assert.Null(app.OperationError);
+        var note = app.CreatePersonNote("avery@example.com", "Private context", "Saved writing")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Retained failed writing"));
+        Assert.Contains("Person note", app.OperationError);
+
+        Assert.True(app.EditFavorite("avery@example.com", true));
+        Assert.Null(app.OperationError);
+        Assert.Contains("Person note", app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardPersonTextDraft(Assert.Single(app.People), PersonTextField.PreferredName);
+        Assert.Contains("Person note", app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.CanSafelyClose);
+    }
+
+    [Fact]
     public void Dedicated_import_view_reviews_without_mutating_and_returns_to_people_after_explicit_apply()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
