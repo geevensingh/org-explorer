@@ -285,11 +285,16 @@ or closing.
 Markdown text without a network connection. Search is case-insensitive and uses
 the entered text as a substring. Results identify current information, archived
 profiles/notes, and historical matches separately, including note owners and
-Team-review warnings. Select a result to open its profile and appropriate note
-or read-only **Selected search context**. Historical matches show the exact frozen
-writing/former chain or old Profile value with its existing provenance, never
-later live writing mislabeled as history. Close that context to return to normal
-profile reading. Archived writing stays findable without joining the current org.
+Team-review warnings. Enter in the query focuses results without opening a Person;
+click a result, or select it and press Enter, to activate its guarded destination.
+Profile matches highlight and focus the actual field. Note matches open the exact
+document in Read, including empty Other notes; inherited and frozen matches reveal
+their attributed section in the existing current-context or History reading.
+Historical matches retain the frozen writing/former chain or old Profile value
+and its provenance, never later live writing mislabeled as history. There is no
+duplicate generic search inspector. Clear search restores Favorites and the
+reporting tree's expansion and two-axis browsing position without replacing the
+selected document. Archived writing stays findable without joining the current org.
 
 **Mark favorite** / **Unmark favorite** saves the selected Person's star locally.
 The **Favorites** list returns to active or clearly labeled archived profiles,

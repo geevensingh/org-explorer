@@ -46,7 +46,8 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     public void Reopening_rebuilds_local_queries_favorites_and_attributed_current_archived_and_frozen_context()
     {
         var app = Seed();
-        var direct = app.CreatePersonNote("avery@example.com", "Meeting", "Orchid private Person writing")!;
+        var direct = app.CreatePersonNote("avery@example.com", "Meeting",
+            new string('a', 240) + "\nOrchid private Person writing\n" + new string('z', 240))!;
         var team = app.CreateTeamNote("morgan@example.com", "Former team", "Cedar former Team writing")!;
         app.CreateTeamNote("alex@example.com", "Current team", "Pine current Team writing");
         Assert.True(app.EditFavorite("avery@example.com", true));
@@ -63,7 +64,14 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
             "Juniper", "007B", "Ontario", "Canada", "fictitious-avery", "alex@example" })
             Assert.Contains(reopened.Search(query), r => r.Person.Email == "avery@example.com" &&
                 r.Source == SearchSource.Profile && r.Context == SearchContext.Archived);
-        Assert.Contains(reopened.Search("orchid"), r => r.NoteId == direct.Id && r.Person.Archived && r.Source == SearchSource.PersonNote);
+        var directMatch = Assert.Single(reopened.Search("orchid"));
+        Assert.Equal(direct.Id, directMatch.NoteId);
+        Assert.True(directMatch.Person.Archived);
+        Assert.Equal(SearchSource.PersonNote, directMatch.Source);
+        Assert.Contains("Orchid private Person writing", directMatch.Excerpt);
+        Assert.True(directMatch.Excerpt.Length < 200);
+        Assert.Equal(new string('a', 240) + "\nOrchid private Person writing\n" + new string('z', 240),
+            reopened.GetPersonNotes("avery@example.com").Single(n => n.Id == direct.Id).Markdown);
         var frozen = Assert.Single(reopened.Search("cedar"));
         Assert.Equal(capture.Id, frozen.HistoricalContextId);
         Assert.Equal(team.Id, frozen.NoteId);

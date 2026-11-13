@@ -445,6 +445,14 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.Equal("Cedar original", destination.MatchText);
         Assert.NotEqual(noteId, restored.TeamNotesView.SelectedNote!.Id);
         Assert.Null(restored.ViewRecoveryFeedback);
+        var remembered = restored.PeopleNavigation.LastValidView;
+        var preferences = File.ReadAllBytes(Preferences);
+        restored.ChangePeopleQuery("No such query");
+        Assert.Empty(restored.Search(restored.PeopleNavigation.Query));
+        restored.ChangePeopleQuery("");
+        restored.CloseSearchContext();
+        Assert.Equal(remembered, restored.PeopleNavigation.LastValidView);
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
         AssertWorkspaceBytes(workspace, before);
     }
 

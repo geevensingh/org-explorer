@@ -7,6 +7,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class PersonNotesControl : UserControl
 {
+    internal FlowDocumentScrollViewer NoteReading => Reading;
     private WorkspaceViewModel? workflow;
     private Action? changed;
     private string? owner;

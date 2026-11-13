@@ -108,7 +108,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-                Click(window, "CloseSearchContext");
+                Click(window, "ClearSearch");
             });
             ScaleFixture.Measure("UI-photo-render", () => AssertScalePhotoVisible(window));
             ScaleFixture.Measure("UI-history-search", () =>
@@ -123,9 +123,9 @@ internal static partial class Program
                             r.Current.Name.Contains("Frozen Team note"));
                     return result is not null;
                 });
-                ((SelectionItemPattern)result!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-                AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Historical"));
-                AssertSearchReading(window, "Cedar former context 100.");
+                ActivateSearchRow(result!, AwaitScale);
+                AwaitScale(() => Find(window, "HistoricalTeamReading").Current.HelpText.Contains("Historical"));
+                AssertSearchReading(window, "Cedar former context 100.", readingId: "HistoricalTeamReading");
             });
             Set(window, "SearchQuery", "");
             ScaleFixture.Measure("UI-manager-navigation", () =>
@@ -183,7 +183,7 @@ internal static partial class Program
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-            Click(window, "CloseSearchContext");
+            Click(window, "ClearSearch");
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
                 BeginProfileEditing(window);
@@ -250,7 +250,7 @@ internal static partial class Program
                 Set(window, "SearchQuery", "Delivered tulip 1000.");
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
-                AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
+                AwaitScale(() => Find(window, "PersonNoteHeading").Current.Name == "Individual 1000");
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
             var rememberedNote = Find(window, "PersonNoteHeading").Current.HelpText;
@@ -268,7 +268,7 @@ internal static partial class Program
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
                 AssertProfileValue(window, "OfficeNumber", "0009U");
-                Click(window, "CloseSearchContext");
+                Click(window, "ClearSearch");
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))
                     throw new InvalidOperationException("Durable scale reporting mutation was lost.");
@@ -290,7 +290,7 @@ internal static partial class Program
         var result = Find(window, "SearchResults").FindFirst(TreeScope.Children,
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
         if (result is null) throw new InvalidOperationException("Actual scale search result missing.");
-        ((SelectionItemPattern)result.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        ActivateSearchRow(result, AwaitScale);
     }
 
     private static void AssertScalePhotoVisible(AutomationElement window)

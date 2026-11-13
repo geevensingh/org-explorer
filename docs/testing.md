@@ -298,6 +298,24 @@ canonical per-Workspace identity, interleaved designation/startup writes, unchan
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
+The #77 search extension exercises live, query-relevant excerpts without navigation
+or mutation of the complete note body. The invisible compiled replay distinguishes
+query Enter, row selection and explicit result Enter, then observes the real matched
+fact and current/frozen owner-correct document sections. It retains the full cold
+two-axis browsing replay and exact-row criterion; logical focus without a native
+window is not proof of actual keyboard delivery.
+Existing normal/responsive search and scale callers now explicitly focus/select
+and activate a result rather than relying on selection to navigate. Query Enter
+must preserve the current Person and exact note before focusing results. Hosted
+search checks observe actual matched-field focus, real note Read surfaces and
+exact document/capture identities, not a duplicate generic inspector. The existing
+responsive draft journey also rejects search activation with overlay/query, exact
+failed editor and unchanged Person bounds retained. Unique visual captures cover
+matched facts, mouse activation, exact/empty Other notes, current/frozen attribution
+and rejected writing within those existing journeys. No scenario, population,
+deadline, required lane or explicit-scale selection is removed. These captures
+and hosted assertions still require execution for the complete candidate.
+
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
 and owned Team notes by GUID after rename, retain Read mode and ongoing choices,

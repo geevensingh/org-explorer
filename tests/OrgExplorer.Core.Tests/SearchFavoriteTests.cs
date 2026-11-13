@@ -6,6 +6,32 @@ namespace OrgExplorer.Core.Tests;
 public sealed class SearchFavoriteTests
 {
     [Fact]
+    public void Live_search_excerpts_reveal_the_match_without_navigating_or_replacing_exact_reading()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreatePersonNote("avery@example.com", "Visit plan",
+            new string('a', 240) + "\nNext visit to the Orchid office.\n" + new string('z', 240))!;
+        Assert.True(app.NavigatePerson("morgan@example.com"));
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery("orchid");
+
+        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.Contains("Next visit to the Orchid office.", result.Excerpt);
+        Assert.DoesNotContain('\n', result.Excerpt);
+        Assert.True(result.Excerpt.Length < 200);
+        Assert.Equal("Current — Person note 'Visit plan' — owned by Ave Preferred (avery@example.com)", result.SourceLabel);
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+
+        Assert.True(app.NavigateSearchResult(result));
+        Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.Equal(new string('a', 240) + "\nNext visit to the Orchid office.\n" + new string('z', 240),
+            app.PersonNotesView.SelectedNote.Markdown);
+    }
+
+    [Fact]
     public void People_search_replaces_browsing_and_restores_its_position_after_exact_secondary_navigation()
     {
         using var app = (WorkspaceViewModel)Open();
@@ -18,6 +44,7 @@ public sealed class SearchFavoriteTests
         app.ChangePeopleQuery("Orchid");
         Assert.False(app.PeopleNavigation.IsBrowsing);
         var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.Equal("Empty note", result.Excerpt);
         Assert.True(app.NavigateSearchResult(result));
         Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.False(app.PersonNotesView.IsEditing);
