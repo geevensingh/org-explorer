@@ -94,6 +94,111 @@ try {
         throw 'Failed shared execution lost the failing exit code or skipped cleanup.'
     }
     Write-Host 'PASS: shared scale execution records fresh running/success/failure evidence and cleans owned build trees.'
+    $reportFailureProbe = Join-Path $results 'report-failure-probe.ps1'
+    $reportFailurePid = Join-Path $results 'report-failure.pid'
+    @'
+param([string] $Report, [string] $PidFile)
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText($PidFile, $PID.ToString())
+New-Item -ItemType Directory -Path "$Report.writing" | Out-Null
+Start-Sleep -Seconds 30
+'@ | Set-Content -LiteralPath $reportFailureProbe
+    $reportFailureStarted = $env:SCALE_STARTED_AT
+    try {
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-654).ToString('O')
+        Assert-Rejected {
+            Invoke-ScaleSuite -Suite contract -Label 'Blocked scale report' `
+                -ResultsDirectory (Join-Path $results 'blocked-report') -Selection @{} -Verify {
+                    param($run, $build)
+                    Invoke-ScaleProcess report-failure pwsh @('-NoProfile', '-File', $reportFailureProbe,
+                        (Join-Path $run 'result.json'), $reportFailurePid)
+                }
+        } 'a failed report write'
+        $childId = 0
+        if (![int]::TryParse((Get-Content -LiteralPath $reportFailurePid -Raw), [ref] $childId) -or $childId -le 0) {
+            throw 'The report-failure probe did not identify its owned process.'
+        }
+        $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
+        if ($null -ne $child) {
+            Stop-Process -Id $childId -Force
+            throw 'Report writing failure prevented termination of the owned command.'
+        }
+    } finally { $env:SCALE_STARTED_AT = $reportFailureStarted }
+    Write-Host 'PASS: report writing failure cannot prevent owned-command termination.'
+    $heartbeatProbe = Join-Path $results 'heartbeat-probe.ps1'
+    @'
+param([string] $Report, [string] $Transport)
+$ErrorActionPreference = 'Stop'
+function Write-Progress([string] $Message) {
+    if ($Transport -eq 'timing-file') {
+        Add-Content -LiteralPath $env:SCALE_TIMING_FILE -Value $Message
+    } else { Write-Output $Message }
+}
+Write-Progress 'SCALE BEGIN heartbeat-probe'
+$first = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+Start-Sleep -Seconds 6
+$current = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+if ($current.activeCommand -ne 'heartbeat-probe' -or $current.activePhase -ne 'heartbeat-probe' -or
+    $current.executionSeconds -le ($first.executionSeconds + 2) -or
+    $current.lastProgress -ne 'SCALE BEGIN heartbeat-probe') {
+    throw 'The running command report did not retain fresh active-phase evidence.'
+}
+Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
+'@ | Set-Content -LiteralPath $heartbeatProbe
+    $previousTiming = $env:SCALE_TIMING_FILE
+    try {
+        foreach ($transport in @('stdout', 'timing-file', 'stdout-with-inherited-timing-file')) {
+            $heartbeatResults = Join-Path $results "heartbeat-$transport"
+            if ($transport -eq 'stdout-with-inherited-timing-file') {
+                $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
+                'SCALE BEGIN unrelated-run' | Set-Content -LiteralPath $env:SCALE_TIMING_FILE
+            }
+            Invoke-ScaleSuite -Suite contract -Label "Scale heartbeat $transport" -ResultsDirectory $heartbeatResults -Selection @{} -Verify {
+                param($run, $build)
+                if ($transport -ne 'stdout-with-inherited-timing-file') {
+                    $env:SCALE_TIMING_FILE = Join-Path $run 'scale-measurements.log'
+                }
+                Invoke-ScaleProcess heartbeat-probe pwsh @('-NoProfile', '-File', $heartbeatProbe,
+                    (Join-Path $run 'result.json'), $transport)
+            }
+            $status = Get-Content -LiteralPath (Join-Path $heartbeatResults 'result.json') -Raw | ConvertFrom-Json
+            if ($status.lastProgress -ne 'SCALE END heartbeat-probe; outcome=Passed' -or
+                $status.lastActivePhase -ne 'heartbeat-probe' -or $status.activePhase) {
+                throw "Final progress did not retain the completed $transport phase."
+            }
+        }
+    } finally {
+        $env:SCALE_TIMING_FILE = $previousTiming
+    }
+    Write-Host 'PASS: stdout and current-run timing files retain live and final phase evidence, ignoring unrelated inherited logs.'
+    $diagnostic = Join-Path $results 'diagnostic-only'
+    Assert-Rejected {
+        Invoke-ScaleSuite -Suite contract -Label 'Diagnostic observation' -ResultsDirectory $diagnostic `
+            -ObservationSeconds 900 -Selection @{} -Verify { param($run, $build) }
+    } 'diagnostic observation as successful candidate verification'
+    $status = Get-Content (Join-Path $diagnostic 'result.json') -Raw | ConvertFrom-Json
+    if ($status.outcome -ne 'diagnostic_complete' -or !$status.diagnosticOnly -or
+        $status.observedOutcome -ne 'success' -or $status.ceilingSeconds -ne 660 -or $status.observationSeconds -ne 900) {
+        throw 'Extended observation did not retain the unchanged budget and non-verifying outcome.'
+    }
+    $priorStarted = $env:SCALE_STARTED_AT
+    try {
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-659).ToString('O')
+        $overBudget = Join-Path $results 'diagnostic-over-budget'
+        Assert-Rejected {
+            Invoke-ScaleSuite -Suite contract -Label 'Over-budget observation' -ResultsDirectory $overBudget `
+                -ObservationSeconds 900 -Selection @{} -Verify {
+                    param($run, $build)
+                    Invoke-ScaleProcess observed pwsh @('-NoProfile', '-Command', 'Start-Sleep -Seconds 2; Write-Output observed-completion')
+                }
+        } 'observed completion beyond the original verification budget'
+        $status = Get-Content (Join-Path $overBudget 'result.json') -Raw | ConvertFrom-Json
+        if ($status.outcome -ne 'timed_out' -or $status.observedOutcome -ne 'success' -or
+            !$status.diagnosticOnly -or $status.executionSeconds -le 660 -or $status.steps[0].exitCode -ne 0) {
+            throw 'Completing within the observation window erased the original 660-second failure.'
+        }
+    } finally { $env:SCALE_STARTED_AT = $priorStarted }
+    Write-Host 'PASS: extended observation never passes candidate verification or erases an exceeded original budget.'
     $started = $env:SCALE_STARTED_AT
     try {
         $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddMinutes(-12).ToString('O')
@@ -134,7 +239,7 @@ try {
         throw 'Ordinary filesystem execution must exclude only the complete performance category.'
     }
     $workflow = Get-Content "$root\.github\workflows\scale-verification.yml" -Raw
-    foreach ($required in @('schedule:', 'workflow_dispatch:', 'workflow_call:', 'timeout-minutes: 11', 'SCALE_STARTED_AT=',
+    foreach ($required in @('schedule:', 'workflow_dispatch:', 'workflow_call:', 'timeout-minutes: 13', 'SCALE_STARTED_AT=',
         'TESTED_REVISION=', 'Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION', 'if-no-files-found: error')) {
         if (!$workflow.Contains($required)) { throw "Separate scale workflow is missing $required" }
     }

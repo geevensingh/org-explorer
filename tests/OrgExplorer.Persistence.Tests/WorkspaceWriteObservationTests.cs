@@ -13,6 +13,120 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
         ".test-workspaces", Guid.NewGuid().ToString("N")));
 
     [Fact]
+    public void Storage_phases_bracket_real_validation_recovery_and_failed_publication()
+    {
+        var observer = new RecordingObserver();
+        var publisher = new InspectingPublisher();
+        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer);
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        foreach (var name in new[] { "storage.capture-current", "storage.prepare-recovery",
+            "storage.validate-recovery", "storage.publish-recovery", "storage.reclamation", "storage.write-objects" })
+            Assert.Contains(observer.Phases, phase => phase.Name == name && phase.Kind == WorkspaceStoragePhaseKind.Begin);
+        Assert.All(observer.Phases.GroupBy(phase => phase.Id), phases =>
+        {
+            Assert.Equal(WorkspaceStoragePhaseKind.Begin, phases.First().Kind);
+            Assert.Equal(WorkspaceStoragePhaseKind.End, phases.Last().Kind);
+            Assert.True(phases.Last().Milliseconds >= 0);
+            Assert.True(phases.Last().CpuMilliseconds >= 0);
+        });
+        Assert.True(app.ApplyImport(app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"41000000-0000-4000-8000-000000000004",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+            """).Id), app.Status);
+        observer.Phases.Clear();
+        publisher.BeforePublish = (_, destination) =>
+        {
+            if (destination == Path.Combine(folder, "workspace.json"))
+                throw new WorkspaceFilePublicationException("Controlled publication refusal.", true);
+        };
+        Assert.False(app.EditPreferredName("avery@example.com", "Retained writing"));
+        var failed = Assert.Single(observer.Phases, phase => phase.Name == "storage.publish-current" &&
+            phase.Kind == WorkspaceStoragePhaseKind.Failed);
+        Assert.Contains(observer.Phases, phase => phase.Id == failed.Id && phase.Kind == WorkspaceStoragePhaseKind.Begin);
+        Assert.DoesNotContain(observer.Phases, phase => phase.Id == failed.Id && phase.Kind == WorkspaceStoragePhaseKind.End);
+        Assert.Null(app.GetRelationships("avery@example.com")!.Person.PreferredName);
+    }
+
+    [Fact]
+    public void Timing_marks_the_active_phase_before_failure_and_preserves_the_original_error()
+    {
+        var lines = new List<string>();
+        var active = false;
+        var expected = new IOException("Controlled measured failure.");
+        var actual = Assert.Throws<IOException>(() => ScaleFixture.Measure("controlled-operation", () =>
+        {
+            active = lines.Any(line => line.StartsWith("SCALE BEGIN controlled-operation", StringComparison.Ordinal));
+            throw expected;
+        }, lines.Add));
+        Assert.Same(expected, actual);
+        Assert.True(active);
+        Assert.Contains(lines, line => line.StartsWith("SCALE END controlled-operation", StringComparison.Ordinal) &&
+            line.Contains("Failed", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("BEGIN", false)]
+    [InlineData("END", false)]
+    [InlineData("END", true)]
+    public void Scale_phase_logging_failures_do_not_change_real_save_outcomes(string eventKind, bool rejectPublication)
+    {
+        var workspace = Path.Combine(folder, "workspace");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(seed.OpenWorkspace(workspace), seed.Status);
+            Assert.True(seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"41000000-0000-4000-8000-000000000005",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id), seed.Status);
+        }
+        var loggingError = new IOException("Controlled diagnostic write failure.");
+        var publicationError = new WorkspaceFilePublicationException("Controlled real publication refusal.", true);
+        var publisher = new InspectingPublisher
+        {
+            BeforePublish = (_, destination) =>
+            {
+                if (rejectPublication && destination == Path.Combine(workspace, "workspace.json"))
+                    throw publicationError;
+            }
+        };
+        var fixture = new ScaleFixture(folder)
+        {
+            Log = message =>
+            {
+                if (message.StartsWith($"SCALE {eventKind} storage.publish-current;", StringComparison.Ordinal))
+                    throw loggingError;
+            }
+        };
+        Exception? completionError = null;
+        try
+        {
+            var app = fixture.Open(filePublisher: publisher);
+            var saved = app.EditPreferredName("avery@example.com", "Ave");
+            if (rejectPublication)
+            {
+                Assert.False(saved);
+                Assert.Contains(publicationError.Message, app.LocalSaveError);
+                Assert.DoesNotContain(loggingError.Message, app.LocalSaveError);
+                Assert.False(app.CanSafelyClose);
+            }
+            else
+            {
+                Assert.True(saved, app.Status);
+                Assert.Null(app.LocalSaveError);
+                Assert.True(app.CanSafelyClose);
+            }
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(workspace), reopened.Status);
+            Assert.Equal(rejectPublication ? null : "Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
+        }
+        finally { completionError = Record.Exception(fixture.Dispose); }
+        var diagnostics = Assert.IsType<AggregateException>(completionError);
+        Assert.Same(loggingError, Assert.Single(diagnostics.InnerExceptions));
+    }
+
+    [Fact]
     public void Real_workflow_accounts_for_every_staged_payload_before_publication_and_reopens_saved_data()
     {
         var observer = new RecordingObserver();
@@ -212,7 +326,9 @@ public sealed class WorkspaceWriteObservationTests(ITestOutputHelper output) : I
     private sealed class RecordingObserver : IWorkspaceFileObserver
     {
         public ConcurrentQueue<WorkspaceFileEffect> Effects { get; } = new();
+        public ConcurrentQueue<WorkspaceStoragePhase> Phases { get; } = new();
         public void Observe(WorkspaceFileEffect effect) => Effects.Enqueue(effect);
+        public void ObservePhase(WorkspaceStoragePhase phase) => Phases.Enqueue(phase);
     }
 
     private sealed class InspectingPublisher : IWorkspaceFilePublisher

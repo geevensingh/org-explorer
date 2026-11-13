@@ -742,8 +742,10 @@ Missing/locked interactive desktops and unavailable pixels are visible failures;
 never skip rendering, change shared-machine settings or launch local automation
 without separate permission.
 
-Each suite has its own **660-second whole-execution budget** and hosted
-eleven-minute deadline. `SCALE_STARTED_AT` begins before checkout/SDK setup;
+Each suite has its own **660-second whole-execution pass/fail budget**. The hosted
+watchdog allows thirteen minutes so termination, failure reporting and artifact
+upload can finish after a failed budget; the extra time cannot make the run pass.
+`SCALE_STARTED_AT` begins before checkout/SDK setup;
 restore, builds, fixture generation, assertions and cleanup all count. These
 are execution bounds, not new latency thresholds or a baseline collection scheme.
 Both standalone commands use `eng\ScaleRunner.ps1` for the budget, owned command
@@ -758,6 +760,43 @@ outcome, timestamps and timings. Successful suite status requires all named work
 missing/duplicate/partial results, failed assertions, skipped/cancelled/timed-out
 work, changed candidates, cleanup errors and exhausted budgets fail closed.
 Interrupted reports remain incomplete, never an old passing result.
+While an owned command is running, atomically replaced reports publish a heartbeat
+every five seconds, its active command, and the most recent unmatched phase begin.
+Non-UI progress comes from `scale-measurements.log` in the current unique run
+directory, not buffered passing-test stdout. The reader ignores unrelated inherited
+`SCALE_TIMING_FILE` paths and falls back to command stdout until the current run's
+file exists, using the same source for the final progress capture.
+Reports distinguish command execution, termination and cleanup, and become terminal
+only after cleanup and the unchanged budget check.
+Owned-command termination does not depend on successfully publishing its report;
+report-write failures still reject verification.
+
+Scale logs retain `SCALE BEGIN`/`SCALE END` markers even when an operation fails.
+Fixture generation, current files/indexes, open/validation and independent recovery
+are separate phases. The real workflow observer reports capture, validation,
+recovery preparation/publication, object writes, reclamation and fresh rechecks,
+with completed writes/bytes, durable flushes, publications and deletes.
+Storage phases also record process CPU time; reports retain processor/runtime/image
+metadata for host comparisons. Nested counters, wall time and process CPU time are
+inclusive, so do not sum overlapping phases.
+Actual WPF logs also separate Import navigation, preview, apply, return, close and
+cleanup. No file contents or Person writing are added to storage-phase diagnostics.
+Scale fixture observers retain diagnostic-write/output failures without throwing
+through storage callbacks. Fixture disposal reports them as verification failures
+after closing clients and cleaning owned fixtures, preserving real save outcomes
+and original storage errors rather than silently accepting missing diagnostics.
+
+The direct scale workflow's `extended_observation` input is explicitly diagnostic.
+It lets the unchanged UI workload be observed for up to 900 seconds with a
+seventeen-minute watchdog, while retaining the original 660-second verdict.
+Reports set `diagnosticOnly`, distinguish observed completion from the verdict,
+and never report candidate-verification success in this mode, even if observed
+completion is under 660 seconds. Its artifact name starts with
+`diagnostic-ui-scale-`, not the normal verification prefix. Normal release
+verification and non-UI execution do not opt into it.
+For repeated measurements, freeze one full revision and retain each run's
+separate artifacts. Invocations remain independent; no concurrency group
+replaces a pending trial.
 
 The scale tree locates its distant row through the reporting branch's UI
 Automation item provider, requests realization/scrolling once, then observes
