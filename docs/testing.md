@@ -277,6 +277,9 @@ Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigat
 and its navigation/query/browsing operations. Focused cases preserve an exact
 secondary note and frozen search destination, and retain owner/editor, expansion,
 scroll position, overlay and actionable feedback on rejected navigation.
+The in-session browsing bookmark captures horizontal as well as vertical offset;
+neither belongs to synchronized Workspace data or a preference schema change.
+Existing accepted/rejected exact-note tests retain both axes.
 `WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
 canonical per-Workspace identity, interleaved designation/startup writes, unchanged
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
@@ -327,8 +330,8 @@ Before capturing each 70% browsing baseline, one explicit scroll to the fixture
 end measures cold virtualized rows, followed by the single target scroll.
 Neither action is retried, and neither occurs after search/clear restoration.
 The cold-cache compiled replay first reproduces percentage drift caused by a
-changing measured extent, then exercises this same preparation and the original
-70%-within-one restoration criterion. Hosted logs retain unmeasured/measured
+changing measured extent, then exercises this same preparation and the exact-row
+restoration criterion above. Hosted logs retain unmeasured/measured
 view sizes, focus and owner, plus the original/failure diagnostics: calibration
 must not conceal later extent drift or change the selected Person.
 These are harness-action contracts, not a local reproduction of native WPF focus.
@@ -339,9 +342,13 @@ Runner coverage replays the observed missing-then-present context provider.
 The invisible compiled replay additionally drives the 44-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
 available viewport geometry, exact-note search/clear and wide/compact
-restoration, including recycled tree-item load events. It does not reproduce
+restoration, including recycled tree-item load events. Compact replay establishes
+a real 39-DIP horizontal offset and replays its observed reset while browsing is
+hidden; every original row must return to the same horizontal and vertical
+position. This goes red when restoration remembers only the vertical offset.
+It does not identify which native layout event caused the reset or reproduce
 native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
-failures retain the original percentage/visibility assertion and capture the
+failures retain the exact-row/visibility assertion and capture the
 before/failure pixels, viewport percentages, bounds and focus without corrective
 actions or a longer deadline.
 The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination

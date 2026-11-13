@@ -355,6 +355,7 @@ internal static partial class Program
         Settle(false);
         foreach (var compact in new[] { false, true })
         {
+            VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(compact ? 1 : 0));
             Layout(compact);
             if (compact) Invoke("OpenPeopleButton");
             Settle(compact);
@@ -378,6 +379,14 @@ internal static partial class Program
             TreeItemRealization.PrepareMeasuredScrollPosition(70,
                 percent => provider.SetScrollPercent(-1, percent), () => provider.VerticalScrollPercent,
                 condition => PumpUntil(() => { Layout(compact); return condition(); }));
+            if (compact)
+            {
+                scrolling.ScrollToHorizontalOffset(39);
+                Settle(compact);
+                if (Math.Abs(scrolling.HorizontalOffset - 39) > 0.01)
+                    throw new InvalidOperationException($"The compact replay did not establish its observed 39-DIP horizontal offset: " +
+                        $"offset={scrolling.HorizontalOffset}; extent={scrolling.ExtentWidth}; viewport={scrolling.ViewportWidth}.");
+            }
             TreeItemRealization.BrowsingPosition ReadPosition()
             {
                 var viewport = new Rect(tree.RenderSize);
@@ -394,6 +403,12 @@ internal static partial class Program
             Control<TextBox>("SearchQuery").Text = "orchid";
             PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
             Settle(compact);
+            if (compact)
+            {
+                // Replay the observed horizontal reset across hiding; native visibility timing is not reproduced.
+                scrolling.ScrollToHorizontalOffset(0);
+                Settle(compact);
+            }
             Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
                 .Single(r => r.NoteId == noteId);
             PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&

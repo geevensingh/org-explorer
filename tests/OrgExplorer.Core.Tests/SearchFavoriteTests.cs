@@ -13,7 +13,7 @@ public sealed class SearchFavoriteTests
         var secondary = app.CreatePersonNote("avery@example.com", "Orchid secondary", "")!;
         Assert.True(app.NavigatePerson("avery@example.com"));
         Assert.True(app.DesignateOngoingNote(NoteScope.Person, ongoing.Id));
-        app.RememberPeopleBrowsing(["morgan@example.com"], 12);
+        app.RememberPeopleBrowsing(["morgan@example.com"], 12, 39);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("Orchid");
         Assert.False(app.PeopleNavigation.IsBrowsing);
@@ -27,6 +27,7 @@ public sealed class SearchFavoriteTests
         Assert.True(app.PeopleNavigation.IsBrowsing);
         Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
         Assert.Equal(12, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(39, app.PeopleNavigation.BrowseHorizontalOffset);
         Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote.Id);
     }
 
@@ -40,7 +41,7 @@ public sealed class SearchFavoriteTests
         Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id, editing: true));
         var basis = app.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id)!;
         app.RetainNoteDraft(basis);
-        app.RememberPeopleBrowsing(["morgan@example.com"], 9);
+        app.RememberPeopleBrowsing(["morgan@example.com"], 9, 24);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("alex@example");
         var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
@@ -54,6 +55,7 @@ public sealed class SearchFavoriteTests
         Assert.Contains("retry or discard", app.Status);
         app.ChangePeopleQuery("");
         Assert.Equal(9, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(24, app.PeopleNavigation.BrowseHorizontalOffset);
         Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
         Assert.Contains("retry or discard", app.Status);
         Assert.NotNull(app.SaveNoteDraft(basis, note.Title, "Saved deliberately"));
