@@ -123,8 +123,10 @@ public partial class MainWindow
             {
                 if (!workflow.PeopleNavigation.OverlayOpen) return;
                 var target = workflow.PeopleNavigation.IsBrowsing ? (Control)ClosePeopleButton : SearchResults;
+                TraceHscroll("overlay-focus-before"); // [DEBUG-71-HSCROLL]
                 FocusManager.SetFocusedElement(this, target);
                 if (IsVisible) target.Focus();
+                TraceHscroll("overlay-focus-after"); // [DEBUG-71-HSCROLL]
             }, DispatcherPriority.Input);
         }
         else FocusPeopleEntry();
@@ -186,22 +188,28 @@ public partial class MainWindow
 
     private void RememberPeopleBrowsing()
     {
+        TraceHscroll("remember-before"); // [DEBUG-71-HSCROLL]
         var scroll = FindScrollViewer(PeopleList);
         workflow.RememberPeopleBrowsing(expandedPeople, scroll?.VerticalOffset ?? 0, scroll?.HorizontalOffset ?? 0);
+        TraceHscroll("remember-after"); // [DEBUG-71-HSCROLL]
     }
 
     private void RestorePeopleBrowsing()
     {
+        var diagnosticRestoreId = BeginHscrollDiagnosticRestore(); // [DEBUG-71-HSCROLL]
         expandedPeople.Clear();
         expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         RestoreRealizedTreeState(PeopleList);
         Dispatcher.BeginInvoke(() =>
         {
+            TraceHscroll("restore-before", diagnosticRestoreId); // [DEBUG-71-HSCROLL]
             if (workflow.PeopleNavigation.IsBrowsing && FindScrollViewer(PeopleList) is { } scroll)
             {
                 scroll.ScrollToHorizontalOffset(workflow.PeopleNavigation.BrowseHorizontalOffset);
                 scroll.ScrollToVerticalOffset(workflow.PeopleNavigation.BrowseOffset);
             }
+            TraceHscroll("restore-after", diagnosticRestoreId); // [DEBUG-71-HSCROLL]
+            ObserveSettledHscroll(diagnosticRestoreId); // [DEBUG-71-HSCROLL]
         }, DispatcherPriority.Loaded);
     }
 }
