@@ -24,7 +24,8 @@ public partial class PersonNotesControl : UserControl
         presentation = new(NoteScope.Person)
         {
             Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
-            Designate = DesignateButton, Ongoing = OngoingButton
+            Designate = DesignateButton, Ongoing = OngoingButton,
+            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody
         };
         draft = new NoteDraftState("Person note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
@@ -79,8 +80,6 @@ public partial class PersonNotesControl : UserControl
         NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == view.SelectedNote?.Id);
         OtherNotes.IsExpanded = view.OtherNotesOpen;
         OtherNotes.Visibility = owner is not null && view.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Visibility = owner is not null && !view.Notes.Any(n => !n.Archived) ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Text = "No active Person notes. Write a new Person note to begin; Other notes retains archived writing.";
         loading = false;
         LoadNote(view.SelectedNote);
         ShowPresentation();
@@ -113,7 +112,7 @@ public partial class PersonNotesControl : UserControl
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
         ArchiveButton.IsEnabled = note is not null;
         ArchiveButton.Content = note?.Archived == true ? "Restore note" : "Archive note";
-        ArchiveButton.Visibility = ReadingGuidance.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
+        ArchiveButton.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         draft.Reset();
         RetryButton.IsEnabled = DiscardButton.IsEnabled = false;
         RetryButton.Visibility = DiscardButton.Visibility = Visibility.Collapsed;
@@ -275,7 +274,7 @@ public partial class PersonNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent);
+        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent, draft.HasUnsavedChanges);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
     }
 

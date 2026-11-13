@@ -362,7 +362,96 @@ internal static partial class Program
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Person);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
+        VerifyContextReadingLayout(window, Path.Combine(settings, "context-workspace"));
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
+    }
+
+    private static void VerifyContextReadingLayout(Window window, string folder)
+    {
+        string Writing(string marker) => string.Join("\n\n",
+            Enumerable.Range(1, 32).Select(n => $"{marker} paragraph {n}. Keep the decision and its reasoning together."));
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000003",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"alex@example.com","displayName":"Alex","managerEmail":null}]}
+                """).Id) ||
+                seed.CreatePersonNote("avery@example.com", "Individual reading", Writing("Private")) is null ||
+                seed.CreateTeamNote("avery@example.com", "Owned reading", Writing("Owned")) is null ||
+                seed.CreateTeamNote("morgan@example.com", "Former reading", Writing("Frozen")) is null ||
+                seed.CreateTeamNote("alex@example.com", "Ancestor reading", Writing("Current")) is null ||
+                !seed.EditPersonManager("avery@example.com", "alex@example.com") ||
+                !seed.EditPersonText("alex@example.com", PersonTextField.JobTitle, "Director"))
+                throw new InvalidOperationException("Context reading fixture failed: " + seed.Status);
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var person = Control<FrameworkElement>("PersonNotes");
+        var team = Control<FrameworkElement>("TeamNotes");
+        T Team<T>(string name) where T : FrameworkElement => (T)team.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        var tree = Control<TreeView>("PeopleList");
+        var avery = tree.Items.Cast<ReportingNode>().SelectMany(n => n.Reports.Prepend(n))
+            .Single(n => n.Person.Email == "avery@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        if (Team<Expander>("CurrentTeamContext").IsExpanded || Team<Expander>("OtherNotes").IsExpanded ||
+            Control<Expander>("HistoryAccess").IsExpanded ||
+            !Team<TextBlock>("OwnedReviewWarnings").Text.Contains("Owned reading", StringComparison.Ordinal) ||
+            !Team<TextBlock>("OwnedReviewWarnings").Text.Contains("avery@example.com", StringComparison.Ordinal) ||
+            !Team<TextBlock>("InheritedReviewWarnings").Text.Contains("Ancestor reading", StringComparison.Ordinal) ||
+            !Team<TextBlock>("InheritedReviewWarnings").Text.Contains("alex@example.com", StringComparison.Ordinal) ||
+            Team<TextBlock>("InheritedReviewWarnings").Visibility != Visibility.Visible ||
+            !Team<TextBlock>("ContextAttribution").Text.Contains("alex@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("Collapsed context must retain current owner attribution and both owned/inherited review warnings.");
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        var context = Team<Expander>("CurrentTeamContext");
+        var header = VisualDescendants(context).OfType<ToggleButton>().First();
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(header).GetPattern(PatternInterface.Toggle)).Toggle();
+        if (!context.IsExpanded)
+            throw new InvalidOperationException("The real disclosure header did not expand its bound current context.");
+        Control<Expander>("HistoryAccess").IsExpanded = true;
+        var inherited = Team<FlowDocumentScrollViewer>("InheritedReading");
+        var frozen = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
+        string Text(FlowDocumentScrollViewer reader) => new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text;
+        if (!Text(inherited).Contains("Current paragraph 32", StringComparison.Ordinal) ||
+            Text(inherited).Contains("Frozen paragraph", StringComparison.Ordinal) ||
+            !Text(frozen).Contains("Frozen paragraph 32", StringComparison.Ordinal) ||
+            !Text(frozen).Contains("morgan@example.com", StringComparison.Ordinal) ||
+            Text(frozen).Contains("Current paragraph", StringComparison.Ordinal))
+            throw new InvalidOperationException("Long current and frozen reading lost exact writing or owner attribution.");
+        var viewport = Control<ScrollViewer>("PersonScroll");
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
+        {
+            root.Measure(size);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Context layout must remain invisible without a native main-window handle.");
+            foreach (var reader in new[] { (FlowDocumentScrollViewer)person.FindName("Reading"),
+                Team<FlowDocumentScrollViewer>("Reading"), inherited, frozen })
+            {
+                if (reader.ActualWidth <= 0 || reader.ActualWidth > 600 || reader.ActualHeight <= 600 ||
+                    reader.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                    reader.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                    reader.TransformToAncestor(viewport).Transform(new Point(reader.ActualWidth, 0)).X > viewport.ViewportWidth + 1)
+                    throw new InvalidOperationException($"Long owned/current/frozen prose must size to content in the single bounded reading scroll at {size}: {reader.Name} {reader.RenderSize}.");
+            }
+            var title = Team<TextBlock>("ContextHeading").TransformToAncestor(team).Transform(new Point());
+            var prose = inherited.TransformToAncestor(team).Transform(new Point());
+            if (Math.Abs(title.X - prose.X) > 2 ||
+                Math.Abs(person.ActualWidth - Control<GroupBox>("NotesPane").ActualWidth) > 1 ||
+                Control<TextBlock>("HistoricalTeamSummary").ActualWidth > 600 ||
+                Team<TextBlock>("InheritedSummary").ActualWidth > 600)
+                throw new InvalidOperationException($"Full-width context sections must align their title and bounded prose at {size}: title={title.X}, prose={prose.X}.");
+        }
+        Console.WriteLine("PASS: actual compiled long Person/owned/current/frozen reading stays bounded in one scroll at 700/1100/maximized sizes, with collapsed attributed warnings.");
     }
 
     private static void VerifyImportPreviewKey(Window window, string folder)
@@ -1101,6 +1190,9 @@ internal static partial class Program
         Select("Secondary Team");
         if (Control<TextBox>("MarkdownEditor").Text != "" || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("An empty secondary Team note must remain an exact, Read-first destination.");
+        if (notes.FindName("EmptyBody") is not TextBlock { Visibility: Visibility.Visible } ||
+            Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("An exact empty Team document needs an Edit invitation, not an absent-collection state or blank viewer.");
         var settings = Path.Combine(Path.GetDirectoryName(folder)!, "workspace-settings.json");
         var preference = File.ReadAllBytes(settings);
         using (File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -1162,6 +1254,9 @@ internal static partial class Program
             ? workflow.CreatePersonNote(owner, "Review secondary Person", "")!.Id
             : workflow.CreateTeamNote(owner, "Review secondary Team", "")!.Id;
         Open(id);
+        if (Control<TextBlock>("EmptyBody").Visibility != Visibility.Visible ||
+            Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException($"Exact empty {scope} reading must invite Edit without substituting a collection-empty state.");
         var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", id.ToString("D") + ".md");
         var text = File.ReadAllText(file);
         var headerStart = text.IndexOf('\n') + 1;

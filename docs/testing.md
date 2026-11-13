@@ -282,6 +282,26 @@ designation succeeds, then verifies that choice survives archival/reopen.
 Both Team/history desktop selections explicitly record the reviewed owner's
 ongoing choice before asserting unavailable-choice feedback after archival.
 
+The #75 alignment extends those existing seams, not the note model. Focused
+Person-note cases cover true collection emptiness versus an exact empty document,
+an archived ongoing choice and rejected first-save writing for both scopes.
+The real settings/reopen suite additionally rejects an empty invitation while
+ongoing preferences are unreadable, preserving exact preference and Workspace
+bytes until deliberate repair. Existing ownership, inheritance, frozen evidence,
+independent drafts, external bases, retry/discard and restoration assertions remain.
+The existing delivered-owner-removal draft case also requires explicit unavailable
+Person guidance rather than an empty invitation before first-save rejection.
+
+The existing Person-note and normal/responsive Team-history selections capture
+unique populated, empty-document, ambiguous, failed, unavailable, collapsed-review,
+current-owner and frozen-owner states with `CaptureVisualEvidence`. Responsive
+Team/history retains 700/1100 and exact reopen checks, adding complete long
+current/frozen Markdown. Explicit reading-range scrolling exposes the asserted
+prose before its capture; it does not repair People browsing or a destination.
+All original GUID, attribution, saved-byte, review and rejection checks, scenario
+names and lane budgets remain. Captures require hosted Windows and are still
+pending for each new complete candidate; they are not whole-pass visual acceptance.
+
 Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
 and its navigation/query/browsing operations. Focused cases preserve an exact
 secondary note and frozen search destination, and retain owner/editor, expansion,
@@ -543,6 +563,14 @@ Both compiled controls preserve Show archived notes when selecting active writin
 Read/Edit changes immediately present locked/corrupt exact-view preference errors
 and clear the warning after a successful explicit retry, without an extra refresh.
 These invisible checks do not show/focus WPF or prove rendered geometry.
+The same compiled-profile-refresh selection also measures long Person, owned
+Team, current inherited and frozen historical prose at 700/1100 and wide
+available sizes, requiring content-sized reading, bounded measure and aligned
+full-width sections. It observes owned/inherited warnings and current-owner
+attribution with details still collapsed, and exact empty-document Edit
+invitations for both scopes. The window stays invisible without a native handle;
+these measurements do not supply rendered, keyboard, hosted or visual-acceptance
+evidence.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on Open Workspace, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged

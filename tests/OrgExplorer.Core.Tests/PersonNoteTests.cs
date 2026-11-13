@@ -5,6 +5,56 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class PersonNoteTests
 {
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Empty_writing_invitation_distinguishes_absence_from_empty_documents_and_archived_choices(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        Assert.True(app.OpenOwnedNotes(scope, "avery@example.com"));
+        Assert.True(app.GetOwnedNotesView(scope).IsEmpty);
+
+        var id = scope == NoteScope.Person
+            ? app.CreatePersonNote("avery@example.com", "Exact empty document", "")!.Id
+            : app.CreateTeamNote("avery@example.com", "Exact empty document", "")!.Id;
+        Assert.True(app.OpenOwnedNote(scope, id));
+        Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
+        Assert.Equal(id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+        Assert.Equal("", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+        Assert.False(app.GetOwnedNotesView(scope).IsEditing);
+        Assert.True(app.DesignateOngoingNote(scope, id));
+        Assert.True(scope == NoteScope.Person ? app.ArchivePersonNote(id) : app.ArchiveTeamNote(id));
+        Assert.False(app.OpenOngoingNote(scope));
+        Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
+        Assert.Null(app.GetOwnedNotesView(scope).SelectedNote);
+        Assert.Equal(id, app.GetOwnedNotesView(scope).OngoingNoteId);
+        Assert.Contains("unavailable or archived", app.GetOwnedNotesView(scope).Feedback);
+        Assert.Equal(id, Assert.Single(app.GetOwnedNotesView(scope).Notes).Id);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Rejected_new_writing_is_not_presented_as_an_empty_invitation(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id));
+        Assert.True(app.OpenOwnedNotes(scope, "avery@example.com"));
+        var draft = app.BeginNoteDraft(scope, "avery@example.com")!;
+        app.RetainNoteDraft(draft);
+        Assert.Null(app.SaveNoteDraft(draft, " ", "Rejected writing"));
+
+        Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
+        Assert.Equal(app.LocalSaveError, app.GetOwnedNotesView(scope).Feedback);
+        Assert.Empty(app.GetOwnedNotesView(scope).Notes);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges();
+        Assert.True(app.GetOwnedNotesView(scope).IsEmpty);
+    }
+
     [Fact]
     public void Independent_profile_draft_does_not_prevent_reading_or_creating_notes_for_the_same_owner()
     {
@@ -36,6 +86,7 @@ public sealed class PersonNoteTests
         app.CreatePersonNote(first.OwnerEmail, "Another existing note", "");
         Assert.Null(app.PersonNotesView.OngoingNoteId);
         Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.False(app.PersonNotesView.IsEmpty);
         Assert.Contains("Choose", app.PersonNotesView.Feedback);
     }
 
@@ -54,6 +105,7 @@ public sealed class PersonNoteTests
         var created = app.CreatePersonNote("avery@example.com", "New Person note", "")!;
         Assert.True(app.OpenOwnedNote(NoteScope.Person, created.Id, editing: true));
         Assert.True(app.PersonNotesView.IsEditing);
+        Assert.False(app.PersonNotesView.IsEmpty);
         app.ShowOtherNotes(NoteScope.Person, true);
         Assert.True(app.PersonNotesView.OtherNotesOpen);
         Assert.Equal(created.Id, Assert.Single(app.PersonNotesView.Notes).Id);

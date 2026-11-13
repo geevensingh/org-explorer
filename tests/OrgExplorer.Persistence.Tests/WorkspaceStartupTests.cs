@@ -14,6 +14,48 @@ public sealed class WorkspaceStartupTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public void Unreadable_ongoing_preferences_are_not_an_empty_writing_invitation(NoteScope scope)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var settings = new WorkspaceSettings(Preferences);
+        using (var seed = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
+        {
+            Assert.True(settings.OpenWorkspace(seed, workspace));
+            Assert.True(seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000003",
+                 "observedAt":"2026-11-12T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id));
+            Assert.True(seed.OpenOwnedNotes(scope, "avery@example.com"));
+            Assert.True(seed.GetOwnedNotesView(scope).IsEmpty);
+        }
+        var valid = File.ReadAllBytes(Preferences);
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        File.WriteAllText(Preferences, "{broken");
+        var unavailable = new WorkspaceSettings(Preferences);
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), unavailable))
+        {
+            Assert.True(app.OpenWorkspace(workspace));
+            Assert.True(app.OpenOwnedNotes(scope, "avery@example.com"));
+            Assert.Empty(app.GetOwnedNotesView(scope).Notes);
+            Assert.Null(app.GetOwnedNotesView(scope).SelectedNote);
+            Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
+            Assert.Equal(unavailable.PreferenceError, app.GetOwnedNotesView(scope).Feedback);
+            Assert.Contains("could not be read", app.GetOwnedNotesView(scope).Feedback);
+            Assert.Equal("{broken", File.ReadAllText(Preferences));
+            AssertWorkspaceBytes(workspace, writing);
+        }
+        File.WriteAllBytes(Preferences, valid);
+        using var repaired = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(Preferences));
+        Assert.True(repaired.OpenWorkspace(workspace));
+        Assert.True(repaired.OpenOwnedNotes(scope, "avery@example.com"));
+        Assert.True(repaired.GetOwnedNotesView(scope).IsEmpty);
+        AssertWorkspaceBytes(workspace, writing);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public async Task Failed_sole_designation_retains_both_displayed_notes_without_persisting_a_choice(NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");
@@ -844,6 +886,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.True(app.RefreshWorkspace(), app.Status);
         }
         Assert.Null(app.GetOwnedNotesView(scope).SelectedNote);
+        Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
         Assert.Contains("unavailable or archived", app.GetOwnedNotesView(scope).Feedback);
         Assert.Equal(note, settings.GetOngoingNote(workspace, scope, "avery@example.com"));
         Assert.Equal(preference, File.ReadAllBytes(Preferences));
@@ -851,6 +894,7 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.True(reopened.OpenWorkspace(workspace), reopened.Status);
         Assert.True(reopened.OpenOwnedNotes(scope, "avery@example.com"));
         Assert.Null(reopened.GetOwnedNotesView(scope).SelectedNote);
+        Assert.False(reopened.GetOwnedNotesView(scope).IsEmpty);
         Assert.Contains("unavailable or archived", reopened.GetOwnedNotesView(scope).Feedback);
         Assert.True(reopened.OpenOwnedNote(scope, other));
         Assert.False(reopened.GetOwnedNotesView(scope).IsOngoing);
