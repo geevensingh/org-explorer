@@ -405,8 +405,9 @@ internal static partial class Program
             Settle(compact);
             if (compact)
             {
-                // Replay the observed horizontal reset across hiding; native visibility timing is not reproduced.
-                scrolling.ScrollToHorizontalOffset(0);
+                // Replay lost virtualized width across hiding without changing the Person population.
+                VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
+                tree.InvalidateMeasure();
                 Settle(compact);
             }
             Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
@@ -422,7 +423,9 @@ internal static partial class Program
                 throw new InvalidOperationException($"Compiled search/clear lost browsing restoration: compact={compact}; " +
                     $"originalRows={DescribeBrowsingRows(originalPosition)}; currentRows={DescribeBrowsingRows(ReadPosition())}; " +
                     $"originalPercent={originalPosition.Percent}%; actual={provider.VerticalScrollPercent}%; offset={scrolling.VerticalOffset}; " +
-                    $"extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}.");
+                    $"extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}; " +
+                    $"horizontalOffset={scrolling.HorizontalOffset}; extentWidth={scrolling.ExtentWidth}; " +
+                    $"viewportWidth={scrolling.ViewportWidth}; scrollableWidth={scrolling.ScrollableWidth}.");
             provider.SetScrollPercent(-1, 0);
             Settle(compact);
             branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);

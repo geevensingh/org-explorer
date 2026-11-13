@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     {
         workflow = new(application, workspaceSettings);
         InitializeComponent();
+        PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
         preferredNameSaveTimer.Tick += SavePreferredNameDraft;

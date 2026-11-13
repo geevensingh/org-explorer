@@ -87,6 +87,10 @@
       <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
       <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
     </Style>
+    <Style x:Key="ReportingRootItem" TargetType="TreeViewItem" BasedOn="{StaticResource ReportingItem}">
+      <Setter Property="MinWidth"
+              Value="{Binding DataContext.PeopleNavigation.BrowseExtentWidth, RelativeSource={RelativeSource AncestorType={x:Type TreeView}}, FallbackValue=0}"/>
+    </Style>
     <HierarchicalDataTemplate DataType="{x:Type workflow:ReportingNode}" ItemsSource="{Binding Reports}"
                               ItemContainerStyle="{StaticResource ReportingItem}">
       <TextBlock Text="{Binding Person.Heading}" ToolTip="{Binding Person.Email}"/>
@@ -305,7 +309,7 @@
         <TreeView x:Name="PeopleList" AutomationProperties.AutomationId="People" AutomationProperties.Name="Imported reporting population"
                   VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
                   ScrollViewer.CanContentScroll="True"
-                  ItemContainerStyle="{StaticResource ReportingItem}" SelectedItemChanged="SelectPerson"/>
+                  ItemContainerStyle="{StaticResource ReportingRootItem}" SelectedItemChanged="SelectPerson"/>
         </DockPanel>
       </Grid>
       </GroupBox>

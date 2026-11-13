@@ -279,7 +279,11 @@ secondary note and frozen search destination, and retain owner/editor, expansion
 scroll position, overlay and actionable feedback on rejected navigation.
 The in-session browsing bookmark captures horizontal as well as vertical offset;
 neither belongs to synchronized Workspace data or a preference schema change.
-Existing accepted/rejected exact-note tests retain both axes.
+It also retains the measured content width. Root reporting rows reserve that
+width while unseen wide labels are virtualized, keeping the bookmarked horizontal
+offset reachable instead of clamping it to zero. This minimum applies only to
+root containers, not recursively to descendants or the outer People pane.
+Existing accepted/rejected exact-note tests retain both axes and measured width.
 `WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
 canonical per-Workspace identity, interleaved designation/startup writes, unchanged
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
@@ -343,10 +347,12 @@ The invisible compiled replay additionally drives the 44-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
 available viewport geometry, exact-note search/clear and wide/compact
 restoration, including recycled tree-item load events. Compact replay establishes
-a real 39-DIP horizontal offset and replays its observed reset while browsing is
-hidden; every original row must return to the same horizontal and vertical
-position. This goes red when restoration remembers only the vertical offset.
-It does not identify which native layout event caused the reset or reproduce
+a real 39-DIP horizontal offset, then drops the cached measurement and invalidates
+the tree's measure while browsing is hidden, retaining all People and expansion.
+This reproduces the lost horizontal range that clamps even a correctly retained
+offset. Every original row must return to the same horizontal and vertical
+position; offset-only restoration goes red, while reserving the captured width
+keeps that position reachable. It does not reproduce
 native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
 failures retain the exact-row/visibility assertion and capture the
 before/failure pixels, viewport percentages, bounds and focus without corrective
