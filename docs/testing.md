@@ -5,6 +5,15 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
+Visual-refresh journeys can capture named, already-observed states through the
+shared `CaptureVisualEvidence` harness helper. It reads actual desktop pixels
+without opening, focusing, resizing or repairing a view. The existing hosted
+desktop lanes retain these PNGs beside JSON recording the source revision,
+run/attempt, executable hash, DPI and captured bounds. Calls require unique
+state names within a scenario and never overwrite an earlier observation.
+Captures follow the same desktop-isolation rules below; they are comparison
+material, not behavioral proof or owner visual acceptance.
+
 ## Placement
 
 | Category | Observes | Examples and limits |
