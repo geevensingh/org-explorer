@@ -261,6 +261,7 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     public void New_note_draft_cannot_publish_after_valid_delivery_removes_its_owner(NoteScope scope)
     {
         using var app = Open();
+        Assert.True(app.OpenOwnedNotes(scope, Owner));
         var draft = app.BeginNoteDraft(scope, Owner)!;
         app.RetainNoteDraft(draft);
         var delivery = folder + "-delivery";
@@ -282,6 +283,8 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             }
             Assert.True(app.RefreshWorkspace(), app.Status);
             Assert.Equal("casey@example.com", Assert.Single(app.People).Email);
+            Assert.False(app.GetOwnedNotesView(scope).IsEmpty);
+            Assert.Contains("Person is unavailable", app.GetOwnedNotesView(scope).Feedback);
             Assert.Null(app.SaveNoteDraft(draft, "Retained title", "Retained local writing"));
             Assert.False(File.Exists(Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", draft.Id + ".md")));
             Assert.Contains("changed externally", app.Status);

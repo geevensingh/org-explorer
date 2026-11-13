@@ -280,6 +280,8 @@ The real settings/reopen suite additionally rejects an empty invitation while
 ongoing preferences are unreadable, preserving exact preference and Workspace
 bytes until deliberate repair. Existing ownership, inheritance, frozen evidence,
 independent drafts, external bases, retry/discard and restoration assertions remain.
+The existing delivered-owner-removal draft case also requires explicit unavailable
+Person guidance rather than an empty invitation before first-save rejection.
 
 The existing Person-note and normal/responsive Team-history selections capture
 unique populated, empty-document, ambiguous, failed, unavailable, collapsed-review,
