@@ -90,7 +90,8 @@ public partial class PersonNotesControl : UserControl
         if (!TryLeave() || workflow is null || owner is null) return;
         if (!workflow.OpenOwnedNote(NoteScope.Person, id)) { ShowPresentation(); return; }
         loading = true;
-        IncludeArchived.IsChecked = includeArchived = workflow.PersonNotesView.SelectedNote?.Archived == true;
+        if (workflow.PersonNotesView.SelectedNote?.Archived == true)
+            IncludeArchived.IsChecked = includeArchived = true;
         if (includeArchived) workflow.ShowOtherNotes(NoteScope.Person, true);
         loading = false;
         RefreshNotes();
@@ -285,7 +286,10 @@ public partial class PersonNotesControl : UserControl
     private void ChangeNoteMode(object sender, SelectionChangedEventArgs e)
     {
         if (!loading && selected is { } id && e.Source == Views)
+        {
             workflow?.OpenOwnedNote(NoteScope.Person, id, editing: Views.SelectedItem == EditTab);
+            ShowPresentation();
+        }
     }
 
     private void OpenOngoing(object sender, RoutedEventArgs e)

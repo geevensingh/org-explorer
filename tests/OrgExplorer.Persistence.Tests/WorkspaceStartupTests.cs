@@ -14,6 +14,105 @@ public sealed class WorkspaceStartupTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public async Task Failed_sole_designation_retains_both_displayed_notes_without_persisting_a_choice(NoteScope scope)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+        var preview = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-12T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+            """);
+        Assert.True(preview.CanApply, string.Join("\n", preview.Errors));
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        var person = app.CreatePersonNote("avery@example.com", "Sole Person", "Person reading")!;
+        var team = app.CreateTeamNote("avery@example.com", "Sole Team", "Team reading")!;
+        Assert.True(app.NavigatePerson("avery@example.com"), app.Status);
+        Assert.Equal(person.Id, app.PersonNotesView.SelectedNote?.Id);
+        Assert.Equal(team.Id, app.TeamNotesView.SelectedNote?.Id);
+        var note = scope == NoteScope.Person ? person.Id : team.Id;
+        var preferences = File.ReadAllBytes(Preferences);
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        using (File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.False(await app.DesignateOngoingNoteAsync(scope, note, operation => Task.Run(operation)));
+            Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+            AssertWorkspaceBytes(workspace, writing);
+            Assert.Null(settings.GetOngoingNote(workspace, NoteScope.Person, person.OwnerEmail));
+            Assert.Null(settings.GetOngoingNote(workspace, NoteScope.Team, team.OwnerEmail));
+            Assert.Equal(person.Id, app.PersonNotesView.SelectedNote?.Id);
+            Assert.Equal(team.Id, app.TeamNotesView.SelectedNote?.Id);
+            Assert.False(app.PersonNotesView.IsEditing);
+            Assert.False(app.TeamNotesView.IsEditing);
+            Assert.Contains("NOT saved", app.GetOwnedNotesView(scope).Feedback);
+        }
+        Assert.True(await app.DesignateOngoingNoteAsync(scope, note, operation => Task.Run(operation)));
+        Assert.Equal(note, new WorkspaceSettings(Preferences).GetOngoingNote(workspace, scope, person.OwnerEmail));
+        Assert.Equal(person.Id, app.PersonNotesView.SelectedNote?.Id);
+        Assert.Equal(team.Id, app.TeamNotesView.SelectedNote?.Id);
+        AssertWorkspaceBytes(workspace, writing);
+    }
+
+    [Theory]
+    [InlineData("pane", false)]
+    [InlineData("pane", true)]
+    [InlineData("view", false)]
+    [InlineData("view", true)]
+    [InlineData("startup", false)]
+    [InlineData("startup", true)]
+    public void Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(string failure, bool archived)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+        var person = app.CreatePersonNote("avery@example.com", "First Person", "")!;
+        var team = app.CreateTeamNote("avery@example.com", "First Team", "")!;
+        var other = app.CreatePersonNote(person.OwnerEmail, "Other Person", "")!;
+        app.CreateTeamNote(team.OwnerEmail, "Other Team", "");
+        Assert.True(app.NavigatePerson(person.OwnerEmail), app.Status);
+        if (archived)
+        {
+            Assert.True(app.DesignateOngoingNote(NoteScope.Person, person.Id));
+            Assert.True(app.DesignateOngoingNote(NoteScope.Team, team.Id));
+            Assert.True(app.ArchivePersonNote(person.Id));
+            Assert.True(app.ArchiveTeamNote(team.Id));
+        }
+        var guidance = archived ? "unavailable or archived" : "Choose an ongoing note";
+        Assert.Contains(guidance, app.PersonNotesView.Feedback);
+        Assert.Contains(guidance, app.TeamNotesView.Feedback);
+        var before = File.ReadAllBytes(Preferences);
+        using (File.Open(Preferences, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            switch (failure)
+            {
+                case "pane":
+                    Assert.False(app.SavePaneProportions(28, 38));
+                    Assert.Contains("NOT saved", app.LayoutPreferenceFeedback);
+                    break;
+                case "view":
+                    Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
+                    Assert.Contains("NOT remembered", app.ViewPreferenceFeedback);
+                    break;
+                case "startup":
+                    Assert.True(settings.OpenWorkspace(app, workspace));
+                    Assert.Contains("startup preference was NOT saved", settings.PreferenceError);
+                    Assert.True(app.OpenOwnedNotes(NoteScope.Person, person.OwnerEmail));
+                    Assert.True(app.OpenOwnedNotes(NoteScope.Team, team.OwnerEmail));
+                    break;
+            }
+            Assert.Equal(before, File.ReadAllBytes(Preferences));
+            Assert.Contains(guidance, app.PersonNotesView.Feedback);
+            Assert.Contains(guidance, app.TeamNotesView.Feedback);
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public void Review_failed_open_keeps_note_views_readable_without_a_Workspace_path(NoteScope scope)
     {
         var workspace = Path.Combine(root, "workspace");
@@ -407,6 +506,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.Null(manual.PersonNotesView.OngoingNoteId);
             Assert.Null(manual.PersonNotesView.SelectedNote);
             Assert.Contains("NOT remembered", manual.ViewPreferenceFeedback);
+            Assert.Equal(invalid.PreferenceError, manual.PersonNotesView.Feedback);
             Assert.Equal("{broken", File.ReadAllText(Preferences));
             return;
         }

@@ -47,7 +47,8 @@ public sealed partial class WorkspaceViewModel
         var ongoing = OngoingId(scope, view.Owner, notes);
         var selectedId = view.Exact ? view.Selected : ongoing;
         var selected = notes.FirstOrDefault(n => n.Id == selectedId && (view.Exact || !n.Archived));
-        var feedback = view.Error ?? ongoingPreferenceError ?? settings?.PreferenceError ?? (view.Owner is null ? "" :
+        var feedback = view.Error ?? ongoingPreferenceError ??
+            (settings is { HasValidPreferenceSnapshot: false } ? settings.PreferenceError : null) ?? (view.Owner is null ? "" :
             ongoing is { } id && !notes.Any(n => n.Id == id && !n.Archived)
                 ? "The ongoing note is unavailable or archived. Your choice is retained. Use Other notes to restore it or choose another ongoing note."
                 : view.Exact && view.Selected is not null && selected is null
@@ -145,7 +146,10 @@ public sealed partial class WorkspaceViewModel
         var view = NoteViewFor(scope);
         if (!saved)
         {
-            noteViews[scope] = view with { Error = ongoingPreferenceError = settings!.PreferenceError };
+            foreach (var noteScope in Enum.GetValues<NoteScope>())
+                if (GetOwnedNotesView(noteScope).SelectedNote is { } displayed)
+                    noteViews[noteScope] = NoteViewFor(noteScope) with { Selected = displayed.Id, Exact = true };
+            noteViews[scope] = NoteViewFor(scope) with { Error = ongoingPreferenceError = settings!.PreferenceError };
             return false;
         }
         if (settings is null) ongoingNotes[OngoingKey(scope, owner)] = id;

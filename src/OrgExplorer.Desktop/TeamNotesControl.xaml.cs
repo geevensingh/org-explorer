@@ -82,7 +82,8 @@ public partial class TeamNotesControl : UserControl
         if (!TryLeave() || workflow is null || owner is null) return;
         if (!workflow.OpenOwnedNote(NoteScope.Team, id)) { ShowPresentation(); return; }
         loading = true;
-        IncludeArchived.IsChecked = includeArchived = workflow.TeamNotesView.SelectedNote?.Archived == true;
+        if (workflow.TeamNotesView.SelectedNote?.Archived == true)
+            IncludeArchived.IsChecked = includeArchived = true;
         if (includeArchived) workflow.ShowOtherNotes(NoteScope.Team, true);
         loading = false;
         RefreshNotes();
@@ -352,7 +353,10 @@ public partial class TeamNotesControl : UserControl
     private void ChangeNoteMode(object sender, SelectionChangedEventArgs e)
     {
         if (!loading && selected is { } id && e.Source == Views)
+        {
             workflow?.OpenOwnedNote(NoteScope.Team, id, editing: Views.SelectedItem == EditTab);
+            ShowPresentation();
+        }
     }
 
     private void OpenOngoing(object sender, RoutedEventArgs e)

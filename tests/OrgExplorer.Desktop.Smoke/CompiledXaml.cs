@@ -495,7 +495,14 @@ internal static partial class Program
         Invoke("ArchiveButton");
         PumpUntil(() => Archived(id));
         Ready();
-        Open(prior);
+        Control<CheckBox>("IncludeArchived").IsChecked = true;
+        Control<ListBox>("NotesList").SelectedItem = Control<ListBox>("NotesList").Items
+            .Cast<OwnedNote>().Single(note => note.Id == prior);
+        if (Control<CheckBox>("IncludeArchived").IsChecked != true ||
+            !Control<ListBox>("NotesList").Items.Cast<OwnedNote>().Any(note => note.Id == id && note.Archived) ||
+            workflow.GetOwnedNotesView(scope).SelectedNote?.Id != prior)
+            throw new InvalidOperationException($"Selecting an active {scope} note reset the explicit archived-notes filter.");
+        Console.WriteLine($"PASS: actual compiled {scope} active-note selection preserves the archived-notes filter and archived entries.");
         Open(id);
         var preferencePath = Path.Combine(Path.GetDirectoryName(folder)!, "workspace-settings.json");
         if (new WorkspaceSettings(preferencePath).GetLastView(folder)?.NoteId != prior)
@@ -542,6 +549,36 @@ internal static partial class Program
             workflow.ShowPeopleOverlay(overlay);
         }
         Console.WriteLine($"PASS: actual compiled {scope} designation keeps presentation mutations on the dispatcher and retains active query/overlay changes.");
+
+        foreach (var failure in new[] { "locked", "corrupt" })
+        {
+            var before = File.ReadAllBytes(preferencePath);
+            if (failure == "corrupt") File.WriteAllText(preferencePath, "{broken");
+            try
+            {
+                using var held = failure == "locked"
+                    ? File.Open(preferencePath, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+                Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
+                var warning = (TextBlock)window.FindName("ViewPreferenceStatus");
+                if (workflow.ViewPreferenceFeedback?.Contains("NOT remembered", StringComparison.Ordinal) != true)
+                    throw new InvalidOperationException($"The {failure} preference fixture did not reject the {scope} Read/Edit view write.");
+                if (warning.Visibility != Visibility.Visible ||
+                    !warning.Text.Contains("NOT remembered", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"The {scope} Read/Edit handler did not immediately present the {failure} view-preference failure.");
+                if (failure == "locked" && !before.SequenceEqual(File.ReadAllBytes(preferencePath)) ||
+                    failure == "corrupt" && File.ReadAllText(preferencePath) != "{broken")
+                    throw new InvalidOperationException("The failed view preference write changed the previous settings bytes.");
+            }
+            finally
+            {
+                if (failure == "corrupt") File.WriteAllBytes(preferencePath, before);
+            }
+            Control<TabControl>("Views").SelectedItem = notes.FindName("ReadTab");
+            if (workflow.ViewPreferenceFeedback is not null ||
+                ((TextBlock)window.FindName("ViewPreferenceStatus")).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException($"The {scope} Read/Edit retry did not immediately clear the recovered preference warning.");
+        }
+        Console.WriteLine($"PASS: actual compiled {scope} Read/Edit immediately presents locked/corrupt view-preference failures and clears successful retries.");
     }
 
     private static void VerifyMaintenanceRetryAfterBlockedOpen(Window window, string folder)

@@ -221,6 +221,12 @@ Workspace/owner/scope identity, retained unavailable/archived choices, locked or
 corrupt preference rejection and byte-for-byte unchanged note documents.
 Invalid preferences are preserved until deliberately repaired outside that
 failed write; manually opening a Workspace is not permission to overwrite them.
+Failed designation retains both currently displayed notes by exact identity,
+including sole-note reading without saved designations. Real-file cases require
+unchanged preferences and Workspace writing before explicit retry succeeds.
+Unrelated pane, exact-view and startup-write failures keep their own feedback
+without replacing ambiguous/archived ongoing-note guidance; unreadable preferences
+and designation failures remain explicit.
 `NoteDraftPersistenceTests` retains a failed secondary draft and its exact editor
 while ongoing navigation is rejected, including subsequent external delivery.
 The existing Person-note desktop journey additionally observes the collapsed
@@ -422,6 +428,9 @@ also require the restored exact note to become the durable Read destination.
 Ongoing designation keeps note/navigation mutations on the dispatcher while
 its host runner performs preference I/O. Compiled controls retain query/overlay
 changes made during that write and publish the resulting navigation on the UI thread.
+Both compiled controls preserve Show archived notes when selecting active writing.
+Read/Edit changes immediately present locked/corrupt exact-view preference errors
+and clear the warning after a successful explicit retry, without an extra refresh.
 These invisible checks do not show/focus WPF or prove rendered geometry.
 It also drives the actual Settings button through the WPF dispatcher and checks
 logical focus on the folder, including closure before a queued focus request.
