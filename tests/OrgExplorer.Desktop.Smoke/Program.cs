@@ -139,9 +139,9 @@ internal static partial class Program
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
     }
-    internal static void Click(AutomationElement window, string id)
+    internal static void Click(AutomationElement window, string id, ControlType? controlType = null)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+        ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
     private static string Status(AutomationElement window) => window.Current.HelpText;
@@ -179,7 +179,7 @@ internal static partial class Program
             if (entry.Current.Value != Path.GetFullPath(folder))
                 throw new InvalidOperationException("The native picker did not retain the requested folder entry.");
         }
-        Click(picker!, folder is null ? "2" : "1");
+        Click(picker!, folder is null ? "2" : "1", ControlType.Button);
         Await(() => FindPicker() is null);
     }
 

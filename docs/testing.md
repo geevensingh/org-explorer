@@ -599,7 +599,11 @@ with explicit selectable-folder setup, exact accepted/cancelled outcomes and
 unchanged preference/writing assertions. Installed, responsive and scale callers
 use that same visible picker, never a hidden direct-path adapter.
 The native picker helper targets the observed Folder Edit field (ID 1152), not
-the file-dialog entry or a Search box. Cancellation compares actual before/after
+the file-dialog entry or a Search box. Select Folder/Cancel match both their
+native automation ID and Button role before obtaining InvokePattern: shell
+folder items can reuse numeric IDs 1/2 and are not dialog actions. Exactly one
+action is invoked before the unchanged close observation; no second click or
+action retry repairs a still-open picker. Cancellation compares actual before/after
 orientation, displayed path, preference bytes and untouched Workspace contents;
 HelpText need not be empty because WPF can supply useful tooltip fallback.
 Installed-flow failure diagnostics only read the existing automation tree and
