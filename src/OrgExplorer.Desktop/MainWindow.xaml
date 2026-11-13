@@ -49,6 +49,34 @@
     <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="BorderBrush" Value="Transparent"/>
     </Style>
+    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="4"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}">
+              <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#0550AE"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Chrome" Property="Background" Value="#033D8B"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Chrome" Property="BorderBrush" Value="#24292F"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Chrome" Property="Opacity" Value="0.65"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
       <Setter Property="MinWidth" Value="30"/>
       <Setter Property="Padding" Value="5"/>
@@ -103,6 +131,9 @@
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+    <Style x:Key="ProfileField" TargetType="StackPanel">
+      <Setter Property="Margin" Value="0,0,16,12"/>
     </Style>
     <Style x:Key="ReportingItem" TargetType="TreeViewItem">
       <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
@@ -437,7 +468,7 @@
                     PreviewKeyDown="ResizePaneWithKeyboard"
                     AutomationProperties.AutomationId="PeopleDivider" AutomationProperties.Name="Resize People and Person workspace"/>
       <Grid x:Name="PersonWorkspace" Grid.Column="2" Margin="12,0,0,0" Background="White">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid x:Name="PersonIdentity" Visibility="Collapsed" Margin="0,8,12,16">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -507,7 +538,21 @@
                        Visibility="Collapsed" Foreground="#8A3B12" TextWrapping="Wrap"/>
           </StackPanel>
         </Grid>
-      <ScrollViewer x:Name="PersonScroll" Grid.Row="1" AutomationProperties.AutomationId="ProfileScroll"
+        <Border x:Name="ProfileSessionActions" Grid.Row="1" Visibility="Collapsed" Margin="0,0,12,12"
+                Background="#EAF3FF" CornerRadius="4" Padding="10,8">
+          <DockPanel LastChildFill="True">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
+              <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile"
+                      Click="CancelProfileEdit" Margin="0,0,8,0"/>
+              <Button x:Name="SaveProfileButton" Content="Save profile" Style="{StaticResource PrimaryButton}"
+                      AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
+            </StackPanel>
+            <TextBlock Text="Editing profile" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
+                       AutomationProperties.AutomationId="ProfileEditingState"
+                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+          </DockPanel>
+        </Border>
+      <ScrollViewer x:Name="PersonScroll" Grid.Row="2" AutomationProperties.AutomationId="ProfileScroll"
                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="0,0,12,0">
         <GroupBox x:Name="WorkspaceStartPanel" Margin="0,12" BorderThickness="0" Padding="0"
@@ -528,13 +573,6 @@
                   VerticalAlignment="Top" AutomationProperties.AutomationId="ProfileSummary">
         <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
         <StackPanel>
-        <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
-                   Visibility="Collapsed" TextWrapping="Wrap" Foreground="DimGray"/>
-        <WrapPanel x:Name="ProfileSessionActions" Visibility="Collapsed" Margin="0,8">
-          <Button x:Name="SaveProfileButton" Content="Save profile" AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
-          <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile" Click="CancelProfileEdit" Margin="8,0"/>
-          <TextBlock Text="Unsaved until Save. Cancel discards profile text, Manager and photo only." TextWrapping="Wrap" Margin="8,0"/>
-        </WrapPanel>
         <Border x:Name="ProfileValues" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,1" Padding="0,8">
           <UniformGrid x:Name="FactsGrid" Columns="4">
           <StackPanel x:Name="ManagerReadingSlot" Style="{StaticResource FactSlot}">
@@ -599,59 +637,91 @@
           </StackPanel>
           </UniformGrid>
         </Border>
-        <StackPanel x:Name="ProfileEditLinks" Visibility="Collapsed" Margin="0,8">
-          <TextBlock Text="Saved Manager" Foreground="{StaticResource MutedBrush}"/>
-        </StackPanel>
-        <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed" Margin="0,0,0,12">
-          <TextBlock Text="Manager in this profile draft (no inferred report changes)" TextWrapping="Wrap" Margin="0,0,0,4"/>
-          <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
-                    VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
-                    ScrollViewer.CanContentScroll="True" SelectionChanged="StagePersonManager">
-            <ComboBox.ItemsPanel>
-              <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
-            </ComboBox.ItemsPanel>
-            <ComboBox.ItemContainerStyle>
-              <Style TargetType="ComboBoxItem">
-                <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
-              </Style>
-            </ComboBox.ItemContainerStyle>
-          </ComboBox>
-          <Button Content="Stage Manager change" AutomationProperties.AutomationId="ApplyManagerChange"
-                  Click="ChangePersonManager" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+        <StackPanel x:Name="ProfileForm" Visibility="Collapsed" AutomationProperties.AutomationId="ProfileForm">
+          <TextBlock Text="Text, Manager and photo stay in this draft until Save. Empty clears; whitespace alone is invalid."
+                     Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+          <TextBlock x:Name="ProfilePhotoDraft" AutomationProperties.AutomationId="ProfilePhotoDraft"
+                     Visibility="Collapsed" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12"/>
+          <StackPanel x:Name="AttributeEditors" IsEnabled="False" Visibility="Collapsed">
+            <UniformGrid x:Name="ProfileTextFields" Columns="2" Margin="0,0,-16,0">
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=DirectoryNameEditor}" Content="Directory name" Padding="0,0,0,4"/>
+                <TextBox x:Name="DirectoryNameEditor" Tag="DirectoryName" AutomationProperties.AutomationId="DirectoryNameEditor"
+                         AutomationProperties.Name="Directory name" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=Alias}" Content="Alias (short company handle)" Padding="0,0,0,4"/>
+                <TextBox x:Name="Alias" Tag="Alias" AutomationProperties.AutomationId="Alias"
+                         AutomationProperties.Name="Alias" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=JobTitle}" Content="Job title" Padding="0,0,0,4"/>
+                <TextBox x:Name="JobTitle" Tag="JobTitle" AutomationProperties.AutomationId="JobTitle"
+                         AutomationProperties.Name="Job title" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=Department}" Content="Department" Padding="0,0,0,4"/>
+                <TextBox x:Name="Department" Tag="Department" AutomationProperties.AutomationId="Department"
+                         AutomationProperties.Name="Department" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=OfficeBuilding}" Content="Office building" Padding="0,0,0,4"/>
+                <TextBox x:Name="OfficeBuilding" Tag="OfficeBuilding" AutomationProperties.AutomationId="OfficeBuilding"
+                         AutomationProperties.Name="Office building" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=OfficeNumber}" Content="Office number" Padding="0,0,0,4"/>
+                <TextBox x:Name="OfficeNumber" Tag="OfficeNumber" AutomationProperties.AutomationId="OfficeNumber"
+                         AutomationProperties.Name="Office number" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=OfficeState}" Content="Office state / province" Padding="0,0,0,4"/>
+                <TextBox x:Name="OfficeState" Tag="OfficeState" AutomationProperties.AutomationId="OfficeState"
+                         AutomationProperties.Name="Office state" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+              <StackPanel Style="{StaticResource ProfileField}">
+                <Label Target="{Binding ElementName=OfficeCountry}" Content="Office country" Padding="0,0,0,4"/>
+                <TextBox x:Name="OfficeCountry" Tag="OfficeCountry" AutomationProperties.AutomationId="OfficeCountry"
+                         AutomationProperties.Name="Office country" TextChanged="EditPersonAttribute"/>
+              </StackPanel>
+            </UniformGrid>
+            <Label Target="{Binding ElementName=LinkedInProfileUrl}" Content="LinkedIn profile URL" Padding="0,0,0,4"/>
+            <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
+                     AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
+            <TextBlock Text="HTTPS only; never fetched automatically." Foreground="{StaticResource MutedBrush}"
+                       TextWrapping="Wrap" Margin="0,4"/>
+          </StackPanel>
+          <StackPanel x:Name="LinkedInEditLink"/>
+          <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,1" Padding="0,12" Margin="0,12">
+            <StackPanel>
+            <StackPanel x:Name="ManagerEditor" IsEnabled="False" Visibility="Collapsed">
+              <Label Target="{Binding ElementName=ManagerChoices}" Content="Manager" Padding="0,0,0,4"/>
+              <ComboBox x:Name="ManagerChoices" DisplayMemberPath="Label" AutomationProperties.AutomationId="ManagerChoice"
+                        AutomationProperties.Name="Manager in this profile draft" Padding="6,4"
+                        VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                        ScrollViewer.CanContentScroll="True" SelectionChanged="StagePersonManager">
+                <ComboBox.ItemsPanel>
+                  <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                </ComboBox.ItemsPanel>
+                <ComboBox.ItemContainerStyle>
+                  <Style TargetType="ComboBoxItem">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
+                  </Style>
+                </ComboBox.ItemContainerStyle>
+              </ComboBox>
+              <Button Content="Stage Manager change" AutomationProperties.AutomationId="ApplyManagerChange"
+                      Click="ChangePersonManager" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+              <TextBlock Text="No inferred report changes." Foreground="{StaticResource MutedBrush}"
+                         TextWrapping="Wrap" Margin="0,8,0,0"/>
+            </StackPanel>
+            <TextBlock Text="Saved Manager" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,4"/>
+            <StackPanel x:Name="ManagerEditLink"/>
+            </StackPanel>
+          </Border>
         </StackPanel>
         <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
         <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
                  SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>
-        <StackPanel x:Name="AttributeEditors" IsEnabled="False" Visibility="Collapsed">
-          <TextBlock Text="Staged until Save. Empty clears; whitespace alone is invalid." TextWrapping="Wrap"/>
-          <TextBlock Text="Directory name" Margin="0,8,0,4"/>
-          <TextBox x:Name="DirectoryNameEditor" Tag="DirectoryName" AutomationProperties.AutomationId="DirectoryNameEditor"
-                   AutomationProperties.Name="Directory name" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Alias (short company handle)" Margin="0,8,0,4"/>
-          <TextBox x:Name="Alias" Tag="Alias" AutomationProperties.AutomationId="Alias"
-                   AutomationProperties.Name="Alias" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Job title" Margin="0,8,0,4"/>
-          <TextBox x:Name="JobTitle" Tag="JobTitle" AutomationProperties.AutomationId="JobTitle"
-                   AutomationProperties.Name="Job title" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Department" Margin="0,8,0,4"/>
-          <TextBox x:Name="Department" Tag="Department" AutomationProperties.AutomationId="Department"
-                   AutomationProperties.Name="Department" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Office building (text)" Margin="0,8,0,4"/>
-          <TextBox x:Name="OfficeBuilding" Tag="OfficeBuilding" AutomationProperties.AutomationId="OfficeBuilding"
-                   AutomationProperties.Name="Office building" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Office number (text)" Margin="0,8,0,4"/>
-          <TextBox x:Name="OfficeNumber" Tag="OfficeNumber" AutomationProperties.AutomationId="OfficeNumber"
-                   AutomationProperties.Name="Office number" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Office state / province" Margin="0,8,0,4"/>
-          <TextBox x:Name="OfficeState" Tag="OfficeState" AutomationProperties.AutomationId="OfficeState"
-                   AutomationProperties.Name="Office state" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="Office country" Margin="0,8,0,4"/>
-          <TextBox x:Name="OfficeCountry" Tag="OfficeCountry" AutomationProperties.AutomationId="OfficeCountry"
-                   AutomationProperties.Name="Office country" TextChanged="EditPersonAttribute"/>
-          <TextBlock Text="LinkedIn profile URL (HTTPS; never fetched automatically)" TextWrapping="Wrap" Margin="0,8,0,4"/>
-          <TextBox x:Name="LinkedInProfileUrl" Tag="LinkedInProfileUrl" AutomationProperties.AutomationId="LinkedInProfileUrl"
-                   AutomationProperties.Name="LinkedIn profile URL" TextChanged="EditPersonAttribute"/>
-        </StackPanel>
         </StackPanel>
         </GroupBox>
         <GroupBox x:Name="NotesPane" Grid.Row="1" BorderThickness="0" Padding="0"

@@ -225,7 +225,7 @@ public partial class MainWindow
             if (IsVisible) target.Focus();
             if (readingBlock is not null) readingBlock.BringIntoView();
             else target.BringIntoView(new Rect(0, 0, target.ActualWidth, Math.Min(40, target.ActualHeight)));
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private FrameworkElement SearchDestinationSurface(SearchResult result) => result.Source switch

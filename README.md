@@ -55,10 +55,15 @@ a neutral dash rather than disappearing behind More details. The grid uses
 fewer columns at narrower available widths. Saved links still open only through
 an explicit action.
 Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
-**Edit profile** reveals all
-ordinary fields and stages text, Manager and photo changes together.
+**Edit profile** opens a labelled inline form beneath the anchored identity,
+pairing ordinary fields when space permits and stacking them in a narrow Person
+pane. Empty fields remain editable. Text, Manager and photo changes stay in
+one draft; notes remain independently accessible below it. The editing bar keeps
+**Save profile** and **Cancel** available while the form scrolls. Entry focuses
+Directory name; Tab follows field order. Enter in a field does not submit the form.
 **Save profile** validates and publishes the complete change; **Cancel**
-discards it without changing saved data or history. Empty editor text explicitly
+discards only that draft without changing saved data or history and returns focus
+to Edit profile. Empty editor text explicitly
 clears a nullable value; whitespace-only text is rejected. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve

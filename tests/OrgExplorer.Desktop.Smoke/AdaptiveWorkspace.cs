@@ -424,6 +424,68 @@ internal static partial class Program
         Await(() => IsVisible(window, "People"));
     }
 
+    private static void AssertResponsiveProfileForm(AutomationElement window)
+    {
+        var scale = DpiScale(window);
+        Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
+        void AtSize(string state)
+        {
+            var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+            if (scroll.Current.HorizontallyScrollable)
+                throw new InvalidOperationException("Inline profile editing requires horizontal page scrolling.");
+            if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+            var identity = Bounds("Email");
+            var save = Bounds("SaveProfile");
+            var cancel = Bounds("CancelProfile");
+            if (!IsVisible(window, "ProfileEditingState") || !IsVisible(window, "SaveProfile") ||
+                !IsVisible(window, "CancelProfile") || identity.Bottom > save.Top ||
+                Math.Max(save.Bottom, cancel.Bottom) > Bounds("ProfileScroll").Top + scale)
+                throw new InvalidOperationException("The contextual profile lost its anchored identity or explicit actions.");
+            CaptureVisualEvidence(window, state + "-top");
+            Find(window, "DirectoryNameEditor").SetFocus();
+            Await(() => Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+            foreach (var id in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoice" })
+            {
+                var editor = Find(window, id);
+                Await(() => editor.Current.HasKeyboardFocus && !editor.Current.IsOffscreen);
+                var bounds = editor.Current.BoundingRectangle;
+                var viewport = Bounds("ProfileScroll");
+                if (!editor.Current.IsKeyboardFocusable || bounds.Width / scale < 180 ||
+                    bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
+                    bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale ||
+                    Bounds("Email") != identity || Bounds("SaveProfile") != save)
+                    throw new InvalidOperationException($"Inline profile field {id} is clipped or moves identity/actions at {state}: {bounds}, viewport={viewport}.");
+                if (id is not "ManagerChoice") PressCopyKey(0x09);
+            }
+            if (Bounds("ProfileSummary").Bottom > Bounds("NotesPane").Top + scale ||
+                Find(window, "Email").Current.ControlType != ControlType.Text)
+                throw new InvalidOperationException("Notes joined the profile draft or stable email became editable.");
+            CaptureVisualEvidence(window, state + "-manager");
+        }
+        ResizeWindow(window, 700, 500);
+        AtSize("profile-inline-minimum-700-500");
+        ResizeWindow(window, 1100, 900);
+        AtSize("profile-inline-ordinary-1100-900");
+        foreach (var hostWidth in new[] { 959d, 960d, 961d })
+        {
+            var chrome = window.Current.BoundingRectangle.Width / scale - Bounds("AdaptiveWorkspace").Width / scale;
+            ResizeWindow(window, hostWidth + chrome, 900);
+            AtSize($"profile-inline-boundary-{hostWidth:0}");
+        }
+        var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        state.SetWindowVisualState(WindowVisualState.Maximized);
+        Await(() => state.Current.WindowVisualState == WindowVisualState.Maximized);
+        AtSize("profile-inline-maximized");
+        var host = Bounds("AdaptiveWorkspace");
+        var peoplePercent = RenderedPeoplePercent(window);
+        DragDivider(window, "PeopleDivider", host.Right - 20);
+        Await(() => Math.Abs(Bounds("ProfileScroll").Width / scale - 408) < 2);
+        AtSize("profile-inline-narrow-person");
+        DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * peoplePercent / 100);
+        Await(() => Math.Abs(RenderedPeoplePercent(window) - peoplePercent) < 1);
+    }
+
     private static void AssertProtectedPeopleOverlay(AutomationElement window)
     {
         ResizeWindow(window, 700, 900);
