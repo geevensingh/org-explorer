@@ -190,6 +190,7 @@ public partial class MainWindow
                 if (result.Field == "archived" && !result.Person.Archived)
                 {
                     PersonArchivalStatus.Text = "Not archived";
+                    PersonArchivalStatus.ToolTip = "This Person is not archived. This is not employment or presence information.";
                     PersonArchivalStatus.Visibility = Visibility.Visible;
                 }
                 break;
