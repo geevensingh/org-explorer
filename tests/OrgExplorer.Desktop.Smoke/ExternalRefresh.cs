@@ -26,6 +26,7 @@ internal static partial class Program
         try
         {
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", folder);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -72,6 +73,7 @@ internal static partial class Program
             SelectTeamNote(window, "New Team note");
             AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("External owned Team context"));
+            ExpandCurrentTeamContext(window);
             Await(() => Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"));
             Await(() => ((TextPattern)Find(window, "InheritedTeamReading")
                 .GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1).Contains("External inherited Team context"));

@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -13,6 +14,45 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         "observedAt":"2026-11-01T17:00:00Z","people":[
         {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null}]}
         """;
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Failed_secondary_draft_retains_exact_owner_and_editor_when_ongoing_navigation_is_rejected(NoteScope scope)
+    {
+        using var app = Open();
+        var ongoing = scope == NoteScope.Person
+            ? app.CreatePersonNote(Owner, "Ongoing", "Continuing writing")!.Id
+            : app.CreateTeamNote(Owner, "Ongoing", "Continuing writing")!.Id;
+        var secondary = scope == NoteScope.Person
+            ? app.CreatePersonNote(Owner, "Secondary", "Original secondary writing")!.Id
+            : app.CreateTeamNote(Owner, "Secondary", "Original secondary writing")!.Id;
+        Assert.True(app.OpenOwnedNotes(scope, Owner));
+        Assert.True(app.DesignateOngoingNote(scope, ongoing));
+        Assert.True(app.OpenOwnedNote(scope, secondary, editing: true));
+        var draft = app.BeginNoteDraft(scope, Owner, secondary)!;
+        var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", secondary + ".md");
+        app.RetainNoteDraft(draft);
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Null(app.SaveNoteDraft(draft, "Retained secondary draft", "Unsaved writing"));
+        Assert.False(app.OpenOngoingNote(scope));
+        Assert.Equal(secondary, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+        Assert.Equal(Owner, app.GetOwnedNotesView(scope).OwnerEmail);
+        Assert.True(app.GetOwnedNotesView(scope).IsEditing);
+        Assert.Contains("Retry or discard", app.GetOwnedNotesView(scope).Feedback);
+        File.WriteAllText(file, File.ReadAllText(file).Replace("Original secondary writing", "Delivered secondary writing"));
+        var delivered = File.ReadAllBytes(file);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Null(app.SaveNoteDraft(draft, "Retained secondary draft", "Unsaved writing"));
+        Assert.Equal(delivered, File.ReadAllBytes(file));
+        Assert.Equal("Original secondary writing", draft.Markdown);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardUnsavedChanges(secondary);
+        Assert.True(app.OpenOwnedNote(scope, secondary));
+        Assert.Equal("Delivered secondary writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+        Assert.True(app.OpenOngoingNote(scope));
+        Assert.Equal(ongoing, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+    }
 
     [Theory]
     [InlineData(NoteScope.Person)]
@@ -151,7 +191,7 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     [InlineData(NoteScope.Team)]
     public async Task Retaining_newer_typing_does_not_wait_behind_in_flight_IO_and_uses_the_successful_base(NoteScope scope)
     {
-        using var publisher = new HeldPublisher();
+        using var publisher = new HeldNotePublisher();
         using var app = Open(publisher);
         var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Context", "Original")!;
         app.RetainNoteDraft(original);
@@ -250,26 +290,6 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             Assert.True(app.CanSafelyClose);
         }
         finally { if (Directory.Exists(delivery)) Directory.Delete(delivery, true); }
-    }
-
-    private sealed class HeldPublisher : IWorkspaceFilePublisher, IDisposable
-    {
-        public bool HoldNextNote { get; set; }
-        public ManualResetEventSlim Entered { get; } = new();
-        public ManualResetEventSlim Release { get; } = new();
-
-        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
-        {
-            if (HoldNextNote && Path.GetExtension(destination) == ".md")
-            {
-                HoldNextNote = false;
-                Entered.Set();
-                if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
-            }
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
-        }
-
-        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
     }
 
     public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }

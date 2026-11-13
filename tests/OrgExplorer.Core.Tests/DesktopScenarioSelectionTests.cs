@@ -7,6 +7,18 @@ public sealed class DesktopScenarioSelectionTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Required_high_resolution_is_explicit_complete_and_independent_from_ordinary_smoke_and_ui_scale()
+    {
+        var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
+        var expected = new[] { "responsive-workspace", "responsive-draft-navigation", "responsive-team-history" };
+        Assert.Equal(expected, selection.Select("--high-resolution"));
+        Assert.Empty(selection.Select(null).Intersect(expected));
+        Assert.Empty(selection.Select("--ui-scale").Intersect(expected));
+        Assert.Equal(["responsive-team-history"], selection.Select("responsive-team-history"));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Default_smoke_excludes_scale_and_explicit_ui_scale_selects_both_independent_scenarios()
     {
         var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);

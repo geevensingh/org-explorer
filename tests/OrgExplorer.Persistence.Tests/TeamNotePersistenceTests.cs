@@ -58,11 +58,21 @@ public sealed class TeamNotePersistenceTests : IDisposable
             Assert.False(app.ApplyImport(preview.Id));
             Assert.False(Assert.Single(app.GetTeamNotes("manager@example.com")).NeedsReview);
         }
-        Assert.True(app.OpenWorkspace(folder), app.Status);
+        var failedSave = app.LocalSaveError;
+        Assert.NotNull(failedSave);
+        Assert.True(app.HasFailedImport);
+        Assert.False(app.OpenWorkspace(folder));
+        Assert.Contains("Workspace navigation blocked", app.Status);
+        Assert.Equal(failedSave, app.LocalSaveError);
         Assert.Null(app.GetRelationships("manager@example.com")!.Person.JobTitle);
         Assert.False(Assert.Single(app.GetTeamNotes("manager@example.com")).NeedsReview);
         using var other = ApplicationWorkflow.CreateFileBacked();
         Assert.True(other.OpenWorkspace(folder));
+        Assert.Null(other.GetRelationships("manager@example.com")!.Person.JobTitle);
+        var durable = Assert.Single(other.GetTeamNotes("manager@example.com"));
+        Assert.Equal(note.Id, durable.Id);
+        Assert.Equal("Saved writing", durable.Markdown);
+        Assert.False(durable.NeedsReview);
         Assert.True(other.EditPersonText("manager@example.com", PersonTextField.JobTitle, "Director"));
         var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md").Single();
         File.WriteAllText(file, File.ReadAllText(file).Replace("Saved writing", "Synced writing"));
@@ -72,7 +82,9 @@ public sealed class TeamNotePersistenceTests : IDisposable
         Assert.True(loaded.NeedsReview);
         Assert.Equal("Synced writing", loaded.Markdown);
         Assert.False(app.CanSafelyClose);
-        app.DiscardUnsavedChanges();
+        Assert.True(app.HasFailedImport);
+        app.DiscardImportChanges();
+        Assert.False(app.HasFailedImport);
         Assert.True(app.ConfirmTeamNote(note.Id), app.Status);
         Assert.False(Assert.Single(app.GetTeamNotes("manager@example.com")).NeedsReview);
     }

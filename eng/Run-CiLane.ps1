@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory)][ValidateSet('core', 'filesystem', 'desktop')][string] $Lane
+    [Parameter(Mandatory)][ValidateSet('core', 'filesystem', 'desktop', 'high-resolution')][string] $Lane
 )
 $ErrorActionPreference = 'Stop'
 $started = if ($env:LANE_STARTED_AT) { [DateTimeOffset]::Parse($env:LANE_STARTED_AT) } else { [DateTimeOffset]::UtcNow }
@@ -78,31 +78,50 @@ try {
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Persistence.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
                 '--results-directory', '.ci-results\filesystem', '--filter', 'Category!=Performance')
         }
-        desktop {
+        { $_ -in @('desktop', 'high-resolution') } {
+            $highResolution = $Lane -eq 'high-resolution'
             $env:DESKTOP_RESULTS_DIRECTORY = $results
             Remove-Item (Join-Path $results 'scenarios.json') -Force -ErrorAction SilentlyContinue
-            $updateFixture = Join-Path $root ('.test-workspaces\update-trust-' + [guid]::NewGuid().ToString('N'))
-            & "$root\eng\New-UpdateTestFixture.ps1" -Directory $updateFixture
-            $env:ORG_EXPLORER_UPDATE_FIXTURE = $updateFixture
+            if (!$highResolution) {
+                $updateFixture = Join-Path $root ('.test-workspaces\update-trust-' + [guid]::NewGuid().ToString('N'))
+                & "$root\eng\New-UpdateTestFixture.ps1" -Directory $updateFixture
+                $env:ORG_EXPLORER_UPDATE_FIXTURE = $updateFixture
+            }
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
-            Invoke-BudgetedDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
-                "-p:UpdateTrustFile=$(Join-Path $updateFixture 'trust.json')",
-                "-p:UpdateEffectsFile=$(Join-Path $root 'tests\ControlledUpdateEffects.cs')")
-            Invoke-BudgetedDotnet desktop-flows @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
-                '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
-            Invoke-BudgetedDotnet profile-note-refresh @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
-                '--no-build', '--no-restore', '--',
-                (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-profile-refresh')
+            $buildArguments = @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
+            if (!$highResolution) {
+                $buildArguments += @("-p:UpdateTrustFile=$(Join-Path $updateFixture 'trust.json')",
+                    "-p:UpdateEffectsFile=$(Join-Path $root 'tests\ControlledUpdateEffects.cs')")
+            }
+            Invoke-BudgetedDotnet build-app $buildArguments
+            $displayCommand = if ($highResolution) { '--prepare-high-resolution' } else { '--verify-standard-display' }
+            Invoke-BudgetedDotnet display-prerequisite @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                '--no-restore', '--', $displayCommand)
+            $flowArguments = @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-build',
+                '--no-restore', '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
+            if ($highResolution) { $flowArguments += '--high-resolution' }
+            Invoke-BudgetedDotnet desktop-flows $flowArguments
+            if (!$highResolution) {
+                Invoke-BudgetedDotnet profile-note-refresh @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                    '--no-build', '--no-restore', '--',
+                    (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-profile-refresh')
+                Invoke-BudgetedDotnet update-yield @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                    '--no-build', '--no-restore', '--',
+                    (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-update-yield')
+            }
             . "$root\eng\DesktopResults.ps1"
-            Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\DesktopScenarios.json" -Raw | ConvertFrom-Json)
-            Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
-                '-o', '.ci-results\desktop\product-check')
-            & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
-                -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
-            $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
-            if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
-                throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
+            $manifest = if ($highResolution) { 'HighResolutionScenarios.json' } else { 'DesktopScenarios.json' }
+            Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\$manifest" -Raw | ConvertFrom-Json)
+            if (!$highResolution) {
+                Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
+                    '-o', '.ci-results\desktop\product-check')
+                & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
+                    -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
+                $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
+                if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
+                    throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
+                }
             }
         }
     }

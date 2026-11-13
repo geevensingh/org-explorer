@@ -8,7 +8,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunSearchFavoriteFlow(string executable, string root)
+    private static void RunSearchFavoriteFlow(string executable, string root, bool responsive = false)
     {
         Process? process = null;
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -23,11 +23,14 @@ internal static partial class Program
              "managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
-            """, 1));
+            """ + "," + string.Join(",", Enumerable.Range(1, 40).Select(i => $$"""
+                {"email":"browse{{i:00}}@example.com","displayName":"Z Browse {{i:00}}","managerEmail":null}
+                """)), 1));
         try
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -42,6 +45,12 @@ internal static partial class Program
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
             AssertNoteView(window, "Person", editing: false);
+            OrgExplorer.Workflow.PaneProportions? paneBalance = null;
+            if (responsive)
+            {
+                paneBalance = AssertAdaptiveWorkspace(window);
+                AssertSearchBrowsingRestoration(window);
+            }
             if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
                 throw new InvalidOperationException("Search did not open the saved Person note for reading.");
             Click(window, "ArchivePersonNote");
@@ -98,13 +107,17 @@ internal static partial class Program
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical / Archived person", "Frozen Team note");
             AssertSearchReading(window, "Former Team writing");
             if (listener.Pending()) throw new InvalidOperationException("Search or selected current/frozen Markdown fetched remote content.");
+            var beforeReopen = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
             Close(process);
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitUnavailableView(window, workspace);
+            AssertWorkspaceBytes(workspace, beforeReopen);
             SelectFavorite(window, "avery@example.com");
+            if (responsive)
+                Await(() => Math.Abs(RenderedPaneProportions(window).PeoplePercent - paneBalance!.PeoplePercent) < .5 &&
+                    Math.Abs(RenderedPaneProportions(window).ProfilePercent - paneBalance.ProfilePercent) < .5);
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
@@ -112,7 +125,7 @@ internal static partial class Program
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "FavoriteStatus").Current.Name.StartsWith("Not marked"));
             Close(process);
-            Console.WriteLine("PASS: actual WPF current/frozen/archived search destinations, private reading, favorites, rejected navigation and reopen.");
+            Console.WriteLine("PASS: actual WPF exact search, retained writing, invalid-target startup recovery, deliberate archived access and reopen proportions.");
         }
         finally
         {
@@ -146,6 +159,7 @@ internal static partial class Program
     private static void SelectFavorite(AutomationElement window, string email)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         AutomationElement? result = null;
         Await(() => (result = Find(window, "Favorites").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);

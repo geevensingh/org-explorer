@@ -15,6 +15,8 @@ internal static partial class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
+                return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
                 args.Length == 5 && args[2] == "update";
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
@@ -23,6 +25,8 @@ internal static partial class Program
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
                 return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
+            if (args.Length == 2 && args[1] == "--verify-update-yield")
+                return VerifyCompiledXaml(executable, verifyUpdateYield: true);
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {
@@ -35,10 +39,13 @@ internal static partial class Program
                 ["compatibility-settings"] = root => RunWorkspaceCompatibilityFlow(executable, root),
                 ["update-settings"] = root => RunUpdateSettingsFlow(executable, root),
                 ["external-refresh"] = root => RunExternalRefreshFlow(executable, root),
+                ["responsive-workspace"] = root => RunSearchFavoriteFlow(executable, root, responsive: true),
+                ["responsive-draft-navigation"] = root => RunNavigationFeedbackFlow(executable, root, responsive: true),
+                ["responsive-team-history"] = root => RunTeamContextFlow(executable, root, responsive: true),
                 ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
                 ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
             };
-            if (!selection.Smoke.Concat(selection.Scale).Order().SequenceEqual(actions.Keys.Order()))
+            if (!selection.All.Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");
             if (installer) actions.Add("installer-" + args[2], root =>
             {
@@ -46,6 +53,8 @@ internal static partial class Program
                 else RunInstallerFlow(args, root);
             });
             var selected = installer ? ["installer-" + args[2]] : selection.Select(args.Length == 1 ? null : args[1]);
+            if (selected.Intersect(selection.HighResolution.Concat(selection.Scale)).Any())
+                HostedDisplayPreparation.Verify(new WindowsHostedDisplay().Read());
             var results = Path.GetFullPath(Environment.GetEnvironmentVariable("DESKTOP_RESULTS_DIRECTORY") ??
                 Path.Combine(".ci-results", "desktop"));
             Directory.CreateDirectory(results);
@@ -112,7 +121,7 @@ internal static partial class Program
             window = AutomationElement.RootElement.FindFirst(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
             return window is not null && window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspacePath")) is not null;
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OpenSettings")) is not null;
         });
         ((WindowPattern)window!.GetCurrentPattern(WindowPattern.Pattern)).SetWindowVisualState(WindowVisualState.Maximized);
         return window!;
@@ -135,11 +144,27 @@ internal static partial class Program
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
-    private static void AwaitLocalWorkIdle(AutomationElement window) => Await(() =>
-        Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-        !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-        !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-        !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal));
+    private static void SetSettingsVisible(AutomationElement window, bool visible)
+    {
+        bool IsOpen()
+        {
+            var title = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "SettingsTitle"));
+            return title is not null && !title.Current.IsOffscreen;
+        }
+        if (IsOpen() == visible) return;
+        Click(window, "OpenSettings");
+        Await(() => IsOpen() == visible);
+    }
+    private static void AwaitLocalWorkIdle(AutomationElement window)
+    {
+        Await(() =>
+            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+            !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+            (CurrentPersonEmail(window).Length == 0 ||
+                !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+                !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal)));
+    }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {
         var actual = Value(window, id);
@@ -148,6 +173,7 @@ internal static partial class Program
     internal static void OpenPerson(AutomationElement window, params string[] ancestors)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         foreach (var email in ancestors)
         {
             AutomationElement? ancestor = null;

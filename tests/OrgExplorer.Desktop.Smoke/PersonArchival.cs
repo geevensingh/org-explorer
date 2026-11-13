@@ -27,6 +27,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -127,6 +128,7 @@ internal static partial class Program
             AssertNoteView(window, "Team", editing: false);
             if (!TeamReadingText(window).Contains("Owned Team writing"))
                 throw new InvalidOperationException("Archival lost owned Team-note reading.");
+            ExpandHistory(window);
             if (!Find(window, "TeamNoteReview").Current.Name.Contains("Needs review") ||
                 !Find(window, "HistoricalTeamSummary").Current.Name.Contains("Archival closure") ||
                 CurrentReadingText(window).Contains("Original Manager writing"))
@@ -140,8 +142,8 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            AwaitUnavailableView(window, workspace);
+            EnsurePeopleBrowsing(window);
             ((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectArchivedPerson(window, "avery@example.com");
             AssertPhotoVisible(window);
@@ -248,6 +250,7 @@ internal static partial class Program
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {
         AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
         AutomationElement? person = null;
         Await(() => (person = Find(window, "ArchivedPeople").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
@@ -282,6 +285,8 @@ internal static partial class Program
 
     private static void AssertSelectionMatchesProfile(AutomationElement window)
     {
+        var overlayClosed = IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation");
+        if (overlayClosed) Click(window, "OpenPeople");
         var email = Find(window, "Email").Current.Name;
         var showArchivedPeople = ((TogglePattern)Find(window, "ShowArchivedPeople")
             .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
@@ -290,5 +295,6 @@ internal static partial class Program
                 .Where(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
                     ((SelectionItemPattern)selected).Current.IsSelected)
                 .Select(element => element.Current.AutomationId));
+        if (overlayClosed) Click(window, "ClosePeople");
     }
 }

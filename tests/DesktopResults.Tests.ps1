@@ -58,6 +58,13 @@ try {
     Assert-Rejected { Assert-DesktopResults $report $expected }
     Write-Result (Passing-Results)
     Assert-Rejected { Assert-DesktopResults $report @() }
+    $expected = @(Get-Content "$PSScriptRoot\HighResolutionScenarios.json" -Raw | ConvertFrom-Json)
+    Write-Result (Passing-Results)
+    Assert-DesktopResults $report $expected
+    Write-Result @((Passing-Results)[0])
+    Assert-Rejected { Assert-DesktopResults $report $expected }
+    Write-Result @(@{ name = 'search-favorites'; status = 'Passed'; startedAt = '2026-11-01T17:00:00Z'; finishedAt = '2026-11-01T17:00:01Z'; seconds = 1 })
+    Assert-Rejected { Assert-DesktopResults $report $expected }
     Write-Host 'PASS: desktop results require every named scenario to finish successfully; missing, partial and contradictory evidence fails closed.'
 }
 finally { Remove-Item $root -Recurse -Force }

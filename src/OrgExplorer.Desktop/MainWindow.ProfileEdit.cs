@@ -71,6 +71,8 @@ public partial class MainWindow
         ShowProfileValue(OfficeStateValueRow, OfficeStateValue, person?.OfficeState);
         ShowProfileValue(OfficeCountryValueRow, OfficeCountryValue, person?.OfficeCountry);
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
+        ProfileDetails.Visibility = person?.Alias is not null || person?.OfficeNumber is not null ||
+            person?.LinkedInProfileUrl is not null ? Visibility.Visible : Visibility.Collapsed;
         DirectoryName.Visibility = person?.DirectoryName is null ? Visibility.Collapsed : Visibility.Visible;
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
     }

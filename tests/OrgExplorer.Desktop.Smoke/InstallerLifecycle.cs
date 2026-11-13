@@ -103,10 +103,12 @@ internal static partial class Program
         foreach (var unsafeWorkspace in new[] { applicationDirectory, installation, Path.Combine(installation, "private-data"),
             Path.GetDirectoryName(installation)!, Path.GetPathRoot(installation)! })
         {
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", unsafeWorkspace);
             Click(window, "OpenWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("outside the application installation"));
         }
+        SetSettingsVisible(window, true);
         Set(window, "WorkspacePath", workspace);
         Click(window, "OpenWorkspace");
         Await(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
@@ -125,6 +127,7 @@ internal static partial class Program
         SelectNote(window, "Installer lifecycle note");
         SelectTab(window, "PersonNoteEditTab");
         AssertValue(window, "PersonNoteMarkdown", "# Private fixture\nRetain this Person writing.");
+        ExpandHistory(window);
         if (!Find(window, "ProfileTimeline").Current.Name.Contains("morgan@example.com → alex@example.com") ||
             !HistoricalReadingText(window).Contains("Retain former Manager writing.") ||
             CurrentReadingText(window).Contains("Retain former Manager writing."))

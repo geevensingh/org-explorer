@@ -35,6 +35,7 @@ public partial interface IApplicationWorkflow
 {
     NoteDraft? BeginNoteDraft(NoteScope scope, string ownerEmail, Guid? noteId = null);
     void RetainNoteDraft(NoteDraft draft);
+    bool HasUnsavedNoteDraft(NoteScope scope, Guid noteId);
     NoteDraft? SaveNoteDraft(NoteDraft draft, string title, string markdown);
 }
 
@@ -44,6 +45,7 @@ public sealed partial class ApplicationWorkflow
 
     // Typing must not wait behind the workspace lock held by an in-flight save.
     public void RetainNoteDraft(NoteDraft draft) => unsavedNoteBases.TryAdd((draft.Scope, draft.Id), draft);
+    public bool HasUnsavedNoteDraft(NoteScope scope, Guid noteId) => unsavedNoteBases.ContainsKey((scope, noteId));
 
     public NoteDraft? BeginNoteDraft(NoteScope scope, string ownerEmail, Guid? noteId = null)
     {

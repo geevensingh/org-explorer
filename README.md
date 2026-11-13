@@ -10,6 +10,7 @@ provider such as OneDrive owns synchronization and conflict resolution.
 ## Specifications
 
 - [Agreed v1 design](docs/design.md)
+- [Agreed adaptive UI redesign (delivery in progress)](docs/ui-design.md)
 - [Domain vocabulary](GLOSSARY.md)
 - [Import contract](docs/import-format.md)
 - [Workspace versions and recovery](docs/workspace-format.md)
@@ -30,9 +31,12 @@ On Windows 11 x64 with the .NET 10 SDK:
 dotnet run --project src\OrgExplorer.Desktop
 ```
 
-Choose an empty local folder outside the installation, then **Open Workspace**.
-Open **Import...** without entering Edit profile, choose a version-1 JSON file,
-review **Preview import**, and deliberately **Apply reviewed import**.
+Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
+label. In **Settings**, choose an empty local folder outside the installation,
+then **Open Workspace**. The full folder path and folder-opening controls live
+there rather than in the everyday toolbar.
+Choose **Settings → Import...** without entering Edit profile, choose a version-1
+JSON file, review **Preview import**, and deliberately **Apply reviewed import**.
 **Back to people** returns to reading; file selection, preview and Apply controls
 are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
@@ -42,8 +46,11 @@ changes or a profile draft; any other unsaved writing still blocks close/restart
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Profiles open in **View** mode with populated, readable values; right-click a
-value to copy it, or Tab to it and use the context-menu key / Shift+F10.
+Profiles open in **View** mode with photo, identity and principal actions together.
+Role, department, Manager, location and email are immediately readable.
+**More details** reveals populated Alias, office number and LinkedIn URL fields;
+the saved LinkedIn link still opens only through an explicit action.
+Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
 Empty optional rows are omitted. **Edit profile** reveals all
 ordinary fields and stages text, Manager and photo changes together.
 **Save profile** validates and publishes the complete change; **Cancel**
@@ -55,13 +62,18 @@ saved data. The app does not upload Workspace data.
 
 After a successful open, the app remembers that Workspace in app-local settings
 and reopens it on the next launch through the same version-3 validation flow.
-First launch stays empty with folder-opening controls. If the previous folder
-cannot be reopened, the app stays empty, explains the failure, and offers
+First launch stays empty with folder-opening controls available in **Settings**.
+If the previous folder cannot be reopened, the app stays empty, explains the failure, and offers
 **Retry previous Workspace** or **Choose another folder**. Automatic reopening
 never creates a missing replacement folder; intentional manual open/create
 remains available. Failed opens never replace the remembered successful folder.
 Preference read/save errors are visible, and the startup-update preference is
-independent. No selected Person or unsaved draft is restored.
+independent. After validated reopening, the last valid Person and exact last-viewed
+note reopen in Read mode, including a secondary Person or owned Team note.
+Renaming a note does not change its identity. An unavailable or archived target
+retains the saved preference and writing, explains the problem, and shows a
+purposeful search/Favorites/People start instead of opening replacement writing.
+No unsaved edit buffer is restored.
 
 Preferred name normally appears as readable text. **Edit** (or **Add preferred
 name** when unset) reveals its independent autosaving inline editor; **Done**
@@ -100,7 +112,8 @@ never permission to repair it or accept a smaller population.
 
 **Settings and upgrade guidance** is always accessible, including before choosing
 a Workspace or after incompatible/unavailable data. **Retry Workspace
-validation** retries local loading without enabling invalid edits.
+validation / storage maintenance** retries local loading and committed maintenance
+without converting incompatible data or replaying an edit.
 **Check for updates** verifies project-key signed releases, and startup checks
 default to enabled. Availability and offline/rate-limit/verification errors are
 explicit and do not block local work. The owner-provided **public verification
@@ -115,13 +128,42 @@ Installer rollback does not restore Workspace data; follow the
 [Workspace recovery guidance](docs/workspace-format.md#restoration)
 before restoring files externally.
 
-Profiles also offer multiple private **Person notes**. Existing notes open in
+Profiles offer a direct ongoing **Person note**, with **Other notes** retaining
+all separately titled documents, including empty-body and archived notes.
+When several active notes exist without a recorded choice, select one through
+Other notes and **Use as ongoing**; the app never guesses from title, recency or
+list order. A sole active note can be read directly without recording a choice.
+The designation remains changeable and never edits, merges or deletes writing.
+Search and Other notes open their exact target; **Open ongoing note** returns
+deliberately to the continuing document. Existing notes open in
 native rendered **Read** mode; one-click **Edit** reveals their autosaved title
 and Markdown editors, and **Read** hides both editors again. **New Person note**
 opens directly for writing. Empty note sections retain a message and New action,
 and notes with empty bodies remain readable and editable. Notes show their Person owner and
 never inherit to reports. **Archive note** preserves writing; **Show archived
-notes** allows reading and restoring it. The app watches local folder events and automatically reflects valid external
+notes** inside Other notes allows reading and restoring it.
+
+Ongoing choices are device-local, per Workspace, in the existing app-local
+`workspace-settings.json` lifecycle, not in synchronized Workspace documents.
+The version-1 startup format accepts an optional `workspaces` extension keyed by
+canonical folder (case-insensitive on Windows), note scope, stable owner email
+and existing note GUID. Renaming a note does not change the choice. Other
+Workspace entries and the successful startup folder are preserved when a choice
+changes. Missing/archived ongoing targets retain the recorded choice and show
+explicit recovery/re-selection guidance; no replacement is created or chosen.
+Invalid/unsupported preferences are not overwritten, and read/write failures
+remain visible without claiming that a new choice was remembered.
+The same optional per-Workspace entry stores `lastView`, using `personEmail`,
+the note's `source`, `noteId` and `noteOwnerEmail`, plus `historicalContextId`
+for frozen Team writing. A Person-only view needs only the email. Inherited
+and frozen note destinations retain their actual context, not an owned ongoing
+substitute. Exact-view, ongoing-choice, pane-percentage and startup-folder writes
+preserve each other and other Workspaces, using the existing atomic publication.
+Failed view writes leave the in-session choice visible with an explicit
+**NOT remembered** warning and retain the prior durable view. Deliberately
+selecting the destination again retries the preference write.
+
+The app watches local folder events and automatically reflects valid external
 Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
 location. Whole-Workspace/graph validation precedes acceptance. Incomplete,
 unsupported, or invalid deliveries visibly mark all retained information
@@ -136,10 +178,19 @@ HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a
 **Person note** about a Manager never opts into inheritance. The profile separates
-owned Team notes (with the same Read/Edit behavior) from **Current inherited Team context**, which includes notes
+owned Team notes from **Current inherited Team context**, which includes notes
 from every formal management ancestor and identifies each owning Person by name
 and email. Informal leads/project membership are not reporting relationships.
 Team scope is still private to the Workspace owner, not sharing.
+
+Person writing stays first. Owned Team writing uses the same direct ongoing note,
+explicit ambiguous choice, secondary **Other notes**, exact search and Read/Edit
+interaction, with independent autosave/retry/discard. Team choices share the
+device-local settings lifecycle above and preserve pane proportions. Every active
+Team note still contributes inherited context, including secondary notes.
+Inherited details start collapsed; attributed **Needs review** warnings stay
+outside the collapsed section. Following a note opens its exact owner's review
+workflow, subject to all existing writing/navigation protections.
 
 Team notes stay with the Person on whom they were written. A reporting move
 replaces the current inherited context with the new chain without relocating
@@ -153,8 +204,9 @@ applies**, edit the autosaved Markdown (which confirms current applicability), o
 archived note does not silently confirm it. Failed review saves retain the warning
 and saved writing; unsaved drafts block navigation/close and offer retry/discard.
 
-**Historical team context** is a separate read-only section on the Person's
-profile. Direct transfers and ancestor reorganizations capture the coherent
+Secondary **History** access retains the structured Profile timeline,
+field-specific confirmations, source observations and read-only **Historical team
+context**. Direct transfers and ancestor reorganizations capture the coherent
 former Reporting chain and attributed, locally known active Team-note text and
 versions. Current inheritance follows only the final new chain. Later edits,
 review actions, note archival, or Manager renaming do not rewrite those captures.
@@ -313,16 +365,21 @@ Named scenarios run sequentially with independent fixtures, JSON results and
 failure diagnostics; missing/unexecuted work cannot pass. They retain real
 photo pixels, Markdown rendering, draft protection, navigation, current/Historical
 context and external refresh rather than repeating every business permutation.
-Required smoke contains nine ordinary scenarios, including authenticated
-update/settings, not the complete scale fixture.
+Required smoke contains nine ordinary 1024 x 768 scenarios, including authenticated
+update/settings, plus three explicitly selected responsive scenarios on a separate
+required disposable hosted 1920 x 1080 runner. The high-resolution job verifies
+an advertised/tested native mode before launching the app; it never changes a
+local or shared display. Neither smoke suite uses the complete scale fixture.
 The explicit UI-scale command runs two independent rich 10,000-Person scenarios
 for realization/navigation/rendering and pending-mutation responsiveness.
 See [performance validation](docs/performance-validation.md) for fixture detail
 and historical evidence, not current execution instructions.
 
-Every PR and main commit, including docs/test-only changes, retains three
+Every PR and main commit, including docs/test-only changes, retains four
 parallel required lanes and a fail-closed aggregate `CI`. Deadlines and the
-five-minute target are unchanged. Core includes file-backed compatibility cases;
+five-minute target are unchanged; the added UI lane has the same 11-minute ceiling
+as ordinary desktop (40 minutes summed, at most 13 on the parallel critical path).
+Core includes file-backed compatibility cases;
 its project name does not make all tests isolated units. Filesystem coverage
 proves durable writes, publication/delivery safety and recovery at the same
 workflow interface. Product-check publication rejects leaked fixtures and test
@@ -373,7 +430,7 @@ isolate Velopack's user-registry and shortcut effects.
 ### Isolated hosted Windows verification
 
 The separate **Isolated Windows installer** workflow runs on relevant PR changes
-or manual dispatch. It does not replace or rewrite the three required CI lanes.
+or manual dispatch. It does not replace the four required CI lanes.
 It builds fixture versions `0.1.0` and `0.1.1`, tests all four fast bootstrap
 hooks, then runs the actual setup/WPF/upgrade/uninstall lifecycle on a disposable
 GitHub-hosted Windows runner:

@@ -16,10 +16,13 @@ public sealed partial class ApplicationWorkflow
     private long refreshNotBefore;
     private string? saveErrorSnapshot;
     private bool failedImportSnapshot;
+    private bool navigationBlockedSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true };
+    public bool CanNavigatePeople => !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
+        ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
     public bool CanEnterImport
     {
         get

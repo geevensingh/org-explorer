@@ -266,10 +266,10 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
         throw 'The manual bridge must call the shared workflow, not duplicate or serialize its execution.'
     }
     $aggregate = [regex]::Match($ci, '(?ms)^  ci:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
-    if (!$aggregate.Contains('needs: [core, filesystem, desktop]')) {
-        throw 'The stable required CI aggregate must depend on exactly its three ordinary lanes.'
+    if (!$aggregate.Contains('needs: [core, filesystem, desktop, high-resolution]')) {
+        throw 'The stable required CI aggregate must depend on all four required lanes, outside explicit scale.'
     }
-    Write-Host 'PASS: registered CI offers only manual opt-in reuse at its exact dispatch commit, outside the three required lanes.'
+    Write-Host 'PASS: registered CI offers only manual opt-in reuse at its exact dispatch commit, outside the four required smoke lanes.'
     Write-Host 'PASS: ordinary selection and separate nightly/manual candidate-bound execution preserve their contracts.'
 } finally {
     Remove-Item $results -Recurse -Force

@@ -597,7 +597,11 @@ public sealed class IncrementalDeliveryTests : IDisposable
         try
         {
             Assert.True(entered.Wait(TimeSpan.FromSeconds(30)), "Save did not reach publication.");
-            read = Task.Factory.StartNew(app.GetWorkspaceConflicts,
+            read = Task.Factory.StartNew(() =>
+                {
+                    _ = app.CanNavigatePeople;
+                    return app.GetWorkspaceConflicts();
+                },
                 CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             Assert.Empty(await read.WaitAsync(TimeSpan.FromSeconds(5)));
         }

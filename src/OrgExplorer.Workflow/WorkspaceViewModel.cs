@@ -5,18 +5,22 @@ namespace OrgExplorer.Workflow;
 public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
     private readonly IApplicationWorkflow workflow;
+    private readonly WorkspaceSettings? settings;
     private string? navigationError;
-    public WorkspaceViewModel(IApplicationWorkflow workflow)
+    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null)
     {
         this.workflow = workflow;
+        this.settings = settings;
         workflow.WorkspaceChanged += ForwardWorkspaceChange;
     }
     public event EventHandler? WorkspaceChanged;
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
     public bool CanSafelyClose => workflow.CanSafelyClose;
+    public bool CanNavigatePeople => workflow.CanNavigatePeople;
     public bool CanEnterImport => workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
+    public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
     public string? LocalSaveError => workflow.LocalSaveError;
     public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
@@ -65,8 +69,27 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool OpenWorkspace(string path, WorkspaceOpenMode mode) =>
         Observe(() =>
         {
+            LastWorkspaceOpenWasRejected = false;
+            if (!workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
+            {
+                LastWorkspaceOpenWasRejected = true;
+                navigationError = "Workspace navigation blocked: local writing is pending or was NOT saved. " +
+                    "Save, retry or discard the independent draft before reopening a Workspace. " +
+                    (workflow.LocalSaveError ?? workflow.Status);
+                return false;
+            }
             var opened = workflow.OpenWorkspace(path, mode);
-            if (opened) IsImportOpen = false;
+            if (opened)
+            {
+                IsImportOpen = false;
+                noteViews.Clear();
+                ongoingPreferenceError = null;
+                PeopleNavigation = new("", false, null, null, [], 0);
+                LayoutPreferenceFeedback = null;
+                ViewPreferenceFeedback = null;
+                ViewRecoveryFeedback = null;
+                if (mode == WorkspaceOpenMode.ExistingOnly && IsWorkspaceCurrent) RestoreRememberedView();
+            }
             return opened;
         });
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
@@ -102,11 +125,20 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsWorkspaceCurrent)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Compatibility)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanSafelyClose)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanNavigatePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PersonNotesView)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TeamNotesView)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PeopleNavigation)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PaneProportions)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LayoutPreferenceFeedback)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ViewPreferenceFeedback)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ViewRecoveryFeedback)));
     }
 }

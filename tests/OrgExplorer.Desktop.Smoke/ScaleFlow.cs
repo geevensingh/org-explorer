@@ -17,18 +17,19 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-load", () =>
             {
                 Click(window, "OpenWorkspace");
                 // Settings must work while actual filesystem work is outstanding, not after a blocked dispatcher returns.
                 Await(() => Find(window, "WorkflowActivity").Current.Name.Contains("Opening"));
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, true);
                 Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
                 if (!Find(window, "WorkflowActivity").Current.Name.Contains("Opening"))
                     throw new InvalidOperationException("Settings was not responsive while the real scale open was pending.");
                 AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, false);
             });
             ScaleFixture.Measure("UI-tree", () =>
             {
@@ -138,6 +139,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 00150");
+                ExpandCurrentTeamContext(window);
                 if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("person00000@example.com"))
                     throw new InvalidOperationException("The deep Reporting chain lost its root Team context.");
                 AwaitScale(() => CurrentReadingText(window).Contains("Cedar former context 0."));
@@ -171,6 +173,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-mutation-open", () =>
             {
@@ -250,14 +253,16 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
+            var rememberedNote = Find(window, "PersonNoteHeading").Current.HelpText;
             ScaleFixture.Measure("UI-close-before-reopen", () => Close(process));
             process = Launch(executable);
             window = Window(process);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-reopen", () =>
             {
-                Click(window, "OpenWorkspace");
-                AwaitScale(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
+                AwaitRestoredWorkspace(window, fixture.Workspace, ScaleFixture.Target, AwaitScale);
+                AwaitScale(() => Find(window, "PersonNoteHeading").Current.HelpText == rememberedNote);
+                AssertNoteView(window, "Person", editing: false);
+                AwaitScale(() => ReadingText(window).Contains("Delivered tulip 1000."));
                 Set(window, "SearchQuery", "handle01000");
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);

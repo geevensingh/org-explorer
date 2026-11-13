@@ -20,7 +20,8 @@ internal static partial class Program
             {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
              "observedAt":"2026-11-01T17:00:00Z","people":[
              {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
-              "department":"Research","managerEmail":"morgan@example.com","photoPath":"avery.png"},
+              "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
+              "managerEmail":"morgan@example.com","photoPath":"avery.png"},
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}]}
             """);
         var workspace = Path.Combine(root, "workspace");
@@ -32,9 +33,25 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            var settings = Find(window, "OpenSettings");
+            if (settings.Current.Name != "Settings" || !settings.Current.IsKeyboardFocusable)
+                throw new InvalidOperationException("Settings lacks a meaningful, keyboard-accessible action.");
+            settings.SetFocus();
+            PressCopyKey(0x20);
+            try { Await(() => Find(window, "WorkspacePath").Current.HasKeyboardFocus); }
+            catch (TimeoutException error)
+            {
+                var path = Find(window, "WorkspacePath").Current;
+                var focused = AutomationElement.FocusedElement.Current;
+                throw new TimeoutException(
+                    "Settings opened but Workspace folder did not receive keyboard focus. " +
+                    $"Folder: enabled={path.IsEnabled}, focusable={path.IsKeyboardFocusable}, offscreen={path.IsOffscreen}, bounds={path.BoundingRectangle}. " +
+                    $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
+            }
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             AwaitLocalWorkIdle(window);
+            AssertEverydayChrome(window, "workspace");
             AssertImportHidden(window);
             OpenImportView(window);
             Set(window, "ImportPath", import);
@@ -71,6 +88,7 @@ internal static partial class Program
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
+            AssertCompactProfile(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
@@ -142,6 +160,7 @@ internal static partial class Program
             Click(window, "ApplyImport");
             Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
             ReturnToPeople(window);
+            ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
@@ -153,7 +172,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             AssertImportHidden(window);
             OpenPerson(window, "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
@@ -225,6 +244,7 @@ internal static partial class Program
 
     private static void AssertProfileValue(AutomationElement window, string field, string expected)
     {
+        if (field is "Alias" or "OfficeNumber" or "LinkedInProfileUrl") ExpandProfileDetails(window);
         var observed = "not yet observed";
         try
         {
@@ -242,6 +262,51 @@ internal static partial class Program
         {
             throw new TimeoutException($"{field} reading expected '{expected}'; last UI observation: {observed}.", error);
         }
+    }
+
+    private static void ExpandProfileDetails(AutomationElement window)
+    {
+        var details = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileDetails"));
+        if (details is null) return;
+        var expansion = (ExpandCollapsePattern)details.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
+            expansion.Expand();
+        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+    }
+
+    private static void AssertEverydayChrome(AutomationElement window, string workspaceName)
+    {
+        Await(() => Find(window, "WorkspaceName").Current.Name == workspaceName &&
+            !Find(window, "SearchQuery").Current.IsOffscreen && !Find(window, "OpenSettings").Current.IsOffscreen);
+        foreach (var id in new[] { "WorkspacePath", "OpenWorkspace", "ChooseWorkspace", "OpenImport" })
+        {
+            var control = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, id));
+            if (control is not null && !control.Current.IsOffscreen)
+                throw new InvalidOperationException($"Infrequent management still occupies everyday chrome: {id}.");
+        }
+    }
+
+    private static void AssertCompactProfile(AutomationElement window)
+    {
+        var details = (ExpandCollapsePattern)Find(window, "ProfileDetails").GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (details.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+            throw new InvalidOperationException("A Person did not open with a concise initial summary.");
+        AssertProfileValue(window, "JobTitle", "Research engineer");
+        AssertProfileValue(window, "Department", "Research");
+        AssertProfileValue(window, "OfficeCountry", "Canada");
+        foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager" })
+            if (Find(window, id).Current.IsOffscreen)
+                throw new InvalidOperationException($"Essential profile information is not initially visible: {id}.");
+        var photo = Find(window, "PersonPhoto").Current.BoundingRectangle;
+        var heading = Find(window, "ProfileHeading").Current.BoundingRectangle;
+        if (photo.IsEmpty || heading.IsEmpty || photo.Right > heading.Left || Math.Abs(photo.Top - heading.Top) > 20)
+            throw new InvalidOperationException("Photo and identity are not rendered together in a compact header.");
+        if (Find(window, "DirectoryName").Current.Name != "Avery Example" ||
+            Find(window, "Email").Current.Name != "avery@example.com" ||
+            Find(window, "Email").Current.ControlType != ControlType.Text)
+            throw new InvalidOperationException("The compact header lost Directory name or stable, non-editable email.");
     }
 
     private static AutomationElement ProfileLeaveWindow(AutomationElement window)

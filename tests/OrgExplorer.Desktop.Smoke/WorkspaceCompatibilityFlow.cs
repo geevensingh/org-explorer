@@ -16,13 +16,13 @@ internal static partial class Program
         {
             var window = Window(process);
             Await(() => Find(window, "Status").Current.Name == "Choose a Workspace.");
+            AssertEverydayChrome(window, "No Workspace open");
+            SetSettingsVisible(window, true);
             AssertValue(window, "WorkspacePath", "");
             if (!Find(window, "OpenWorkspace").Current.IsEnabled)
                 throw new InvalidOperationException("First launch did not leave usable Workspace-opening controls.");
-            Click(window, "OpenSettings");
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
-            Click(window, "OpenSettings");
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             AwaitRestoredWorkspace(window, workspace);
@@ -53,15 +53,15 @@ internal static partial class Program
             if (Find(window, "ApplyImport").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
             ReturnToPeople(window);
-            Click(window, "OpenSettings");
+            SetSettingsVisible(window, true);
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
             AssertNoFakeUpdater(window);
             Click(window, "RetryWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("Upgrade"));
             AssertWorkspaceBytes(workspace, before);
             File.WriteAllBytes(pointer, compatible);
+            SetSettingsVisible(window, false);
             Await(() => Find(window, "PreferredName").Current.IsEnabled);
-            Click(window, "OpenSettings");
             Close(process);
         }
         finally
@@ -79,15 +79,19 @@ internal static partial class Program
         try
         {
             var window = Window(recovery);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", legacyWorkspace);
             using (File.Open(Path.Combine(legacyWorkspace, "workspace.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 Click(window, "OpenWorkspace");
                 Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
-                Click(window, "OpenSettings");
+                SetSettingsVisible(window, true);
                 Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("does not migrate"));
-                if (Find(window, "EditPreferredName").Current.IsEnabled)
+                SetSettingsVisible(window, false);
+                var edit = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "EditPreferredName"));
+                if (edit?.Current.IsEnabled == true || CurrentPersonEmail(window).Length != 0)
                     throw new InvalidOperationException("Older Workspace falsely loaded a writable profile.");
                 OpenImportView(window);
                 if (Find(window, "ApplyImport").Current.IsEnabled)
@@ -95,13 +99,14 @@ internal static partial class Program
                 ReturnToPeople(window);
                 AssertWorkspaceBytes(legacyWorkspace, originals);
             }
+            SetSettingsVisible(window, true);
             Click(window, "RetryWorkspace");
             Await(() => Find(window, "Status").Current.Name.Contains("does not migrate"));
             AssertWorkspaceBytes(legacyWorkspace, originals);
             if (File.Exists(Path.Combine(legacyWorkspace, ".workspace.lock")) ||
                 !directories.SequenceEqual(Directory.GetDirectories(legacyWorkspace, "*", SearchOption.AllDirectories).Order()))
                 throw new InvalidOperationException("Older Workspace rejection mutated its directories or lock.");
-            Click(window, "OpenSettings");
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", recoveryWorkspace);
             Click(window, "OpenWorkspace");
             AwaitRestoredWorkspace(window, recoveryWorkspace);
@@ -130,7 +135,7 @@ internal static partial class Program
                     throw new InvalidOperationException("Startup recreated a missing Workspace.");
                 Directory.Move(moved, workspace);
                 Click(window, "RetryStartupWorkspace");
-                AwaitRestoredWorkspace(window, workspace);
+                AwaitRestoredWorkspace(window, workspace, "avery@example.com");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
                 AssertProfileValue(window, "OfficeNumber", "0009C");
@@ -149,6 +154,7 @@ internal static partial class Program
             {
                 var window = Window(failedManual);
                 AwaitStartupRecovery(window, workspace);
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", invalid);
                 Click(window, "OpenWorkspace");
                 Await(() => Find(window, "Status").Current.Name.Contains("could not be opened"));
@@ -167,6 +173,7 @@ internal static partial class Program
                 AwaitStartupRecovery(window, workspace);
                 if (Directory.Exists(workspace))
                     throw new InvalidOperationException("A failed manual attempt replaced the remembered Workspace.");
+                SetSettingsVisible(window, true);
                 Set(window, "WorkspacePath", alternate);
                 Click(window, "OpenWorkspace");
                 AwaitRestoredWorkspace(window, alternate);
@@ -188,16 +195,54 @@ internal static partial class Program
         finally { StopApplication(reopened); }
     }
 
-    private static void AwaitRestoredWorkspace(AutomationElement window, string workspace)
+    private static void AwaitRestoredWorkspace(AutomationElement window, string workspace, string expectedEmail = "",
+        Action<Func<bool>>? awaitState = null)
     {
         WorkspaceRestoration.AssertRestored(() =>
         {
             var recovery = window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
-            return new(Value(window, "WorkspacePath"), Find(window, "WorkflowActivity").Current.Name,
-                Find(window, "WorkspaceFreshness").Current.Name, Find(window, "Email").Current.Name,
-                recovery?.Current.IsOffscreen);
-        }, Path.GetFullPath(workspace), Await);
+            var viewRecovery = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewPreferenceStatus"));
+            return new(Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkflowActivity").Current.Name,
+                Find(window, "WorkspaceFreshness").Current.Name, CurrentPersonEmail(window),
+                viewRecovery?.Current.IsOffscreen == false ? false : recovery?.Current.IsOffscreen);
+        }, Path.GetFullPath(workspace), awaitState ?? Await, expectedEmail);
+    }
+
+    private static void AwaitUnavailableView(AutomationElement window, string workspace)
+    {
+        Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
+            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
+            Find(window, "WorkspaceFreshness").Current.Name == "Current validated local Workspace." &&
+            CurrentPersonEmail(window).Length == 0 &&
+            !Find(window, "WorkspaceStart").Current.IsOffscreen &&
+            !Find(window, "ViewPreferenceStatus").Current.IsOffscreen &&
+            Find(window, "ViewPreferenceStatus").Current.Name.Contains("unavailable or archived") &&
+            Find(window, "WorkspaceStartGuidance").Current.Name.Contains("Favorites"));
+        var startup = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
+        if (startup?.Current.IsOffscreen == false)
+            throw new InvalidOperationException("A valid Workspace with unavailable selection falsely reported Workspace reopen failure.");
+    }
+
+    private static void AssertRestoredNote(AutomationElement window, string scope, string id, string title)
+    {
+        if (!Guid.TryParse(id, out _)) throw new InvalidOperationException("The selected note did not expose its stable GUID.");
+        Await(() => Find(window, scope + "NoteHeading").Current.HelpText == id &&
+            Find(window, scope + "NoteHeading").Current.Name == title &&
+            Find(window, scope + "NoteKind").Current.Name == "Other " + scope + " note");
+        AssertNoteView(window, scope, editing: false);
+    }
+
+    private static string CurrentPersonEmail(AutomationElement window)
+    {
+        var email = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "Email"));
+        if (email is not null) return email.Current.Name;
+        if (Find(window, "WorkspaceStart").Current.IsOffscreen)
+            throw new InvalidOperationException("Startup has neither a Person identity nor a purposeful starting view.");
+        return "";
     }
 
     private static void AwaitStartupRecovery(AutomationElement window, string workspace)
@@ -208,7 +253,7 @@ internal static partial class Program
             Find(window, "WorkflowActivity").Current.Name == "Ready");
         if (!Find(window, "RetryStartupWorkspace").Current.IsEnabled ||
             !Find(window, "ChooseAnotherWorkspace").Current.IsEnabled ||
-            Find(window, "Email").Current.Name.Length != 0 ||
+            CurrentPersonEmail(window).Length != 0 ||
             Find(window, "People").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TreeItem)) is not null)
             throw new InvalidOperationException("Failed startup did not remain empty with actionable recovery controls.");

@@ -6,7 +6,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private static void RunNavigationFeedbackFlow(string executable, string root)
+    private static void RunNavigationFeedbackFlow(string executable, string root, bool responsive = false)
     {
         var workspace = Path.Combine(root, "navigation-workspace");
         var import = Path.Combine(root, "navigation.json");
@@ -21,6 +21,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            SetSettingsVisible(window, true);
             Set(window, "WorkspacePath", workspace);
             Click(window, "OpenWorkspace");
             OpenImportView(window);
@@ -61,6 +62,7 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "0009P");
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "Discard me");
+            SetSettingsVisible(window, true);
             Click(window, "OpenImport");
             Click(ProfileLeaveWindow(window), "StayOnProfile");
             Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
@@ -70,6 +72,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Staying on the profile opened Import or changed its owner.");
             using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
+                SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
                 Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) &&
@@ -83,6 +86,7 @@ internal static partial class Program
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed Import leave-save changed the profile owner.");
             }
+            SetSettingsVisible(window, true);
             Click(window, "OpenImport");
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
             Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
@@ -90,6 +94,7 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "Discard me");
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "Discard for Import");
+            SetSettingsVisible(window, true);
             Click(window, "OpenImport");
             Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
             Await(() => !Find(window, "ImportPath").Current.IsOffscreen);
@@ -109,8 +114,10 @@ internal static partial class Program
                 Click(window, $"New{kind}Note");
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
+                if (responsive && kind == "Person") AssertProtectedPeopleOverlay(window);
                 BeginProfileEditing(window);
                 Set(window, "DirectoryNameEditor", "Discard this profile only");
+                SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));

@@ -12,6 +12,7 @@ name. A desktop click alone does not establish a successful navigation or save.
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |
 | Filesystem integration | The same interface backed by real isolated folders | Save/reopen, copied and decoded images, locks, atomic publication, invalid/incomplete delivery, concurrent clients, bounded watcher events, version refusal/recovery and retained context. A projection does not prove rendered pixels. |
 | Desktop smoke | Normal WPF executable and actual UI Automation | Representative import/edit/save/reopen journeys; selection/bindings, Manager/report navigation, draft rejection feedback, local photo pixels, Markdown reading, current/Historical attribution, archive/filter/reactivation, Settings and refresh reaching an open client. |
+| High-resolution smoke | Normal WPF executable on a separate disposable hosted 1920 x 1080 desktop | Required responsive geometry/type/width/divider/overlay/search/rejection and Team/history matrices; ordinary fixtures, not the 10,000-Person UI-scale suite. |
 | Non-UI performance | Complete real-file 10,000-Person operations | Load/reopen, search, durable mutations, reviewed imports, refresh and full rich semantic assertions. Targeted large-graph correctness remains in ordinary workflow coverage. |
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
 | Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
@@ -69,6 +70,13 @@ The explicit Import-only discard clears the rejected batch and review without
 clearing independent Person/Team-note errors, Preferred-name errors or profile
 drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
 safe-close/restart becoming available only when no other writing remains.
+People and exact-note browsing remain available after failed Import or recovery
+maintenance without clearing either error or claiming safe close. Independent
+writing and publication conflicts still reject navigation; rejected startup
+restoration reports recovery without publishing a partial remembered view.
+Blocked Workspace navigation is distinct from an attempted open failure. The
+compiled Retry action must still complete current storage maintenance without
+reopening or creating the blocked destination or resetting the current view.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
@@ -202,6 +210,106 @@ dirty profile, independent quick changes, saved bytes and the successful
 preference until an explicit leave decision. These are filesystem/settings
 assertions, not WPF evidence or a second profile-mode policy.
 
+Person-note presentation is observed through `WorkspaceViewModel.PersonNotesView`
+and the shared owned-note commands, not a control-specific test adapter.
+Person-note cases cover explicit ambiguous designation, a changed choice without
+note mutation, exact Other notes/search targets (including empty bodies), direct
+Read versus new-note editing, observable secondary access, independent profile
+writing and rejected retained-draft navigation. `WorkspaceStartupTests` extends
+the real settings/reopen seam with version-1 preference compatibility, canonical
+Workspace/owner/scope identity, retained unavailable/archived choices, locked or
+corrupt preference rejection and byte-for-byte unchanged note documents.
+Invalid preferences are preserved until deliberately repaired outside that
+failed write; manually opening a Workspace is not permission to overwrite them.
+Failed designation retains both currently displayed notes by exact identity,
+including sole-note reading without saved designations. Real-file cases require
+unchanged preferences and Workspace writing before explicit retry succeeds.
+Unrelated pane, exact-view and startup-write failures keep their own feedback
+without replacing ambiguous/archived ongoing-note guidance; unreadable preferences
+and designation failures remain explicit.
+`NoteDraftPersistenceTests` retains a failed secondary draft and its exact editor
+while ongoing navigation is rejected, including subsequent external delivery.
+The existing Person-note desktop journey additionally observes the collapsed
+Other notes picker, direct rendered Read/Edit, ambiguous designation, exact
+secondary search, empty invitation, unavailable choice and visible preference
+and note-save failures. Those assertions require hosted Windows; non-UI success
+does not constitute their execution.
+
+Owned Team presentation reuses that same observable owned-note interaction.
+Both compiled controls share the ongoing/Other status, identity and action
+presentation; their local draft guards and Team inheritance/review remain separate.
+`TeamNoteTests` covers all-ancestor and secondary-note inheritance, exact
+owner-correct review navigation, retained independent Person writing, new/empty
+Team writing and frozen search identity after designation, editing and archival.
+`WorkspaceStartupTests` extends the existing real-file seam with Team designation
+reopen, canonical owner/scope/GUID identity, unchanged Workspace writing,
+preserved pane proportions, locked/corrupt/unsupported/invalid preferences and
+missing/archived targets. The secondary-draft file-backed regression runs for
+both scopes, retaining exact editing and delivered bytes on rejected ongoing
+navigation. No preference write changes synchronized Workspace schema.
+The later-owner regression retains a failed preference until deliberate
+designation succeeds, then verifies that choice survives archival/reopen.
+Both Team/history desktop selections explicitly record the reviewed owner's
+ongoing choice before asserting unavailable-choice feedback after archival.
+
+Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
+and its navigation/query/browsing operations. Focused cases preserve an exact
+secondary note and frozen search destination, and retain owner/editor, expansion,
+scroll position, overlay and actionable feedback on rejected navigation.
+`WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
+canonical per-Workspace identity, interleaved designation/startup writes, unchanged
+Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
+These do not prove WPF geometry.
+
+Exact startup view uses the same observable People/owned-note state and real
+settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
+and owned Team notes by GUID after rename, retain Read mode and ongoing choices,
+preserve same-Person Team selection and interleaved per-Workspace percentages,
+and resolve inherited/frozen note ownership without substituting current writing.
+Unavailable/archived Persons/notes, failed Workspace validation and missing
+folders preserve preferences and writing. Corrupt/unsupported/invalid preferences
+and locked publication are explicit; a failed view write retains valid in-session
+reading without creating a designation. Settings-driven existing-only reopen
+cannot replace retained independent drafts or enable unsafe close/restart.
+
+The existing Person-note journey's second launch requires the exact secondary
+Person GUID/title/kind in Read mode before deliberately opening ongoing writing.
+Both normal and responsive Team/history journeys similarly reopen the secondary
+owned Team note; the latter also retains the 700/1100 resize assertions.
+Normal/responsive search journeys observe archived-target startup recovery,
+unchanged Workspace bytes and deliberate archived access with reopened ratios.
+No additional whole journeys, manifest changes or deadline increases are needed.
+Startup helpers require the exact Workspace, completed activity, current
+validated data, expected Person and absence of visible Workspace/view recovery
+errors. No-selection expectations remain for fixtures without saved valid views.
+Their runner regression rejects an earlier open-success observation until the
+saved destination is actually present. The full UI-scale mutation journey now
+waits for that validated startup restoration instead of issuing a redundant
+manual open whose completion could clear its new query. Its 10,000-Person fixture,
+180-second waits and final durable profile/Manager/favorite/photo checks remain.
+Local helper/file/control checks do not prove hosted reopen or UI-scale execution.
+
+The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at
+700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
+959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport
+bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
+600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
+divider effects, wide/compact/wide and actual reopen proportions, and real
+reporting-tree expansion/scroll restoration during persistent and overlay search.
+Wide browsing setup expands its fixture branch only if needed. Compact setup
+only observes the already-restored expanded state: it never reissues Expand or
+repairs lost expansion before measuring scroll/search restoration. Runner
+regressions replay the observed external provider's redundant-expansion side
+effect and require collapsed restored state to fail, not be silently repaired.
+These are harness-action contracts, not a local reproduction of native WPF focus.
+The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
+with the exact failed Person-note editor retained and actionable feedback.
+Selection helpers deliberately open compact browsing when needed; they do not
+treat a hidden tree or a closed panel as successful navigation. Existing exact
+current/archived/frozen destinations and independent draft assertions remain.
+Only hosted Windows execution supplies this presentation evidence; the size
+matrix belongs to its separate required smoke suite, not a substitute for complete explicit UI-scale work.
+
 ## Moving coverage
 
 1. Read the actual assertions at both layers before removing a desktop check.
@@ -219,11 +327,13 @@ assertions, not WPF evidence or a second profile-mode policy.
 
 ## Required PR/main execution
 
-Every PR and `main` commit, including docs/test-only changes, retains three
-independent parallel jobs: workflow/view-model, filesystem, and actual desktop.
-The stable aggregate `CI` requires all three successes. Failure, required skip,
+Every PR and `main` commit, including docs/test-only changes, retains four
+independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
+and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
+The stable aggregate `CI` requires all four successes. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the existing
-5/11/11-minute lane and 2-minute aggregate deadlines: 29 minutes summed, at most
+5/11/11-minute original lane deadlines, an 11-minute high-resolution lane and
+2-minute aggregate deadline: 40 minutes summed, at most
 13 minutes on the parallel critical path, excluding queues and later CD.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
@@ -261,10 +371,22 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
 It constructs the actual compiled MainWindow BAML and event connectors on STA
 with isolated settings, requires the window to remain invisible with no native
 main-window handle, then closes it. It never calls Show or runs the application
-dispatcher; startup restore/update Loaded handlers and UI Automation are not run.
+dispatcher; startup restore/update Loaded handlers and an external UI Automation
+client are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
 It also checks that all ten profile Copy targets accept focus and Tab navigation.
+The actual compiled Person-note surface and secondary title list must expose
+distinct automation identities, so collapsed/empty-list discovery cannot select
+the visible surrounding surface instead.
+The Team surface also has a distinct identity. The compiled contract requires
+collapsed Other Team notes, collapsed inherited details with warnings outside,
+and secondary History containing profile changes, confirmations, observations
+and frozen Team evidence.
+The compiled chrome contract keeps folder management and Import inside Settings,
+the quiet Workspace name non-interactive, and search outside the People-only view.
+Settings occupies the bounded main work area rather than growing above it;
+operational feedback and startup recovery stay outside that scrolling view.
 
 The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
@@ -275,6 +397,74 @@ delivery refresh and dirty-note retention. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
+The same invisible-control regression exercises the essential profile summary,
+collapsed/populated More details, full editing of an empty field and Cancel,
+and Settings-to-Import rejection retaining independent failed Person-note writing
+and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also measures/arranges the actual compiled content and drives its real
+splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
+drags, an outer-pane change, 36% profile recovery and a narrower wide viewport.
+Both panes and the divider must remain inside the actual ScrollViewer viewport
+while held and after completion. This locks down the mixed pixel/star column
+overflow reproduced without a native window; paired proportional columns keep
+both opposing minimums in WPF's shared resize constraint. It does not replace
+hosted physical gesture/hit-target or rendered-pixel acceptance.
+The same real control also receives routed Left/Right keys after the maximum
+drag, requiring the exact 10-DIP change to survive layout and preference
+publication. Its unshown input source has no rendering target: this tests the
+actual key handler, not physical focus or native input delivery. Pane layout
+callbacks must not restore the previous ratio during the key's layout/save
+transaction.
+It additionally drives actual compiled owned-Team create/read/designate/Other
+controls, an exact empty secondary note, a locked preference rejection and a
+failed secondary-note save with protected ongoing navigation and successful
+retry, then deliberate preference recovery and archived-choice feedback.
+Save completion requires Ready and the note-specific success message, allowing
+the explicit informational storage-reclamation deferral suffix after a failed
+transaction. Existing failed-save and publication-conflict guards still apply.
+The same real controls receive timestamp-only note delivery while clean, then
+save from the refreshed immutable base. Person and Team archive/restore actions
+also require the restored exact note to become the durable Read destination.
+Ongoing designation keeps note/navigation mutations on the dispatcher while
+its host runner performs preference I/O. Compiled controls retain query/overlay
+changes made during that write and publish the resulting navigation on the UI thread.
+Both compiled controls preserve Show archived notes when selecting active writing.
+Read/Edit changes immediately present locked/corrupt exact-view preference errors
+and clear the warning after a successful explicit retry, without an extra refresh.
+These invisible checks do not show/focus WPF or prove rendered geometry.
+It also drives the actual Settings button through the WPF dispatcher and checks
+logical focus on the folder, including closure before a queued focus request.
+The focus request waits behind layout and the current input event; the unchanged
+hosted Space-key/`HasKeyboardFocus` assertion remains the physical-focus proof.
+
+It also exercises the existing public note-flush boundary after a failed save,
+successful retry and newer writing while Settings hides the editor. With the
+lane's ephemeral trusted-update build, it additionally drives the actual signed
+Check for updates command through in-process WPF button providers: failed writing
+blocks handoff, retry and newer writing reach the controlled installer effect,
+and that effect observes the final file hash. These calls still never show/focus
+the window, create its native handle, or use an external UI Automation client;
+they do not replace the real hosted update-settings journey.
+`--verify-update-yield` is a non-UI compiled-window regression in the required
+desktop lane, within its existing budget. It requires the ephemeral
+trusted-update/effects build and does not replace a desktop scenario.
+It composes the actual window with the real file-backed workflow through an
+internal application-construction seam and the same held note publisher used
+by persistence tests. A dispatcher hook selects the real post-drain Background
+yield, admits one note save at Normal priority, and waits for publication to
+reach the hold. A ContextIdle observer requires the update to remain pending,
+with unchanged saved bytes and no early handoff, before releasing publication.
+The original single update action must then hand off the final durable bytes
+and matching file hash; there is no update retry. The shared work drain
+rechecks its gate after dispatcher settling and waits again for an admitted
+save, while existing failed-save, profile/draft and final restart guards remain
+active. This regression never shows/focuses a window or creates its native
+handle.
+The failed-note case also opens Settings and attempts Close once. Rejection must
+reveal the retained work area instead of leaving Settings over the failed editor,
+including after queued focus work settles. Owner, title, Markdown, actionable
+failure text and saved file bytes must remain intact. The hosted Person-note
+journey retains its original Close action and visible failure/content assertions.
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
@@ -314,10 +504,14 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe
 ```
 
-The required names live in `tests\DesktopScenarios.json`. They cover:
+The nine ordinary required names live in `tests\DesktopScenarios.json`. The lane
+verifies native current-mode and monitor bounds at 1024 x 768 / 32 bpp / 96 DPI
+without changing its display. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
+  essential summary and populated More details,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
@@ -336,9 +530,13 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   no-fetch assertion, failed filesystem save, restored tree selection,
   Workspace/close rejection, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
-  Read-first owned notes, direct New-note editing and empty-body accessibility,
-  review navigation/confirmation and archive/restore, actual current/frozen reading and honest
-  historical dates through a representative ancestor move and reopen.
+  ongoing/Other designation and exact secondary search, Read-first owned notes,
+  direct New-note editing and empty-body accessibility, visible preference/save
+  failures and collapsed attributed warnings at the ordinary desktop size,
+  protected owner review navigation/confirmation and archive/restore,
+  secondary History with confirmations/observations, actual current/frozen
+  reading and honest historical dates through a representative
+  ancestor move, exact frozen search and reopen.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.
@@ -372,6 +570,41 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
   and Team typing across delivery also verifies first-autosave/retry rejection,
   retained editor/delivered writing and deliberate discard through real WPF.
 
+The fourth required lane is `.\eng\Run-CiLane.ps1 high-resolution`, restricted
+to its disposable GitHub-hosted Windows VM. Its exact named selection is
+`tests\HighResolutionScenarios.json`, invoked with `--high-resolution`:
+
+- `responsive-workspace`: the search/Favorites journey plus the complete
+  700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
+  Segoe UI text, 240/240/360 minimums, 600-DIP prose cap, overlay bounds/focus,
+  mouse/keyboard dividers, percentage resize/reopen and search/clear position.
+- `responsive-draft-navigation`: the complete draft-protection journey plus
+  actual compact overlay rejection retaining the exact owner/editor and feedback.
+- `responsive-team-history`: the complete owned/inherited Team, independent
+  draft and frozen-history journey plus the 700/1100 rendered warning/history
+  matrices. All ordinary domain/ownership/history assertions remain in the
+  ordinary journey as well.
+
+The split is by explicit scenario name, never a conditional screen-size skip.
+The two smoke manifests and explicit UI-scale manifest are nonempty, unique and
+disjoint; each lane requires its own complete named `scenarios.json`. Ordinary
+results cannot stand in for the high-resolution suite.
+
+Before any app launch, the high-resolution fixture requires GitHub Actions,
+`RUNNER_ENVIRONMENT=github-hosted`, Windows and 96 DPI. It enumerates the actual
+primary display's monitor-compatible modes, requires an advertised 1920 x 1080
+32-bpp mode, tests it with `CDS_TEST`, and applies it dynamically exactly once
+with no registry/persistence, unsafe-mode, primary-device or DPI changes.
+It then observes the exact selected mode, actual 1920 x 1080 monitor bounds,
+96 DPI, work area >=1800 x 1000 and track capacity >=1100 x 900 within the normal
+bounded observation. Driver rejection, restart requests, missing modes, wrong
+read-back or inadequate capacity fail the lane; there is no synthetic fallback.
+`display.json` records actual native prerequisites, not rendered acceptance.
+The job VM is disposable, so no restoration step is needed. This is not
+permission to change any local, self-hosted or shared display. Explicit UI-scale
+execution reuses the same preparation on hosted VMs; an already-authorized
+isolated local desktop receives read-only capacity verification, never a change.
+
 The filesystem update tests exercise actual cryptography, staged files, HTTP,
 Velopack integrity/explicit launch arguments, real pending Import publication,
 failed Person/Team saves, current-format restart, unsupported-data
@@ -390,7 +623,7 @@ fixture or automatic-update evidence fails the hosted lifecycle. The final
 production build rejects test trust/effects; always-run cleanup removes private
 fixture material. This is not production-update/public-key provisioning evidence.
 
-These nine required scenarios use ordinary fixtures. They do not construct the
+Both required desktop suites use ordinary fixtures. They do not construct the
 complete scale population; all genuine UI-scale work has explicit execution below.
 Every scenario opts out of startup update checks before launching the app,
 except the controlled `update-settings` and `installer-update` scenarios.
@@ -406,7 +639,8 @@ For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,
 `--person-notes`, `--team-notes` selectors remain aliases.
 The obsolete combined `scale` / `--scale` selectors are rejected; use `--ui-scale`
-or a single explicit scale scenario name.
+or a single explicit scale scenario name. `--high-resolution` selects only the
+three required high-resolution scenarios and is never part of default ordinary smoke.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
 The full selection and `update-settings` require the prepared update fixture and
@@ -438,6 +672,11 @@ UI Automation invocation can return before WPF processes the queued button
 handler. Click and value helpers acquire an enabled control and its required
 pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
+Raw Click/Set and idle/startup observations never open or close Settings.
+Journeys prepare Settings explicitly before folder, Import or update actions,
+and deliberately return to People before subsequent writing. Rejected-close
+observations require Settings to be closed by the app before retrying the
+retained note; input helpers cannot repair a hidden editor and mask that failure.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
 Startup restore observation likewise accepts an absent/offscreen recovery label
@@ -446,6 +685,10 @@ no selected Person or visible recovery error is accepted. Its headless replay
 covers the collapsed-label hosted failure and rejects wrong-folder, pending and
 stale observations without retrying Open. Failed-startup smoke still requires
 the actual visible error and enabled Retry/Choose recovery controls.
+The exact opened folder is read from the quiet Workspace label's accessibility
+description; the visible full-path editor remains in Settings. Restore checks
+still require the exact folder and live current-data/owner/recovery observations
+within the same bounded wait, not just a successful folder-name match.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,
@@ -573,9 +816,9 @@ and never report candidate-verification success in this mode, even if observed
 completion is under 660 seconds. Its artifact name starts with
 `diagnostic-ui-scale-`, not the normal verification prefix. Normal release
 verification and non-UI execution do not opt into it.
-For repeated measurements, freeze one full revision and dispatch trials
-sequentially: the workflow concurrency group allows one running and one pending
-run, and submitting another pending run can replace the earlier pending trial.
+For repeated measurements, freeze one full revision and retain each run's
+separate artifacts. Invocations remain independent; no concurrency group
+replaces a pending trial.
 
 The scale tree locates its distant row through the reporting branch's UI
 Automation item provider, requests realization/scrolling once, then observes
@@ -613,7 +856,7 @@ Verify `headSha` is the intended candidate, both scale jobs succeeded, every nam
 result passed and both artifacts identify that SHA. The bridge calls the same
 local reusable workflow at `github.sha`; it duplicates no suite commands. The
 Boolean defaults to false and its guard requires manual dispatch. The ordinary
-three lanes still run on a bridge dispatch, but their independent `CI` aggregate
+four lanes still run on a bridge dispatch, but their independent `CI` aggregate
 does not attest to scale success: inspect both scale jobs and the whole run.
 Omit the flag for ordinary focused CI only.
 

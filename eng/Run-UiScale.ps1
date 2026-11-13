@@ -23,7 +23,13 @@ Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
             Invoke-ScaleDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-ScaleDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
             Invoke-ScaleDotnet build-app @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
-            Invoke-ScaleDotnet ui-scale @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-restore',
+            $displayCommand = if ($env:GITHUB_ACTIONS -ceq 'true' -and
+                $env:RUNNER_ENVIRONMENT -ceq 'github-hosted' -and $env:RUNNER_OS -ceq 'Windows') {
+                '--prepare-high-resolution'
+            } else { '--verify-high-resolution' }
+            Invoke-ScaleDotnet display-prerequisite @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
+                '--no-restore', '--', $displayCommand)
+            Invoke-ScaleDotnet ui-scale @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-build', '--no-restore',
                 '--', (Join-Path $build 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--ui-scale')
             Assert-DesktopResults (Join-Path $run 'scenarios.json') $required
         } finally { $env:DESKTOP_RESULTS_DIRECTORY = $previousResults }

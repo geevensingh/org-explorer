@@ -2,33 +2,50 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <StackPanel>
-    <TextBlock Text="Person notes — private to this Workspace" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock Text="Person notes — private to this Workspace" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
     <TextBlock x:Name="Ownership" AutomationProperties.AutomationId="PersonNoteOwnership"
                TextWrapping="Wrap" Margin="0,4,0,8"/>
-    <DockPanel Margin="0,0,0,8">
-      <Button x:Name="NewButton" DockPanel.Dock="Right" Content="New Person note"
+    <TextBlock x:Name="OngoingStatus" AutomationProperties.AutomationId="PersonOngoingNoteStatus"
+               TextWrapping="Wrap" Foreground="#9C3B10" Margin="0,4"/>
+    <WrapPanel Margin="0,0,0,8">
+      <Button x:Name="NewButton" Content="New Person note"
               AutomationProperties.AutomationId="NewPersonNote" Click="CreateNote" IsEnabled="False"/>
-      <CheckBox x:Name="IncludeArchived" Content="Show archived notes"
+      <Button x:Name="OngoingButton" Content="Open ongoing note" Margin="8,0,0,0"
+              AutomationProperties.AutomationId="OpenOngoingPersonNote" Click="OpenOngoing" Visibility="Collapsed"/>
+    </WrapPanel>
+    <Expander x:Name="OtherNotes" Header="Other notes" AutomationProperties.AutomationId="OtherPersonNotes"
+              Expanded="ChangeOtherNotes" Collapsed="ChangeOtherNotes" Margin="0,0,0,8">
+      <StackPanel>
+        <TextBlock Text="Open any separately titled note, then choose Use as ongoing to change your continuing document."
+                   TextWrapping="Wrap" Margin="0,4"/>
+        <CheckBox x:Name="IncludeArchived" Content="Show archived notes"
                 AutomationProperties.AutomationId="ShowArchivedPersonNotes"
                 Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
-    </DockPanel>
-    <ListBox x:Name="NotesList" AutomationProperties.AutomationId="PersonNotes" AutomationProperties.Name="Person notes"
-             DisplayMemberPath="Title" Height="80" SelectionChanged="SelectNote">
+        <ListBox x:Name="NotesList" AutomationProperties.AutomationId="PersonNotes" AutomationProperties.Name="Person notes"
+             DisplayMemberPath="Title" MaxHeight="160" SelectionChanged="SelectNote">
       <ListBox.ItemContainerStyle>
         <Style TargetType="ListBoxItem">
           <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
           <Setter Property="AutomationProperties.AutomationId" Value="{Binding Id}"/>
         </Style>
       </ListBox.ItemContainerStyle>
-    </ListBox>
+        </ListBox>
+      </StackPanel>
+    </Expander>
     <TextBlock x:Name="EmptyNotes" AutomationProperties.AutomationId="PersonNotesEmpty"
                Text="No Person notes. New Person note opens directly for writing."
                TextWrapping="Wrap" Foreground="DimGray" Margin="0,8"/>
     <TextBlock x:Name="NoteHeading" AutomationProperties.AutomationId="PersonNoteHeading"
                FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,4"/>
-    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed">
+    <WrapPanel>
+      <TextBlock x:Name="NoteKind" AutomationProperties.AutomationId="PersonNoteKind" VerticalAlignment="Center"/>
+      <Button x:Name="DesignateButton" Content="Use as ongoing" Margin="8,0,0,0" Visibility="Collapsed"
+              AutomationProperties.AutomationId="UseAsOngoingPersonNote" Click="DesignateOngoing"/>
+    </WrapPanel>
+    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
       <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="PersonNoteReadTab">
         <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="PersonNoteReading"
+                                  MaxWidth="600"
                                   Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
       </TabItem>
       <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="PersonNoteEditTab">
@@ -44,17 +61,17 @@
         </StackPanel>
       </TabItem>
     </TabControl>
-    <TextBlock Text="Images and raw HTML are never loaded. External links open only when selected."
+    <TextBlock x:Name="ReadingGuidance" Text="Images and raw HTML are never loaded. External links open only when selected."
                TextWrapping="Wrap" Foreground="DimGray" Margin="0,4"/>
-    <DockPanel>
+    <WrapPanel>
       <Button x:Name="ArchiveButton" Content="Archive note" AutomationProperties.AutomationId="ArchivePersonNote"
-              Click="ArchiveNote" IsEnabled="False" DockPanel.Dock="Right"/>
+              Click="ArchiveNote" IsEnabled="False"/>
       <Button x:Name="RetryButton" Content="Retry local save" AutomationProperties.AutomationId="RetryPersonNoteSave"
-              Click="RetrySave" IsEnabled="False" DockPanel.Dock="Right" Margin="0,0,8,0"/>
+              Click="RetrySave" IsEnabled="False" Margin="0,0,8,0"/>
       <Button x:Name="DiscardButton" Content="Discard unsaved draft" AutomationProperties.AutomationId="DiscardPersonNoteDraft"
-              Click="DiscardDraft" IsEnabled="False" DockPanel.Dock="Right" Margin="0,0,8,0"/>
+              Click="DiscardDraft" IsEnabled="False" Margin="0,0,8,0"/>
+    </WrapPanel>
       <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="PersonNoteStatus"
                  TextWrapping="Wrap" VerticalAlignment="Center"/>
-    </DockPanel>
   </StackPanel>
 </UserControl>

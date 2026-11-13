@@ -44,12 +44,14 @@ internal static partial class Program
                 Click(window, "EditPreferredName");
                 Set(window, "PreferredName", "Editable during update check");
                 Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+                SetSettingsVisible(window, true);
                 if (!Find(window, "UpdateGuidance").Current.Name.Contains("Checking"))
                     throw new InvalidOperationException("The controlled pending feed did not remain pending during the local save.");
                 held.SetResult();
                 AwaitPackageVerificationFailure(window);
                 startup.Toggle();
                 AwaitStartupPreference(window, ToggleState.Off);
+                SetSettingsVisible(window, false);
                 Close(process);
             }
             finally { held.TrySetResult(); StopApplication(process); }
@@ -73,6 +75,7 @@ internal static partial class Program
 
             using var unknown = new SignedReleaseFixture();
             server.Response = () => unknown.Sign(unknown.Manifest("9999.0.0"), "unknown-downloaded-key");
+            SetSettingsVisible(window, true);
             Click(window, "CheckForUpdates");
             AwaitUpdateFailure(window, "not an embedded trusted project key");
             server.Response = () => unknown.Sign(unknown.Manifest("9999.0.0"));
@@ -109,9 +112,11 @@ internal static partial class Program
                     !saved.CanSafelyClose)
                     throw new InvalidOperationException("The post-update-failure edit was not durably saved: " + saved.Status);
             }
+            SetSettingsVisible(window, true);
             var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
             startup.Toggle();
             AwaitStartupPreference(window, ToggleState.On);
+            SetSettingsVisible(window, false);
             Close(reopened);
         }
         finally { StopApplication(reopened); }
@@ -128,6 +133,7 @@ internal static partial class Program
             AwaitUpdateFailure(window, "project signature is invalid");
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
                 throw new InvalidOperationException("Re-enabled startup checks did not survive reopen.");
+            SetSettingsVisible(window, false);
             Close(rejectedStartup);
         }
         finally { StopApplication(rejectedStartup); }
@@ -152,6 +158,7 @@ internal static partial class Program
     private static void AssertSafeUpdateDrafts(AutomationElement window, string workspace, string fixtureDirectory,
         SignedReleaseFixture fixture, LocalReleaseServer server)
     {
+        SetSettingsVisible(window, true);
         Set(window, "WorkspacePath", workspace);
         Click(window, "OpenWorkspace");
         AwaitLocalWorkIdle(window);
@@ -170,8 +177,10 @@ internal static partial class Program
         {
             Set(window, "PersonNoteMarkdown", "Retained failing update draft");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
+            SetSettingsVisible(window, true);
             Click(window, "CheckForUpdates");
             Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Automatic update paused"));
+            SetSettingsVisible(window, false);
             AssertValue(window, "PersonNoteMarkdown", "Retained failing update draft");
             if (File.Exists(handoff))
                 throw new InvalidOperationException("An unsaved real WPF draft reached the installer boundary.");
@@ -180,12 +189,35 @@ internal static partial class Program
         AwaitLocalWorkIdle(window);
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.HoldResponse = held.Task;
+        SetSettingsVisible(window, true);
         Click(window, "CheckForUpdates");
         Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Checking"));
+        SetSettingsVisible(window, false);
         Set(window, "PersonNoteMarkdown", "Final private writing flushed before update");
+        SetSettingsVisible(window, true);
         held.TrySetResult();
         server.HoldResponse = null;
-        Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Controlled installer process boundary"));
+        try { Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("Controlled installer process boundary")); }
+        catch (TimeoutException error)
+        {
+            string State(string id) => window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, id))?.Current.Name ?? "<not exposed>";
+            string durable;
+            try
+            {
+                durable = File.ReadAllText(noteFile).Contains("Final private writing flushed before update", StringComparison.Ordinal)
+                    ? "final writing saved" : "final writing absent";
+            }
+            catch (Exception readError) when (readError is IOException or UnauthorizedAccessException)
+            {
+                durable = "note could not be read: " + readError.Message;
+            }
+            throw new TimeoutException("The update did not reach its controlled installer boundary. " +
+                $"Update: {State("UpdateGuidance")}; activity: {State("WorkflowActivity")}; status: {State("Status")}; " +
+                $"Person note: {State("PersonNoteStatus")}; selected note: {State("PersonNoteKind")}; " +
+                $"durable note: {durable}; handoff present: {File.Exists(handoff)}.", error);
+        }
+        SetSettingsVisible(window, false);
         AssertValue(window, "PersonNoteMarkdown", "Final private writing flushed before update");
         using var request = JsonDocument.Parse(File.ReadAllText(handoff));
         if (request.RootElement.GetProperty("workspace").GetString() != workspace ||

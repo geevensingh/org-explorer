@@ -4,6 +4,12 @@ This document records the design agreed during the project interview. It is a
 specification, not evidence that the app, workflows, or repository rules exist.
 The concrete producer-facing file contract is in [Import format](import-format.md).
 
+The [agreed adaptive UI redesign](ui-design.md) refines the presentation described
+here and adds ongoing-note designation and remembered view preferences. It is
+being delivered in slices; see its implementation-status section. Where
+presentation differs, use that refinement while
+preserving the ownership, inheritance, import, editing, and data-safety rules here.
+
 ## Product and platform
 
 Build an org explorer with rich person profiles, not a relationship-reminder CRM.
@@ -32,6 +38,13 @@ as the normal startup experience.
 If reopening fails, explain the failure and offer Retry or Choose another folder.
 Do not silently create a replacement workspace at the old location or present a
 failed reopen as a successfully opened empty workspace.
+
+After successful existing-only reopening and current-data validation, restore
+the last valid Person and exact note, including secondary owned writing or its
+actual inherited/frozen context. Keep these preferences device-local per Workspace.
+Missing or archived targets retain preferences and writing with visible recovery
+and a purposeful search/Favorites start, never automatic replacement or unarchival.
+This restores reading context, not unsaved edit buffers.
 
 ## Local files and the sync boundary
 
@@ -268,9 +281,12 @@ succeeds. Failures, skipped required work, cancellations, and timeouts cannot
 produce a passing aggregate. Parallelize lanes and cache dependencies without
 introducing a long serialized critical path.
 
-Aim for five minutes of CI execution. Bound the total execution critical path
-within a thirty-minute fail-fast budget; do not merely give each serialized job a
-separate thirty minutes. Hosted runner queues and subsequent CD packaging and
+Aim for five minutes of CI execution. The user-directed required high-resolution
+split retains independent 5/11/11-minute ordinary lanes, adds its own 11-minute
+disposable Windows lane, and retains the 2-minute aggregate: 40 minutes summed
+and at most 13 minutes on the parallel critical path. Do not serialize these
+budgets or reduce rendered coverage to fit the ordinary 1024 x 768 runner.
+Hosted runner queues and subsequent CD packaging and
 publication are measured separately. Verify timings once real workflows exist.
 
 Use **GitHub rulesets, not classic branch protections**, to require PRs and the
