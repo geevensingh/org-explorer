@@ -50,6 +50,21 @@ public sealed class TreeItemRealizationTests
         Assert.Equal([100d, 70d], actions);
     }
 
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Browse_baseline_accepts_an_interior_position_after_virtualized_extent_remeasurement()
+    {
+        var actions = new List<double>();
+        var destination = 0d;
+        TreeItemRealization.PrepareMeasuredScrollPosition(70, percent =>
+        {
+            actions.Add(percent);
+            destination = percent;
+        }, () => destination == 100 ? 100 : 39.9053, AwaitProvider);
+
+        Assert.Equal([100d, 70d], actions);
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData(false)]

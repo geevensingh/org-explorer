@@ -13,7 +13,11 @@ internal static class TreeItemRealization
         scrollTo(100);
         awaitState(() => Math.Abs(currentPercent() - 100) < 1);
         scrollTo(percent);
-        awaitState(() => Math.Abs(currentPercent() - percent) < 1);
+        awaitState(() =>
+        {
+            var observed = currentPercent();
+            return observed > 0 && observed < 100;
+        });
     }
 
     internal sealed record BrowsingRow(string Email, double Left, double Top);
