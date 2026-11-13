@@ -28,7 +28,7 @@ internal static partial class Program
     {
         AssertDisplayInterop();
         if (verifyProfileRefresh || verifyUpdateYield) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
-        using var heldPublisher = verifyUpdateYield ? new HeldNotePublisher() : null;
+        using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
         Assembly? Resolve(AssemblyLoadContext context, AssemblyName name) =>
@@ -136,7 +136,7 @@ internal static partial class Program
             if (verifyProfileRefresh)
             {
                 VerifySettingsFocus(window);
-                VerifyProfileSaveRefresh(window, settings);
+                VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
             if (verifyUpdateYield) VerifyUpdateYield(window, settings, heldPublisher!);
@@ -192,7 +192,7 @@ internal static partial class Program
             throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
     }
 
-    private static void VerifyProfileSaveRefresh(Window window, string settings)
+    private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)
     {
         var folder = Path.Combine(settings, "workspace");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -236,6 +236,7 @@ internal static partial class Program
         Invoke("OpenSettingsButton");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
+        VerifyPreferredNameEntry(window, folder, publisher);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
             throw new InvalidOperationException("People resizing or compact transitions erased the unused existing inner ratio.");
@@ -256,7 +257,28 @@ internal static partial class Program
             throw new InvalidOperationException("Full Edit must expose empty fields without duplicate reading values.");
         if (Control<Button>("Manager").IsDescendantOf(Control<Border>("ProfileValues")))
             throw new InvalidOperationException("Profile editing hid saved-Manager navigation, preventing the existing guarded leave flow.");
+        VerifyInlineProfileLayout(window);
+        var focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBox>("DirectoryNameEditor")))
+            throw new InvalidOperationException("Entering the inline profile must focus its first field after layout, not leave focus on a hidden action.");
+        Control<TextBox>("OfficeNumber").Text = "Cancelled by the owner";
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice,
+            new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Return)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        };
+        Control<TextBox>("OfficeNumber").RaiseEvent(enter);
+        if (Control<FrameworkElement>("ProfileSessionActions").Visibility != Visibility.Visible ||
+            Control<TextBox>("OfficeNumber").Text != "Cancelled by the owner")
+            throw new InvalidOperationException("Field Enter must leave the complete inline draft open and unchanged.");
         Invoke("CancelProfileButton");
+        focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")))
+            throw new InvalidOperationException("Profile Cancel must return logical focus to Edit profile.");
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B")
             throw new InvalidOperationException("Profile Cancel changed the readable saved value.");
         var notes = Control<FrameworkElement>("PersonNotes");
@@ -394,6 +416,256 @@ internal static partial class Program
         PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
             ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
         Console.WriteLine("PASS: rejected picker acceptance preserves both Workspace byte sets and the last successful startup preference; native selection remains hosted-only evidence.");
+    }
+
+    private static void VerifyPreferredNameEntry(Window window, string folder, HeldNotePublisher publisher)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T?)window.FindName(name)
+            ?? throw new InvalidOperationException("Missing explicit Preferred-name control: " + name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var workflow = (WorkspaceViewModel)window.GetType()
+            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var editor = Control<TextBox>("PreferredName");
+        var save = Control<Button>("SavePreferredNameButton");
+        var panel = Control<FrameworkElement>("PreferredNameEditorPanel");
+        var error = Control<TextBlock>("PreferredNameError");
+        var pending = window.GetType().GetProperty("HasPendingWork", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        void Settled() => PumpUntil(() => !(bool)pending.GetValue(window)!);
+        void ObserveNoAutosave()
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            PumpUntil(() => elapsed.ElapsedMilliseconds >= 650);
+            if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
+                File.ReadAllText(WorkspaceFixtures.IndexedDocuments(folder)["people:avery@example.com"])
+                    .Contains("Unconfirmed", StringComparison.Ordinal))
+                throw new InvalidOperationException("Typing or generic draining published an unconfirmed Preferred name.");
+        }
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Unconfirmed entry";
+        ObserveNoAutosave();
+        var handedOff = false;
+        var drain = (Task<bool>)window.GetType().GetMethod("AtSafeUpdatePoint", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { (Action<string?>)(_ => handedOff = true) })!;
+        PumpUntil(() => drain.IsCompleted);
+        if (drain.GetAwaiter().GetResult() || handedOff)
+            throw new InvalidOperationException("Update draining accepted an unconfirmed Preferred-name entry.");
+        ObserveNoAutosave();
+        Invoke("OpenSettingsButton");
+        Invoke("OpenSettingsButton");
+        if (panel.Visibility != Visibility.Collapsed) throw new InvalidOperationException("Settings must cancel only the small entry.");
+        ObserveNoAutosave();
+
+        Invoke("EditPreferredNameButton");
+        editor.Text = " ";
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Visible || editor.Text != " " ||
+            error.Visibility != Visibility.Visible || !error.Text.Contains("preferredName", StringComparison.Ordinal))
+            throw new InvalidOperationException("An explicit rejected save must retain input and its inline error.");
+        Invoke("FavoriteButton");
+        Settled();
+        if (error.Visibility != Visibility.Visible || !error.Text.Contains("preferredName", StringComparison.Ordinal))
+            throw new InvalidOperationException("An unrelated successful Favorite action hid the failed Preferred-name entry.");
+        Invoke("CancelPreferredNameButton");
+        if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose ||
+            workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Preferred-name Cancel must discard only that failed entry without saving.");
+
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Explicit name";
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Explicit name")
+            throw new InvalidOperationException("Successful explicit Save must publish and close the entry.");
+        Invoke("EditPreferredNameButton");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Explicit empty Save must clear Preferred name.");
+        foreach (var cancel in new[] { false, true })
+        {
+            publisher.Entered.Reset();
+            publisher.Release.Reset();
+            publisher.HoldNextProfile = true;
+            Invoke("EditPreferredNameButton");
+            editor.Text = cancel ? "Admitted before Cancel" : "First admitted value";
+            try
+            {
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
+                    throw new InvalidOperationException("Preferred-name Save did not reach the held real-file publication.");
+                if (cancel)
+                {
+                    editor.Text = "Cancelled newer writing";
+                    var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                    Invoke("CancelPreferredNameButton");
+                    if (elapsed.ElapsedMilliseconds > 1000 || panel.Visibility != Visibility.Collapsed)
+                        throw new InvalidOperationException("Cancel waited behind admitted I/O instead of closing only the entry.");
+                    var rejected = false;
+                    CancelEventHandler observe = (_, e) => rejected = e.Cancel;
+                    window.Closing += observe;
+                    try { window.Close(); }
+                    finally { window.Closing -= observe; }
+                    if (!rejected || !(bool)pending.GetValue(window)!)
+                        throw new InvalidOperationException("Cancel falsely enabled close before admitted Preferred-name I/O completed.");
+                }
+                else editor.Text = "Newer retained value";
+            }
+            finally { publisher.Release.Set(); }
+            Settled();
+            var elapsedAfterSave = System.Diagnostics.Stopwatch.StartNew();
+            PumpUntil(() => elapsedAfterSave.ElapsedMilliseconds >= 650);
+            if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName !=
+                (cancel ? "Admitted before Cancel" : "First admitted value"))
+                throw new InvalidOperationException("Save completion dropped admitted writing or implicitly saved newer input.");
+            if (cancel)
+            {
+                if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose)
+                    throw new InvalidOperationException("An admitted save reopened its cancelled entry or retained a false unsaved error.");
+            }
+            else
+            {
+                if (panel.Visibility != Visibility.Visible || editor.Text != "Newer retained value")
+                    throw new InvalidOperationException("Save completion discarded newer Preferred-name input.");
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Settled();
+                if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Newer retained value" ||
+                    panel.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("The next explicit Save did not use the exact accepted base for newer typing.");
+            }
+        }
+        Invoke("EditPreferredNameButton");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        Invoke("EditPreferredNameButton");
+        using (var provider = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!provider.OpenWorkspace(folder) || !provider.EditPreferredName("avery@example.com", "Delivered during entry"))
+                throw new InvalidOperationException(provider.Status);
+        }
+        if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+        window.GetType().GetMethod("RefreshExternalWorkspace", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+        editor.Text = "Retained stale entry";
+        foreach (var attempt in new[] { 1, 2 })
+        {
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Settled();
+            if (panel.Visibility != Visibility.Visible || editor.Text != "Retained stale entry" ||
+                !error.Text.Contains("changed externally", StringComparison.Ordinal) ||
+                workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Delivered during entry")
+                throw new InvalidOperationException($"Explicit stale Preferred-name attempt {attempt} lost its original base/input or overwrote delivery.");
+        }
+        Invoke("CancelPreferredNameButton");
+        Invoke("EditPreferredNameButton");
+        if (editor.Text != "Delivered during entry")
+            throw new InvalidOperationException("Reopening after cancellation did not intentionally accept the delivered name.");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        var notes = Control<FrameworkElement>("PersonNotes");
+        ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("EditTab");
+        var noteEditor = (TextBox)notes.FindName("MarkdownEditor");
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Unconfirmed alongside note writing";
+        publisher.Entered.Reset();
+        publisher.Release.Reset();
+        publisher.HoldNextNote = true;
+        Task<bool>? noteSave = null;
+        try
+        {
+            noteEditor.Text = "Independent admitted note writing";
+            noteSave = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+            if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
+                throw new InvalidOperationException("Independent note save did not reach the held publisher.");
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            Invoke("CancelPreferredNameButton");
+            if (elapsed.ElapsedMilliseconds > 1000 || panel.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("Preferred-name cancellation waited behind independent note I/O.");
+        }
+        finally { publisher.Release.Set(); }
+        PumpUntil(() => noteSave!.IsCompleted);
+        if (!noteSave!.GetAwaiter().GetResult() || workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Preferred-name cancellation affected independent note publication.");
+        noteEditor.Text = "# Saved note";
+        var restoreNote = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+        PumpUntil(() => restoreNote.IsCompleted);
+        if (!restoreNote.GetAwaiter().GetResult()) throw new InvalidOperationException(workflow.Status);
+        ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
+        Console.WriteLine("PASS: invisible compiled Preferred-name typing/update drain do not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
+        Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
+    }
+
+    private static void VerifyInlineProfileLayout(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var identity = Control<Grid>("PersonIdentity");
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        void Layout(double width, double height)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+        }
+        Layout(1920, 1040);
+        var directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        var alias = Bounds(Control<TextBox>("Alias"));
+        if (Math.Abs(directory.Top - alias.Top) > 1 || alias.Left < directory.Right)
+            throw new InvalidOperationException("The wide inline profile must pair Directory name and Alias in a responsive labelled form.");
+        var divider = Control<GridSplitter>("PeopleDivider");
+        var people = Control<GroupBox>("PeoplePanel");
+        var host = Control<Grid>("ExplorerPanel");
+        var originalPeople = people.ActualWidth;
+        void Drag(double delta)
+        {
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Layout(1920, 1040);
+            divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Layout(1920, 1040);
+        }
+        Drag(host.ActualWidth - people.ActualWidth);
+        directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        alias = Bounds(Control<TextBox>("Alias"));
+        if (alias.Top <= directory.Bottom || Math.Abs(alias.Left - directory.Left) > 1)
+            throw new InvalidOperationException("A narrow Person pane must stack labelled profile fields rather than clipping paired columns.");
+        Drag(originalPeople - people.ActualWidth);
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
+        {
+            Layout(size.Width, size.Height);
+            var viewport = Bounds(scroll);
+            foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+            {
+                var editor = Control<Control>(name);
+                var bounds = Bounds(editor);
+                if (!editor.IsEnabled || editor.Visibility != Visibility.Visible || !editor.Focusable ||
+                    !KeyboardNavigation.GetIsTabStop(editor) || editor.FontSize < 14 ||
+                    bounds.Width < 180 || bounds.Left < viewport.Left - 1 || bounds.Right > viewport.Right + 1)
+                    throw new InvalidOperationException($"Inline profile field {name} is inaccessible or overflows at {size}: {bounds}, viewport={viewport}.");
+            }
+            if (scroll.ScrollableWidth > 0 ||
+                scroll.ViewportHeight < Control<TextBox>("DirectoryNameEditor").ActualHeight ||
+                Bounds(Control<GroupBox>("ProfileSummary")).Bottom > Bounds(Control<GroupBox>("NotesPane")).Top + 1)
+                throw new InvalidOperationException("Profile editing must precede independent notes without horizontal page scrolling.");
+            var beforeIdentity = Bounds(identity);
+            var save = Control<Button>("SaveProfileButton");
+            var beforeSave = Bounds(save);
+            scroll.ScrollToBottom();
+            Layout(size.Width, size.Height);
+            if (beforeIdentity != Bounds(identity) || beforeSave != Bounds(save) ||
+                Bounds(save).Bottom > Bounds(scroll).Top + 1 || save.IsDefault ||
+                Control<Button>("CancelProfileButton").IsCancel)
+                throw new InvalidOperationException("Profile identity and explicit Save/Cancel must remain anchored without a window-wide Enter/Escape action.");
+            scroll.ScrollToTop();
+        }
+        Layout(1920, 1040);
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");
+        Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
     }
 
     private static void VerifyPeopleSearchRestoration(Window window, string settings)

@@ -41,8 +41,11 @@ internal static partial class Program
                 AwaitRestoredWorkspace(window, workspace);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
-                Set(window, "PreferredName", "Editable during update check");
+                var entry = PreferredNameEntry(window);
+                Set(entry, "PreferredName", "Editable during update check");
+                Click(entry, "SavePreferredName");
                 Await(() => Status(window) == "Saved locally.");
+                AssertPreferredNameReading(window, "Editable during update check", "Edit");
                 SetSettingsVisible(window, true);
                 if (!Find(window, "UpdateGuidance").Current.Name.Contains("Checking"))
                     throw new InvalidOperationException("The controlled pending feed did not remain pending during the local save.");
@@ -99,10 +102,13 @@ internal static partial class Program
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
-            Set(window, "PreferredName", "Editable after update failure");
+            var entry = PreferredNameEntry(window);
+            Set(entry, "PreferredName", "Editable after update failure");
+            Click(entry, "SavePreferredName");
             Await(() => Activity(window) == "Ready" &&
                 Status(window) ==
                     "Saved locally.\nStorage reclamation deferred for preserved unretired transactions.");
+            AssertPreferredNameReading(window, "Editable after update failure", "Edit");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
                 if (!saved.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||

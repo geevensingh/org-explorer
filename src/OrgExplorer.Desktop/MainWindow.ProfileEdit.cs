@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Threading;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -14,7 +16,7 @@ public partial class MainWindow
         {
             LoadPersonEditors(workflow.ProfileEdit!.Draft);
             ShowPersonArchival(workflow.ProfileEdit.Draft);
-            DirectoryNameEditor.BringIntoView();
+            FocusProfileControl(editing: true);
         }
         ShowStatus();
     }
@@ -26,6 +28,7 @@ public partial class MainWindow
         if (workPending) return false;
         var saved = await RunWorkflowAsync(workflow.SaveProfileEdit, "Saving complete profile…");
         RefreshExternalWorkspace();
+        if (saved) FocusProfileControl(editing: false);
         return saved;
     }
 
@@ -39,6 +42,21 @@ public partial class MainWindow
         workflow.CancelProfileEdit();
         RefreshPeople();
         ShowStatus();
+        FocusProfileControl(editing: false);
+    }
+
+    private void FocusProfileControl(bool editing)
+    {
+        var owner = selectedEmail;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (owner != selectedEmail || (workflow.ProfileEdit is not null) != editing ||
+                ExplorerPanel.Visibility != Visibility.Visible) return;
+            Control target = editing ? DirectoryNameEditor : EditProfileButton;
+            target.BringIntoView();
+            FocusManager.SetFocusedElement(this, target);
+            if (IsVisible) target.Focus();
+        }, DispatcherPriority.Input);
     }
 
     private void UpdateProfileMode()
@@ -50,18 +68,19 @@ public partial class MainWindow
         ProfileSessionActions.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         SaveProfileButton.IsEnabled = writable;
         CancelProfileButton.IsEnabled = !workPending;
+        ProfileForm.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         AttributeEditors.Visibility = ManagerEditor.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
-        ProfileEditLinks.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
-        PlaceProfileLink(Manager, editing ? ProfileEditLinks : ManagerReadingSlot);
-        PlaceProfileLink(OpenLinkedInButton, editing ? ProfileEditLinks : LinkedInProfileUrlValueRow);
+        PlaceProfileLink(Manager, editing ? ManagerEditLink : ManagerReadingSlot);
+        PlaceProfileLink(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
         ProfilePhotoDraft.Text = workflow.ProfileEdit?.PhotoLocalPath is { } path
             ? $"Staged photo: {path}. The saved photo remains shown until Save."
             : "Photo clear staged. The saved photo remains shown until Save.";
-        PreferredNameContext.IsEnabled = PreferredName.IsEnabled = writable;
+        PreferredNameContext.IsEnabled = writable;
+        UpdatePreferredNameActions();
     }
 
     private static void PlaceProfileLink(Button link, Panel host)

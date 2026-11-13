@@ -17,6 +17,35 @@ public class PersonAttributeTests
         """;
 
     [Fact]
+    public void Cancelling_a_Preferred_name_draft_clears_only_that_field_failure()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
+        var basis = Assert.Single(app.People);
+        var note = app.CreatePersonNote(basis.Email, "Private context", "Saved writing")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Retained note writing"));
+        Assert.True(app.BeginProfileEdit(basis.Email));
+        Assert.True(app.StageProfileText(PersonTextField.Department, " "));
+        Assert.False(app.SaveProfileEdit());
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, " "));
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, " "));
+
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+
+        Assert.Equal(basis, Assert.Single(app.People));
+        Assert.DoesNotContain("preferredName", app.LocalSaveError!);
+        Assert.Contains("officeNumber", app.LocalSaveError!);
+        Assert.Contains("Person note", app.LocalSaveError!);
+        Assert.Contains("Profile NOT saved", app.LocalSaveError!);
+        Assert.Equal(" ", app.ProfileEdit!.Draft.Department);
+        Assert.False(app.CanSafelyClose);
+        Assert.False(app.RestartWhenSafe(_ => Assert.Fail("Independent writing must prevent restart.")));
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, " "));
+        Assert.Contains("preferredName", app.LocalSaveError!);
+    }
+
+    [Fact]
     public void Complete_textual_profile_is_reviewed_and_imported_without_an_override_layer()
     {
         var app = ApplicationWorkflow.CreateInMemory();

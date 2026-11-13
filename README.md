@@ -58,10 +58,15 @@ a neutral dash rather than disappearing behind More details. The grid uses
 fewer columns at narrower available widths. Saved links still open only through
 an explicit action.
 Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
-**Edit profile** reveals all
-ordinary fields and stages text, Manager and photo changes together.
+**Edit profile** opens a labelled inline form beneath the anchored identity,
+pairing ordinary fields when space permits and stacking them in a narrow Person
+pane. Empty fields remain editable. Text, Manager and photo changes stay in
+one draft; notes remain independently accessible below it. The editing bar keeps
+**Save profile** and **Cancel** available while the form scrolls. Entry focuses
+Directory name; Tab follows field order. Enter in a field does not submit the form.
 **Save profile** validates and publishes the complete change; **Cancel**
-discards it without changing saved data or history. Empty editor text explicitly
+discards only that draft without changing saved data or history and returns focus
+to Edit profile. Empty editor text explicitly
 clears a nullable value; whitespace-only text is rejected. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
@@ -91,9 +96,13 @@ actions and Details; editor failures remain beside the retained writing.
 
 Preferred name normally appears as the primary name. Its adjacent pencil
 (**Edit preferred name**, or **Add preferred name** when unset) reveals its
-independent autosaving inline editor; **Done**
-returns to reading after the save succeeds. Pending or failed writing stays in
-the editor with the existing retry/discard protections. **Mark favorite** remains
+compact anchored editor. Only **Save** or **Enter** submits that entry; typing,
+blur, navigation, Settings and update draining never save it implicitly.
+**Cancel**, **Escape**, or clicking outside closes and cancels only this entry.
+A failed save retains its input and local error for explicit Save retry against
+the original displayed base. Empty clears the name; whitespace alone is invalid.
+Cancellation cannot undo already-submitted I/O or acknowledge a published storage
+conflict, and never discards independent writing or errors. **Mark favorite** remains
 an independent one-click saved action.
 
 Wide reading keeps a resizable People pane beside one Person workspace; compact
@@ -105,10 +114,12 @@ This is the reading slice of the [visual refresh](docs/visual-refresh-design.md)
 not completion or visual acceptance of the whole pass.
 
 Loading, validation and local writes run off the desktop dispatcher. Rapid
-Preferred-name/Markdown typing is coalesced after a short quiet interval; the visible
-draft stays editable while a previous write completes. Pending/newer drafts are
-explicitly **not yet saved**, and navigation/closing cannot discard them. A
-failed write still requires retry or deliberate discard. Preferred name,
+Markdown typing is coalesced after a short quiet interval. Preferred-name input
+stays editable while its explicit save completes; newer input needs another
+explicit Save. Pending/newer drafts are **not yet saved** and block unsafe
+close/restart until saved or deliberately cancelled/discarded. Cancellation
+does not bypass an already-admitted save. A failed write still requires retry
+or deliberate cancellation/discard. Preferred name,
 Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
 profile through navigation, Import, archival, workspace switching or closing
 offers **Save / Discard / Stay**. A failed Save retains its owner and draft.

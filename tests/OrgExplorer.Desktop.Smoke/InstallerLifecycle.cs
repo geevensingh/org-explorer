@@ -39,8 +39,11 @@ internal static partial class Program
                 OpenPerson(window, "casey@example.com", "morgan@example.com");
                 AssertPhotoVisible(window);
                 Click(window, "EditPreferredName");
-                Set(window, "PreferredName", "Ave");
+                var nameEntry = PreferredNameEntry(window);
+                Set(nameEntry, "PreferredName", "Ave");
+                Click(nameEntry, "SavePreferredName");
                 AwaitLocalWorkIdle(window);
+                AssertPreferredNameReading(window, "Ave", "Edit");
                 Click(window, "NewPersonNote");
                 Set(window, "PersonNoteTitle", "Installer lifecycle note");
                 Set(window, "PersonNoteMarkdown", "# Private fixture\nRetain this Person writing.");

@@ -12,7 +12,7 @@
                  Text="?" FontSize="20" FontWeight="SemiBold" Foreground="White"
                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
     </Grid>
-    <WrapPanel x:Name="Actions" Margin="0,6,0,0" IsEnabled="False" Visibility="Collapsed">
+    <WrapPanel x:Name="Actions" MaxWidth="132" Margin="0,6,0,0" IsEnabled="False" Visibility="Collapsed">
       <Button Content="Choose photo…" AutomationProperties.AutomationId="ChoosePhoto" Click="ChoosePhoto"/>
       <Button Content="Clear photo" AutomationProperties.AutomationId="ClearPhoto" Margin="0,4,0,0" Click="ClearPhoto"/>
     </WrapPanel>

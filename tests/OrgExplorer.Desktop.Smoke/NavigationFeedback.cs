@@ -30,6 +30,7 @@ internal static partial class Program
             ApplyReviewedHistoryImport(window);
             OpenPerson(window, "casey@example.com");
             BeginProfileEditing(window);
+            if (responsive) AssertResponsiveProfileForm(window);
             Set(window, "OfficeNumber", "0009P");
             Click(window, "NavigateManager");
             Click(ProfileLeaveWindow(window), "StayOnProfile");
@@ -55,6 +56,7 @@ internal static partial class Program
                 AssertValue(window, "OfficeNumber", "0009P");
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed leave-save changed the profile owner.");
+                CaptureVisualEvidence(window, "profile-inline-failed-leave-save-retained");
             }
             Click(window, "NavigateManager");
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
