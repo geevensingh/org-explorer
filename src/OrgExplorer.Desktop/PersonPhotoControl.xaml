@@ -4,7 +4,7 @@
   <StackPanel HorizontalAlignment="Left" Margin="0,8,0,0">
     <Grid>
       <Image x:Name="PhotoImage" AutomationProperties.AutomationId="PersonPhoto"
-             Width="96" Height="96" Stretch="Uniform" Visibility="Collapsed"/>
+             Width="144" Height="144" Stretch="Uniform" Visibility="Collapsed"/>
       <TextBlock x:Name="Placeholder" AutomationProperties.AutomationId="PhotoPlaceholder"
                  Text="Photo unavailable" Foreground="DimGray"/>
     </Grid>
