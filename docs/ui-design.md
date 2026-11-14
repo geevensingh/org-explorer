@@ -124,7 +124,7 @@ explicit profile Save/Cancel, or the 700-by-500 minimum window. See the
 [anchored identity contract](visual-refresh-design.md#anchored-identity) for
 the complete amendment and rendered acceptance requirements. The native control
 implements this sizing; hosted rendered verification and owner visual acceptance
-remain separate, outstanding delivery gates.
+remain separate delivery gates.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not
