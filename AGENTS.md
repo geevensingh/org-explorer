@@ -1,5 +1,12 @@
 ## Agent skills
 
+### Implementation preflight
+
+Before implementation edits, integration-branch creation or ticket dispatch,
+complete `docs/agents/implementation-preflight.md`. It owns fetched-base
+freshness, explicit integration/stack baselines and current-spec reconciliation;
+stop on a failed gate or material product contradiction.
+
 ### Issue tracker
 
 Issues and specs live in GitHub Issues for `geevensingh/org-explorer`. Read `docs/agents/issue-tracker.md` before tracker operations.
