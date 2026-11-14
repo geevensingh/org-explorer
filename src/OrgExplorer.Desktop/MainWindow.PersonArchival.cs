@@ -40,8 +40,10 @@ public partial class MainWindow
     private void ShowPersonArchival(PersonProfile person)
     {
         PersonArchivalStatus.Text = person.Archived
-            ? "Archived — profile, photos, notes and history retained. No current inherited context."
-            : "Active — included in the current imported org.";
+            ? "Archived Person"
+            : "";
+        PersonArchivalStatus.ToolTip = "Profile, photos, notes and history retained. No current inherited context.";
+        PersonArchivalStatus.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;
         PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && !workPending;
         ArchivePersonMenuItem.Visibility = person.Archived ? Visibility.Collapsed : Visibility.Visible;
         ReactivatePersonMenuItem.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;

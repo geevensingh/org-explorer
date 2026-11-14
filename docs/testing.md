@@ -5,6 +5,39 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
+Visual-refresh journeys can capture named, already-observed states through the
+shared `CaptureVisualEvidence` harness helper. It reads actual desktop pixels
+without opening, focusing, resizing or repairing a view. The existing hosted
+desktop lanes retain these PNGs beside JSON recording the source revision,
+run/attempt, executable hash, DPI and captured bounds. Calls require unique
+state names within a scenario and never overwrite an earlier observation.
+Optional application-monitor capture retains the full actual monitor, including
+the taskbar region, and labels its scope separately from a window-bounds capture.
+Captures follow the same desktop-isolation rules below; they are comparison
+material, not behavioral proof or owner visual acceptance.
+
+The responsive reading journey also hovers the compact People dismissal
+backdrop on the hosted desktop. It samples actual uncovered Person pixels
+before opening and after the hover, requiring readable content contrast to
+survive the dimming; a uniform opaque button-hover fill fails. The backdrop
+has its own translucent template, not ordinary button hover/pressed chrome.
+The existing viewport, dismissal, focus and full size-matrix checks remain.
+
+Browsing-restoration acceptance compares every originally visible Person's exact
+identity and viewport-relative horizontal/vertical position within one rendered
+pixel, together with the existing Favorites, expansion and guarded-destination
+checks. A larger viewport may expose additional bottom rows; it cannot move or
+replace any original row. Scroll percentages and view sizes remain diagnostics,
+not proxies for restored content: a horizontal scrollbar disappearing increases
+the vertical viewport and changes the percentage even at an unchanged offset.
+The owner approved this assertion correction after the hosted #71 captures.
+The original 20-second observation budget and full fixture/size matrix remain.
+Fixture preparation still makes one end-measurement request and one interior
+scroll request, without replaying either. If virtualization remeasures the extent
+after that request, a genuinely interior position establishes the recorded row
+baseline; an unchanged endpoint still fails. The later exact-row restoration
+check, not the requested percentage, proves that browsing was preserved.
+
 ## Placement
 
 | Category | Observes | Examples and limits |
@@ -34,6 +67,11 @@ No live M365 connection or desktop automation is involved.
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
+The bounded shared-Team-note excerpt regression measures allocations through
+real in-memory `Search` after warming its index: 64 reports share a long note,
+and one request must allocate less than 2 MiB instead of normalizing the body
+per result. It also checks exact owners/documents, different query excerpts and
+fresh writing after an edit. This is not either 10,000-Person scale suite.
 `BeginNoteDraft` captures an immutable Person/Team document base (or expected
 absence) at the workflow/view-model seam. Editors display that snapshot and
 `RetainNoteDraft` marks it dirty without waiting behind in-flight Workspace I/O.
@@ -42,8 +80,12 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and record-version checks stay explicit.
-Preferred-name autosave similarly submits the displayed field's immutable Person
-base through `SavePersonTextDraft`. Changed-field delivery rejects save/retry;
+Preferred-name Save/Enter submits the displayed field's immutable Person base
+through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
+update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
+that field's unsaved failure, never other fields, profile sessions, quick actions,
+notes, Import, committed maintenance or durable publication conflicts.
+Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
@@ -252,14 +294,70 @@ designation succeeds, then verifies that choice survives archival/reopen.
 Both Team/history desktop selections explicitly record the reviewed owner's
 ongoing choice before asserting unavailable-choice feedback after archival.
 
+The #75 alignment extends those existing seams, not the note model. Focused
+Person-note cases cover true collection emptiness versus an exact empty document,
+an archived ongoing choice and rejected first-save writing for both scopes.
+The real settings/reopen suite additionally rejects an empty invitation while
+ongoing preferences are unreadable, preserving exact preference and Workspace
+bytes until deliberate repair. Existing ownership, inheritance, frozen evidence,
+independent drafts, external bases, retry/discard and restoration assertions remain.
+The existing delivered-owner-removal draft case also requires explicit unavailable
+Person guidance rather than an empty invitation before first-save rejection.
+
+The existing Person-note and normal/responsive Team-history selections capture
+unique populated, empty-document, ambiguous, failed, unavailable, collapsed-review,
+current-owner and frozen-owner states with `CaptureVisualEvidence`. Responsive
+Team/history retains 700/1100 and exact reopen checks, adding complete long
+current/frozen Markdown. The owner-approved `NavigateMainReadingAndCapture`
+journey action exposes the same exact text through the actual main Workspace
+scrollbar before capturing it. Each successful half-viewport request must move
+to a distinct position; a stalled viewport, missing target at the end or native
+scroll failure remains a failure, never an action retry. Navigation and visibility
+share the original 20-second budget. The actual target is centered once when
+needed and scrollable; no People, destination, note model or product scrolling is repaired.
+The [WPF 10 text adaptor](https://raw.githubusercontent.com/dotnet/wpf/v10.0.0/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/TextAdaptor.cs)
+stops at the inner scroll provider and can pass an empty clipped rectangle to
+`BringIntoView`, aligning the whole natural-height reader rather than deep text.
+The harness therefore uses the chosen main content viewport, not that unsupported
+text-range assumption; it still asserts actual text rectangles, bounded prose,
+no nested/horizontal reading scroll, unchanged selected owner and anchored identity.
+All original GUID, attribution, saved-byte, review and rejection checks, scenario
+names and lane budgets remain. Captures require hosted Windows and are still
+pending for each new complete candidate; they are not whole-pass visual acceptance.
+
 Adaptive People navigation is observed through `WorkspaceViewModel.PeopleNavigation`
 and its navigation/query/browsing operations. Focused cases preserve an exact
 secondary note and frozen search destination, and retain owner/editor, expansion,
 scroll position, overlay and actionable feedback on rejected navigation.
+The in-session browsing bookmark captures horizontal as well as vertical offset;
+neither belongs to synchronized Workspace data or a preference schema change.
+It also retains the measured content width. Root reporting rows reserve that
+width while unseen wide labels are virtualized, keeping the bookmarked horizontal
+offset reachable instead of clamping it to zero. This minimum applies only to
+root containers, not recursively to descendants or the outer People pane.
+Existing accepted/rejected exact-note tests retain both axes and measured width.
 `WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
 canonical per-Workspace identity, interleaved designation/startup writes, unchanged
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
+
+The #77 search extension exercises live, query-relevant excerpts without navigation
+or mutation of the complete note body. The invisible compiled replay distinguishes
+query Enter, row selection and explicit result Enter, then observes the real matched
+fact and current/frozen owner-correct document sections. It retains the full cold
+two-axis browsing replay and exact-row criterion; logical focus without a native
+window is not proof of actual keyboard delivery.
+Existing normal/responsive search and scale callers now explicitly focus/select
+and activate a result rather than relying on selection to navigate. Query Enter
+must preserve the current Person and exact note before focusing results. Hosted
+search checks observe actual matched-field focus, real note Read surfaces and
+exact document/capture identities, not a duplicate generic inspector. The existing
+responsive draft journey also rejects search activation with overlay/query, exact
+failed editor and unchanged Person bounds retained. Unique visual captures cover
+matched facts, mouse activation, exact/empty Other notes, current/frozen attribution
+and rejected writing within those existing journeys. No scenario, population,
+deadline, required lane or explicit-scale selection is removed. These captures
+and hosted assertions still require execution for the complete candidate.
 
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
@@ -271,6 +369,20 @@ folders preserve preferences and writing. Corrupt/unsupported/invalid preference
 and locked publication are explicit; a failed view write retains valid in-session
 reading without creating a designation. Settings-driven existing-only reopen
 cannot replace retained independent drafts or enable unsafe close/restart.
+
+Team/history explicitly selects Read after profile Save preserves the new
+independent Team note's Edit mode, before its reading capture. First-autosave
+external-delivery checks observe the note surface's actual ItemStatus from
+pending-before-delivery through failure, retained typing and explicit retry;
+they never depend on an absent healthy status row.
+The compiled 44-Person wide fixture also observes empty reading before long-note
+setup: the main viewport can fit its complete content and reports no vertical
+scrolling. Scroll-to-top skips that invalid axis; a genuinely scrollable long
+document still receives one real provider action. Provider failures propagate,
+without action retry or a process-token-error waiver. Responsive form preparation
+waits read-only for a visible positive viewport and an available ScrollPattern
+within the existing bounded wait before acting or measuring; it does not repair
+layout or substitute outer-window size for interior readiness.
 
 The existing Person-note journey's second launch requires the exact secondary
 Person GUID/title/kind in Read mode before deliberately opening ongoing writing.
@@ -292,18 +404,58 @@ Local helper/file/control checks do not prove hosted reopen or UI-scale executio
 The explicitly selected high-resolution `responsive-workspace` journey measures the adaptive host at
 700 x 500 and 1100 x 900 window DIP, maximized, and available host widths
 959/960/961 around its 960-DIP breakpoint. It observes unchanged overlay viewport
-bounds, stacked versus side-by-side content, 240/240/360 pane minimums,
-600-DIP bounded actual note prose, unchanged compact typography, mouse/keyboard
-divider effects, wide/compact/wide and actual reopen proportions, and real
+bounds, all-facts-before-full-width-notes composition, anchored identity during
+actual long reading, People 240 / Person allocation 420 minimums,
+600-DIP bounded actual note prose, stable long/missing fact slots, unchanged compact typography, mouse/keyboard
+People-divider effects, wide/compact/wide and actual reopen proportions, and real
 reporting-tree expansion/scroll restoration during persistent and overlay search.
 Wide browsing setup expands its fixture branch only if needed. Compact setup
 only observes the already-restored expanded state: it never reissues Expand or
 repairs lost expansion before measuring scroll/search restoration. Runner
 regressions replay the observed external provider's redundant-expansion side
 effect and require collapsed restored state to fail, not be silently repaired.
+Before capturing each 70% browsing baseline, one explicit scroll to the fixture
+end measures cold virtualized rows, followed by the single target scroll.
+Neither action is retried, and neither occurs after search/clear restoration.
+The cold-cache compiled replay first reproduces percentage drift caused by a
+changing measured extent, then exercises this same preparation and the exact-row
+restoration criterion above. Hosted logs retain unmeasured/measured
+view sizes, focus and owner, plus the original/failure diagnostics: calibration
+must not conceal later extent drift or change the selected Person.
 These are harness-action contracts, not a local reproduction of native WPF focus.
+Post-resize collapsed-context assertions wait only for read-only UIA discovery
+within the existing bounded wait. An expanded section still fails immediately;
+the helper never collapses it, and permanently missing sections still fail.
+Runner coverage replays the observed missing-then-present context provider.
+The invisible compiled replay additionally drives the 44-Person/long-note
+fixture through real tree scrolling with cold virtualization and recorded
+available viewport geometry, exact-note search/clear and wide/compact
+restoration, including recycled tree-item load events. Compact replay establishes
+a real 39-DIP horizontal offset, then drops the cached measurement and invalidates
+the tree's measure while browsing is hidden, retaining all People and expansion.
+This reproduces the lost horizontal range that clamps even a correctly retained
+offset. Every original row must return to the same horizontal and vertical
+position; offset-only restoration goes red, while reserving the captured width
+keeps that position reachable. It does not reproduce
+native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
+failures retain the exact-row/visibility assertion and capture the
+before/failure pixels, viewport percentages, bounds and focus without corrective
+actions or a longer deadline.
 The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
 with the exact failed Person-note editor retained and actionable feedback.
+An isolated compiled retained-draft probe records post-resize, settled,
+overlay-open and rejected-selection viewport/notice geometry. A failed note's
+already reported guard does not add another global notice line and move the
+underlay; new pending work, retries and independent errors remain distinct.
+The same real-control probe continues through query entry, query Enter/focus,
+one explicit rejected result activation and clearing. It records toolbar,
+search/clear desired and arranged bounds, logical focus and the original
+absolute Person viewport. Empty-query Clear is hidden while retaining its
+measured footprint, so its appearance cannot grow the toolbar or move the
+underlay. The native exact-rectangle equality has no pixel tolerance.
+The full guard stays available in the local editor, accessible operation status
+and Details. Hosted failures retain exact geometry/owner/title/document checks
+and add before/after metrics plus a failure frame, without layout repair.
 Selection helpers deliberately open compact browsing when needed; they do not
 treat a hidden tree or a closed panel as successful navigation. Existing exact
 current/archived/frozen destinations and independent draft assertions remain.
@@ -387,6 +539,29 @@ The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
 operational feedback and startup recovery stay outside that scrolling view.
+It requires one Open Workspace action and a focusable, copyable displayed path,
+without a pending-path TextBox or separate Choose action. Healthy reading collapses
+the operational notice rather than keeping Ready/validated/saved furniture.
+The Window's accessible ItemStatus and HelpText expose the actual existing
+workflow activity and operation feedback; the Workspace label's ItemStatus exposes
+actual validation/freshness. These are bound to the same detailed status, not
+test-only readiness or success flags.
+Notice classification uses the workflow's operation error and retained storage
+maintenance state, not English success-message lists or maintenance substrings.
+Preferred-name cancellation and successful profile/note saves leave healthy
+reading quiet. Both note sections collapse routine operation feedback while
+exposing that same feedback through their surface's accessible ItemStatus.
+Pending/failed drafts remain visible; independent save and preference errors,
+stale data, publication outcomes and committed maintenance remain actionable.
+An idle failed operation is summarized once, without an additional generic
+pending row or a second copy of its technical rejection. Real in-flight work
+and distinct failures still appear. Preferred-name failure keeps a short local
+retained-entry message, full diagnostic HelpText and a keyboard-accessible
+Details disclosure inside the same popup; reading Details does not require
+an outside click. The compiled check activates that real disclosure and retains
+the failed input, original saved bytes and unsafe-close state.
+Hosted note waits read the real accessible feedback rather than requiring a
+permanent success TextBlock. Discard checks the restored saved reading and bytes.
 
 The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
@@ -397,17 +572,73 @@ delivery refresh and dirty-note retention. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
-The same invisible-control regression exercises the essential profile summary,
-collapsed/populated More details, full editing of an empty field and Cancel,
+The same invisible-control regression exercises all ordinary facts, labelled
+missing-value slots, long identity/facts, compact initials, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+Its inline profile check measures paired fields at wide widths and stacked fields
+at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
+content. It requires enabled, Tab-accessible, readable-width fields without
+horizontal page overflow, notes below the form, and identity/Save/Cancel remaining
+anchored during scrolling. Logical entry/Cancel focus, routed field Enter and
+retained staged text are also checked without creating a native window handle.
+Physical focus, Tab scrolling, Enter delivery and appearance still require hosted
+WPF; these compiled observations cannot substitute for them.
 It also measures/arranges the actual compiled content and drives its real
-splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
-drags, an outer-pane change, 36% profile recovery and a narrower wide viewport.
-Both panes and the divider must remain inside the actual ScrollViewer viewport
-while held and after completion. This locks down the mixed pixel/star column
-overflow reproduced without a native window; paired proportional columns keep
-both opposing minimums in WPF's shared resize constraint. It does not replace
+People splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
+drags, 27% balance recovery and a narrower wide viewport. Facts and notes must
+remain full-width and ordered inside the actual ScrollViewer viewport while
+held and after completion. A long document must size to content, move with facts
+under the main scroll, and leave identity fixed. Compact layout uses fewer fact
+columns, and opening its overlay must not move the Person viewport. The actual
+clear-search action returns to browsing without replacing the selected Person.
+The same compiled layout check saves a genuinely long LinkedIn URL through the
+profile form and measures four/three/two-column reading. Each facts row must fit
+its own content with a compact 12-DIP inter-row gap; a wrapped URL and its action
+in a later row must not enlarge an earlier row. Full URL text and wrapped height
+remain intact within the viewport. The check restores the original empty URL.
+An independent invisible-window fixture checks reports and their count are
+hidden when empty and during wide tree browsing, but visible when populated in
+compact mode or search. Report selection still opens its exact Person; opening
+the temporary People overlay does not change the report bounds or content extent.
+The native profile journey uses the tree for wide report navigation, while the
+note journey retains visible report-list navigation during search.
+The independent tree fixture measures the real collapsed/expanded chevron and
+requires identical toggle bounds and label indentation. Real selection providers
+must open only the accepted Person's immediate reports, preserving other branches
+and deliberate collapse. Search/clear reveals the accepted selected branch;
+failed note writing rejects another selection without expanding that destination.
+These are compiled wiring/measurement checks, not rendered acceptance.
+The same invisible regression drives the actual Preferred-name Save/Cancel
+controls: typing does not publish; failed Save retains
+its input/local error across an unrelated Favorite success; Save retry retains
+the original base across external delivery, and deliberate cancellation permits
+a new entry against the delivered value. Real held profile/note publication
+proves that cancellation closes without blocking behind admitted I/O, cannot
+revoke it or permit premature close, and newer input waits for another explicit
+Save. The Popup is never opened while the window is invisible. Its actual
+discovery, focus and physical Enter/Escape/outside-click behavior remain hosted
+proof, not an inference from these controls.
+The existing native profile journey also focuses the failure Details header,
+expands it with one Space key and captures the technical reason inside the same
+open entry, requiring retained input, unsafe state and unchanged Workspace bytes.
+No second disclosure action or new scenario is used.
+An independent invisible-window fixture delivers a valid replacement Workspace
+without the Preferred-name owner, requiring retained input/owner, unavailable
+feedback, disabled Save and enabled Cancel. Cancellation leaves all delivered
+bytes intact. Removing and restoring the owner with a changed Preferred name
+must still reject Save against the entry's original base.
+Another real-file fixture rejects Person/Team-note creation with the publication
+lock, then delivers an unrelated valid profile change. Note feedback keeps the
+retained creation error without a refresh-success prefix; distinct current
+failures remain alongside it, and deliberate resolution restores quiet feedback.
+These checks use the existing observable People DataContext, actual control
+activation/enablement and public workflow refresh notifications, never private
+window methods or work-completion fields. The generic update-drain refusal is
+proved by the signed update command in `--verify-update-yield`, not by invoking
+the private handoff implementation.
+Paired proportional columns keep both opposing People/Person minimums in WPF's
+shared resize constraint. This does not replace
 hosted physical gesture/hit-target or rendered-pixel acceptance.
 The same real control also receives routed Left/Right keys after the maximum
 drag, requiring the exact 10-DIP change to survive layout and preference
@@ -432,10 +663,48 @@ Both compiled controls preserve Show archived notes when selecting active writin
 Read/Edit changes immediately present locked/corrupt exact-view preference errors
 and clear the warning after a successful explicit retry, without an extra refresh.
 These invisible checks do not show/focus WPF or prove rendered geometry.
+The same compiled-profile-refresh selection also measures long Person, owned
+Team, current inherited and frozen historical prose at 700/1100 and wide
+available sizes, requiring content-sized reading, bounded measure and aligned
+full-width sections. It observes owned/inherited warnings and current-owner
+attribution with details still collapsed, and exact empty-document Edit
+invitations for both scopes. The window stays invisible without a native handle;
+these measurements do not supply rendered, keyboard, hosted or visual-acceptance
+evidence.
+Native note-reading timeout diagnostics retain the original one
+`ScrollIntoView` action and cached-range visibility requirement. Read-only
+observations before/after that action and at timeout record reader/window
+offscreen state, cached versus fresh target rectangles and outer viewport
+geometry/scroll percentages. Timeout keeps failing and captures a unique frame;
+the helper never retries scrolling or switches to a fresh range to pass.
+Selected note tabs accent only their header, not the reading content. The
+compiled check observes actual saved Markdown headings and Person/Team document
+paragraphs inheriting the Window's body ink while the real selected header
+retains AccentBrush. Markdown parsing, code formatting and deliberate external
+link handling remain unchanged; native pixels still require hosted capture.
 It also drives the actual Settings button through the WPF dispatcher and checks
-logical focus on the folder, including closure before a queued focus request.
+logical focus on Open Workspace, including closure before a queued focus request.
 The focus request waits behind layout and the current input event; the unchanged
 hosted Space-key/`HasKeyboardFocus` assertion remains the physical-focus proof.
+The existing internal application-construction seam substitutes only the external
+folder-picker result in invisible checks. Accept/cancel, rejected invalid delivery,
+retained note writing, startup-preference bytes and explicit Import-path Enter
+preview all run through the actual compiled handlers and real file-backed workflow.
+This does not establish native picker discovery, input, selection or cancellation.
+The ordinary profile and Person-note journeys use the actual native dialog once,
+with explicit selectable-folder setup, exact accepted/cancelled outcomes and
+unchanged preference/writing assertions. Installed, responsive and scale callers
+use that same visible picker, never a hidden direct-path adapter.
+The native picker helper targets the observed Folder Edit field (ID 1152), not
+the file-dialog entry or a Search box. Select Folder/Cancel match both their
+native automation ID and Button role before obtaining InvokePattern: shell
+folder items can reuse numeric IDs 1/2 and are not dialog actions. Exactly one
+action is invoked before the unchanged close observation; no second click or
+action retry repairs a still-open picker. Cancellation compares actual before/after
+orientation, displayed path, preference bytes and untouched Workspace contents;
+HelpText need not be empty because WPF can supply useful tooltip fallback.
+Installed-flow failure diagnostics only read the existing automation tree and
+retain the original exception; they never call the maximize/open-window helper.
 
 It also exercises the existing public note-flush boundary after a failed save,
 successful retry and newer writing while Settings hides the editor. With the
@@ -450,16 +719,25 @@ desktop lane, within its existing budget. It requires the ephemeral
 trusted-update/effects build and does not replace a desktop scenario.
 It composes the actual window with the real file-backed workflow through an
 internal application-construction seam and the same held note publisher used
-by persistence tests. A dispatcher hook selects the real post-drain Background
-yield, admits one note save at Normal priority, and waits for publication to
+by persistence tests. Observing the real Import control becoming disabled for
+handoff queues one note save at Normal priority for the first dispatcher yield,
+and waits for publication to
 reach the hold. A ContextIdle observer requires the update to remain pending,
 with unchanged saved bytes and no early handoff, before releasing publication.
+The same regression repeats with a deliberately queued Preferred-name Save
+command and held real profile publication. Merely unconfirmed Preferred-name
+typing is separately rejected by the actual signed Check for updates command,
+with unchanged Workspace bytes and no installer effect; only explicit Save admits it.
 The original single update action must then hand off the final durable bytes
 and matching file hash; there is no update retry. The shared work drain
 rechecks its gate after dispatcher settling and waits again for an admitted
 save, while existing failed-save, profile/draft and final restart guards remain
 active. This regression never shows/focuses a window or creates its native
 handle.
+The ordinary (43-Person), responsive and invisible replay (44-Person) browsing
+paths share only their fixture records and long-note paragraph inputs.
+Expected identities, exact row positions and document/owner assertions remain
+independently literal; the full populations, actions and deadlines are unchanged.
 The failed-note case also opens Settings and attempts Close once. Rejection must
 reveal the retained work area instead of leaving Settings over the failed editor,
 including after queued focus work settles. Owner, title, Markdown, actionable
@@ -468,6 +746,31 @@ journey retains its original Close action and visible failure/content assertions
 
 Dependency lock files are authoritative. Restore missing assets with locked mode;
 do not install unrelated tooling. A build proves compilation, not a desktop pass.
+
+`tests\ApplicationIcon.Tests.ps1` decodes all ten native ICO frames and checks
+transparency and C1 tile/card/Person content. With `-Executable`, it inspects the
+real default PE icon group and compares every frame's bytes, without executing
+the product. The core lane checks the asset; ordinary desktop product-output
+isolation checks the published executable. The invisible compiled-window check
+also requires the complete ICO to load through the window's actual `Icon`.
+Existing installer-artifact checks inspect setup, full-package app and
+`setup.ico`, portable launcher/app resources, and produced product/version
+metadata. No installer is launched by these checks.
+
+The existing profile and installed desktop journeys compare the live window's
+small/large `WM_GETICON` pixels with the matching produced native frames, saving
+unscaled PNGs and a light/dark compositing plate with executable hash and candidate
+metadata. This is native-resource evidence, not a screenshot of the taskbar or
+Start menu. Alongside the existing window screenshot, those journeys also save
+actual full application-monitor pixels with the same candidate/executable
+identity. Review the monitor PNG for the visible taskbar and app button; neither
+registrations nor the HICON plate proves those shell pixels. Capture does not
+open Start, reveal an auto-hidden taskbar, change theme/focus, or replay setup.
+Start-menu and setup-dialog appearance therefore remains unproven by this path.
+The isolated installed lifecycle also resolves the real Desktop/Start
+shortcuts and Installed Apps icon target after install, upgrade and reinstall.
+These checks do not replace actual Windows small-size/surface review or the
+whole-pass owner review. They must not be run on the shared local desktop.
 
 Installer-runner process tests use a separate non-UI .NET fixture, never the
 installed app or setup. Its parent exits with application files already removed
@@ -509,15 +812,22 @@ verifies native current-mode and monitor bounds at 1024 x 768 / 32 bpp / 96 DPI
 without changing its display. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
-  binding, readable Preferred name and one-click Add/Edit, inline validation retention,
+  binding, readable Preferred name and one-click Add/Edit, explicit Save and
+  physical Enter, retained inline validation failure, Cancel/Escape/outside-click
+  dismissal without mutation, popup discovery/focus and uniquely named normal,
+  failure and dismissal captures,
   quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
-  essential summary and populated More details,
+  all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
   explicitly, replaces the people view, and returns to reading with Import
   controls absent. Choosing/previewing retains the saved population; changing the
   path invalidates Apply until reviewed again.
+  Inline editing additionally requires initial Directory-name focus, Tab to Alias,
+  actual field Enter followed by Tab without submission, unchanged saved office
+  data before explicit Save, and focus returning to Edit profile after Cancel.
+  Named captures retain the field-Enter draft and staged photo clear.
 - `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
   leave-save retention and Import protection versus independent failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
@@ -576,10 +886,17 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
 
 - `responsive-workspace`: the search/Favorites journey plus the complete
   700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
-  Segoe UI text, 240/240/360 minimums, 600-DIP prose cap, overlay bounds/focus,
-  mouse/keyboard dividers, percentage resize/reopen and search/clear position.
+  Segoe UI text, People 240 / Person allocation 420 minimums, 600-DIP prose cap,
+  all-facts ordering and long/missing text, anchored main scrolling, overlay bounds/focus,
+  mouse/keyboard People resizing, percentage resize/reopen and search/clear position.
 - `responsive-draft-navigation`: the complete draft-protection journey plus
   actual compact overlay rejection retaining the exact owner/editor and feedback.
+  Its inline form also traverses every ordinary field and Manager by Tab at
+  700 x 500, 1100 x 900, host widths 959/960/961, maximized and the minimum
+  Person allocation. Each focused control must fit the actual scroll viewport
+  without moving identity or Save/Cancel; stable email stays read-only and notes
+  stay below the draft. Named top/Manager and failed-leave-save captures support
+  final whole-pass comparison, not automatic visual acceptance.
 - `responsive-team-history`: the complete owned/inherited Team, independent
   draft and frozen-history journey plus the 700/1100 rendered warning/history
   matrices. All ordinary domain/ownership/history assertions remain in the
@@ -686,9 +1003,22 @@ covers the collapsed-label hosted failure and rejects wrong-folder, pending and
 stale observations without retrying Open. Failed-startup smoke still requires
 the actual visible error and enabled Retry/Choose recovery controls.
 The exact opened folder is read from the quiet Workspace label's accessibility
-description; the visible full-path editor remains in Settings. Restore checks
+description; the full copyable path is display text in Settings. Restore checks
 still require the exact folder and live current-data/owner/recovery observations
 within the same bounded wait, not just a successful folder-name match.
+The native-picker helper invokes the visible action once, fills the native folder
+entry and accepts or cancels once, then observes dialog closure. It never creates
+folders, repairs Settings, retries Open or substitutes an app-side path setter.
+Empty folders and malformed selectable Workspaces are explicit scenario fixtures;
+the rejected-open checks retain their complete byte/preference assertions.
+Quiet status is read through the real accessible properties above, without
+expanding Details as a hidden prerequisite. Retry observation subscribes to the
+same actual activity on the Window, preserving saving-to-Pending completion.
+The larger healthy reading viewport also keeps the Person scroll gutter reserved:
+switching to shorter content must not shift labelled fact slots by 17 DIP.
+Cold invisible browsing logs retain each requested scroll and its actual
+extent/viewport. Exact-row/both-axis assertions and deadlines remain unchanged;
+there is no corrective action after restoration.
 The profile navigation scenario enters Edit, stages a value, and exercises the
 real Save / Discard / Stay decision, including a locked-file leave-save failure.
 Completed rejection requires concrete failure feedback, a closed leave dialog,

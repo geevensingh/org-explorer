@@ -7,11 +7,6 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
-    private readonly Dictionary<PersonTextField, string?> unsavedPreferredNameEdits = [];
-    private readonly Dictionary<PersonTextField, PersonProfile> displayedAttributeBases = [];
-    private readonly Dictionary<PersonTextField, PersonProfile> preferredNameDraftBases = [];
-    private readonly System.Windows.Threading.DispatcherTimer preferredNameSaveTimer =
-        new() { Interval = TimeSpan.FromMilliseconds(300) };
     private TextBox[] PersonEditors =>
         [DirectoryNameEditor, PreferredName, Alias, JobTitle, Department, OfficeBuilding,
          OfficeNumber, OfficeState, OfficeCountry, LinkedInProfileUrl];
@@ -20,14 +15,12 @@ public partial class MainWindow
     {
         loading = true;
         workflow.CancelProfileEdit();
-        displayedAttributeBases.Clear();
-        preferredNameDraftBases.Clear();
+        FinishPreferredNameEntry();
         foreach (var editor in PersonEditors) editor.Clear();
         ShowProfileValues(null);
         preferredNameOwner = null;
-        PreferredNameValue.Text = "";
-        EditPreferredNameButton.Content = "Add preferred name";
-        SetPreferredNameEditing(false);
+        displayedPreferredNameBase = null;
+        System.Windows.Automation.AutomationProperties.SetName(EditPreferredNameButton, "Add preferred name");
         PreferredNameContext.IsEnabled = false;
         AttributeEditors.IsEnabled = false;
         OpenLinkedInButton.IsEnabled = false;
@@ -48,8 +41,6 @@ public partial class MainWindow
         OfficeState.Text = draft.OfficeState ?? "";
         OfficeCountry.Text = draft.OfficeCountry ?? "";
         LinkedInProfileUrl.Text = draft.LinkedInProfileUrl ?? "";
-        foreach (var field in Enum.GetValues<PersonTextField>())
-            if (!unsavedPreferredNameEdits.ContainsKey(field)) displayedAttributeBases[field] = person;
         AttributeEditors.IsEnabled = true;
         OpenLinkedInButton.IsEnabled = person.LinkedInProfileUrl is not null;
         OpenLinkedInButton.ToolTip = person.LinkedInProfileUrl;
@@ -72,51 +63,13 @@ public partial class MainWindow
             ShowStatus();
             return;
         }
-        preferredNameDraftBases.TryAdd(field, displayedAttributeBases[field]);
-        unsavedPreferredNameEdits[field] = value;
-        if (field == PersonTextField.LinkedInProfileUrl) OpenLinkedInButton.IsEnabled = false;
-        preferredNameSaveTimer.Stop();
-        if (workflow.GetWorkspaceConflicts().Count != 0) { ShowStatus(); return; }
-        preferredNameSaveTimer.Start();
+        if (!preferredNameEditing) return;
+        preferredNameDirty = editor.Text != (preferredNameBasis?.PreferredName ?? "");
         MarkDraftPending();
         ApplyButton.IsEnabled = false;
         preview = null;
-        StatusText.Text = "Pending local profile edits — not yet saved.";
-    }
-
-    private async void SavePreferredNameDraft(object? sender, EventArgs e) => await FlushPreferredNameDraft();
-
-    private async Task FlushPreferredNameDraft()
-    {
-        preferredNameSaveTimer.Stop();
-        if (workflow.GetWorkspaceConflicts().Count != 0) { ShowStatus(); return; }
-        if (selectedEmail is null || unsavedPreferredNameEdits.Count == 0) return;
-        if (workPending) { preferredNameSaveTimer.Start(); return; }
-        var failed = false;
-        foreach (var (field, value) in unsavedPreferredNameEdits.ToArray())
-        {
-            var basis = preferredNameDraftBases[field];
-            var accepted = await RunWorkflowAsync(() => workflow.SavePersonTextDraft(basis, field, value),
-                "Saving local profile…", keepPreferredNameDraft: true);
-            if (accepted is not null)
-            {
-                displayedAttributeBases[field] = preferredNameDraftBases[field] = accepted;
-                if (unsavedPreferredNameEdits.TryGetValue(field, out var current) && current == value)
-                {
-                    unsavedPreferredNameEdits.Remove(field);
-                    preferredNameDraftBases.Remove(field);
-                }
-            }
-            else { failed = true; break; }
-        }
-        if (unsavedPreferredNameEdits.Count == 0) RefreshPeople();
-        ShowStatus();
-        if (!failed && unsavedPreferredNameEdits.Count > 0 && workflow.GetWorkspaceConflicts().Count == 0)
-        {
-            preferredNameSaveTimer.Start();
-            MarkDraftPending();
-            StatusText.Text = "Pending newer local profile edits — not yet saved.";
-        }
+        StatusText.Text = "Preferred name is not saved. Choose Save or Cancel.";
+        UpdatePreferredNameActions();
     }
 
     private async void RetryProfileSave(object sender, RoutedEventArgs e)
@@ -127,10 +80,8 @@ public partial class MainWindow
             await SaveProfileSessionAsync();
             return;
         }
-        await FlushPreferredNameDraft();
-        if (workPending) return;
         await RetryRelationshipSave();
-        if (unsavedPreferredNameEdits.Count == 0 && !HasUnsavedRelationship) RefreshPeople();
+        if (!HasUnsavedRelationship) RefreshPeople();
         ShowStatus();
     }
 
@@ -146,9 +97,7 @@ public partial class MainWindow
             CancelProfileEdit(sender, e);
             return;
         }
-        unsavedPreferredNameEdits.Clear();
-        preferredNameDraftBases.Clear();
-        preferredNameSaveTimer.Stop();
+        CancelPreferredNameEntry();
         unsavedArchived = null;
         unsavedFavorite = null;
         if (selectedEmail is not null) workflow.DiscardPersonChanges(selectedEmail);

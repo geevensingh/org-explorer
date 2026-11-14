@@ -3,6 +3,12 @@
 Status: agreed design, delivery in progress. Recorded after the November 11, 2026
 design interview and review of conceptual wide/compact mockups.
 
+The [Person workspace visual refresh](visual-refresh-design.md) supersedes the
+earlier composition where they differ. Its reading slice (#71) implements
+facts above full-width notes, anchored identity, always-visible fact slots and
+the single People divider; the remaining refresh is still in progress.
+No whole-pass hosted or owner visual acceptance is claimed here.
+
 This refines [the v1 design](design.md), not the product's identity, supported
 platforms, or data-safety boundaries. Keep the native Windows .NET/WPF direction
 in [ADR 0005](adr/0005-native-windows-dotnet.md). This is not a request for a web
@@ -33,18 +39,24 @@ Keep the everyday toolbar focused on search and Settings. A quiet,
 non-interactive Workspace-name label provides orientation; it is not a separate
 Workspace selector or dropdown.
 
-Move the full folder path and Choose/open Workspace controls into Settings.
+Display the full copyable current folder path in Settings. One **Open Workspace...**
+action opens the native folder picker and immediately attempts the validated open
+after acceptance; cancellation leaves writing, selection and startup preferences
+unchanged. There is no editable pending path or separate Choose/Open sequence.
 Workspace changes are expected to be very rare. Import is also infrequent,
 roughly every week or two rather than daily, so put a clearly labelled Import
 action in Settings instead of permanently occupying toolbar space. Import still
 opens its dedicated preview/review/explicit-Apply workflow; opening Settings is
-not applying an import.
+not applying an import. Enter in the Import path previews, never applies.
+Keep Workspace, Import and Updates in a bounded scrollable in-app page, with
+compatibility/recovery/technical material behind a disclosure.
 
 Keep Settings accessible before opening a Workspace and during invalid,
 incompatible, or unavailable Workspace states. Preserve existing opening,
 validation/conversion, recovery, update, and draft-protection flows.
 
-Routine status should be quiet. Errors, stale/unavailable data, pending or failed
+Healthy reading omits routine Ready/validated/saved rows and inactive recovery
+actions. Concise notices and accessible Details retain errors, stale/unavailable data, pending or failed
 saves, unsaved-work warnings, and relevant Team-note review warnings must remain
 conspicuous. Moving management controls must not hide operational problems or
 turn failed actions into success-shaped status.
@@ -54,24 +66,25 @@ turn failed actions into success-shaped status.
 ### Wide windows
 
 Use People navigation beside a Person workspace. A compact identity header
-anchors that workspace; below it, a compact profile summary sits beside a larger
-notes/context area:
+anchors that workspace outside the reading scroll. All ordinary facts sit above
+the full-width notes/context area:
 
 ```text
 Quiet Workspace label | Search local information                 | Settings
 ----------------------+--------------------------------------------------
-People navigation     | Compact Person identity and actions
-                      |----------------------+---------------------------
-Favorites             | Profile summary      | Person note
-Reporting tree        | More details         | Reading / editing surface
-                      |                      | Secondary Team context
-                      |                      | History access
+People navigation     | Compact anchored Person identity and actions
+                      |--------------------------------------------------
+Favorites             | All ordinary labelled facts
+Reporting tree        |--------------------------------------------------
+                      | Person note reading / editing surface
+                      | Secondary Team context
+                      | History access
 ```
 
 Keep the selected Person understandable while making their writing useful
 without scrolling past the full profile and its provenance.
 
-Use sensible adaptive pane proportions and draggable dividers. Remember
+Use sensible adaptive pane proportions and a draggable People divider. Remember
 user-chosen proportions as percentages, not absolute pixel widths. Apply minimum
 usable widths rather than blindly shrinking panes to satisfy a ratio. Switching
 to a compact layout must not overwrite remembered wide-layout proportions.
@@ -85,7 +98,7 @@ When the wide arrangement no longer fits, replace persistent People navigation
 with a clearly labelled People control opening a temporary panel. Keep search
 and Settings directly accessible.
 
-Stack the compact identity/profile summary above the full-width notes area.
+Keep identity anchored above the shared facts-and-full-width-notes scroll.
 Do not squeeze three columns into the window, shrink text to compensate, or use
 horizontal scrolling as the normal way to read a profile.
 
@@ -103,8 +116,10 @@ Keep the photo/placeholder, identity, and principal actions compact rather than
 stacking each into a separate full-width row. Preserve Preferred name versus
 Directory name and non-editable email identity.
 
-The initial summary exposes essential information; More details reveals the
-remaining populated attributes. This is not removal of profile fields. Edit
+All ordinary facts are exposed by default in a width-dependent, consistently
+ordered grid. Missing facts retain a labelled dash; populated values do not
+repack the grid. Role, department and email remain in identity, not duplicated
+in the facts. Edit
 profile still exposes all editable fields, including empty ones, and retains
 its explicit Save/Cancel and stale-draft behavior. Preserve independent
 Preferred-name and Favorite quick actions, Manager/report navigation, and
@@ -176,11 +191,22 @@ This section covers ongoing-note behavior and shared designation support.
 Exact startup restoration is described below; hosted WPF acceptance remains
 an exact-candidate delivery gate.
 
+The refreshed Person and owned-Team surfaces share full-width section headings,
+restrained actions, light separators and aligned, bounded reading text. True
+empty collections offer Write a Person/Team note without a blank viewer or
+disabled action collection. An existing empty document instead keeps its exact
+title, kind and Read/Edit access, with an invitation to Edit. Archived-only
+collections, unavailable choices, ambiguous designations, unreadable preferences
+and failed writing retain their own guidance rather than claiming emptiness.
+
 ### Implemented adaptive host
 
-The host retains the existing compact identity, profile editing and independent
-note surfaces. At wide widths the summary sits beside notes/context; below the
-breakpoint it stacks above full-width notes in the same vertical reading area.
+The host retains profile editing and independent note surfaces. Its circular
+photo/initials and identity actions stay above a shared content scroll. At every
+width the fixed-order facts precede full-width notes/context. Ordinary facts
+have no More details gate, and reading documents size to their content rather
+than using nested fixed-height scrolling boxes. Editors and bounded lists
+retain their own appropriate scrolling.
 People becomes a labelled overlay, not a squeezed column. Escape/Close returns
 focus to People; accepted destinations close the overlay, while rejected
 navigation retains its panel, owner, exact writing and actionable feedback.
@@ -188,20 +214,34 @@ Search replaces Favorites/tree with a full-height result list. Clearing restores
 their in-session expansion and scroll position, including after overlay use.
 Exact current, archived and frozen search destinations remain distinct.
 
+The #77 slice adds single-line reporting names with modest guide-line indentation,
+quiet selection and starred Favorites. Full email/Directory-name identity remains
+available to accessibility and through row tooltips; virtualization and reporting
+depth are unchanged. Only root containers reserve the bookmarked measured width,
+so restoring a horizontal offset does not compound minimum widths down the tree.
+Results show name, source and a query-relevant excerpt. Query Enter focuses the
+results without opening a Person; selecting a row alone is not activation.
+Click or selected-row Enter uses the same draft/profile/navigation guards.
+Profile matches focus/highlight their actual field; exact owned notes open in
+Read, and inherited/frozen notes reveal their exact attributed section in current
+context/History. The duplicate generic search inspector is removed. Rejection
+retains the overlay, query and exact failed editor. These implementation and
+invisible replay checks do not claim hosted input/layout or owner visual acceptance.
+
 The numeric implementation choices are:
 
 | Token | DIP value / behavior |
 |---|---|
 | Wide breakpoint | Available Workspace host width >= 960; this excludes native window chrome and the 20-DIP outer margin on each side |
 | Supported window | Minimum 700 x 500; initial 1100 x 900, unchanged |
-| Pane minimums | People 240; profile summary 240; notes/context 360 |
-| Wide Person allocation | At least 648, including summary/notes, divider and allowance for padding/scrollbar |
-| Default proportions | People 25% of navigation/Person space; profile 35% of summary/notes space, excluding each divider |
-| Dividers | 8 wide; mouse drag and 10-DIP keyboard arrow steps, constrained to usable minimums |
+| Pane minimums | People 240; one Person allocation 420, preserving at least 360 for content after padding/scrollbar |
+| Facts | Eight stable labelled slots, one to four equal columns from available width (240-DIP target per slot), above notes |
+| Default proportions | People 25% of navigation/Person space, excluding the divider; the legacy profile ratio is retained but unused |
+| Divider | People only, 8 wide; mouse drag and 10-DIP keyboard arrow steps, constrained to usable minimums |
 | Compact People overlay | Up to 360 wide, over the unchanged Person viewport |
 | Typography | Segoe UI 14 for ordinary text and Markdown; identity 24; note-section headings 18; no compact type reduction |
 | Spacing | Outer 20; pane/content separation 12; ordinary field spacing 4/8/12 |
-| Note reading limit | 600-wide reading surface, with 12-DIP Markdown page padding; applies to Person, owned/inherited Team, historical and search reading |
+| Note reading limit | 600-wide, left-aligned prose with no extra Markdown page inset; section structure remains full width for Person, owned/inherited Team, historical and search reading |
 
 Percentages extend the same optional per-Workspace version-1 app-local settings
 entry as ongoing designations. Divider writes preserve other Workspaces,
@@ -209,13 +249,15 @@ designations and the startup folder, use the existing lock/atomic publication,
 and report failure without claiming durability or changing the last valid
 balance. Resize/minimum clamps are not preference writes; compact transitions
 never save over wide choices. No synchronized Workspace schema changes.
-Both sides of each wide divider remain proportional columns, so dragging
-respects both pane minimums inside the available viewport rather than allowing
-a fixed-width column to push notes or its divider offscreen.
+Both sides of the People divider remain proportional columns, so dragging
+respects both minimums inside the available viewport rather than allowing
+a fixed-width column to push reading offscreen. Existing optional inner-ratio
+preferences are neither migrated nor erased, and do not affect composition.
 
 The required high-resolution `responsive-workspace` journey measures actual bounds/text at 700 x 500,
 1100 x 900, maximized, and available host widths 959/960/961, then exercises
-mouse/keyboard dividers, minimums, bounded prose, resize/reopen balance and
+mouse/keyboard People resizing, minimums, all-facts ordering, anchored scrolling,
+long/missing values, bounded prose, resize/reopen balance and
 search/clear restoration. `responsive-draft-navigation` adds a real
 protected compact-overlay rejection; `responsive-team-history` retains the
 700/1100 rendered attributed-warning and frozen-history matrices. The nine
@@ -270,6 +312,14 @@ inheritance, frozen owner identity and exact historical search stay distinct.
 The same surfaces live within the existing wide/compact adaptive host; headers
 wrap and Markdown retains its 600-DIP reading limit. Existing title/Markdown
 autosave, retry/discard, archive/restore and external-change protections remain.
+
+Current context keeps readable ancestor attribution outside its collapsed
+details as well as the attributed review warnings. Full-width native disclosures
+align their headings with the content; History uses the same typography and
+bounded prose rather than nested boxes. Owned, inherited and frozen Markdown
+all grow within the one Person reading scroll. Its reserved scrollbar gutter
+keeps fact slots stable when populated and empty notes have different heights.
+This does not change the separate People browsing bookmark or measured range.
 
 Workflow and real-file regressions cover secondary inheritance/navigation,
 durable Team designation, preference failures/nonmutation and retained drafts.

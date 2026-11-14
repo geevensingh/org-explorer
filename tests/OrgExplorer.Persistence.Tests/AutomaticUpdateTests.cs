@@ -352,6 +352,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         oldJournal.Recover(new Version("0.1.0"), oldApp.OpenWorkspace, () => oldApp.Status);
 
         Assert.False(oldJournal.AllowAutomatic(release));
+        Assert.True(oldJournal.RequiresAttention);
         Assert.Contains("not confirmed", oldJournal.Message, StringComparison.OrdinalIgnoreCase);
         Assert.NotEmpty(oldApp.People);
         Assert.Equal(WorkspaceCompatibilityState.Compatible, oldApp.Compatibility.State);
@@ -362,6 +363,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         newJournal.Recover(new Version("0.2.0"), newApp.OpenWorkspace, () => newApp.Status);
         Assert.Contains("confirmed", newJournal.Message);
         Assert.DoesNotContain("not confirmed", newJournal.Message);
+        Assert.False(newJournal.RequiresAttention);
         Assert.NotEmpty(newApp.People);
     }
 

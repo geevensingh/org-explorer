@@ -2,7 +2,8 @@ namespace OrgExplorer.Workflow;
 
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
-    IReadOnlyList<string> ExpandedPeople, double BrowseOffset, RememberedView? LastValidView = null)
+    IReadOnlyList<string> ExpandedPeople, double BrowseOffset, RememberedView? LastValidView = null,
+    double BrowseHorizontalOffset = 0, double BrowseExtentWidth = 0)
 {
     public bool IsBrowsing => string.IsNullOrWhiteSpace(Query);
 }
@@ -148,14 +149,20 @@ public sealed partial class WorkspaceViewModel
         Notify();
     }
 
-    public void RememberPeopleBrowsing(IEnumerable<string> expandedPeople, double offset)
+    public void RememberPeopleBrowsing(IEnumerable<string> expandedPeople, double offset, double horizontalOffset = 0,
+        double extentWidth = 0)
     {
         if (!PeopleNavigation.IsBrowsing) return;
         if (!double.IsFinite(offset) || offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
+        if (!double.IsFinite(horizontalOffset) || horizontalOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(horizontalOffset));
+        if (!double.IsFinite(extentWidth) || extentWidth < 0) throw new ArgumentOutOfRangeException(nameof(extentWidth));
         PeopleNavigation = PeopleNavigation with
         {
             ExpandedPeople = expandedPeople.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            BrowseOffset = offset
+            BrowseOffset = offset,
+            BrowseHorizontalOffset = horizontalOffset,
+            BrowseExtentWidth = extentWidth
         };
         Notify();
     }

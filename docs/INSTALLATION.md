@@ -25,6 +25,10 @@ Apps & features uninstall entry, then launches the real WPF application.
 Silent installation does not launch; start the **Org explorer** shortcut or the
 stable root launcher Velopack creates.
 
+The application, window, setup and shortcuts use the blue Person-reference card
+icon. This visual identity is not a verified publisher or a change to the trust
+warnings above.
+
 Choose your private **Workspace** folder separately, for example a folder under
 your externally synchronized documents. The app rejects a Workspace inside the
 installation, the installation root itself, or a folder containing it (including

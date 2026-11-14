@@ -43,9 +43,10 @@ internal static partial class Program
             try
             {
                 window = Window(restarted);
-                Await(() => Find(window, "UpdateSummary").Current.Name.Contains($"installation confirmed by running version {args[4]}"));
-                SetSettingsVisible(window, true);
-                AssertValue(window, "WorkspacePath", Path.GetFullPath(args[1]));
+                ShowTechnicalSettings(window);
+                Await(() => Find(window, "UpdateGuidance").Current.Name.Contains($"installation confirmed by running version {args[4]}"));
+                if (Find(window, "WorkspacePath").Current.Name != Path.GetFullPath(args[1]))
+                    throw new InvalidOperationException("The update restart did not display the original Workspace path.");
                 SetSettingsVisible(window, false);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 AssertInstallerWorkspace(window);

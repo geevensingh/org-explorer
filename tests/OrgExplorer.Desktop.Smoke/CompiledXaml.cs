@@ -9,9 +9,11 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
@@ -20,11 +22,13 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static readonly Queue<string?> CompiledWorkspaceChoices = new();
+
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
         AssertDisplayInterop();
         if (verifyProfileRefresh || verifyUpdateYield) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
-        using var heldPublisher = verifyUpdateYield ? new HeldNotePublisher() : null;
+        using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
         Assembly? Resolve(AssemblyLoadContext context, AssemblyName name) =>
@@ -43,11 +47,14 @@ internal static partial class Program
             if (verifyProfileRefresh || verifyUpdateYield)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
-            var window = verifyUpdateYield
-                ? (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher)], null)!
-                : (Window)Activator.CreateInstance(type)!;
+            Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
+            var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher), chooseFolder], null)!;
             var failures = new List<string>();
+            if (window.Icon is not BitmapFrame { Decoder: IconBitmapDecoder icon } ||
+                !icon.Frames.Select(frame => frame.PixelWidth).Order().SequenceEqual(
+                    new[] { 16, 20, 24, 32, 40, 48, 64, 96, 128, 256 }))
+                failures.Add("The compiled window must load the complete native C1 icon, not the generic WPF identity.");
             var settingsPanel = (FrameworkElement)window.FindName("SettingsPanel");
             static bool Contains(DependencyObject parent, DependencyObject? child)
             {
@@ -61,6 +68,15 @@ internal static partial class Program
                 if (!Contains(settingsPanel, control))
                     failures.Add($"{name}: infrequent management belongs in Settings, not everyday chrome.");
             }
+            if (window.FindName("WorkspacePath") is not TextBlock { Focusable: true, ContextMenu: not null } currentPath ||
+                !KeyboardNavigation.GetIsTabStop(currentPath) ||
+                LogicalDescendants(settingsPanel).OfType<TextBox>().Any())
+                failures.Add("Settings must display the actual copyable Workspace path, with no editable pending path.");
+            var folderActions = LogicalDescendants(settingsPanel).OfType<Button>().Where(button =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(button) is "ChooseWorkspace" or "OpenWorkspace").ToArray();
+            if (folderActions.Length != 1 ||
+                System.Windows.Automation.AutomationProperties.GetAutomationId(folderActions[0]) != "OpenWorkspace")
+                failures.Add("Settings must offer one picker-and-open action, not separate Choose and Open steps.");
             if (window.FindName("WorkspaceName") is not TextBlock workspaceName || workspaceName.Focusable)
                 failures.Add("Everyday chrome needs a quiet, non-interactive Workspace name.");
             var search = (FrameworkElement)window.FindName("SearchQuery");
@@ -71,11 +87,21 @@ internal static partial class Program
             if (window.FindName("OpenPeopleButton") is not Button people ||
                 System.Windows.Automation.AutomationProperties.GetName(people) != "People" || !people.Focusable)
                 failures.Add("Compact People navigation needs a labelled keyboard-accessible entry.");
-            foreach (var name in new[] { "PeopleDivider", "ProfileDivider" })
+            foreach (var name in new[] { "PeopleDivider" })
                 if (window.FindName(name) is not GridSplitter { Focusable: true } divider ||
                     string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(divider)))
                     failures.Add($"{name}: proportional dividers must expose a meaningful keyboard-accessible control.");
-            foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane" })
+            var readingScroll = (ScrollViewer)window.FindName("PersonScroll");
+            if (Contains(readingScroll, (DependencyObject)window.FindName("PersonIdentity")) ||
+                !Contains(readingScroll, (DependencyObject)window.FindName("ProfileSummary")) ||
+                !Contains(readingScroll, (DependencyObject)window.FindName("NotesPane")))
+                failures.Add("Identity must stay outside the shared facts-and-notes reading scroll.");
+            if (window.FindName("ProfileDivider") is not null || window.FindName("ProfileDetails") is not null)
+                failures.Add("Ordinary reading must not retain an inner divider or a More details gate.");
+            if (window.FindName("ClearSearchButton") is not Button { Focusable: true } clearSearch ||
+                string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(clearSearch)))
+                failures.Add("The single search field needs a named keyboard-accessible clear action.");
+            foreach (var name in new[] { "WorkspaceSurface", "WorkspaceStartPanel", "PeoplePanel", "ProfileSummary", "NotesPane", "OperationalNotice" })
                 if (UIElementAutomationPeer.CreatePeerForElement((UIElement)window.FindName(name)) is null)
                     failures.Add($"{name}: actual adaptive geometry must be observable through UI Automation.");
             if (KeyboardNavigation.GetTabNavigation((DependencyObject)window.FindName("PeoplePanel")) == KeyboardNavigationMode.Cycle)
@@ -109,8 +135,34 @@ internal static partial class Program
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
             if (verifyProfileRefresh)
             {
+                var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyTreePresentation(treeWindow, settings); }
+                finally { treeWindow.Close(); }
+                var unavailableNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyUnavailablePreferredNameEntry(unavailableNameWindow, settings); }
+                finally { unavailableNameWindow.Close(); }
+                var noteFailureWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyRetainedNoteCreationFailure(noteFailureWindow, settings); }
+                finally { noteFailureWindow.Close(); }
                 VerifySettingsFocus(window);
-                VerifyProfileSaveRefresh(window, settings);
+                // The empty 44-Person probe must not warm the separate cold browsing window.
+                var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyEmptyReadingScroll(emptyReadingWindow, settings); }
+                finally { emptyReadingWindow.Close(); }
+                var retainedWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyRejectedOverlayGeometry(retainedWindow, settings); }
+                finally { retainedWindow.Close(); }
+                var reportsWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyReportsVisibility(reportsWindow, settings); }
+                finally { reportsWindow.Close(); }
+                VerifyProfileSaveRefresh(window, settings, heldPublisher!);
+                VerifyPeopleSearchRestoration(window, settings);
             }
             if (verifyUpdateYield) VerifyUpdateYield(window, settings, heldPublisher!);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
@@ -125,6 +177,7 @@ internal static partial class Program
             SynchronizationContext.SetSynchronizationContext(previousContext);
             AssemblyLoadContext.Default.Resolving -= Resolve;
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
+            CompiledWorkspaceChoices.Clear();
             Directory.Delete(settings, true);
         }
     }
@@ -132,7 +185,7 @@ internal static partial class Program
     private static void VerifySettingsFocus(Window window)
     {
         var settings = (Button)window.FindName("OpenSettingsButton");
-        var folder = (TextBox)window.FindName("WorkspacePath");
+        var folder = (Button)window.FindName("OpenWorkspaceButton");
         void Toggle() => settings.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         void Settle()
         {
@@ -144,17 +197,27 @@ internal static partial class Program
         Toggle();
         Settle();
         if (!ReferenceEquals(FocusManager.GetFocusedElement(window), folder))
-            throw new InvalidOperationException("Opening Settings did not establish the Workspace folder as its logical focus destination.");
+            throw new InvalidOperationException("Opening Settings did not establish Open Workspace as its logical focus destination.");
         Toggle();
         Toggle();
         Toggle();
         Settle();
         if (!ReferenceEquals(FocusManager.GetFocusedElement(window), settings))
             throw new InvalidOperationException("A queued Settings focus request stole logical focus after Settings closed.");
-        Console.WriteLine("PASS: Settings logical focus settles on its folder and stale requests cannot focus closed Settings; physical keyboard focus still requires hosted WPF.");
+        Console.WriteLine("PASS: Settings logical focus settles on Open Workspace and stale requests cannot focus closed Settings; physical keyboard focus still requires hosted WPF.");
     }
 
-    private static void VerifyProfileSaveRefresh(Window window, string settings)
+    private static void ChooseCompiledWorkspace(Window window, string? folder)
+    {
+        if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Visible)
+            throw new InvalidOperationException("The compiled picker action requires explicit Settings preparation.");
+        CompiledWorkspaceChoices.Enqueue(folder);
+        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (CompiledWorkspaceChoices.Count != 0)
+            throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
+    }
+
+    private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)
     {
         var folder = Path.Combine(settings, "workspace");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -164,15 +227,31 @@ internal static partial class Program
                      "observedAt":"2026-11-01T17:00:00Z","people":[
                      {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
                       "jobTitle":"Researcher","department":"Research","officeCountry":"Canada",
-                      "alias":"ave","officeNumber":"007B"}]}
+                      "alias":"ave","officeNumber":"007B"},
+                     {"email":"zara@example.com","displayName":"Zara with a deliberately long Directory name for accessible identity",
+                      "officeBuilding":"South campus research and collaboration building with a long descriptive location",
+                      "managerEmail":null}]}
                     """).Id) || seed.CreatePersonNote("avery@example.com", "Saved title", "# Saved note") is null)
                 throw new InvalidOperationException("Profile refresh fixture failed: " + seed.Status);
         }
+        var preferences = Path.Combine(settings, "workspace-settings.json");
+        if (!new WorkspaceSettings(preferences).SetPaneProportions(folder, new(25, 92)))
+            throw new InvalidOperationException("Could not seed the existing version-1 inner-ratio preference.");
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Control<TextBox>("WorkspacePath").Text = folder;
-        Invoke("OpenWorkspaceButton");
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<TextBlock>("WorkspacePath").Text != folder)
+            throw new InvalidOperationException("Settings did not display the opened Workspace's actual full path.");
+        if (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Collapsed })
+            throw new InvalidOperationException("Healthy reading must not retain permanent Ready, validated, saved or inactive recovery furniture.");
+        if (System.Windows.Automation.AutomationProperties.GetItemStatus(window) != "Ready" ||
+            System.Windows.Automation.AutomationProperties.GetItemStatus(Control<TextBlock>("WorkspaceName")) !=
+                "Current validated local Workspace.")
+            throw new InvalidOperationException("Quiet reading lost its actual accessible activity or Workspace validation state.");
+        VerifyRejectedPickerChoice(window, folder, preferences);
+        VerifyImportPreviewKey(window, folder);
         Invoke("OpenSettingsButton");
         if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Collapsed ||
             Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
@@ -182,23 +261,49 @@ internal static partial class Program
         Invoke("OpenSettingsButton");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
-        VerifyAdaptiveDividerLayout(window);
-        if (window.FindName("ProfileDetails") is not Expander details || details.IsExpanded)
-            throw new InvalidOperationException("Person reading must start with secondary profile details collapsed.");
+        VerifyPreferredNameEntry(window, folder, publisher);
+        VerifyAdaptiveReadingLayout(window);
+        if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
+            throw new InvalidOperationException("People resizing or compact transitions erased the unused existing inner ratio.");
         if (Control<TextBlock>("JobTitleValue").Text != "Researcher" ||
             Control<TextBlock>("DepartmentValue").Text != "Research" ||
             Control<TextBlock>("OfficeCountryValue").Text != "Canada")
             throw new InvalidOperationException("The essential profile summary lost role, department or location.");
-        details.IsExpanded = true;
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B" ||
-            Control<FrameworkElement>("LinkedInProfileUrlValueRow").Visibility != Visibility.Collapsed)
-            throw new InvalidOperationException("More details must expose populated attributes without empty rows.");
+            Control<TextBlock>("LinkedInProfileUrlValue").Text != "—" ||
+            Control<FrameworkElement>("LinkedInProfileUrlValueRow").Visibility != Visibility.Visible ||
+            Control<TextBlock>("OfficeBuildingValue").Text != "—" ||
+            Control<TextBlock>("PersonArchivalStatus").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("All ordinary facts need stable populated/missing slots without an Active badge.");
         Invoke("EditProfileButton");
         if (Control<FrameworkElement>("AttributeEditors").Visibility != Visibility.Visible ||
             Control<TextBox>("LinkedInProfileUrl").Text != "" ||
             Control<FrameworkElement>("ProfileValues").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("Full Edit must expose empty fields without duplicate reading values.");
+        if (Control<Button>("Manager").IsDescendantOf(Control<Border>("ProfileValues")))
+            throw new InvalidOperationException("Profile editing hid saved-Manager navigation, preventing the existing guarded leave flow.");
+        VerifyInlineProfileLayout(window);
+        var focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBox>("DirectoryNameEditor")))
+            throw new InvalidOperationException("Entering the inline profile must focus its first field after layout, not leave focus on a hidden action.");
+        Control<TextBox>("OfficeNumber").Text = "Cancelled by the owner";
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice,
+            new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Return)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        };
+        Control<TextBox>("OfficeNumber").RaiseEvent(enter);
+        if (Control<FrameworkElement>("ProfileSessionActions").Visibility != Visibility.Visible ||
+            Control<TextBox>("OfficeNumber").Text != "Cancelled by the owner")
+            throw new InvalidOperationException("Field Enter must leave the complete inline draft open and unchanged.");
         Invoke("CancelProfileButton");
+        focusSettled = false;
+        window.Dispatcher.BeginInvoke(() => focusSettled = true, DispatcherPriority.ContextIdle);
+        PumpUntil(() => focusSettled);
+        if (!ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")))
+            throw new InvalidOperationException("Profile Cancel must return logical focus to Edit profile.");
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B")
             throw new InvalidOperationException("Profile Cancel changed the readable saved value.");
         var notes = Control<FrameworkElement>("PersonNotes");
@@ -239,6 +344,13 @@ internal static partial class Program
                     throw new InvalidOperationException($"Profile Save displayed stale or discarded Person-note writing: '{observed}'.");
                 if (File.ReadAllText(noteFile) != delivered)
                     throw new InvalidOperationException("Profile Save rewrote delivered Person-note bytes.");
+                if (!dirtyNote && new[] { notes, Control<FrameworkElement>("TeamNotes") }.Any(control =>
+                        ((TextBlock)control.FindName("NoteStatus")).Visibility != Visibility.Collapsed))
+                    throw new InvalidOperationException("Successful profile save/refresh left routine status in healthy Person/Team reading.");
+                if (dirtyNote && (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Visible } ||
+                    !Control<TextBlock>("NoticeSummary").Text.Contains("NOT saved", StringComparison.Ordinal) ||
+                    NoteControl<TextBlock>("NoteStatus").Visibility != Visibility.Visible))
+                    throw new InvalidOperationException("Unrelated profile success concealed the independent failed Person-note writing.");
             }
             finally { property.RemoveValueChanged(status, saved); }
             if (dirtyNote)
@@ -246,6 +358,23 @@ internal static partial class Program
                 Invoke("OpenSettingsButton");
                 if (NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note")
                     throw new InvalidOperationException("Opening Settings changed independent writing.");
+                var previousPreference = File.ReadAllBytes(preferences);
+                var previousStatus = status.Text;
+                ChooseCompiledWorkspace(window, null);
+                if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible ||
+                    status.Text != previousStatus || Control<TextBlock>("Email").Text != "avery@example.com" ||
+                    NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    throw new InvalidOperationException("Cancelling the picker changed retained writing, status, selection or the startup preference.");
+                var blockedFolder = Path.Combine(settings, "blocked-by-note");
+                ChooseCompiledWorkspace(window, blockedFolder);
+                if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Collapsed ||
+                    Control<TextBlock>("Email").Text != "avery@example.com" ||
+                    NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
+                    !status.Text.Contains("Person note", StringComparison.Ordinal) || Directory.Exists(blockedFolder) ||
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    throw new InvalidOperationException("Picker acceptance bypassed the failed note or stranded its exact writing behind Settings.");
+                Invoke("OpenSettingsButton");
                 Invoke("OpenImportButton");
                 if (Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
                     Control<TextBlock>("Email").Text != "avery@example.com" ||
@@ -262,10 +391,785 @@ internal static partial class Program
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Person);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
+        VerifyContextReadingLayout(window, Path.Combine(settings, "context-workspace"));
         Console.WriteLine("PASS: compact profile reading/editing, safe Settings Import rejection and profile-save note refresh without showing a window.");
     }
 
-    private static void VerifyAdaptiveDividerLayout(Window window)
+    private static void VerifyContextReadingLayout(Window window, string folder)
+    {
+        string Writing(string marker) => string.Join("\n\n",
+            Enumerable.Range(1, 32).Select(n => $"{marker} paragraph {n}. Keep the decision and its reasoning together."));
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000003",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"alex@example.com","displayName":"Alex","managerEmail":null}]}
+                """).Id) ||
+                seed.CreatePersonNote("avery@example.com", "Individual reading", Writing("Private")) is null ||
+                seed.CreateTeamNote("avery@example.com", "Owned reading", Writing("Owned")) is null ||
+                seed.CreateTeamNote("morgan@example.com", "Former reading", Writing("Frozen")) is null ||
+                seed.CreateTeamNote("alex@example.com", "Ancestor reading", Writing("Current")) is null ||
+                !seed.EditPersonManager("avery@example.com", "alex@example.com") ||
+                !seed.EditPersonText("alex@example.com", PersonTextField.JobTitle, "Director"))
+                throw new InvalidOperationException("Context reading fixture failed: " + seed.Status);
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var person = Control<FrameworkElement>("PersonNotes");
+        var team = Control<FrameworkElement>("TeamNotes");
+        T Team<T>(string name) where T : FrameworkElement => (T)team.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        var tree = Control<TreeView>("PeopleList");
+        var avery = tree.Items.Cast<ReportingNode>().SelectMany(n => n.Reports.Prepend(n))
+            .Single(n => n.Person.Email == "avery@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        if (Team<Expander>("CurrentTeamContext").IsExpanded || Team<Expander>("OtherNotes").IsExpanded ||
+            Control<Expander>("HistoryAccess").IsExpanded ||
+            !Team<TextBlock>("OwnedReviewWarnings").Text.Contains("Owned reading", StringComparison.Ordinal) ||
+            !Team<TextBlock>("OwnedReviewWarnings").Text.Contains("avery@example.com", StringComparison.Ordinal) ||
+            !Team<TextBlock>("InheritedReviewWarnings").Text.Contains("Ancestor reading", StringComparison.Ordinal) ||
+            !Team<TextBlock>("InheritedReviewWarnings").Text.Contains("alex@example.com", StringComparison.Ordinal) ||
+            Team<TextBlock>("InheritedReviewWarnings").Visibility != Visibility.Visible ||
+            !Team<TextBlock>("ContextAttribution").Text.Contains("alex@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("Collapsed context must retain current owner attribution and both owned/inherited review warnings.");
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        var context = Team<Expander>("CurrentTeamContext");
+        var header = VisualDescendants(context).OfType<ToggleButton>().First();
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(header).GetPattern(PatternInterface.Toggle)).Toggle();
+        if (!context.IsExpanded)
+            throw new InvalidOperationException("The real disclosure header did not expand its bound current context.");
+        Control<Expander>("HistoryAccess").IsExpanded = true;
+        var inherited = Team<FlowDocumentScrollViewer>("InheritedReading");
+        var frozen = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
+        string Text(FlowDocumentScrollViewer reader) => new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text;
+        if (!Text(inherited).Contains("Current paragraph 32", StringComparison.Ordinal) ||
+            Text(inherited).Contains("Frozen paragraph", StringComparison.Ordinal) ||
+            !Text(frozen).Contains("Frozen paragraph 32", StringComparison.Ordinal) ||
+            !Text(frozen).Contains("morgan@example.com", StringComparison.Ordinal) ||
+            Text(frozen).Contains("Current paragraph", StringComparison.Ordinal))
+            throw new InvalidOperationException("Long current and frozen reading lost exact writing or owner attribution.");
+        var viewport = Control<ScrollViewer>("PersonScroll");
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
+        {
+            root.Measure(size);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Context layout must remain invisible without a native main-window handle.");
+            foreach (var reader in new[] { (FlowDocumentScrollViewer)person.FindName("Reading"),
+                Team<FlowDocumentScrollViewer>("Reading"), inherited, frozen })
+            {
+                if (reader.ActualWidth <= 0 || reader.ActualWidth > 600 || reader.ActualHeight <= 600 ||
+                    reader.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                    reader.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                    reader.TransformToAncestor(viewport).Transform(new Point(reader.ActualWidth, 0)).X > viewport.ViewportWidth + 1)
+                    throw new InvalidOperationException($"Long owned/current/frozen prose must size to content in the single bounded reading scroll at {size}: {reader.Name} {reader.RenderSize}.");
+            }
+            var title = Team<TextBlock>("ContextHeading").TransformToAncestor(team).Transform(new Point());
+            var prose = inherited.TransformToAncestor(team).Transform(new Point());
+            if (Math.Abs(title.X - prose.X) > 2 ||
+                Math.Abs(person.ActualWidth - Control<GroupBox>("NotesPane").ActualWidth) > 1 ||
+                Control<TextBlock>("HistoricalTeamSummary").ActualWidth > 600 ||
+                Team<TextBlock>("InheritedSummary").ActualWidth > 600)
+                throw new InvalidOperationException($"Full-width context sections must align their title and bounded prose at {size}: title={title.X}, prose={prose.X}.");
+        }
+        foreach (var notes in new[] { person, team })
+        {
+            var tab = (TabItem)notes.FindName("ReadTab");
+            var reader = (FlowDocumentScrollViewer)notes.FindName("Reading");
+            var body = reader.Document.Blocks.OfType<Paragraph>().First();
+            if (!tab.IsSelected || !Equals(body.Foreground, window.Foreground) ||
+                !Equals(reader.Document.Foreground, window.Foreground))
+                throw new InvalidOperationException($"Selected note Read styling lost body ink: selected={tab.IsSelected}; " +
+                    $"body={body.Foreground}; document={reader.Document.Foreground}; window={window.Foreground}.");
+            if (!VisualDescendants(tab).OfType<TextBlock>().Any(label =>
+                    label.Text == "Read" && Equals(label.Foreground, window.FindResource("AccentBrush"))))
+                throw new InvalidOperationException("The selected note header lost its accent while restoring normal body ink.");
+        }
+        Console.WriteLine("PASS: actual compiled long Person/owned/current/frozen reading stays bounded in one scroll at 700/1100/maximized sizes, with collapsed attributed warnings.");
+    }
+
+    private static void VerifyImportPreviewKey(Window window, string folder)
+    {
+        var before = WorkspaceFixtures.Bytes(folder);
+        var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000073",
+             "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"avery@example.com","officeNumber":"123"}]}
+            """);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var path = (TextBox)window.FindName("ImportPath");
+        path.Text = import;
+        var enter = new KeyEventArgs(Keyboard.PrimaryDevice,
+            new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent };
+        path.RaiseEvent(enter);
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        if (!enter.Handled || !((ListBox)window.FindName("PreviewText")).Items.Cast<string>().Any(text =>
+                text.Contains("123", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Import-path Enter did not produce the same explicit reviewed preview.");
+        AssertWorkspaceBytes(folder, before);
+        var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
+            .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
+        back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (((Button)window.FindName("ApplyButton")).IsEnabled)
+            throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
+        Console.WriteLine("PASS: compiled Import-path Enter previews without applying or changing saved Workspace bytes.");
+    }
+
+    private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)
+    {
+        var savedPreference = File.ReadAllBytes(preferences);
+        var savedWorkspace = WorkspaceFixtures.Bytes(folder);
+        var invalid = Path.Combine(Path.GetDirectoryName(folder)!, "invalid-picker-choice");
+        Directory.CreateDirectory(invalid);
+        File.WriteAllText(Path.Combine(invalid, "workspace.json"), "{invalid");
+        var invalidBytes = WorkspaceFixtures.Bytes(invalid);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, invalid);
+        PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
+            ((TextBlock)window.FindName("StatusText")).Text.Contains("could not be opened", StringComparison.Ordinal));
+        if (((FrameworkElement)window.FindName("OperationalNotice")).Visibility != Visibility.Visible ||
+            ((TextBlock)window.FindName("WorkspacePathLabel")).Text != "Workspace folder (unavailable)" ||
+            !File.ReadAllBytes(preferences).SequenceEqual(savedPreference))
+            throw new InvalidOperationException("A rejected picker choice claimed a successful current Workspace or replaced the successful startup preference.");
+        AssertWorkspaceBytes(folder, savedWorkspace);
+        AssertWorkspaceBytes(invalid, invalidBytes);
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
+            ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
+        Console.WriteLine("PASS: rejected picker acceptance preserves both Workspace byte sets and the last successful startup preference; native selection remains hosted-only evidence.");
+    }
+
+    private static void VerifyPreferredNameEntry(Window window, string folder, HeldNotePublisher publisher)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T?)window.FindName(name)
+            ?? throw new InvalidOperationException("Missing explicit Preferred-name control: " + name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        var editor = Control<TextBox>("PreferredName");
+        var save = Control<Button>("SavePreferredNameButton");
+        var panel = Control<FrameworkElement>("PreferredNameEditorPanel");
+        var error = Control<TextBlock>("PreferredNameError");
+        var details = Control<TextBlock>("PreferredNameErrorDetails");
+        void Settled() => PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
+        void ObserveNoAutosave()
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            PumpUntil(() => elapsed.ElapsedMilliseconds >= 650);
+            if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
+                File.ReadAllText(WorkspaceFixtures.IndexedDocuments(folder)["people:avery@example.com"])
+                    .Contains("Unconfirmed", StringComparison.Ordinal))
+                throw new InvalidOperationException("Typing or generic draining published an unconfirmed Preferred name.");
+        }
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Unconfirmed entry";
+        ObserveNoAutosave();
+        Invoke("OpenSettingsButton");
+        Invoke("OpenSettingsButton");
+        if (panel.Visibility != Visibility.Collapsed) throw new InvalidOperationException("Settings must cancel only the small entry.");
+        ObserveNoAutosave();
+
+        Invoke("EditPreferredNameButton");
+        editor.Text = " ";
+        var beforeFailure = WorkspaceFixtures.Bytes(folder);
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Visible || editor.Text != " " ||
+            error.Visibility != Visibility.Visible || !details.Text.Contains("preferredName", StringComparison.Ordinal))
+            throw new InvalidOperationException("An explicit rejected save must retain input and its inline error.");
+        if (Control<TextBlock>("NoticeSummary").Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1 ||
+            error.Text.Contains("expected nonblank", StringComparison.Ordinal))
+            throw new InvalidOperationException("One rejected Preferred name repeated global status or exposed technical schema prose as its local summary.");
+        var disclosure = Control<Expander>("PreferredNameFailureDetails");
+        disclosure.ApplyTemplate();
+        var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+        if (!disclosure.IsExpanded || !ReferenceEquals(Control<Popup>("PreferredNamePopup").Child, panel) ||
+            !LogicalDescendants(panel).Contains(disclosure) || !LogicalDescendants(disclosure).Contains(details) ||
+            !details.Focusable || !KeyboardNavigation.GetIsTabStop(details) ||
+            !System.Windows.Automation.AutomationProperties.GetHelpText(error).Contains("preferredName", StringComparison.Ordinal) ||
+            editor.Text != " " || workflow.CanSafelyClose)
+            throw new InvalidOperationException("Retained-name technical Details must be accessible inside the same entry without cancelling writing.");
+        AssertWorkspaceBytes(folder, beforeFailure);
+        if (Control<TextBlock>("LocalWritingDetails").Text != workflow.LocalSaveError)
+            throw new InvalidOperationException("Concise notice presentation dropped retained technical save evidence.");
+        Invoke("FavoriteButton");
+        Settled();
+        if (error.Visibility != Visibility.Visible || !details.Text.Contains("preferredName", StringComparison.Ordinal))
+            throw new InvalidOperationException("An unrelated successful Favorite action hid the failed Preferred-name entry.");
+        Invoke("CancelPreferredNameButton");
+        if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose ||
+            workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Preferred-name Cancel must discard only that failed entry without saving.");
+        if (Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Preferred-name cancellation left a routine global notice in healthy reading.");
+
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Explicit name";
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Explicit name")
+            throw new InvalidOperationException("Successful explicit Save must publish and close the entry.");
+        Invoke("EditPreferredNameButton");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Explicit empty Save must clear Preferred name.");
+        foreach (var cancel in new[] { false, true })
+        {
+            publisher.Entered.Reset();
+            publisher.Release.Reset();
+            publisher.HoldNextProfile = true;
+            Invoke("EditPreferredNameButton");
+            editor.Text = cancel ? "Admitted before Cancel" : "First admitted value";
+            try
+            {
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
+                    throw new InvalidOperationException("Preferred-name Save did not reach the held real-file publication.");
+                if (cancel)
+                {
+                    editor.Text = "Cancelled newer writing";
+                    var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                    Invoke("CancelPreferredNameButton");
+                    if (elapsed.ElapsedMilliseconds > 1000 || panel.Visibility != Visibility.Collapsed)
+                        throw new InvalidOperationException("Cancel waited behind admitted I/O instead of closing only the entry.");
+                    var rejected = false;
+                    CancelEventHandler observe = (_, e) => rejected = e.Cancel;
+                    window.Closing += observe;
+                    try { window.Close(); }
+                    finally { window.Closing -= observe; }
+                    if (!rejected || Control<Button>("OpenWorkspaceButton").IsEnabled)
+                        throw new InvalidOperationException("Cancel falsely enabled close before admitted Preferred-name I/O completed.");
+                }
+                else editor.Text = "Newer retained value";
+            }
+            finally { publisher.Release.Set(); }
+            Settled();
+            var elapsedAfterSave = System.Diagnostics.Stopwatch.StartNew();
+            PumpUntil(() => elapsedAfterSave.ElapsedMilliseconds >= 650);
+            if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName !=
+                (cancel ? "Admitted before Cancel" : "First admitted value"))
+                throw new InvalidOperationException("Save completion dropped admitted writing or implicitly saved newer input.");
+            if (cancel)
+            {
+                if (panel.Visibility != Visibility.Collapsed || !workflow.CanSafelyClose)
+                    throw new InvalidOperationException("An admitted save reopened its cancelled entry or retained a false unsaved error.");
+            }
+            else
+            {
+                if (panel.Visibility != Visibility.Visible || editor.Text != "Newer retained value")
+                    throw new InvalidOperationException("Save completion discarded newer Preferred-name input.");
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Settled();
+                if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Newer retained value" ||
+                    panel.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("The next explicit Save did not use the exact accepted base for newer typing.");
+            }
+        }
+        Invoke("EditPreferredNameButton");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        Invoke("EditPreferredNameButton");
+        using (var provider = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!provider.OpenWorkspace(folder) || !provider.EditPreferredName("avery@example.com", "Delivered during entry"))
+                throw new InvalidOperationException(provider.Status);
+        }
+        if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+        PumpUntil(() => Control<TextBlock>("ProfileHeading").Text == "Delivered during entry");
+        editor.Text = "Retained stale entry";
+        foreach (var attempt in new[] { 1, 2 })
+        {
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Settled();
+            if (panel.Visibility != Visibility.Visible || editor.Text != "Retained stale entry" ||
+                !details.Text.Contains("changed externally", StringComparison.Ordinal) ||
+                workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Delivered during entry")
+                throw new InvalidOperationException($"Explicit stale Preferred-name attempt {attempt} lost its original base/input or overwrote delivery.");
+        }
+        Invoke("CancelPreferredNameButton");
+        Invoke("EditPreferredNameButton");
+        if (editor.Text != "Delivered during entry")
+            throw new InvalidOperationException("Reopening after cancellation did not intentionally accept the delivered name.");
+        editor.Clear();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        var notes = Control<FrameworkElement>("PersonNotes");
+        ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("EditTab");
+        var noteEditor = (TextBox)notes.FindName("MarkdownEditor");
+        Invoke("EditPreferredNameButton");
+        editor.Text = "Unconfirmed alongside note writing";
+        publisher.Entered.Reset();
+        publisher.Release.Reset();
+        publisher.HoldNextNote = true;
+        Task<bool>? noteSave = null;
+        try
+        {
+            noteEditor.Text = "Independent admitted note writing";
+            noteSave = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+            if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
+                throw new InvalidOperationException("Independent note save did not reach the held publisher.");
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            Invoke("CancelPreferredNameButton");
+            if (elapsed.ElapsedMilliseconds > 1000 || panel.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("Preferred-name cancellation waited behind independent note I/O.");
+        }
+        finally { publisher.Release.Set(); }
+        PumpUntil(() => noteSave!.IsCompleted);
+        if (!noteSave!.GetAwaiter().GetResult() || workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Preferred-name cancellation affected independent note publication.");
+        noteEditor.Text = "# Saved note";
+        var restoreNote = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
+        PumpUntil(() => restoreNote.IsCompleted);
+        if (!restoreNote.GetAwaiter().GetResult()) throw new InvalidOperationException(workflow.Status);
+        ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
+        Console.WriteLine("PASS: invisible compiled Preferred-name typing does not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
+        Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
+    }
+
+    private static void VerifyInlineProfileLayout(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var identity = Control<Grid>("PersonIdentity");
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        void Layout(double width, double height)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+        }
+        Layout(1920, 1040);
+        var directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        var alias = Bounds(Control<TextBox>("Alias"));
+        if (Math.Abs(directory.Top - alias.Top) > 1 || alias.Left < directory.Right)
+            throw new InvalidOperationException("The wide inline profile must pair Directory name and Alias in a responsive labelled form.");
+        var divider = Control<GridSplitter>("PeopleDivider");
+        var people = Control<GroupBox>("PeoplePanel");
+        var host = Control<Grid>("ExplorerPanel");
+        var originalPeople = people.ActualWidth;
+        void Drag(double delta)
+        {
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Layout(1920, 1040);
+            divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Layout(1920, 1040);
+        }
+        Drag(host.ActualWidth - people.ActualWidth);
+        directory = Bounds(Control<TextBox>("DirectoryNameEditor"));
+        alias = Bounds(Control<TextBox>("Alias"));
+        if (alias.Top <= directory.Bottom || Math.Abs(alias.Left - directory.Left) > 1)
+            throw new InvalidOperationException("A narrow Person pane must stack labelled profile fields rather than clipping paired columns.");
+        Drag(originalPeople - people.ActualWidth);
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
+        {
+            Layout(size.Width, size.Height);
+            var viewport = Bounds(scroll);
+            foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+            {
+                var editor = Control<Control>(name);
+                var bounds = Bounds(editor);
+                if (!editor.IsEnabled || editor.Visibility != Visibility.Visible || !editor.Focusable ||
+                    !KeyboardNavigation.GetIsTabStop(editor) || editor.FontSize < 14 ||
+                    bounds.Width < 180 || bounds.Left < viewport.Left - 1 || bounds.Right > viewport.Right + 1)
+                    throw new InvalidOperationException($"Inline profile field {name} is inaccessible or overflows at {size}: {bounds}, viewport={viewport}.");
+            }
+            if (scroll.ScrollableWidth > 0 ||
+                scroll.ViewportHeight < Control<TextBox>("DirectoryNameEditor").ActualHeight ||
+                Bounds(Control<GroupBox>("ProfileSummary")).Bottom > Bounds(Control<GroupBox>("NotesPane")).Top + 1)
+                throw new InvalidOperationException("Profile editing must precede independent notes without horizontal page scrolling.");
+            var beforeIdentity = Bounds(identity);
+            var save = Control<Button>("SaveProfileButton");
+            var beforeSave = Bounds(save);
+            scroll.ScrollToBottom();
+            Layout(size.Width, size.Height);
+            if (beforeIdentity != Bounds(identity) || beforeSave != Bounds(save) ||
+                Bounds(save).Bottom > Bounds(scroll).Top + 1 || save.IsDefault ||
+                Control<Button>("CancelProfileButton").IsCancel)
+                throw new InvalidOperationException("Profile identity and explicit Save/Cancel must remain anchored without a window-wide Enter/Escape action.");
+            scroll.ScrollToTop();
+        }
+        Layout(1920, 1040);
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");
+        Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
+    }
+
+    private static void VerifyRejectedOverlayGeometry(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "retained-overlay");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000005",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com","officeNumber":"Discard me"}]}
+                """).Id))
+                throw new InvalidOperationException("Retained overlay fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var notes = Control<FrameworkElement>("PersonNotes");
+        T Note<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("WorkspaceName").Text == "retained-overlay" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        var casey = workflow.ReportingRoots.Single();
+        var avery = casey.Reports.Single();
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => Note<TextBox>("NoteTitle").Text == "New Person note" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var savedFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
+        var savedBytes = File.ReadAllBytes(savedFile);
+        var root = (FrameworkElement)window.Content;
+        var searchFrame = (FrameworkElement)LogicalTreeHelper.GetParent(Control<TextBox>("SearchQuery"));
+        var toolbar = (FrameworkElement)LogicalTreeHelper.GetParent(searchFrame);
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        void Layout()
+        {
+            root.Measure(new Size(700, 900));
+            root.Arrange(new Rect(0, 0, 700, 900));
+            root.UpdateLayout();
+        }
+        void Measure(string phase) => Console.WriteLine($"OVERLAY-PROBE {phase}: viewport={Bounds(Control<ScrollViewer>("PersonScroll"))}; " +
+            $"notice={Bounds(Control<GroupBox>("OperationalNotice"))}; owner={Control<TextBlock>("Email").Text}; " +
+            $"toolbar={Bounds(toolbar)}; searchFrame={Bounds(searchFrame)}; search={Bounds(Control<TextBox>("SearchQuery"))}; " +
+            $"clear={Bounds(Control<Button>("ClearSearchButton"))}/{Control<Button>("ClearSearchButton").Visibility}; " +
+            $"desiredSearch={Control<TextBox>("SearchQuery").DesiredSize}; desiredClear={Control<Button>("ClearSearchButton").DesiredSize}; " +
+            $"logicalFocus={(FocusManager.GetFocusedElement(window) as FrameworkElement)?.Name}; " +
+            $"title='{Note<TextBox>("NoteTitle").Text}'; editing={Note<TabControl>("Views").SelectedItem == notes.FindName("EditTab")}; " +
+            $"editor={Bounds(Note<TextBox>("MarkdownEditor"))}; " +
+            $"panel={Control<GroupBox>("PeoplePanel").Visibility}; summary={Control<TextBlock>("NoticeSummary").Text.Replace('\n', '|')}.");
+        try
+        {
+            Note<TextBox>("NoteTitle").Text = "";
+            PumpUntil(() => Note<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal) &&
+                Control<Button>("OpenWorkspaceButton").IsEnabled);
+            Layout();
+            Measure("after-resize");
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            Layout();
+            var before = Bounds(Control<ScrollViewer>("PersonScroll"));
+            Measure("baseline");
+            Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            Measure("opened");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(avery, casey, TreeView.SelectedItemChangedEvent));
+            Layout();
+            Measure("rejected");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
+                Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
+                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+                Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
+                !Control<TextBlock>("StatusText").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
+                !Note<TextBlock>("NoteStatus").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
+                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
+                throw new InvalidOperationException("Measured rejected overlay navigation changed geometry, owner, retained editor or panel.");
+            var note = System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading"));
+            var draft = Note<TextBox>("MarkdownEditor").Text;
+            Measure("before-query");
+            Control<TextBox>("SearchQuery").Text = "casey@example";
+            var results = Control<ListBox>("SearchResults");
+            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result => result.Person.Email == "casey@example.com"));
+            Layout();
+            Measure("after-query-before-activate");
+            void Enter(UIElement target) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = root }, 0, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            FocusManager.SetFocusedElement(window, Control<TextBox>("SearchQuery"));
+            Enter(Control<TextBox>("SearchQuery"));
+            Layout();
+            Measure("query-enter-focus");
+            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result => result.Person.Email == "casey@example.com");
+            Enter(results);
+            PumpUntil(() => results.SelectedItem is null);
+            Layout();
+            Measure("rejected-search");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
+                Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
+                Note<TextBox>("MarkdownEditor").Text != draft ||
+                System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")) != note ||
+                Control<TextBox>("SearchQuery").Text != "casey@example" ||
+                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+                Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
+                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
+                throw new InvalidOperationException("Measured rejected search changed absolute viewport or retained query, owner, note, writing or panel.");
+            Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            Measure("query-cleared");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) || Control<TextBox>("SearchQuery").Text != "")
+                throw new InvalidOperationException("Clearing the query changed the original absolute Person viewport.");
+        }
+        finally
+        {
+            Note<Button>("DiscardButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" && workflow.CanSafelyClose);
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Overlay measurement must remain invisible without a native main-window handle.");
+    }
+
+    private static void VerifyEmptyReadingScroll(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "empty-reading-scroll");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) ||
+                !seed.ApplyImport(seed.PreviewImport(SearchImport(SearchBrowsingPeople(responsive: true), 902)).Id))
+                throw new InvalidOperationException("Empty reading fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+            Control<TextBlock>("WorkspaceName").Text == "empty-reading-scroll" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        var avery = workflow.ReportingRoots.Single(node => node.Person.Email == "morgan@example.com").Reports
+            .Single(node => node.Person.Email == "avery@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1920, 1012));
+        root.Arrange(new Rect(0, 0, 1920, 1012));
+        root.UpdateLayout();
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scroll).GetPattern(PatternInterface.Scroll);
+        Console.WriteLine($"EMPTY-READING: people={workflow.People.Count}; viewport={scroll.ViewportHeight}; " +
+            $"extent={scroll.ExtentHeight}; verticallyScrollable={provider.VerticallyScrollable}; offset={scroll.VerticalOffset}.");
+        if (workflow.People.Count != 44 || workflow.GetPersonNotes("avery@example.com").Count != 0 ||
+            workflow.GetTeamNotes("avery@example.com").Count != 0 || scroll.ViewportHeight <= 0 ||
+            provider.VerticallyScrollable || scroll.VerticalOffset != 0)
+            throw new InvalidOperationException("The full wide empty-reading fixture did not establish the non-scrollable precondition.");
+        ControlReadiness.ScrollToTopIfScrollable(() => provider.VerticallyScrollable,
+            () => provider.SetScrollPercent(System.Windows.Automation.ScrollPattern.NoScroll, 0));
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Empty-reading scroll proof must remain invisible without a native main-window handle.");
+    }
+
+    private static void VerifyPeopleSearchRestoration(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "responsive-browsing");
+        Guid noteId;
+        Guid teamId;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport(
+                    SearchImport(SearchBrowsingPeople(responsive: true), 901)).Id))
+                throw new InvalidOperationException("Responsive browsing fixture failed: " + seed.Status);
+            noteId = seed.CreatePersonNote("avery@example.com", "Individual context", "# Orchid\nPrivate Person writing\n\n" +
+                SearchBrowsingParagraphs())!.Id;
+            teamId = seed.CreateTeamNote("morgan@example.com", "Former direction", "Cedar frozen writing")!.Id;
+            if (!seed.EditPersonManager("avery@example.com", "alex@example.com") ||
+                !seed.EditPersonManager("avery@example.com", "morgan@example.com") ||
+                !seed.EditTeamNote(teamId, "Current direction", "Pine current writing"))
+                throw new InvalidOperationException("Attributed search fixture failed: " + seed.Status);
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        if (!new WorkspaceSettings(Path.Combine(settings, "workspace-settings.json")).SetPaneProportions(folder, new(27, 35)))
+            throw new InvalidOperationException("Could not seed the hosted browsing pane balance.");
+        void Layout(bool compact)
+        {
+            var size = compact ? new Size(700, 900) : new Size(1920, 1012);
+            root.Measure(size);
+            root.Arrange(new Rect(size));
+            root.UpdateLayout();
+        }
+        void Settle(bool compact)
+        {
+            Layout(compact);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            Layout(compact);
+        }
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+            Control<TextBlock>("WorkspaceName").Text == "responsive-browsing");
+        var tree = Control<TreeView>("PeopleList");
+        // Force cold realization rather than letting an invisible host premeasure the entire small fixture.
+        VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
+        Layout(false);
+        Control<TextBox>("SearchQuery").Text = "orchid";
+        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+        void Enter(UIElement target)
+        {
+            target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        }
+        Enter(Control<TextBox>("SearchQuery"));
+        if (Control<TextBlock>("Email").Text != "" ||
+            !ReferenceEquals(FocusManager.GetFocusedElement(window), Control<ListBox>("SearchResults")))
+            throw new InvalidOperationException("Query Enter must focus results without opening the first Person.");
+        Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
+            .Single(r => r.NoteId == noteId);
+        if (Control<TextBlock>("Email").Text != "")
+            throw new InvalidOperationException("Selecting a result must not navigate before explicit activation.");
+        Enter(Control<ListBox>("SearchResults"));
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        void Activate(string query, Func<SearchResult, bool> predicate)
+        {
+            Control<TextBox>("SearchQuery").Text = query;
+            var results = Control<ListBox>("SearchResults");
+            PumpUntil(() => results.Items.Cast<SearchResult>().Any(predicate));
+            results.SelectedItem = results.Items.Cast<SearchResult>().Single(predicate);
+            Enter(results);
+        }
+        Activate("007b", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.Profile);
+        PumpUntil(() => ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBlock>("OfficeNumberValue")));
+        if (Control<TextBlock>("OfficeNumberValue").Text != "007B" ||
+            window.FindName("SearchContextPanel") is not null)
+            throw new InvalidOperationException("Profile search must reveal its actual matching field, not a generic inspector.");
+        Activate("cedar", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.HistoricalTeamNote);
+        PumpUntil(() => Control<Expander>("HistoryAccess").IsExpanded &&
+            Control<FlowDocumentScrollViewer>("HistoricalTeamReading").GetValue(
+                System.Windows.Automation.AutomationProperties.HelpTextProperty) is string text && text.Contains(teamId.ToString(), StringComparison.Ordinal));
+        var historical = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
+        var frozen = historical.Document.Blocks.OfType<Section>().SelectMany(section => section.Blocks.OfType<Section>())
+            .Single(section => Equals(section.Tag, teamId));
+        var frozenText = new TextRange(frozen.ContentStart, frozen.ContentEnd).Text;
+        if (!frozenText.Contains("Cedar frozen writing", StringComparison.Ordinal) ||
+            frozenText.Contains("Pine current writing", StringComparison.Ordinal) ||
+            !frozenText.Contains("morgan@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("Historical search did not reveal the exact frozen owner's document.");
+        Activate("pine", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
+        var teams = Control<FrameworkElement>("TeamNotes");
+        PumpUntil(() => ((Expander)teams.FindName("CurrentTeamContext")).IsExpanded);
+        var inherited = (FlowDocumentScrollViewer)teams.FindName("InheritedReading");
+        if (!System.Windows.Automation.AutomationProperties.GetHelpText(inherited).Contains(teamId.ToString(), StringComparison.Ordinal) ||
+            !new TextRange(inherited.Document.ContentStart, inherited.Document.ContentEnd).Text.Contains("Pine current writing", StringComparison.Ordinal))
+            throw new InvalidOperationException("Current inherited search did not reveal the owner's exact current document.");
+        Control<TextBox>("SearchQuery").Clear();
+        Settle(false);
+        foreach (var compact in new[] { false, true })
+        {
+            VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(compact ? 1 : 0));
+            Layout(compact);
+            if (compact) Invoke("OpenPeopleButton");
+            Settle(compact);
+            var manager = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "morgan@example.com");
+            var branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+            if (!UIElementAutomationPeer.CreatePeerForElement(branch).GetName().Contains("morgan@example.com", StringComparison.Ordinal))
+                throw new InvalidOperationException("Compact reporting rows must retain exact accessible Person identity.");
+            if (!compact)
+            {
+                branch.IsSelected = true;
+                branch.IsExpanded = true;
+            }
+            Settle(compact);
+            foreach (var item in VisualDescendants(tree).OfType<TreeViewItem>().ToArray())
+                item.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Settle(compact);
+            if (!branch.IsExpanded)
+                throw new InvalidOperationException("The compiled compact transition lost the expanded Manager branch.");
+            var scrolling = VisualDescendants(tree).OfType<ScrollViewer>().First();
+            var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(scrolling).GetPattern(PatternInterface.Scroll);
+            if (!provider.VerticallyScrollable)
+                throw new InvalidOperationException("The responsive replay must exercise a real reporting-tree scroll extent.");
+            try
+            {
+                TreeItemRealization.PrepareMeasuredScrollPosition(70,
+                    percent =>
+                    {
+                        Console.WriteLine($"BROWSE-PREP compact={compact}; request={percent}; actual={provider.VerticalScrollPercent}; " +
+                            $"offset={scrolling.VerticalOffset}; extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}");
+                        provider.SetScrollPercent(-1, percent);
+                    }, () => provider.VerticalScrollPercent,
+                    condition => PumpUntil(() => { Layout(compact); return condition(); }));
+            }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException($"Compiled browsing preparation: compact={compact}; percent={provider.VerticalScrollPercent}; " +
+                    $"offset={scrolling.VerticalOffset}; extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}; " +
+                    $"notice={Control<TextBlock>("NoticeSummary").Text}.", error);
+            }
+            if (compact)
+            {
+                scrolling.ScrollToHorizontalOffset(39);
+                Settle(compact);
+                if (Math.Abs(scrolling.HorizontalOffset - 39) > 0.01)
+                    throw new InvalidOperationException($"The compact replay did not establish its observed 39-DIP horizontal offset: " +
+                        $"offset={scrolling.HorizontalOffset}; extent={scrolling.ExtentWidth}; viewport={scrolling.ViewportWidth}.");
+            }
+            TreeItemRealization.BrowsingPosition ReadPosition()
+            {
+                var viewport = new Rect(tree.RenderSize);
+                var rows = VisualDescendants(tree).OfType<TreeViewItem>()
+                    .Where(item => item.DataContext is ReportingNode && item.ActualWidth > 0 && item.ActualHeight > 0)
+                    .Select(item => (Node: (ReportingNode)item.DataContext,
+                        Bounds: item.TransformToAncestor(tree).TransformBounds(new Rect(item.RenderSize))))
+                    .Where(row => row.Bounds.IntersectsWith(viewport))
+                    .Select(row => new TreeItemRealization.BrowsingRow(row.Node.Person.Email,
+                        row.Bounds.Left, row.Bounds.Top)).ToArray();
+                return new(provider.VerticalScrollPercent, rows);
+            }
+            var originalPosition = ReadPosition();
+            Control<TextBox>("SearchQuery").Text = "orchid";
+            PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+            Settle(compact);
+            if (compact)
+            {
+                // Replay lost virtualized width across hiding without changing the Person population.
+                VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
+                tree.InvalidateMeasure();
+                Settle(compact);
+            }
+            Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
+                .Single(r => r.NoteId == noteId);
+            Enter(Control<ListBox>("SearchResults"));
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
+                ((TextBlock)Control<FrameworkElement>("PersonNotes").FindName("NoteHeading")).Text == "Individual context");
+            Settle(compact);
+            Control<TextBox>("SearchQuery").Clear();
+            if (compact) Invoke("OpenPeopleButton");
+            Settle(compact);
+            if (!TreeItemRealization.IsBrowsingPositionRestored(originalPosition, ReadPosition()) ||
+                Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
+                throw new InvalidOperationException($"Compiled search/clear lost browsing restoration: compact={compact}; " +
+                    $"originalRows={DescribeBrowsingRows(originalPosition)}; currentRows={DescribeBrowsingRows(ReadPosition())}; " +
+                    $"originalPercent={originalPosition.Percent}%; actual={provider.VerticalScrollPercent}%; offset={scrolling.VerticalOffset}; " +
+                    $"extent={scrolling.ExtentHeight}; viewport={scrolling.ViewportHeight}; " +
+                    $"horizontalOffset={scrolling.HorizontalOffset}; extentWidth={scrolling.ExtentWidth}; " +
+                    $"viewportWidth={scrolling.ViewportWidth}; scrollableWidth={scrolling.ScrollableWidth}.");
+            provider.SetScrollPercent(-1, 0);
+            Settle(compact);
+            branch = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+            if (!branch.IsExpanded)
+                throw new InvalidOperationException("Search/clear lost the expanded Manager branch after returning to the top.");
+        }
+        Console.WriteLine("PASS: compiled wide/compact exact-note search restores the real tree scroll offset and expansion without a window/native handle.");
+    }
+
+    private static IEnumerable<DependencyObject> VisualDescendants(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (var descendant in VisualDescendants(child)) yield return descendant;
+        }
+    }
+
+    private static void VerifyAdaptiveReadingLayout(Window window)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var root = (FrameworkElement)window.Content;
@@ -273,7 +1177,7 @@ internal static partial class Program
         var body = Control<Grid>("PersonBody");
         var profile = Control<GroupBox>("ProfileSummary");
         var notes = Control<GroupBox>("NotesPane");
-        var profileDivider = Control<GridSplitter>("ProfileDivider");
+        var identity = Control<Grid>("PersonIdentity");
         var peopleDivider = Control<GridSplitter>("PeopleDivider");
         var people = Control<GroupBox>("PeoplePanel");
         var host = Control<Grid>("ExplorerPanel");
@@ -287,17 +1191,18 @@ internal static partial class Program
         }
         void Contained(string stage)
         {
-            var content = (FrameworkElement)viewport.Content;
-            var dividerBounds = profileDivider.TransformToAncestor(content).TransformBounds(new Rect(profileDivider.RenderSize));
-            var noteBounds = notes.TransformToAncestor(content).TransformBounds(new Rect(notes.RenderSize));
+            var profileBounds = profile.TransformToAncestor(body).TransformBounds(new Rect(profile.RenderSize));
+            var noteBounds = notes.TransformToAncestor(body).TransformBounds(new Rect(notes.RenderSize));
             var viewportBounds = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
-            if (viewport.ViewportWidth <= 0 || people.ActualWidth < 239 || profile.ActualWidth < 239 || notes.ActualWidth < 359 ||
+            if (viewport.ViewportWidth <= 0 || people.ActualWidth < 239 || notes.ActualWidth < 359 ||
                 viewportBounds.Right > host.ActualWidth + 1 ||
                 body.ActualWidth > viewport.ViewportWidth + 1 ||
-                dividerBounds.Right > viewport.ViewportWidth + 1 || noteBounds.Right > viewport.ViewportWidth + 1)
-                throw new InvalidOperationException($"Compiled divider overflow {stage}: viewport={viewport.ViewportWidth}, " +
+                noteBounds.Right > viewport.ViewportWidth + 1 ||
+                Math.Abs(profileBounds.Left - noteBounds.Left) > 1 ||
+                Math.Abs(profileBounds.Width - noteBounds.Width) > 1 || profileBounds.Bottom > noteBounds.Top + 1)
+                throw new InvalidOperationException($"Compiled reading overflow/order {stage}: viewport={viewport.ViewportWidth}, " +
                     $"body={body.ActualWidth}, profile={profile.ActualWidth}, notes={notes.ActualWidth}, " +
-                    $"divider={dividerBounds}, noteBounds={noteBounds}.");
+                    $"profileBounds={profileBounds}, noteBounds={noteBounds}.");
         }
         void Drag(GridSplitter divider, double delta, string stage)
         {
@@ -332,21 +1237,507 @@ internal static partial class Program
         }
         Layout();
         Contained("initial");
+        VerifyFactRowSpacing(window);
+        Layout();
+        var photo = Control<FrameworkElement>("Photo");
+        var placeholder = (TextBlock)photo.FindName("Placeholder");
+        if (placeholder.Text != "A" || photo.ActualWidth > 64 || photo.ActualHeight > 64 ||
+            !System.Windows.Automation.AutomationProperties.GetName(placeholder).Contains("No local photo", StringComparison.Ordinal))
+            throw new InvalidOperationException("Missing photos need compact, accessible initials rather than oversized missing-photo furniture.");
         Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
-        Drag(profileDivider, 240 - profile.ActualWidth, "profile minimum");
-        var content = (FrameworkElement)viewport.Content;
-        var start = profileDivider.TransformToAncestor(content).Transform(new Point(0, 0)).X;
-        Drag(profileDivider, viewport.ViewportWidth - 20 - start, "profile maximum");
-        ResizeWithKey(profileDivider, profile, Key.Left, -10);
         ResizeWithKey(peopleDivider, people, Key.Right, 10);
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");
-        Drag(profileDivider, (profile.ActualWidth + notes.ActualWidth) * .36 - profile.ActualWidth, "profile 36%");
-        if (Math.Abs(profile.ActualWidth / (profile.ActualWidth + notes.ActualWidth) - .36) > .01)
-            throw new InvalidOperationException("The actual compiled profile divider cannot reach 36% within the visible viewport.");
         Drag(peopleDivider, host.ActualWidth - people.ActualWidth, "People maximum");
+        ResizeWithKey(peopleDivider, people, Key.Left, -10);
         Layout(1100, 900);
         Contained("narrower wide viewport");
-        Console.WriteLine("PASS: real compiled splitter drags and 10-DIP routed keys retain both panes/divider inside the viewport through minimum, maximum, outer resize and 36% recovery; no visible window/native handle.");
+        var personNotes = Control<FrameworkElement>("PersonNotes");
+        var reading = (FlowDocumentScrollViewer)personNotes.FindName("Reading");
+        var original = reading.Document;
+        if (original.Blocks.OfType<Paragraph>().Any(paragraph => !Equals(paragraph.Foreground, window.Foreground)))
+            throw new InvalidOperationException("Actual saved Markdown headings must retain normal body ink in the selected Read tab.");
+        var longReading = new FlowDocument { PagePadding = new Thickness(0) };
+        foreach (var paragraph in Enumerable.Range(1, 40))
+            longReading.Blocks.Add(new Paragraph(new Run($"Paragraph {paragraph}: the same Person remains identifiable while reading.")));
+        try
+        {
+            reading.Document = longReading;
+            Layout();
+            var identityBefore = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
+            var factsBefore = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
+            if (reading.ActualHeight <= 600 || reading.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                reading.ActualWidth > 600 || viewport.ScrollableHeight <= 0)
+                throw new InvalidOperationException($"Long note reading is still an independently bounded box: reading={reading.RenderSize}, outerExtent={viewport.ExtentHeight}.");
+            viewport.ScrollToVerticalOffset(240);
+            Layout();
+            var identityAfter = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
+            var factsAfter = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
+            if (identityBefore != identityAfter || Math.Abs(factsBefore.Top - factsAfter.Top - 240) > 1)
+                throw new InvalidOperationException("The shared scroll moved identity or failed to move facts with notes.");
+            var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(viewport).GetPattern(PatternInterface.Scroll);
+            if (!provider.VerticallyScrollable)
+                throw new InvalidOperationException("The long reading fixture must still exercise a genuinely scrollable axis.");
+            ControlReadiness.ScrollToTopIfScrollable(() => provider.VerticallyScrollable,
+                () => provider.SetScrollPercent(System.Windows.Automation.ScrollPattern.NoScroll, 0));
+            Layout();
+            if (viewport.VerticalOffset != 0)
+                throw new InvalidOperationException("A valid scroll-to-top request did not restore long reading to the top.");
+        }
+        finally
+        {
+            reading.Document = original;
+            viewport.ScrollToTop();
+            Layout();
+        }
+        Layout();
+        Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "restored People 27%");
+        var facts = Control<Panel>("FactsGrid");
+        var slots = facts.Children.Cast<FrameworkElement>().ToArray();
+        var lefts = slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X).ToArray();
+        int Columns() => slots.Select(slot => Math.Round(slot.TransformToAncestor(facts).Transform(new Point()).X, 2)).Distinct().Count();
+        var columns = Columns();
+        var tree = Control<TreeView>("PeopleList");
+        var originalPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "avery@example.com");
+        var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
+        Layout();
+        if (facts.Children.Count != 8 || Columns() != columns ||
+            slots.Any(slot => slot.Visibility != Visibility.Visible) ||
+            slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
+            Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
+            Control<TextBlock>("OfficeNumberValue").Text != "—" ||
+            Control<TextBlock>("LinkedInProfileUrlValue").Text != "—")
+            throw new InvalidOperationException("Long or missing values repacked facts, lost full text, or hid labelled slots. " +
+                $"Columns: {columns} -> {Columns()}; X: {string.Join(",", lefts)} -> " +
+                $"{string.Join(",", slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X))}; " +
+                $"Directory name={Control<TextBlock>("DirectoryName").Text}; office={Control<TextBlock>("OfficeNumberValue").Text}; " +
+                $"URL={Control<TextBlock>("LinkedInProfileUrlValue").Text}; viewport={viewport.ViewportWidth}x{viewport.ViewportHeight}.");
+        var wideColumns = Columns();
+        Layout(700, 500);
+        if (Columns() >= wideColumns || Control<Button>("OpenPeopleButton").Visibility != Visibility.Visible ||
+            profile.ActualWidth != notes.ActualWidth || profile.ActualWidth > viewport.ViewportWidth)
+            throw new InvalidOperationException("Compact facts must use fewer columns above full-width notes without shrinking type.");
+        var beforeOverlay = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        if (people.Visibility != Visibility.Visible || beforeOverlay != viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize)))
+            throw new InvalidOperationException("The compiled compact overlay moved or squeezed the Person viewport.");
+        Control<Button>("ClosePeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(longPerson, originalPerson, TreeView.SelectedItemChangedEvent));
+        Layout();
+        Contained("restored original Person");
+        Control<TextBox>("SearchQuery").Text = "Researcher";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (Control<TextBox>("SearchQuery").Text != "" || Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
+        Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
+    }
+
+    private static void VerifyRetainedNoteCreationFailure(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "retained-note-creation");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"89000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id))
+                throw new InvalidOperationException("Note-creation failure fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items.Cast<ReportingNode>().Single(),
+            TreeView.SelectedItemChangedEvent));
+        foreach (var scope in new[] { NoteScope.Person, NoteScope.Team })
+        {
+            var notes = Control<FrameworkElement>(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
+            var status = (TextBlock)notes.FindName("NoteStatus");
+            int Count() => scope == NoteScope.Person ? workflow.GetPersonNotes("avery@example.com").Count :
+                workflow.GetTeamNotes("avery@example.com").Count;
+            var originalCount = Count();
+            using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => workflow.LocalSaveError is not null && status.Text.Contains("NOT saved", StringComparison.Ordinal));
+            }
+            var retained = workflow.LocalSaveError!;
+            if (Count() != originalCount || workflow.CanSafelyClose)
+                throw new InvalidOperationException("Failed creation must retain its error without creating replacement writing.");
+            using (var provider = ApplicationWorkflow.CreateFileBacked())
+                if (!provider.OpenWorkspace(folder) ||
+                    !provider.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered " + scope))
+                    throw new InvalidOperationException("Unrelated provider delivery failed: " + provider.Status);
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            if (workflow.LocalSaveError != retained || workflow.CanSafelyClose ||
+                status.Visibility != Visibility.Visible || status.Text != retained ||
+                System.Windows.Automation.AutomationProperties.GetItemStatus(notes) != retained)
+                throw new InvalidOperationException($"Unrelated successful refresh must not replace the unresolved {scope} creation error with success feedback: {status.Text}");
+            var selector = Path.Combine(folder, "workspace.json");
+            var selectorBytes = File.ReadAllBytes(selector);
+            try
+            {
+                File.WriteAllText(selector, "{}");
+                if (workflow.RefreshWorkspace())
+                    throw new InvalidOperationException("The invalid delivery fixture was unexpectedly accepted.");
+                settled = false;
+                window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+                PumpUntil(() => settled);
+                if (!status.Text.Contains("STALE", StringComparison.Ordinal) || !status.Text.Contains(retained, StringComparison.Ordinal))
+                    throw new InvalidOperationException("A distinct current failure must remain visible alongside the retained creation error.");
+            }
+            finally { File.WriteAllBytes(selector, selectorBytes); }
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            workflow.DiscardUnsavedChanges();
+            ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Count() == originalCount + 1 && status.Visibility == Visibility.Collapsed &&
+                workflow.LocalSaveError is null);
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Note failure checks must not show a window or create its native handle.");
+        Console.WriteLine("PASS: Person/Team creation failures remain visible and accessible through successful external refresh, and healthy feedback becomes quiet after deliberate resolution.");
+    }
+
+    private static void VerifyUnavailablePreferredNameEntry(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "unavailable-preferred-name");
+        void Seed(string path, string email, string name)
+        {
+            using var source = ApplicationWorkflow.CreateFileBacked();
+            if (!source.OpenWorkspace(path) || !source.ApplyImport(source.PreviewImport($$"""
+                {"schemaVersion":1,"batchId":"88000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"{{email}}","displayName":"Directory name","preferredName":"{{name}}","managerEmail":null}]}
+                """).Id))
+                throw new InvalidOperationException("Unavailable-name fixture failed: " + source.Status);
+        }
+        Seed(folder, "avery@example.com", "Saved name");
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible) Invoke("OpenSettingsButton");
+        var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        void SelectOwner()
+        {
+            var tree = Control<TreeView>("PeopleList");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items.Cast<ReportingNode>().Single(),
+                TreeView.SelectedItemChangedEvent));
+            if (Control<TextBlock>("Email").Text != "avery@example.com")
+                throw new InvalidOperationException("Unavailable-name fixture did not select Avery.");
+        }
+        void Deliver(string email, string name)
+        {
+            var delivery = Path.Combine(settings, "preferred-delivery-" + Guid.NewGuid().ToString("N"));
+            Seed(delivery, email, name);
+            foreach (var file in Directory.GetFiles(delivery, "*", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(path) != ".workspace.lock")
+                .OrderBy(path => Path.GetFileName(path) == "workspace.json"))
+            {
+                var target = Path.Combine(folder, Path.GetRelativePath(delivery, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, true);
+            }
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+        }
+        Dictionary<string, byte[]> Bytes() => Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+            .Where(path => Path.GetFileName(path) != ".workspace.lock").ToDictionary(path => path, File.ReadAllBytes);
+        void Unchanged(Dictionary<string, byte[]> before)
+        {
+            var after = Bytes();
+            if (after.Count != before.Count || before.Any(pair => !after.TryGetValue(pair.Key, out var bytes) ||
+                !pair.Value.SequenceEqual(bytes)))
+                throw new InvalidOperationException("Preferred-name retention/cancellation rewrote delivered Workspace bytes.");
+        }
+        SelectOwner();
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Retained local entry";
+        Deliver("casey@example.com", "Casey");
+        var delivered = Bytes();
+        if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Visible ||
+            Control<TextBox>("PreferredName").Text != "Retained local entry" ||
+            Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("Valid owner removal must retain the unconfirmed Preferred-name entry and its owner.");
+        if (Control<Button>("SavePreferredNameButton").IsEnabled || !Control<Button>("CancelPreferredNameButton").IsEnabled ||
+            !Control<TextBlock>("PreferredNameError").Text.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+            !System.Windows.Automation.AutomationProperties.GetItemStatus(window).Contains("Pending", StringComparison.Ordinal))
+            throw new InvalidOperationException("Unavailable-owner feedback must retain unsafe state, disable Save and leave Cancel available.");
+        Invoke("CancelPreferredNameButton");
+        if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("Email").Text != "")
+            throw new InvalidOperationException("Deliberate cancellation must release the unavailable owner and close only the entry.");
+        Unchanged(delivered);
+        Deliver("avery@example.com", "Saved name");
+        SelectOwner();
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Still based on saved name";
+        Deliver("casey@example.com", "Casey");
+        Deliver("avery@example.com", "Changed externally");
+        delivered = Bytes();
+        Invoke("SavePreferredNameButton");
+        PumpUntil(() => Control<TextBlock>("PreferredNameError").Visibility == Visibility.Visible);
+        if (Control<TextBox>("PreferredName").Text != "Still based on saved name" ||
+            !System.Windows.Automation.AutomationProperties.GetHelpText(Control<TextBlock>("PreferredNameError"))
+                .Contains("changed externally", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Owner disappearance/return must not replace the entry's original save base.");
+        Unchanged(delivered);
+        Invoke("CancelPreferredNameButton");
+        Unchanged(delivered);
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Unavailable-name checks must not show a window or create its native handle.");
+        Console.WriteLine("PASS: valid owner removal retains Preferred-name input/owner/unsafe state, deliberate Cancel is nonmutating and a returning owner cannot reset the save base.");
+    }
+
+    private static void VerifyTreePresentation(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "tree-presentation");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"87000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"alex@example.com","displayName":"Alex","managerEmail":"avery@example.com"},
+                 {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
+                 {"email":"jordan@example.com","displayName":"Jordan","managerEmail":"casey@example.com"}]}
+                """).Id))
+                throw new InvalidOperationException("Tree presentation fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        void Layout()
+        {
+            root.Measure(new Size(1100, 900));
+            root.Arrange(new Rect(0, 0, 1100, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Tree measurements must not show a window or create its native handle.");
+        }
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        var tree = Control<TreeView>("PeopleList");
+        var manager = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "morgan@example.com");
+        var container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        var provider = (IExpandCollapseProvider)UIElementAutomationPeer.CreatePeerForElement(container).GetPattern(PatternInterface.ExpandCollapse);
+        var expander = (ToggleButton)container.Template.FindName("Expander", container);
+        var chevron = (System.Windows.Shapes.Path)expander.Template.FindName("Chevron", expander);
+        Rect Ink() => chevron.TransformToAncestor(tree).TransformBounds(
+            chevron.RenderedGeometry.GetRenderBounds(new Pen(chevron.Stroke, chevron.StrokeThickness)));
+        Rect ToggleBounds() => expander.TransformToAncestor(tree).TransformBounds(new Rect(expander.RenderSize));
+        var collapsedToggle = ToggleBounds();
+        var collapsed = Ink();
+        var header = (FrameworkElement)container.Template.FindName("PART_Header", container);
+        var headerBefore = header.TransformToAncestor(tree).Transform(new Point());
+        provider.Expand();
+        Layout();
+        var expanded = Ink();
+        var headerAfter = header.TransformToAncestor(tree).Transform(new Point());
+        var centerBefore = collapsed.Left + collapsed.Width / 2;
+        var centerAfter = expanded.Left + expanded.Width / 2;
+        Console.WriteLine($"TREE-CHEVRON collapsed={collapsed}; expanded={expanded}; centers={centerBefore}/{centerAfter}; " +
+            $"toggle={collapsedToggle}/{ToggleBounds()}; header={headerBefore}/{headerAfter}.");
+        if (collapsedToggle != ToggleBounds() || Math.Abs(centerBefore - centerAfter) > 1 || headerBefore.X != headerAfter.X)
+            throw new InvalidOperationException("Expanded and collapsed chevrons must keep the same depth and horizontal center without moving the Person label.");
+        provider.Collapse();
+        Layout();
+        var sibling = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "casey@example.com");
+        var siblingContainer = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(sibling);
+        siblingContainer.IsExpanded = true;
+        var selection = (ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(container).GetPattern(PatternInterface.SelectionItem);
+        selection.Select();
+        Layout();
+        if (Control<TextBlock>("Email").Text != "morgan@example.com" || !container.IsExpanded)
+            throw new InvalidOperationException("Selecting a Person must expand that Person's immediate reports.");
+        var child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        if (child.IsExpanded || !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("Selecting a Person must not recursively expand reports or collapse another branch.");
+        provider.Collapse();
+        Control<TextBox>("SearchQuery").Text = "avery";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        if (container.IsExpanded)
+            throw new InvalidOperationException("A deliberate collapse of the selected Person must survive search/clear without a new Person selection.");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        var results = Control<ListBox>("SearchResults");
+        PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
+            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile));
+        results.SelectedItem = results.Items.Cast<SearchResult>().First(result =>
+            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile);
+        results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+            { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        siblingContainer = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(sibling);
+        if (!container.IsExpanded || child is null || !child.IsExpanded || !child.IsSelected ||
+            child.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single().Reports.Single()) is not TreeViewItem ||
+            !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("A Person selected through search must return to a visible, expanded branch without losing unrelated expansion.");
+        siblingContainer.IsExpanded = false;
+        var notes = Control<FrameworkElement>("PersonNotes");
+        ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((TextBox)notes.FindName("NoteTitle")).Text == "New Person note");
+        ((TextBox)notes.FindName("NoteTitle")).Text = "";
+        PumpUntil(() => ((TextBlock)notes.FindName("NoteStatus")).Text.Contains("NOT saved", StringComparison.Ordinal));
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(siblingContainer)
+            .GetPattern(PatternInterface.SelectionItem)).Select();
+        Layout();
+        if (Control<TextBlock>("Email").Text != "avery@example.com" || siblingContainer.IsExpanded || !child.IsSelected)
+            throw new InvalidOperationException("Rejected navigation must retain the owner and must not expand the rejected Person.");
+        ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((WorkspaceViewModel)tree.DataContext).CanSafelyClose);
+        Console.WriteLine("PASS: real tree selection expands only immediate reports, retains manual collapse/other branches, reveals accepted search destinations and leaves rejected branches unchanged.");
+    }
+
+    private static void VerifyReportsVisibility(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "reports-visibility");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"}]}
+                """).Id))
+                throw new InvalidOperationException("Reports visibility fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        void Layout(double width)
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Reports visibility checks must not show a window or create its native handle.");
+        }
+        bool Presented(FrameworkElement element)
+        {
+            for (DependencyObject? current = element; current is FrameworkElement parent && current != window;
+                current = LogicalTreeHelper.GetParent(current))
+                if (parent.Visibility != Visibility.Visible) return false;
+            return true;
+        }
+        void Expect(bool visible, string stage)
+        {
+            if (Presented(Control<ListBox>("ReportsList")) != visible ||
+                Presented(Control<TextBlock>("ReportCount")) != visible)
+                throw new InvalidOperationException($"Reports list and count must be {(visible ? "shown" : "hidden")} during {stage}.");
+        }
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Invoke("OpenSettingsButton");
+        if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Reports visibility must be checked in the real Person workspace, not behind Settings.");
+        var tree = Control<TreeView>("PeopleList");
+        var manager = tree.Items.Cast<ReportingNode>().Single();
+        void Select(ReportingNode person)
+        {
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
+            if (Control<TextBlock>("Email").Text != person.Person.Email)
+                throw new InvalidOperationException("The reports fixture did not navigate to its intended Person.");
+        }
+        Select(manager.Reports.Single());
+        Layout(1100);
+        Expect(false, "empty wide browsing");
+        Layout(700);
+        Expect(false, "empty compact browsing");
+        Select(manager);
+        Layout(700);
+        Expect(true, "populated compact browsing");
+        var viewport = Control<ScrollViewer>("PersonScroll");
+        var reports = Control<ListBox>("ReportsList");
+        var before = reports.TransformToAncestor(root).TransformBounds(new Rect(reports.RenderSize));
+        var extent = viewport.ExtentHeight;
+        Invoke("OpenPeopleButton");
+        Layout(700);
+        Expect(true, "temporary compact People overlay");
+        if (before != reports.TransformToAncestor(root).TransformBounds(new Rect(reports.RenderSize)) ||
+            extent != viewport.ExtentHeight)
+            throw new InvalidOperationException("Opening People must not reflow the underlying reports or profile content.");
+        Invoke("ClosePeopleButton");
+        Layout(1100);
+        Expect(false, "populated wide tree browsing");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        Expect(true, "populated wide search");
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Expect(false, "return to wide tree browsing");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        reports.SelectedItem = reports.Items.Cast<PersonProfile>().Single();
+        if (Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person.");
+        Expect(false, "empty search destination");
+        Console.WriteLine("PASS: nonempty reports appear only in compact/search, empty lists and counts stay hidden, and the People overlay does not reflow the profile.");
+    }
+
+    private static void VerifyFactRowSpacing(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var facts = Control<Panel>("FactsGrid");
+        var url = Control<TextBlock>("LinkedInProfileUrlValue");
+        var longUrl = "https://www.linkedin.com/in/" + new string('a', 180);
+        void SetUrl(string value)
+        {
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("LinkedInProfileUrl").Text = value;
+            Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<FrameworkElement>("AttributeEditors").Visibility == Visibility.Collapsed &&
+                url.Text == (value.Length == 0 ? "—" : value));
+        }
+        if (url.Text != "—")
+            throw new InvalidOperationException("The facts-spacing fixture must begin without a LinkedIn URL.");
+        SetUrl(longUrl);
+        foreach (var (width, columns) in new[] { (1920d, 4), (1100d, 3), (700d, 2) })
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Fact measurements must not show a window or create its native handle.");
+            var slots = facts.Children.Cast<StackPanel>().ToArray();
+            Rect Bounds(FrameworkElement element) =>
+                element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
+            var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
+            if (slots.Length != 8 || rows[0].Count() != columns ||
+                url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
+                slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
+                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");
+            for (var index = 0; index < rows.Length - 1; index++)
+            {
+                var row = rows[index].ToArray();
+                var advance = rows[index + 1].Key - rows[index].Key;
+                var naturalHeight = row.Max(slot => slot.DesiredSize.Height);
+                var contentBottom = row.Max(slot => slot.Children.Cast<FrameworkElement>()
+                    .Where(child => child.Visibility == Visibility.Visible).Max(child => Bounds(child).Bottom));
+                var gap = rows[index + 1].Key - contentBottom;
+                Console.WriteLine($"FACT-ROWS width={width}; row={index}; advance={advance}; natural={naturalHeight}; gap={gap}; urlHeight={url.ActualHeight}.");
+                if (Math.Abs(advance - naturalHeight) > 1 || gap < 0 || gap > 13)
+                    throw new InvalidOperationException("Each facts row must fit its own content with at most a 12-DIP inter-row gap; a taller later row must not enlarge it.");
+            }
+        }
+        SetUrl("");
+        Console.WriteLine("PASS: actual compiled facts rows fit their own content with compact gaps and full long-URL wrapping at four/three/two columns.");
     }
 
     private sealed class UnshownInputSource : PresentationSource
@@ -394,7 +1785,8 @@ internal static partial class Program
         PumpUntil(() => Control<TextBox>("NoteTitle").Text == "New Team note");
         Control<TextBox>("NoteTitle").Text = "Secondary Team";
         Saved();
-        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
         var tree = (TreeView)window.FindName("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
@@ -409,6 +1801,9 @@ internal static partial class Program
         Select("Secondary Team");
         if (Control<TextBox>("MarkdownEditor").Text != "" || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("An empty secondary Team note must remain an exact, Read-first destination.");
+        if (notes.FindName("EmptyBody") is not TextBlock { Visibility: Visibility.Visible } ||
+            Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("An exact empty Team document needs an Edit invitation, not an absent-collection state or blank viewer.");
         var settings = Path.Combine(Path.GetDirectoryName(folder)!, "workspace-settings.json");
         var preference = File.ReadAllBytes(settings);
         using (File.Open(settings, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -456,8 +1851,7 @@ internal static partial class Program
 
     private static void VerifyOwnedNoteRevisions(Window window, string folder, NoteScope scope)
     {
-        var workflow = (WorkspaceViewModel)window.GetType()
-            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
         var notes = (FrameworkElement)window.FindName(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
         T Control<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         void Open(Guid id) => notes.GetType().GetMethod("OpenNote")!.Invoke(notes, [id]);
@@ -470,6 +1864,9 @@ internal static partial class Program
             ? workflow.CreatePersonNote(owner, "Review secondary Person", "")!.Id
             : workflow.CreateTeamNote(owner, "Review secondary Team", "")!.Id;
         Open(id);
+        if (Control<TextBlock>("EmptyBody").Visibility != Visibility.Visible ||
+            Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException($"Exact empty {scope} reading must invite Edit without substituting a collection-empty state.");
         var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", id.ToString("D") + ".md");
         var text = File.ReadAllText(file);
         var headerStart = text.IndexOf('\n') + 1;
@@ -490,6 +1887,9 @@ internal static partial class Program
             throw new InvalidOperationException($"Clean {scope} editor retained a stale timestamp base: " +
                 Control<TextBlock>("NoteStatus").Text);
         Ready();
+        if (Control<TextBlock>("NoteStatus").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException($"Successful {scope} autosave left routine status in the note section.");
+        PumpUntil(() => System.Windows.Automation.AutomationProperties.GetItemStatus(notes) == Control<TextBlock>("NoteStatus").Text);
         Console.WriteLine($"PASS: actual compiled clean {scope} editor accepts timestamp-only delivery before its next save.");
 
         Invoke("ArchiveButton");
@@ -583,10 +1983,8 @@ internal static partial class Program
 
     private static void VerifyMaintenanceRetryAfterBlockedOpen(Window window, string folder)
     {
-        var workflow = (WorkspaceViewModel)window.GetType()
-            .GetField("workflow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-        var pending = window.GetType().GetProperty("HasPendingWork", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        void Settled() => PumpUntil(() => !(bool)pending.GetValue(window)!);
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        void Settled() => PumpUntil(() => ((Button)window.FindName("OpenWorkspaceButton")).IsEnabled);
         var selected = workflow.PeopleNavigation.SelectedEmail!;
         var destination = workflow.PeopleNavigation.LastValidView;
         var preferredName = workflow.GetRelationships(selected)!.Person.PreferredName;
@@ -596,12 +1994,14 @@ internal static partial class Program
         if (workflow.CanSafelyClose || !workflow.LocalSaveError!.Contains("recovery maintenance incomplete", StringComparison.Ordinal))
             throw new InvalidOperationException("The compiled retry fixture did not retain a committed maintenance failure.");
         var alternate = Path.Combine(Path.GetDirectoryName(folder)!, "blocked-workspace");
-        ((TextBox)window.FindName("WorkspacePath")).Text = alternate;
-        ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, alternate);
         Settled();
         if (workflow.Compatibility.WorkspacePath != folder ||
             workflow.PeopleNavigation.SelectedEmail != selected ||
-            workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate))
+            workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate) ||
+            !((TextBlock)window.FindName("NoticeSummary")).Text.Contains("Saved locally; recovery maintenance incomplete", StringComparison.Ordinal) ||
+            workflow.CanSafelyClose)
             throw new InvalidOperationException("Blocked Workspace navigation changed the current presentation or created the destination.");
         var retry = LogicalDescendants((DependencyObject)window.FindName("SettingsPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "RetryWorkspace");

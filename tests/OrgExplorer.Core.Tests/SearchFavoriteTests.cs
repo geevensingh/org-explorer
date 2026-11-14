@@ -6,6 +6,71 @@ namespace OrgExplorer.Core.Tests;
 public sealed class SearchFavoriteTests
 {
     [Fact]
+    public void Shared_Team_note_excerpts_do_not_allocate_a_normalized_body_for_every_report()
+    {
+        using var app = Open();
+        Apply(app, string.Join(",", Enumerable.Range(0, 64).Select(index =>
+            $$"""{"email":"report{{index}}@example.com","displayName":"Report {{index}}","managerEmail":"morgan@example.com"}""")), 2);
+        var markdown = "firstneedle\n" + string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
+        var note = app.CreateTeamNote("morgan@example.com", "Shared context", markdown)!;
+        app.Search("lastneedle");
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var matches = app.Search("lastneedle");
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(66, matches.Count);
+        Assert.True(allocated < 2 * 1024 * 1024,
+            $"A shared 112-KiB note must not allocate another normalized body per matching report; allocated {allocated:N0} bytes.");
+        Assert.All(matches, match =>
+        {
+            Assert.Equal(note.Id, match.NoteId);
+            Assert.Equal("morgan@example.com", match.NoteOwner!.Email);
+            Assert.Equal(markdown, match.MatchText);
+            Assert.Contains("lastneedle", match.Excerpt);
+            Assert.DoesNotContain("firstneedle", match.Excerpt);
+            Assert.True(match.Excerpt.Length <= 162);
+        });
+        var firstMatches = app.Search("firstneedle");
+        Assert.Equal(66, firstMatches.Count);
+        Assert.All(firstMatches, match =>
+        {
+            Assert.Contains("firstneedle", match.Excerpt);
+            Assert.DoesNotContain("lastneedle", match.Excerpt);
+        });
+        Assert.True(app.EditTeamNote(note.Id, "Updated context", "New current writing changedneedle"), app.Status);
+        Assert.Empty(app.Search("lastneedle"));
+        var updated = app.Search("changedneedle");
+        Assert.Equal(66, updated.Count);
+        Assert.All(updated, match => Assert.Equal("New current writing changedneedle", match.Excerpt));
+    }
+
+    [Fact]
+    public void Live_search_excerpts_reveal_the_match_without_navigating_or_replacing_exact_reading()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreatePersonNote("avery@example.com", "Visit plan",
+            new string('a', 240) + "\nNext visit to the Orchid office.\n" + new string('z', 240))!;
+        Assert.True(app.NavigatePerson("morgan@example.com"));
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery("orchid");
+
+        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.Contains("Next visit to the Orchid office.", result.Excerpt);
+        Assert.DoesNotContain('\n', result.Excerpt);
+        Assert.True(result.Excerpt.Length < 200);
+        Assert.Equal("Current — Person note 'Visit plan' — owned by Ave Preferred (avery@example.com)", result.SourceLabel);
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+
+        Assert.True(app.NavigateSearchResult(result));
+        Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.Equal(new string('a', 240) + "\nNext visit to the Orchid office.\n" + new string('z', 240),
+            app.PersonNotesView.SelectedNote.Markdown);
+    }
+
+    [Fact]
     public void People_search_replaces_browsing_and_restores_its_position_after_exact_secondary_navigation()
     {
         using var app = (WorkspaceViewModel)Open();
@@ -13,11 +78,12 @@ public sealed class SearchFavoriteTests
         var secondary = app.CreatePersonNote("avery@example.com", "Orchid secondary", "")!;
         Assert.True(app.NavigatePerson("avery@example.com"));
         Assert.True(app.DesignateOngoingNote(NoteScope.Person, ongoing.Id));
-        app.RememberPeopleBrowsing(["morgan@example.com"], 12);
+        app.RememberPeopleBrowsing(["morgan@example.com"], 12, 39, 576.26);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("Orchid");
         Assert.False(app.PeopleNavigation.IsBrowsing);
         var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        Assert.Equal("Empty note", result.Excerpt);
         Assert.True(app.NavigateSearchResult(result));
         Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.False(app.PersonNotesView.IsEditing);
@@ -27,6 +93,8 @@ public sealed class SearchFavoriteTests
         Assert.True(app.PeopleNavigation.IsBrowsing);
         Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
         Assert.Equal(12, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(39, app.PeopleNavigation.BrowseHorizontalOffset);
+        Assert.Equal(576.26, app.PeopleNavigation.BrowseExtentWidth);
         Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote.Id);
     }
 
@@ -40,7 +108,7 @@ public sealed class SearchFavoriteTests
         Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id, editing: true));
         var basis = app.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id)!;
         app.RetainNoteDraft(basis);
-        app.RememberPeopleBrowsing(["morgan@example.com"], 9);
+        app.RememberPeopleBrowsing(["morgan@example.com"], 9, 24, 500);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("alex@example");
         var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
@@ -54,6 +122,8 @@ public sealed class SearchFavoriteTests
         Assert.Contains("retry or discard", app.Status);
         app.ChangePeopleQuery("");
         Assert.Equal(9, app.PeopleNavigation.BrowseOffset);
+        Assert.Equal(24, app.PeopleNavigation.BrowseHorizontalOffset);
+        Assert.Equal(500, app.PeopleNavigation.BrowseExtentWidth);
         Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
         Assert.Contains("retry or discard", app.Status);
         Assert.NotNull(app.SaveNoteDraft(basis, note.Title, "Saved deliberately"));

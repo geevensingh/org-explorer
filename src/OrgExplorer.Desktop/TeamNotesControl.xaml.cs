@@ -19,6 +19,18 @@ public partial class TeamNotesControl : UserControl
     private readonly OwnedNotePresentation presentation;
     private NoteDraft? noteBase;
     public event Action<Guid>? OwnerRequested;
+    internal FlowDocumentScrollViewer InheritedNoteReading => InheritedReading;
+    internal FlowDocumentScrollViewer NoteReading => Reading;
+
+    internal Section RevealInheritedNote(Guid id)
+    {
+        CurrentTeamContext.IsExpanded = true;
+        var note = InheritedReading.Document.Blocks.OfType<Section>().Single(section => Equals(section.Tag, id));
+        var context = workflow!.GetInheritedTeamNotes(owner!).Single(item => item.Note.Id == id);
+        AutomationProperties.SetHelpText(InheritedReading, $"Current inherited Team note {id}; '{context.Note.Title}'; " +
+            $"owned by {context.Owner.Heading} ({context.Owner.Email}); {context.Note.ReviewStatus}");
+        return note;
+    }
 
     public TeamNotesControl()
     {
@@ -26,13 +38,14 @@ public partial class TeamNotesControl : UserControl
         presentation = new(NoteScope.Team)
         {
             Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
-            Designate = DesignateButton, Ongoing = OngoingButton
+            Designate = DesignateButton, Ongoing = OngoingButton,
+            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody, OperationStatus = NoteStatus, Surface = this
         };
         draft = new NoteDraftState("Team note", SaveNoteDraft,
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
-            message => NoteStatus.Text = message,
-            message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
+            message => presentation.ShowOperationStatus(message),
+            (message, retainedFailure) => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message, retainedFailure));
         Unloaded += (_, _) => draft.Stop();
     }
 
@@ -51,7 +64,7 @@ public partial class TeamNotesControl : UserControl
     {
         if (workflow is { } current && current.GetWorkspaceConflicts().Count != 0)
         {
-            NoteStatus.Text = current.Status;
+            presentation.ShowOperationStatus(current.Status);
             ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(current.Status);
             return false;
         }
@@ -71,7 +84,7 @@ public partial class TeamNotesControl : UserControl
             loading = false;
         }
         Ownership.Text = email is null ? "Select a Person." :
-            $"Owned by {email}; applies to current formal descendants. Ownership stays with this Person, not a permanent team. No sharing.";
+            $"Owned by {email}; applies to current formal descendants.";
         NewButton.IsEnabled = email is not null;
         if (!draft.HasUnsavedChanges) RefreshNotes();
         RefreshContext();
@@ -99,8 +112,6 @@ public partial class TeamNotesControl : UserControl
         NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == view.SelectedNote?.Id);
         OtherNotes.IsExpanded = view.OtherNotesOpen;
         OtherNotes.Visibility = owner is not null && view.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Visibility = owner is not null && !view.Notes.Any(n => !n.Archived) ? Visibility.Visible : Visibility.Collapsed;
-        EmptyNotes.Text = "No active owned Team notes. Write a new Team note to begin; Other notes retains archived writing.";
         loading = false;
         LoadNote(view.SelectedNote);
         ShowPresentation();
@@ -275,7 +286,7 @@ public partial class TeamNotesControl : UserControl
                 workflow.IsWorkspaceCurrent && workflow.TeamNotesView.SelectedNote is { Archived: false };
             ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
         }
-        if (!draft.HasUnsavedChanges) NoteStatus.Text = workflow.Status;
+        if (!draft.HasUnsavedChanges) presentation.ShowOperationStatus(workflow, retainedDraft: false);
         ShowPresentation();
     }
 
@@ -286,26 +297,32 @@ public partial class TeamNotesControl : UserControl
 
     private void RefreshContext()
     {
+        AutomationProperties.SetHelpText(InheritedReading, "");
         var inherited = workflow is null || owner is null ? [] : workflow.GetInheritedTeamNotes(owner);
         var warnings = inherited.Where(n => n.Note.NeedsReview).ToArray();
         InheritedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
             $"Needs review: '{n.Note.Title}' - {n.Owner.Heading} ({n.Owner.Email}). Expand Current inherited Team context to read or review."));
         InheritedReviewWarnings.Visibility = warnings.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        ContextHeading.Text = $"Current inherited Team context - {inherited.Count} notes from formal ancestors";
+        ContextHeading.Text = "Current inherited Team context";
+        ContextAttribution.Text = inherited.Count == 0 ? "No current inherited Team notes. Person notes never inherit." :
+            "From " + string.Join("; ", inherited.Select(n => $"{n.Owner.Heading} ({n.Owner.Email})").Distinct()) +
+            $". All {inherited.Count} active ancestor notes, not just ongoing writing.";
         InheritedSummary.Text = inherited.Count == 0 ? "No current inherited Team notes." :
             string.Join("\n", inherited.Select(n => $"{n.Note.Title} — {n.Owner.Heading} ({n.Owner.Email}): {n.Note.ReviewStatus}"));
         ReviewOwners.Children.Clear();
         var document = PrivateMarkdownReading.Create("", OpenExternalLink);
         foreach (var context in inherited)
         {
-            document.Blocks.Add(new Paragraph(new Bold(new Run($"{context.Note.Title} — owned by {context.Owner.Heading} ({context.Owner.Email})"))));
-            document.Blocks.Add(new Paragraph(new Run(context.Note.ReviewStatus)));
+            var section = new Section { Tag = context.Note.Id };
+            section.Blocks.Add(new Paragraph(new Bold(new Run($"{context.Note.Title} — owned by {context.Owner.Heading} ({context.Owner.Email})"))));
+            section.Blocks.Add(new Paragraph(new Run(context.Note.ReviewStatus)));
             var rendered = PrivateMarkdownReading.Create(context.Note.Markdown, OpenExternalLink);
             while (rendered.Blocks.FirstBlock is { } block)
             {
                 rendered.Blocks.Remove(block);
-                document.Blocks.Add(block);
+                section.Blocks.Add(block);
             }
+            document.Blocks.Add(section);
             var button = new Button
             {
                 Content = new TextBlock
@@ -313,8 +330,9 @@ public partial class TeamNotesControl : UserControl
                     Text = $"Read / review '{context.Note.Title}' on {context.Owner.Heading}'s profile",
                     TextWrapping = TextWrapping.Wrap
                 },
-                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
+                MaxWidth = 600, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 2)
             };
+            button.SetResourceReference(StyleProperty, "QuietButton");
             AutomationProperties.SetAutomationId(button, "ReviewTeamNote-" + context.Note.Id);
             AutomationProperties.SetName(button, $"Read / review '{context.Note.Title}' - owner {context.Owner.Email}");
             button.Click += (_, _) => OwnerRequested?.Invoke(context.Note.Id);
@@ -325,7 +343,7 @@ public partial class TeamNotesControl : UserControl
 
     private void ShowStatus()
     {
-        NoteStatus.Text = workflow?.Status ?? "";
+        if (workflow is not null) presentation.ShowOperationStatus(workflow, draft.HasUnsavedChanges);
         ShowPresentation();
         changed?.Invoke();
     }
@@ -333,12 +351,14 @@ public partial class TeamNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent);
+        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent, draft.HasUnsavedChanges);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
         var note = notes.FirstOrDefault(n => n.Id == selected);
         ReviewStatus.Text = note?.ReviewStatus ?? "";
+        ReviewStatus.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && note is { NeedsReview: true, Archived: false };
+        ConfirmButton.Visibility = note is { NeedsReview: true, Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         var warnings = notes.Where(n => n.NeedsReview && !n.Archived).ToArray();
         OwnedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>
             $"Needs review: '{n.Title}' - owned by {n.OwnerEmail}. Open the note to confirm, edit or archive."));
@@ -377,6 +397,6 @@ public partial class TeamNotesControl : UserControl
     {
         try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        { NoteStatus.Text = "External link could not be opened: " + ex.Message; }
+        { presentation.ShowOperationStatus("External link could not be opened: " + ex.Message); }
     }
 }

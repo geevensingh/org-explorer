@@ -2,56 +2,63 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <StackPanel>
-    <TextBlock Text="Owned Team notes" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-    <TextBlock x:Name="Ownership" AutomationProperties.AutomationId="TeamNoteOwnership"
-               TextWrapping="Wrap" Margin="0,4,0,8"/>
-    <TextBlock x:Name="OngoingStatus" AutomationProperties.AutomationId="TeamOngoingNoteStatus"
-               TextWrapping="Wrap" Foreground="#9C3B10" Margin="0,4"/>
-    <TextBlock x:Name="OwnedReviewWarnings" AutomationProperties.AutomationId="OwnedTeamReviewWarnings"
-               TextWrapping="Wrap" Foreground="#9C3B10" FontWeight="SemiBold" Margin="0,4"/>
-    <WrapPanel Margin="0,0,0,8">
-      <Button x:Name="NewButton" Content="New Team note"
+  <Border Style="{DynamicResource ReadingSection}">
+  <StackPanel>
+    <DockPanel LastChildFill="True">
+      <Button x:Name="NewButton" Content="New Team note" DockPanel.Dock="Right" Style="{DynamicResource QuietButton}"
               AutomationProperties.AutomationId="NewTeamNote" Click="CreateNote" IsEnabled="False"/>
-      <Button x:Name="OngoingButton" Content="Open ongoing note" Margin="8,0,0,0"
+      <TextBlock Text="Owned Team notes" Style="{DynamicResource ReadingHeading}"/>
+    </DockPanel>
+    <TextBlock x:Name="Ownership" AutomationProperties.AutomationId="TeamNoteOwnership"
+               AutomationProperties.HelpText="Ownership stays with this Person, not a permanent team. Team scope is not sharing."
+               ToolTip="Ownership stays with this Person, not a permanent team. Team scope is not sharing."
+               Style="{DynamicResource NoteMetadata}"/>
+    <TextBlock x:Name="OngoingStatus" AutomationProperties.AutomationId="TeamOngoingNoteStatus"
+               Style="{DynamicResource ReadingProse}" Foreground="#9C3B10"/>
+    <TextBlock x:Name="OwnedReviewWarnings" AutomationProperties.AutomationId="OwnedTeamReviewWarnings"
+               Style="{DynamicResource ReadingProse}" Foreground="#9C3B10" FontWeight="SemiBold"/>
+    <WrapPanel>
+      <Button x:Name="OngoingButton" Content="Open ongoing note" Style="{DynamicResource QuietButton}"
               AutomationProperties.AutomationId="OpenOngoingTeamNote" Click="OpenOngoing" Visibility="Collapsed"/>
     </WrapPanel>
     <Expander x:Name="OtherNotes" Header="Other notes" AutomationProperties.AutomationId="OtherTeamNotes"
-              Expanded="ChangeOtherNotes" Collapsed="ChangeOtherNotes" Margin="0,0,0,8">
+              Style="{DynamicResource ReadingDisclosure}" Expanded="ChangeOtherNotes" Collapsed="ChangeOtherNotes">
       <StackPanel>
         <TextBlock Text="Open any owned Team note, then choose Use as ongoing. Every active Team note still supplies context to formal descendants."
-                   TextWrapping="Wrap" Margin="0,4"/>
+                   Style="{DynamicResource NoteMetadata}"/>
         <CheckBox x:Name="IncludeArchived" Content="Show archived Team notes"
                 AutomationProperties.AutomationId="ShowArchivedTeamNotes"
                 Checked="ChangeArchiveFilter" Unchecked="ChangeArchiveFilter" VerticalAlignment="Center"/>
         <ListBox x:Name="NotesList" AutomationProperties.AutomationId="TeamNotes" AutomationProperties.Name="Owned Team notes"
-                 DisplayMemberPath="Title" MaxHeight="160" SelectionChanged="SelectNote">
-          <ListBox.ItemContainerStyle>
-            <Style TargetType="ListBoxItem">
-              <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
-              <Setter Property="AutomationProperties.AutomationId" Value="{Binding Id}"/>
-            </Style>
-          </ListBox.ItemContainerStyle>
+                 DisplayMemberPath="Title" MaxHeight="160" SelectionChanged="SelectNote"
+                 BorderThickness="0" Background="Transparent" ItemContainerStyle="{DynamicResource OtherNoteItem}">
         </ListBox>
       </StackPanel>
     </Expander>
     <TextBlock x:Name="EmptyNotes" AutomationProperties.AutomationId="TeamNotesEmpty"
-               Text="No owned Team notes. New Team note opens directly for writing."
-               TextWrapping="Wrap" Foreground="DimGray" Margin="0,8"/>
+               Text="No owned Team notes yet. Record context for formal descendants."
+               Style="{DynamicResource NoteMetadata}" Visibility="Collapsed"/>
     <TextBlock x:Name="ReviewStatus" AutomationProperties.AutomationId="TeamNoteReview"
-               TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,8"/>
+               Style="{DynamicResource ReadingProse}" FontWeight="SemiBold"/>
     <TextBlock x:Name="NoteHeading" AutomationProperties.AutomationId="TeamNoteHeading"
-               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4"/>
+               FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,4"/>
     <WrapPanel>
-      <TextBlock x:Name="NoteKind" AutomationProperties.AutomationId="TeamNoteKind" VerticalAlignment="Center"/>
+      <TextBlock x:Name="NoteKind" AutomationProperties.AutomationId="TeamNoteKind"
+                 Style="{DynamicResource NoteMetadata}" VerticalAlignment="Center"/>
       <Button x:Name="DesignateButton" Content="Use as ongoing" Margin="8,0,0,0" Visibility="Collapsed"
-              AutomationProperties.AutomationId="UseAsOngoingTeamNote" Click="DesignateOngoing"/>
+              Style="{DynamicResource QuietButton}" AutomationProperties.AutomationId="UseAsOngoingTeamNote" Click="DesignateOngoing"/>
     </WrapPanel>
-    <TabControl x:Name="Views" Margin="0,8,0,0" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
-      <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab">
-        <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
-                                  MaxWidth="600" Height="200" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+    <TabControl x:Name="Views" Margin="0,8,0,0" BorderThickness="0" Padding="0" Background="Transparent"
+                HorizontalContentAlignment="Stretch" Visibility="Collapsed" SelectionChanged="ChangeNoteMode">
+      <TabItem x:Name="ReadTab" Header="Read" AutomationProperties.AutomationId="TeamNoteReadTab" Style="{DynamicResource NoteModeTab}">
+        <StackPanel>
+          <TextBlock x:Name="EmptyBody" AutomationProperties.AutomationId="TeamNoteEmptyBody"
+                     Style="{DynamicResource NoteMetadata}" Visibility="Collapsed"/>
+          <FlowDocumentScrollViewer x:Name="Reading" AutomationProperties.AutomationId="TeamNoteReading"
+                                    AutomationProperties.HelpText="Images and raw HTML are never loaded. External links open only when selected."/>
+        </StackPanel>
       </TabItem>
-      <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="TeamNoteEditTab">
+      <TabItem x:Name="EditTab" Header="Edit" AutomationProperties.AutomationId="TeamNoteEditTab" Style="{DynamicResource NoteModeTab}">
         <StackPanel>
           <TextBlock Text="Title (autosaved; editing confirms current applicability)" TextWrapping="Wrap" Margin="0,0,0,4"/>
           <TextBox x:Name="NoteTitle" AutomationProperties.AutomationId="TeamNoteTitle"
@@ -68,28 +75,33 @@
       <Button x:Name="ConfirmButton" Content="Confirm still applies" AutomationProperties.AutomationId="ConfirmTeamNote"
               Click="ConfirmNote" IsEnabled="False" Margin="0,0,8,0"/>
       <Button x:Name="ArchiveButton" Content="Archive Team note" AutomationProperties.AutomationId="ArchiveTeamNote"
-              Click="ArchiveNote" IsEnabled="False" Margin="0,0,8,0"/>
+              Style="{DynamicResource QuietButton}" Click="ArchiveNote" IsEnabled="False" Margin="0,0,8,0"/>
       <Button x:Name="RetryButton" Content="Retry local save" AutomationProperties.AutomationId="RetryTeamNoteSave"
               Click="RetrySave" IsEnabled="False" Margin="0,0,8,0"/>
       <Button x:Name="DiscardButton" Content="Discard unsaved draft" AutomationProperties.AutomationId="DiscardTeamNoteDraft"
               Click="DiscardDraft" IsEnabled="False"/>
     </WrapPanel>
-    <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" TextWrapping="Wrap"/>
+    <TextBlock x:Name="NoteStatus" AutomationProperties.AutomationId="TeamNoteStatus" Style="{DynamicResource ReadingProse}" Visibility="Collapsed"/>
+  </StackPanel>
+  </Border>
+  <Border Style="{DynamicResource ReadingSection}">
+  <StackPanel>
     <TextBlock x:Name="InheritedReviewWarnings" AutomationProperties.AutomationId="InheritedTeamReviewWarnings"
-               TextWrapping="Wrap" Foreground="#9C3B10" FontWeight="SemiBold" Margin="0,16,0,4"/>
+               Style="{DynamicResource ReadingProse}" Foreground="#9C3B10" FontWeight="SemiBold"/>
     <Expander x:Name="CurrentTeamContext"
-              AutomationProperties.AutomationId="CurrentTeamContext" Margin="0,4">
+              AutomationProperties.AutomationId="CurrentTeamContext" Style="{DynamicResource ReadingDisclosure}">
       <Expander.Header>
-        <TextBlock x:Name="ContextHeading" Text="Current inherited Team context — every formal ancestor" TextWrapping="Wrap"/>
+        <TextBlock x:Name="ContextHeading" Text="Current inherited Team context" Style="{DynamicResource ReadingHeading}"/>
       </Expander.Header>
       <StackPanel>
-        <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" TextWrapping="Wrap"/>
+        <TextBlock x:Name="InheritedSummary" AutomationProperties.AutomationId="InheritedTeamSummary" Style="{DynamicResource NoteMetadata}"/>
         <StackPanel x:Name="ReviewOwners" Margin="0,4"/>
-        <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"
-                                 MaxWidth="600" Height="240" VerticalScrollBarVisibility="Auto" IsToolBarVisible="False"/>
+        <FlowDocumentScrollViewer x:Name="InheritedReading" AutomationProperties.AutomationId="InheritedTeamReading"/>
       </StackPanel>
     </Expander>
-    <TextBlock Text="Team scope is not sharing. Person notes never inherit. Images and raw HTML are never loaded."
-               TextWrapping="Wrap" Foreground="DimGray" Margin="0,4"/>
+    <TextBlock x:Name="ContextAttribution" AutomationProperties.AutomationId="CurrentTeamAttribution"
+               Style="{DynamicResource NoteMetadata}"/>
+  </StackPanel>
+  </Border>
   </StackPanel>
 </UserControl>

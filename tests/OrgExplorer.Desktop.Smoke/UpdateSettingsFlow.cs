@@ -30,20 +30,22 @@ internal static partial class Program
             try
             {
                 var window = Window(process);
-                Click(window, "OpenSettings");
+                ShowTechnicalSettings(window);
                 Await(() => server.RequestArrived.Task.IsCompleted && Find(window, "UpdateGuidance").Current.Name.Contains("Checking"));
                 var startup = (TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern);
                 if (startup.Current.ToggleState != ToggleState.On)
                     throw new InvalidOperationException("Startup update checks were not enabled by default.");
                 if (Find(window, "CheckForUpdates").Current.IsEnabled)
                     throw new InvalidOperationException("A duplicate manual check was enabled during the in-flight startup request.");
-                Set(window, "WorkspacePath", workspace);
-                Click(window, "OpenWorkspace");
-                Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+                PickWorkspaceFolder(window, workspace);
+                AwaitRestoredWorkspace(window, workspace);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
-                Set(window, "PreferredName", "Editable during update check");
-                Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+                var entry = PreferredNameEntry(window);
+                Set(entry, "PreferredName", "Editable during update check");
+                Click(entry, "SavePreferredName");
+                Await(() => Status(window) == "Saved locally.");
+                AssertPreferredNameReading(window, "Editable during update check", "Edit");
                 SetSettingsVisible(window, true);
                 if (!Find(window, "UpdateGuidance").Current.Name.Contains("Checking"))
                     throw new InvalidOperationException("The controlled pending feed did not remain pending during the local save.");
@@ -63,7 +65,7 @@ internal static partial class Program
         try
         {
             var window = Window(reopened);
-            Click(window, "OpenSettings");
+            ShowTechnicalSettings(window);
             AwaitStartupPreference(window, ToggleState.Off);
             Await(() => Find(window, "UpdateGuidance").Current.Name.Contains("No update availability has been checked"));
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.Off ||
@@ -95,16 +97,18 @@ internal static partial class Program
             server.Dispose();
             Click(window, "CheckForUpdates");
             AwaitUpdateFailure(window, "offline");
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
-            Set(window, "PreferredName", "Editable after update failure");
-            Await(() => Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-                Find(window, "Status").Current.Name ==
+            var entry = PreferredNameEntry(window);
+            Set(entry, "PreferredName", "Editable after update failure");
+            Click(entry, "SavePreferredName");
+            Await(() => Activity(window) == "Ready" &&
+                Status(window) ==
                     "Saved locally.\nStorage reclamation deferred for preserved unretired transactions.");
+            AssertPreferredNameReading(window, "Editable after update failure", "Edit");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
                 if (!saved.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||
@@ -129,7 +133,7 @@ internal static partial class Program
             var window = Window(rejectedStartup);
             Await(() => !Find(window, "UpdateSummary").Current.IsOffscreen &&
                 Find(window, "UpdateSummary").Current.Name.Contains("project signature is invalid"));
-            Click(window, "OpenSettings");
+            ShowTechnicalSettings(window);
             AwaitUpdateFailure(window, "project signature is invalid");
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
                 throw new InvalidOperationException("Re-enabled startup checks did not survive reopen.");
@@ -159,9 +163,8 @@ internal static partial class Program
         SignedReleaseFixture fixture, LocalReleaseServer server)
     {
         SetSettingsVisible(window, true);
-        Set(window, "WorkspacePath", workspace);
-        Click(window, "OpenWorkspace");
-        AwaitLocalWorkIdle(window);
+        PickWorkspaceFolder(window, workspace);
+        AwaitRestoredWorkspace(window, workspace);
         OpenPerson(window, "casey@example.com", "alex@example.com");
         Click(window, "NewPersonNote");
         Set(window, "PersonNoteTitle", "Automatic update writing");

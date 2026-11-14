@@ -10,6 +10,7 @@ internal static partial class Program
     {
         Process? process = null;
         var workspace = Path.Combine(root, "archival-workspace");
+        Directory.CreateDirectory(workspace);
         var producer = Path.Combine(root, "archival-producer");
         Directory.CreateDirectory(producer);
         CreatePhotoFixture(Path.Combine(producer, "avery.png"));
@@ -28,8 +29,8 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             ApplyReviewedHistoryImport(window);
@@ -54,22 +55,22 @@ internal static partial class Program
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "0011");
             RequestPersonArchival(window, archived: true, confirmed: false);
-            Await(() => Find(window, "Status").Current.Name.Contains("canceled"));
+            Await(() => Status(window).Contains("canceled"));
             AssertValue(window, "OfficeNumber", "0011");
             AssertArchivalOwner(window, "morgan@example.com", archived: false);
             RequestPersonArchival(window, archived: true);
             Click(ProfileLeaveWindow(window), "StayOnProfile");
-            Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
+            Await(() => Status(window).StartsWith("Navigation blocked:"));
             AssertValue(window, "OfficeNumber", "0011");
             AssertArchivalOwner(window, "morgan@example.com", archived: false);
             using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 RequestPersonArchival(window, archived: true);
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:") &&
-                    Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                Await(() => Status(window).StartsWith("Navigation blocked:") &&
+                    Status(window).Contains("NOT saved") &&
                     Find(window, "SaveProfile").Current.IsEnabled &&
-                    Find(window, "WorkflowActivity").Current.Name.StartsWith("Pending local edits") &&
+                    Activity(window).StartsWith("Pending local edits") &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
                 AssertValue(window, "OfficeNumber", "0011");
@@ -77,10 +78,10 @@ internal static partial class Program
             }
             RequestPersonArchival(window, archived: true);
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-            Await(() => Find(window, "Status").Current.Name.Contains("avery@example.com.managerEmail"));
+            Await(() => Status(window).Contains("avery@example.com.managerEmail"));
             AssertProfileValue(window, "OfficeNumber", "0011");
-            if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active") ||
-                !Find(window, "Status").Current.Name.Contains("No cascade"))
+            if (HasArchivedIdentity(window) ||
+                !Status(window).Contains("No cascade"))
                 throw new InvalidOperationException("In-app Manager archival did not visibly reject inconsistent active reports.");
 
             OpenPerson(window, "casey@example.com", "morgan@example.com");
@@ -92,8 +93,8 @@ internal static partial class Program
             Set(window, "OfficeCountry", "Discard this profile only");
             RequestPersonArchival(window, archived: true);
             Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
-            Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:") &&
-                Find(window, "Status").Current.Name.Contains("Person note"));
+            Await(() => Status(window).StartsWith("Navigation blocked:") &&
+                Status(window).Contains("Person note"));
             AssertValue(window, "PersonNoteTitle", "");
             AssertArchivalOwner(window, "avery@example.com", archived: false);
             Click(window, "DiscardPersonNoteDraft");
@@ -104,16 +105,16 @@ internal static partial class Program
             {
                 RequestPersonArchival(window, archived: true);
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
-                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved"));
+                Await(() => Status(window).Contains("NOT saved"));
                 AssertProfileValue(window, "OfficeCountry", "");
-                if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"))
+                if (HasArchivedIdentity(window))
                     throw new InvalidOperationException("Failed archival falsely published an Archived profile.");
                 AssertPhotoVisible(window);
                 Click(window, "NavigateManager");
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed archival did not retain the pending profile.");
                 process.CloseMainWindow();
-                Await(() => Find(window, "Status").Current.Name.Contains("Unsaved local changes prevent safe closing"));
+                Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
                 if (process.HasExited) throw new InvalidOperationException("Failed archival allowed unsafe closing.");
             }
             Click(window, "RetryProfileSave");
@@ -175,7 +176,7 @@ internal static partial class Program
             if (HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Later edits rewrote archived history.");
             RequestPersonArchival(window, archived: false, confirmed: false);
-            Await(() => Find(window, "Status").Current.Name.Contains("canceled"));
+            Await(() => Status(window).Contains("canceled"));
             AssertArchivalOwner(window, "avery@example.com", archived: true);
             if (HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Canceled reactivation changed retained history.");
@@ -183,7 +184,7 @@ internal static partial class Program
             Set(window, "OfficeCountry", "France");
             RequestPersonArchival(window, archived: false);
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-            Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Active"));
+            Await(() => !HasArchivedIdentity(window));
             AssertProfileValue(window, "OfficeCountry", "France");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             AssertPhotoVisible(window);
@@ -195,7 +196,7 @@ internal static partial class Program
             SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");
             Click(window, "ApplyManagerChange");
             SaveProfileEditing(window);
-            if (!Find(window, "NavigateManager").Current.Name.Contains("explicit no-Manager"))
+            if (Find(window, "NavigateManager").Current.Name != "—" || Find(window, "NavigateManager").Current.IsEnabled)
                 throw new InvalidOperationException("Explicit in-app Manager clear was not applied.");
             if (CurrentReadingText(window).Contains("Later Manager writing"))
                 throw new InvalidOperationException("Cleared Manager relationship retained current inheritance.");
@@ -242,10 +243,15 @@ internal static partial class Program
     private static void AssertArchivalOwner(AutomationElement window, string email, bool archived)
     {
         if (Find(window, "Email").Current.Name != email ||
-            !Find(window, "PersonArchivalStatus").Current.Name.StartsWith(archived ? "Archived" : "Active"))
+            HasArchivedIdentity(window) != archived)
             throw new InvalidOperationException("The archival action changed the retained owner or durable state unexpectedly.");
         AssertSelectionMatchesProfile(window);
     }
+
+    private static bool HasArchivedIdentity(AutomationElement window) =>
+        window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonArchivalStatus")) is { } status &&
+        status.Current.Name.StartsWith("Archived", StringComparison.Ordinal);
 
     private static void SelectArchivedPerson(AutomationElement window, string email)
     {

@@ -5,6 +5,79 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Restored_rows_keep_their_positions_when_a_larger_viewport_exposes_another_row()
+    {
+        var original = new TreeItemRealization.BrowsingPosition(70,
+            [new("browse04@example.com", 12, -3), new("browse05@example.com", 12, 21)]);
+        var restored = new TreeItemRealization.BrowsingPosition(76.79611650485437,
+            [new("browse04@example.com", 12, -3), new("browse05@example.com", 12, 21),
+             new("browse06@example.com", 12, 45)]);
+
+        Assert.True(TreeItemRealization.IsBrowsingPositionRestored(original, restored));
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData("browse04@example.com", 14, -3)]
+    [InlineData("browse04@example.com", 12, 0)]
+    [InlineData("replacement@example.com", 12, -3)]
+    public void Matching_percentages_cannot_hide_a_moved_or_missing_original_Person(string email, double left, double top)
+    {
+        var original = new TreeItemRealization.BrowsingPosition(70,
+            [new("browse04@example.com", 12, -3), new("browse05@example.com", 12, 21)]);
+        var changed = new TreeItemRealization.BrowsingPosition(70,
+            [new(email, left, top), new("browse05@example.com", 12, 21)]);
+
+        Assert.False(TreeItemRealization.IsBrowsingPositionRestored(original, changed));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Browse_baseline_measures_the_fixture_end_once_before_the_single_target_scroll()
+    {
+        var actions = new List<double>();
+        var observations = 0;
+        var destination = 0d;
+        TreeItemRealization.PrepareMeasuredScrollPosition(70, percent =>
+        {
+            actions.Add(percent);
+            destination = percent;
+            observations = 0;
+        }, () => ++observations < 3 ? 0 : destination, AwaitProvider);
+
+        Assert.Equal([100d, 70d], actions);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Browse_baseline_accepts_an_interior_position_after_virtualized_extent_remeasurement()
+    {
+        var actions = new List<double>();
+        var destination = 0d;
+        TreeItemRealization.PrepareMeasuredScrollPosition(70, percent =>
+        {
+            actions.Add(percent);
+            destination = percent;
+        }, () => destination == 100 ? 100 : 39.9053, AwaitProvider);
+
+        Assert.Equal([100d, 70d], actions);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Unreached_browse_preparation_positions_fail_without_replaying_scroll_actions(bool endReached)
+    {
+        var actions = new List<double>();
+        Assert.Throws<TimeoutException>(() => TreeItemRealization.PrepareMeasuredScrollPosition(70,
+            actions.Add, () => endReached ? 100 : 0, AwaitProvider));
+
+        Assert.Equal(endReached ? [100d, 70d] : [100d], actions);
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData(false)]

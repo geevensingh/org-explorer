@@ -12,13 +12,40 @@ internal sealed class OwnedNotePresentation(NoteScope scope)
     internal required TextBlock Heading { get; init; }
     internal required Button Designate { get; init; }
     internal required Button Ongoing { get; init; }
+    internal required Button New { get; init; }
+    internal required TextBlock Empty { get; init; }
+    internal required TextBlock EmptyBody { get; init; }
+    internal required TextBlock OperationStatus { get; init; }
+    internal required FrameworkElement Surface { get; init; }
 
-    internal void Show(OwnedNotesView view, bool workspaceCurrent)
+    internal void ShowOperationStatus(string message, bool requiresAttention = true)
     {
-        Status.Text = view.Feedback;
+        OperationStatus.Text = message;
+        OperationStatus.Visibility = requiresAttention && message.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetItemStatus(Surface, message);
+    }
+
+    internal void ShowOperationStatus(WorkspaceViewModel workflow, bool retainedDraft) =>
+        ShowOperationStatus(workflow.OperationError is null ? workflow.LocalSaveError ?? workflow.Status : workflow.Status,
+            retainedDraft || workflow.OperationError is not null ||
+            workflow.LocalSaveError is not null || !workflow.IsWorkspaceCurrent);
+
+    internal void Show(OwnedNotesView view, bool workspaceCurrent, bool retainedDraft)
+    {
+        Status.Text = view.IsEmpty ? "" : view.Feedback;
+        Status.Visibility = Status.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Empty.Visibility = view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
+        New.Content = view.IsEmpty ? $"Write a {scope} note" : $"New {scope} note";
+        New.IsEnabled = view.OwnerEmail is not null && workspaceCurrent;
+        EmptyBody.Visibility = view.SelectedNote is not null && !view.IsEditing && !retainedDraft &&
+            string.IsNullOrWhiteSpace(view.SelectedNote.Markdown) ? Visibility.Visible : Visibility.Collapsed;
+        EmptyBody.Text = view.SelectedNote?.Archived == true
+            ? "This archived note is empty. Restore it to start writing."
+            : "This note is empty. Choose Edit to start writing.";
         Kind.Text = view.SelectedNote is null ? "" :
             (view.IsOngoing ? $"Ongoing {scope} note" : $"Other {scope} note") +
             (view.SelectedNote.Archived ? " - Archived" : "");
+        Heading.Visibility = Kind.Visibility = view.SelectedNote is null ? Visibility.Collapsed : Visibility.Visible;
         AutomationProperties.SetHelpText(Heading, view.SelectedNote?.Id.ToString() ?? "");
         Designate.Visibility = view.SelectedNote is { Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         Designate.IsEnabled = workspaceCurrent;

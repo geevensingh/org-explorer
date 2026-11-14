@@ -10,6 +10,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
+    private readonly Func<Window, string?> chooseWorkspaceFolder;
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -18,13 +19,17 @@ public partial class MainWindow : Window
 
     public MainWindow() : this(ApplicationWorkflow.CreateFileBacked(new BrowserProfileLinkOpener())) { }
 
-    internal MainWindow(IApplicationWorkflow application)
+    internal MainWindow(IApplicationWorkflow application) : this(application, ChooseWorkspaceFolder) { }
+
+    internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder)
     {
+        this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         workflow = new(application, workspaceSettings);
         InitializeComponent();
+        InitializeOperationalNotices();
+        PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
-        preferredNameSaveTimer.Tick += SavePreferredNameDraft;
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
         Title = $"Org explorer {version} (Windows x64 / win)";
@@ -54,12 +59,12 @@ public partial class MainWindow : Window
                     "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
             }
         };
-        Closed += (_, _) => { preferredNameSaveTimer.Stop(); workflow.Dispose(); };
+        Closed += (_, _) => workflow.Dispose();
     }
-    private void ChooseWorkspace(object sender, RoutedEventArgs e)
+    private static string? ChooseWorkspaceFolder(Window owner)
     {
-        var dialog = new OpenFolderDialog { Title = "Choose a local Workspace folder" };
-        if (dialog.ShowDialog(this) == true) WorkspacePath.Text = dialog.FolderName;
+        var dialog = new OpenFolderDialog { Title = "Open Workspace" };
+        return dialog.ShowDialog(owner) == true ? dialog.FolderName : null;
     }
     private void ChooseImport(object sender, RoutedEventArgs e)
     {
@@ -114,9 +119,17 @@ public partial class MainWindow : Window
     }
     private async void OpenWorkspace(object sender, RoutedEventArgs e)
     {
+        if (chooseWorkspaceFolder(this) is not { } path) return;
         SettingsPanel.Visibility = Visibility.Collapsed;
         UpdateMainViews();
-        await OpenWorkspaceAtPathAsync(WorkspacePath.Text);
+        await OpenWorkspaceAtPathAsync(path);
+    }
+
+    private void ConfirmImportPath(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter || e.IsRepeat || !PreviewButton.IsEnabled) return;
+        e.Handled = true;
+        PreviewImport(sender, e);
     }
 
     private void PresentWorkspaceOpen()
@@ -160,9 +173,8 @@ public partial class MainWindow : Window
         ShowStatus();
         FrameworkElement? surface = destination.LastValidView?.Source switch
         {
-            SearchSource.PersonNote => PersonNotes,
-            SearchSource.OwnedTeamNote => TeamNotes,
-            SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote => SearchContextPanel,
+            SearchSource.PersonNote => PersonNotes.NoteReading,
+            SearchSource.OwnedTeamNote => TeamNotes.NoteReading,
             _ => null
         };
         if (surface is not null)
@@ -171,7 +183,7 @@ public partial class MainWindow : Window
                 if (selectedEmail == destination.SelectedEmail &&
                     workflow.PeopleNavigation.LastValidView == destination.LastValidView &&
                     !workflow.IsImportOpen && SettingsPanel.Visibility != Visibility.Visible)
-                    surface.BringIntoView();
+                    surface.BringIntoView(new Rect(0, 0, surface.ActualWidth, Math.Min(40, surface.ActualHeight)));
             }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
@@ -249,10 +261,11 @@ public partial class MainWindow : Window
             ShowNavigationBlocked(workflow.Status);
             return false;
         }
-        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
+        var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
+        if (changedPerson)
         {
-            ProfileDetails.IsExpanded = false;
             HistoryAccess.IsExpanded = false;
+            PersonScroll.ScrollToTop();
         }
         selectedEmail = person.Email;
         if (navigation) ClearSearchContext();
@@ -260,6 +273,7 @@ public partial class MainWindow : Window
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
+        if (navigation || changedPerson) ExpandPersonPath(person.Email);
         UpdateStartView();
         RefreshSearchAndFavorites();
         UpdatePeopleNavigation();
@@ -274,7 +288,7 @@ public partial class MainWindow : Window
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person, navigation: false);
-        else if (selectedEmail is not null && workflow.CanSafelyClose)
+        else if (selectedEmail is not null && workflow.CanSafelyClose && !HasPreferredNameDraft)
         {
             selectedEmail = null;
             ClearSearchContext();
@@ -293,19 +307,24 @@ public partial class MainWindow : Window
             TeamNotes.OpenPerson(null);
             ShowProfileTimeline(null);
         }
+        UpdatePreferredNameActions();
     }
     private void ShowPerson(PersonProfile person)
     {
         ProfileHeading.Text = person.Heading;
-        DirectoryName.Text = person.DirectoryName ?? "(unknown)";
+        DirectoryName.Text = person.DirectoryName ?? "—";
         Email.Text = person.Email;
         ShowFavorite(person);
         ShowPersonArchival(person);
-        Photo.Show(workflow.GetPhoto(person.Email));
+        Photo.Show(workflow.GetPhoto(person.Email), person.Heading);
+        Photo.ToolTip = person.PhotoPath is { } path ? $"Local photo: {path}" : "No local photo";
         UpdateProfileMode();
         var context = workflow.GetRelationships(person.Email)!;
-        Manager.Content = (person.Archived ? "Last stored Manager: " : "Manager: ") +
-            (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "(explicit no-Manager)");
+        Manager.Content = (person.Archived ? "Last stored: " : "") +
+            (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "—");
+        Manager.ToolTip = context.Manager is { } known
+            ? $"{known.Heading} ({known.Email})"
+            : "No stored Manager relationship.";
         Manager.Tag = context.Manager?.Email;
         Manager.IsEnabled = context.Manager is not null;
         ReportsList.ItemsSource = context.ImportedReports;
@@ -329,15 +348,20 @@ public partial class MainWindow : Window
             RefreshPeople();
             return false;
         }
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        while (workflow.PeopleNavigation.IsBrowsing && context.Manager is { } manager && visited.Add(manager.Email))
-        {
-            expandedPeople.Add(manager.Email);
-            context = workflow.GetRelationships(manager.Email)!;
-        }
         RefreshPeople();
         RestoreRealizedTreeState(PeopleList);
         return true;
+    }
+    private void ExpandPersonPath(string email)
+    {
+        var context = workflow.GetRelationships(email);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (context is not null && visited.Add(context.Person.Email))
+        {
+            if (context.ImportedReports.Count > 0) expandedPeople.Add(context.Person.Email);
+            context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
+        }
+        RestoreRealizedTreeState(PeopleList);
     }
     private void RestoreRealizedTreeState(ItemsControl parent)
     {
@@ -405,6 +429,10 @@ public partial class MainWindow : Window
         WorkspaceName.Text = path is null ? "No Workspace open" : new DirectoryInfo(path).Name;
         WorkspaceName.ToolTip = WorkspaceName.Text;
         System.Windows.Automation.AutomationProperties.SetHelpText(WorkspaceName, path ?? "");
+        WorkspacePath.Text = path ?? "No Workspace open";
+        WorkspacePathLabel.Text = workflow.IsWorkspaceCurrent || path is null
+            ? "Current Workspace folder" : "Workspace folder (unavailable)";
+        System.Windows.Automation.AutomationProperties.SetName(WorkspacePath, WorkspacePath.Text);
         UpdateMainViews();
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
@@ -413,7 +441,7 @@ public partial class MainWindow : Window
                 ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
                     ? "Publication outcome unknown - external resolution required"
                     : "Saved locally - external conflict resolution required"
-                : unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship || !workflow.CanSafelyClose
+                : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
         ShowPublicationConflicts();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
@@ -423,9 +451,11 @@ public partial class MainWindow : Window
                 ? "No Workspace is open. Choose a folder or retry the previous Workspace."
                 : "STALE / unavailable — displayed information is the last valid local state, not current data.";
         RetryProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || HasUnsavedRelationship);
         DiscardProfileButton.IsEnabled = !workPending &&
-            (workflow.ProfileEdit is not null || unsavedPreferredNameEdits.Count > 0 || HasUnsavedRelationship);
+            (workflow.ProfileEdit is not null || HasUnsavedRelationship);
+        RetryProfileButton.Visibility = RetryProfileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        DiscardProfileButton.Visibility = DiscardProfileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
@@ -437,6 +467,7 @@ public partial class MainWindow : Window
             Photo.CanEdit = false;
             FavoriteButton.IsEnabled = false;
         }
+        ShowOperationalNotice();
     }
 
     internal void ShowViewPreferenceStatus()
@@ -483,16 +514,20 @@ public partial class MainWindow : Window
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
         if (!TryLeaveNotes()) return false;
-        if (unsavedPreferredNameEdits.Count == 0 && !HasUnsavedRelationship)
+        if (!HasPreferredNameDraft && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;
             return true;
         }
         ShowNavigationBlocked(workflow.LocalSaveError is null
-            ? "Navigation blocked: profile edits are pending. Please wait for saving to finish before leaving."
+            ? "Navigation blocked: choose Save or Cancel for the Preferred name, or resolve pending quick changes before leaving."
             : "Navigation blocked: profile edits were NOT saved. Retry or discard unsaved profile edits before leaving.");
         return false;
     }
 
-    internal void ShowNavigationBlocked(string message) => StatusText.Text = message;
+    internal void ShowNavigationBlocked(string message, bool retainedFailure = false)
+    {
+        retainedWritingNavigationFeedback = retainedFailure ? message : null;
+        StatusText.Text = message;
+    }
 }

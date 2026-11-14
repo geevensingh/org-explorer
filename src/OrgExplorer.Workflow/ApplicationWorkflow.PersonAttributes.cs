@@ -16,6 +16,7 @@ public interface IProfileLinkOpener
 public partial interface IApplicationWorkflow
 {
     PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
+    void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field);
 }
 
 public sealed partial class ApplicationWorkflow
@@ -65,6 +66,20 @@ public sealed partial class ApplicationWorkflow
                 return null;
             }
             return EditPersonTextCore(basis.Email, field, value) ? people[basis.Email] : null;
+        }
+    }
+
+    public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field)
+    {
+        lock (workspaceGate)
+        {
+            if (!Enum.IsDefined(field))
+            {
+                Fail("Choose a supported textual Person field to cancel.");
+                return;
+            }
+            failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
+            Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
         }
     }
 

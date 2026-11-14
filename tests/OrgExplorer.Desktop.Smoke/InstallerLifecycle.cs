@@ -16,6 +16,7 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = OpenInstalledWorkspace(process, executable, workspace, args[3]);
+            CaptureWindowIconEvidence(window, executable, create ? "installed-create" : "installed-reopen");
             if (create)
             {
                 var producer = Path.Combine(root, "producer");
@@ -38,8 +39,11 @@ internal static partial class Program
                 OpenPerson(window, "casey@example.com", "morgan@example.com");
                 AssertPhotoVisible(window);
                 Click(window, "EditPreferredName");
-                Set(window, "PreferredName", "Ave");
+                var nameEntry = PreferredNameEntry(window);
+                Set(nameEntry, "PreferredName", "Ave");
+                Click(nameEntry, "SavePreferredName");
                 AwaitLocalWorkIdle(window);
+                AssertPreferredNameReading(window, "Ave", "Edit");
                 Click(window, "NewPersonNote");
                 Set(window, "PersonNoteTitle", "Installer lifecycle note");
                 Set(window, "PersonNoteMarkdown", "# Private fixture\nRetain this Person writing.");
@@ -74,12 +78,26 @@ internal static partial class Program
                 ? "PASS: installed WPF creates/saves/reopens independent profiles, photo, Person note, Profile changes and frozen Team context after producer removal."
                 : "PASS: actual installed WPF reopens unchanged Workspace profiles, photo, Person note, Profile changes and frozen Team context.");
         }
-        catch
+        catch (Exception original)
         {
-            if (process is not null && !process.HasExited)
-                foreach (AutomationElement control in Window(process).FindAll(TreeScope.Descendants, Condition.TrueCondition))
-                    if (control.Current.AutomationId.Length > 0)
-                        Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
+            Console.Error.WriteLine("Original installed desktop failure: " + original);
+            try
+            {
+                if (process is not null && !process.HasExited)
+                {
+                    var observed = AutomationElement.RootElement.FindFirst(TreeScope.Children,
+                        new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id));
+                    if (observed is not null)
+                        foreach (AutomationElement control in observed.FindAll(TreeScope.Descendants, Condition.TrueCondition))
+                            if (control.Current.AutomationId.Length > 0)
+                                Console.Error.WriteLine($"{control.Current.AutomationId}: {control.Current.Name}");
+                }
+            }
+            catch (Exception diagnostic) when (diagnostic is ElementNotAvailableException or InvalidOperationException or
+                System.Runtime.InteropServices.COMException)
+            {
+                Console.Error.WriteLine("Read-only installed desktop diagnostics failed: " + diagnostic);
+            }
             throw;
         }
         finally
@@ -103,15 +121,15 @@ internal static partial class Program
         foreach (var unsafeWorkspace in new[] { applicationDirectory, installation, Path.Combine(installation, "private-data"),
             Path.GetDirectoryName(installation)!, Path.GetPathRoot(installation)! })
         {
+            Directory.CreateDirectory(unsafeWorkspace);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", unsafeWorkspace);
-            Click(window, "OpenWorkspace");
-            Await(() => Find(window, "Status").Current.Name.Contains("outside the application installation"));
+            PickWorkspaceFolder(window, unsafeWorkspace);
+            Await(() => Status(window).Contains("outside the application installation"));
         }
+        Directory.CreateDirectory(workspace);
         SetSettingsVisible(window, true);
-        Set(window, "WorkspacePath", workspace);
-        Click(window, "OpenWorkspace");
-        Await(() => Find(window, "Status").Current.Name.Contains("Workspace opened"));
+        PickWorkspaceFolder(window, workspace);
+        AwaitRestoredWorkspace(window, workspace);
         return window;
     }
 

@@ -31,22 +31,24 @@ internal static partial class Program
                 """;
             File.WriteAllText(import, initialImport);
             var workspace = Path.Combine(root, "workspace");
+            Directory.CreateDirectory(workspace);
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             OpenImportView(window);
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
             AssertEmptyNotes(window, "Person");
             AssertEmptyNotes(window, "Team");
+            CaptureVisualEvidence(window, "notes-true-empty-invitations");
             Click(window, "NewPersonNote");
             Await(() => Find(window, "PersonNoteTitle").Current.IsEnabled);
             AssertNoteView(window, "Person", editing: true);
@@ -60,11 +62,13 @@ internal static partial class Program
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "person-note-existing-empty-read");
             SelectTab(window, "PersonNoteEditTab");
             AssertNoteView(window, "Person", editing: true);
             AssertValue(window, "PersonNoteMarkdown", "");
             Set(window, "PersonNoteMarkdown", markdown);
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("saved locally"));
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Secondary empty note");
             AwaitLocalWorkIdle(window);
@@ -72,6 +76,8 @@ internal static partial class Program
             OpenPerson(window, "casey@example.com");
             Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("Choose an ongoing note"));
             AssertOtherPersonNotesCollapsed(window);
+            AssertNoEmptyInvitation(window, "Person");
+            CaptureVisualEvidence(window, "person-note-ambiguous-not-empty");
             SelectNote(window, "Private meeting");
             Click(window, "UseAsOngoingPersonNote");
             AssertOtherPersonNotesCollapsed(window);
@@ -84,6 +90,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Person-note owner was not explicit.");
             if (!ReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Image suppression was not visible in the rendered reading view.");
+            NavigateMainReadingAndCapture(window, "PersonNoteReading", "Meeting with Avery.", "person-note-populated-ongoing");
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
@@ -101,22 +108,33 @@ internal static partial class Program
                 SelectTreePerson(window, "casey@example.com", expectNavigation: false);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 var otherWorkspace = Path.Combine(root, "other-workspace");
+                Directory.CreateDirectory(otherWorkspace);
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", otherWorkspace);
-                Click(window, "OpenWorkspace");
+                var preferencesBeforePicker = File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json"));
+                var savedNote = File.ReadAllBytes(noteFile);
+                PickWorkspaceFolder(window, null);
+                if (!IsVisible(window, "SettingsTitle") ||
+                    !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
+                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote))
+                    throw new InvalidOperationException("Picker cancellation changed failed writing or its successful startup preference.");
+                PickWorkspaceFolder(window, otherWorkspace);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                if (Directory.Exists(otherWorkspace))
-                    throw new InvalidOperationException("Unsaved Person note did not block Workspace navigation.");
+                if (Directory.GetFileSystemEntries(otherWorkspace).Length != 0 ||
+                    !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
+                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote) || IsVisible(window, "SettingsTitle") ||
+                    !IsVisible(window, "OperationalNotice"))
+                    throw new InvalidOperationException("Unsaved Person note did not reject Workspace opening with unchanged bytes/preference and visible retained writing.");
+                CaptureVisualEvidence(window, "settings-open-rejected-retained-note");
                 SetSettingsVisible(window, true);
-                Set(window, "WorkspacePath", workspace);
                 process.CloseMainWindow();
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
                 Await(() => !IsVisible(window, "SettingsTitle"));
                 AssertNoteView(window, "Person", editing: true);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
+                CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
             }
             Click(window, "RetryPersonNoteSave");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("saved locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("saved locally"));
             markdown += "\nRecovered draft.";
             SelectNote(window, "Secondary empty note");
             var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
@@ -128,6 +146,7 @@ internal static partial class Program
                 if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note") ||
                     !File.ReadAllBytes(preferences).SequenceEqual(previousPreference))
                     throw new InvalidOperationException("Failed designation falsely changed the ongoing note.");
+                CaptureVisualEvidence(window, "person-note-designation-failure");
             }
             SelectNote(window, "Private meeting");
             Click(window, "UseAsOngoingPersonNote");
@@ -137,11 +156,14 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: false);
             if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
                 throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "search-exact-empty-other-person-note");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com"))
                 throw new InvalidOperationException("Manager navigation inherited the report's private Person notes.");
+            Await(() => !Find(window, "ImportedReports").Current.IsOffscreen);
             var ownerReport = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
                 ?? throw new InvalidOperationException("Manager lost the note owner's imported report.");
@@ -160,14 +182,18 @@ internal static partial class Program
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             AssertRestoredNote(window, "Person", secondaryId, "Secondary empty note");
             Await(() => !Find(window, "PersonNoteHeading").Current.IsOffscreen);
+            AssertEmptyDocument(window, "Person");
+            CaptureVisualEvidence(window, "person-note-exact-empty-reopened");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             AssertOtherPersonNotesCollapsed(window);
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("Meeting with Avery."));
             Click(window, "ArchivePersonNote");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("archived locally"));
+            Await(() => NoteFeedback(window, "Person").Contains("archived locally"));
             Await(() => Find(window, "PersonOngoingNoteStatus").Current.Name.Contains("unavailable or archived"));
+            AssertNoEmptyInvitation(window, "Person");
+            CaptureVisualEvidence(window, "person-note-unavailable-ongoing-choice");
             ExpandOtherPersonNotes(window);
             ((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectNote(window, "Private meeting");
@@ -272,5 +298,128 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Notes"));
         if (list is not null && !list.Current.IsOffscreen)
             throw new InvalidOperationException($"Empty {kind} notes retain a blank permanent picker.");
+    }
+
+    private static void AssertNoEmptyInvitation(AutomationElement window, string kind)
+    {
+        var empty = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}NotesEmpty"));
+        if (empty is not null && !empty.Current.IsOffscreen)
+            throw new InvalidOperationException($"Unavailable, ambiguous or retained {kind} writing was presented as an empty collection.");
+    }
+
+    private static void AssertEmptyDocument(AutomationElement window, string kind)
+    {
+        AssertNoEmptyInvitation(window, kind);
+        if (!Find(window, $"{kind}NoteEmptyBody").Current.Name.Contains("Choose Edit", StringComparison.Ordinal))
+            throw new InvalidOperationException($"The exact empty {kind} document lost its purposeful Edit invitation.");
+    }
+
+    private static void NavigateMainReadingAndCapture(AutomationElement window, string readingId, string expected, string state)
+    {
+        var timer = Stopwatch.StartNew();
+        void RequireBudget()
+        {
+            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
+                throw new TimeoutException("Main-workspace reading exceeded its original 20-second budget.");
+        }
+        void Wait(Func<bool> condition) => Await(() =>
+        {
+            RequireBudget();
+            return condition();
+        });
+        var reading = Find(window, readingId);
+        var range = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange
+            .FindText(expected, false, false) ?? throw new InvalidOperationException("Missing actual note prose: " + expected);
+        var viewport = Find(window, "ProfileScroll");
+        var scrolling = (ScrollPattern)viewport.GetCurrentPattern(ScrollPattern.Pattern);
+        var identity = Find(window, "Email").Current;
+        var owner = identity.Name;
+        var identityBounds = identity.BoundingRectangle;
+        bool TargetVisible()
+        {
+            RequireBudget();
+            return !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0;
+        }
+        MainReadingNavigation.Position Position()
+        {
+            RequireBudget();
+            var current = scrolling.Current;
+            return new(current.VerticallyScrollable, current.VerticalScrollPercent, current.VerticalViewSize);
+        }
+        void Move(double percent)
+        {
+            var previous = scrolling.Current.VerticalScrollPercent;
+            RequireBudget();
+            Console.WriteLine($"MAIN-READING {state}: main viewport {previous:F4}% -> {percent:F4}%.");
+            scrolling.SetScrollPercent(ScrollPattern.NoScroll, percent);
+        }
+        string Observe(string label, Func<string> read)
+        {
+            try { return label + "=" + read(); }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or
+                System.Runtime.InteropServices.COMException)
+            {
+                return label + "=<diagnostic read failed: " + error.Message + ">";
+            }
+        }
+        string Rectangles(System.Windows.Rect[] values) => string.Join(";", values.Select(value =>
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        string Metrics(string phase) => $"{phase}: reading={readingId}; target='{expected}'; " +
+            Observe("window", () => $"{window.Current.BoundingRectangle}; offscreen={window.Current.IsOffscreen}") + "; " +
+            Observe("reading", () => $"{reading.Current.BoundingRectangle}; offscreen={reading.Current.IsOffscreen}; " +
+                $"attribution={reading.Current.HelpText}") + "; " +
+            Observe("cachedRects", () => Rectangles(range.GetBoundingRectangles())) + "; " +
+            Observe("freshRects", () =>
+            {
+                var fresh = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange.FindText(expected, false, false);
+                return fresh is null ? "<target missing>" : Rectangles(fresh.GetBoundingRectangles());
+            }) + "; " +
+            Observe("outerScroll", () =>
+            {
+                var observedViewport = Find(window, "ProfileScroll");
+                var scroll = ((ScrollPattern)observedViewport.GetCurrentPattern(ScrollPattern.Pattern)).Current;
+                return $"{observedViewport.Current.BoundingRectangle}; offscreen={observedViewport.Current.IsOffscreen}; " +
+                    $"vertical={scroll.VerticallyScrollable}/{scroll.VerticalScrollPercent}/{scroll.VerticalViewSize}; " +
+                    $"horizontal={scroll.HorizontallyScrollable}/{scroll.HorizontalScrollPercent}/{scroll.HorizontalViewSize}";
+            });
+        var before = Metrics("before-main-reading");
+        try
+        {
+            MainReadingNavigation.Reveal(TargetVisible, Position, Move, Wait);
+            Wait(TargetVisible);
+            var target = range.GetBoundingRectangles()[0];
+            var bounds = viewport.Current.BoundingRectangle;
+            var current = scrolling.Current;
+            var delta = target.Top + target.Height / 2 - (bounds.Top + bounds.Height / 2);
+            if (current.VerticallyScrollable && Math.Abs(delta) > 1)
+            {
+                var scrollableHeight = bounds.Height * (100 - current.VerticalViewSize) / current.VerticalViewSize;
+                var next = Math.Clamp(current.VerticalScrollPercent + 100 * delta / scrollableHeight, 0, 100);
+                var previous = current.VerticalScrollPercent;
+                if (Math.Abs(next - previous) > .001)
+                {
+                    Move(next);
+                    Wait(() => next > previous ? scrolling.Current.VerticalScrollPercent > previous
+                        : scrolling.Current.VerticalScrollPercent < previous);
+                }
+            }
+            Wait(TargetVisible);
+            Console.WriteLine($"READING-OBSERVATION {state}: {before}; {Metrics("after-main-reading")}");
+        }
+        catch (Exception error) when (error is TimeoutException or InvalidOperationException or
+            ElementNotAvailableException or System.Runtime.InteropServices.COMException)
+        {
+            Console.Error.WriteLine($"READING-OBSERVATION {state}: {before}; {Metrics("failure")}; {error}");
+            CaptureFailureEvidence(window, state + "-failure");
+            throw;
+        }
+        if (reading.Current.BoundingRectangle.Width / DpiScale(window) > 601 ||
+            reading.TryGetCurrentPattern(ScrollPattern.Pattern, out var inner) && ((ScrollPattern)inner).Current.VerticallyScrollable ||
+            scrolling.Current.HorizontallyScrollable)
+            throw new InvalidOperationException("Owned/current/frozen prose lost its bounded measure or reintroduced an independent reading scroll.");
+        if (Find(window, "Email").Current.Name != owner || Find(window, "Email").Current.BoundingRectangle != identityBounds)
+            throw new InvalidOperationException("Main-workspace reading moved the anchored identity or changed the selected Person.");
+        CaptureVisualEvidence(window, state);
     }
 }

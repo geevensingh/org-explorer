@@ -1,6 +1,5 @@
 using System.IO;
 using System.Windows;
-using Microsoft.Win32;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -41,7 +40,6 @@ public partial class MainWindow
             }
             if (updateWorkspace is not null)
             {
-                WorkspacePath.Text = updateWorkspace;
                 ShowWorkspaceOpenOutcome(updateWorkspace, WorkspaceOpenMode.ExistingOnly, opened, failure);
                 PresentWorkspaceOpen();
                 return;
@@ -71,7 +69,6 @@ public partial class MainWindow
             return;
         }
         if (!TryLeaveLocalEdits()) return;
-        WorkspacePath.Text = path;
         var opened = await RunWorkflowAsync(() => mode == WorkspaceOpenMode.ExistingOnly
             ? workspaceSettings.RestoreWorkspace(workflow, path)
             : workspaceSettings.OpenWorkspace(workflow, path), "Opening Workspace...");
@@ -99,6 +96,7 @@ public partial class MainWindow
                 (failure ?? workflow.Status) + "\nRetry when it is available, or choose another folder. No replacement Workspace was created.";
         }
         ShowWorkspaceStartup();
+        ShowOperationalNotice();
     }
 
     private void ShowWorkspaceStartup()
@@ -118,7 +116,9 @@ public partial class MainWindow
 
     private async void ChooseAnotherWorkspace(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFolderDialog { Title = "Choose another local Workspace folder" };
-        if (dialog.ShowDialog(this) == true) await OpenWorkspaceAtPathAsync(dialog.FolderName);
+        if (chooseWorkspaceFolder(this) is not { } path) return;
+        SettingsPanel.Visibility = Visibility.Collapsed;
+        UpdateMainViews();
+        await OpenWorkspaceAtPathAsync(path);
     }
 }

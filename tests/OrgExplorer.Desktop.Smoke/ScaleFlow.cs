@@ -18,17 +18,17 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-load", () =>
             {
-                Click(window, "OpenWorkspace");
+                PickWorkspaceFolder(window, fixture.Workspace);
                 // Settings must work while actual filesystem work is outstanding, not after a blocked dispatcher returns.
-                Await(() => Find(window, "WorkflowActivity").Current.Name.Contains("Opening"));
+                Await(() => Activity(window).Contains("Opening"));
                 SetSettingsVisible(window, true);
-                Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
-                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Opening"))
+                Await(() => !Find(window, "SettingsTitle").Current.IsOffscreen &&
+                    !Find(window, "WorkspacePath").Current.IsOffscreen);
+                if (!Activity(window).Contains("Opening"))
                     throw new InvalidOperationException("Settings was not responsive while the real scale open was pending.");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+                AwaitScale(() => Activity(window) == "Ready");
                 SetSettingsVisible(window, false);
             });
             ScaleFixture.Measure("UI-tree", () =>
@@ -108,7 +108,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-                Click(window, "CloseSearchContext");
+                Click(window, "ClearSearch");
             });
             ScaleFixture.Measure("UI-photo-render", () => AssertScalePhotoVisible(window));
             ScaleFixture.Measure("UI-history-search", () =>
@@ -123,9 +123,9 @@ internal static partial class Program
                             r.Current.Name.Contains("Frozen Team note"));
                     return result is not null;
                 });
-                ((SelectionItemPattern)result!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-                AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Historical"));
-                AssertSearchReading(window, "Cedar former context 100.");
+                ActivateSearchRow(result!, AwaitScale);
+                AwaitScale(() => Find(window, "HistoricalTeamReading").Current.HelpText.Contains("Historical"));
+                AssertSearchReading(window, "Cedar former context 100.", readingId: "HistoricalTeamReading");
             });
             Set(window, "SearchQuery", "");
             ScaleFixture.Measure("UI-manager-navigation", () =>
@@ -174,40 +174,40 @@ internal static partial class Program
             process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
-            Set(window, "WorkspacePath", fixture.Workspace);
             ScaleFixture.Measure("UI-mutation-open", () =>
             {
-                Click(window, "OpenWorkspace");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name == "Ready");
+                PickWorkspaceFolder(window, fixture.Workspace);
+                AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
             });
             Set(window, "SearchQuery", "handle01000");
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-            Click(window, "CloseSearchContext");
+            Click(window, "ClearSearch");
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
                 BeginProfileEditing(window);
                 Set(window, "OfficeNumber", "0009U");
                 Click(window, "SaveProfile");
-                AwaitScale(() => Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"));
+                AwaitScale(() => Activity(window).Contains("Saving complete profile"));
                 Click(window, "OpenSettings");
-                Await(() => !Find(window, "SettingsGuidance").Current.IsOffscreen);
-                if (!Find(window, "WorkflowActivity").Current.Name.Contains("Saving complete profile"))
+                Await(() => !Find(window, "SettingsTitle").Current.IsOffscreen &&
+                    !Find(window, "WorkspacePath").Current.IsOffscreen);
+                if (!Activity(window).Contains("Saving complete profile"))
                     throw new InvalidOperationException("Settings only rendered after the actual scale mutation completed.");
                 Click(window, "OpenSettings");
                 Click(window, "NavigateManager");
-                Await(() => Find(window, "Status").Current.Name.StartsWith("Navigation blocked:"));
-                if (!Find(window, "Status").Current.Name.Contains("in progress") ||
-                    !Find(window, "Status").Current.Name.Contains("Please wait") ||
+                Await(() => Status(window).StartsWith("Navigation blocked:"));
+                if (!Status(window).Contains("in progress") ||
+                    !Status(window).Contains("Please wait") ||
                     Find(window, "Email").Current.Name != ScaleFixture.Target)
                     throw new InvalidOperationException("Navigation during a save did not explain waiting or retain the current Person.");
-                AwaitScale(() => Find(window, "Status").Current.Name == "Profile saved locally.");
+                AwaitScale(() => Status(window) == "Profile saved locally.");
             });
             ScaleFixture.Measure("UI-favorite-mutation", () =>
             {
                 Click(window, "ToggleFavorite");
-                AwaitScale(() => Find(window, "FavoriteStatus").Current.Name == "Not marked favorite");
+                AwaitScale(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
             });
             var import = Path.Combine(fixture.Root, "refresh.json");
             ScaleFixture.Measure("UI-import-file", () => File.WriteAllText(import, ScaleFixture.Batch(Enumerable.Range(0, ScaleFixture.Population).Select(i =>
@@ -233,7 +233,7 @@ internal static partial class Program
                 ScaleFixture.Measure("UI-import-apply", () =>
                 {
                     Click(window, "ApplyImport");
-                    AwaitScale(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+                    AwaitScale(() => Status(window).Contains("Import applied"));
                 });
                 ScaleFixture.Measure("UI-import-return", () =>
                 {
@@ -250,7 +250,7 @@ internal static partial class Program
                 Set(window, "SearchQuery", "Delivered tulip 1000.");
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
-                AwaitScale(() => Find(window, "SearchContext").Current.Name.Contains("Person note"));
+                AwaitScale(() => Find(window, "PersonNoteHeading").Current.Name == "Individual 1000");
                 AssertSearchReading(window, "Delivered tulip 1000.");
             });
             var rememberedNote = Find(window, "PersonNoteHeading").Current.HelpText;
@@ -268,11 +268,11 @@ internal static partial class Program
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
                 AssertProfileValue(window, "OfficeNumber", "0009U");
-                Click(window, "CloseSearchContext");
+                Click(window, "ClearSearch");
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))
                     throw new InvalidOperationException("Durable scale reporting mutation was lost.");
-                if (Find(window, "FavoriteStatus").Current.Name != "Not marked favorite")
+                if (Find(window, "ToggleFavorite").Current.Name != "Mark favorite")
                     throw new InvalidOperationException("Durable scale favorite mutation was lost.");
             });
             ScaleFixture.Measure("UI-close", () => Close(process));
@@ -290,7 +290,7 @@ internal static partial class Program
         var result = Find(window, "SearchResults").FindFirst(TreeScope.Children,
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
         if (result is null) throw new InvalidOperationException("Actual scale search result missing.");
-        ((SelectionItemPattern)result.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        ActivateSearchRow(result, AwaitScale);
     }
 
     private static void AssertScalePhotoVisible(AutomationElement window)

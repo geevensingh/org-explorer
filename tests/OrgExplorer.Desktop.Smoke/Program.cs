@@ -139,10 +139,57 @@ internal static partial class Program
         ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
             control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
     }
-    internal static void Click(AutomationElement window, string id)
+    internal static void Click(AutomationElement window, string id, ControlType? controlType = null)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+        ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
+    }
+    private static string Status(AutomationElement window) => window.Current.HelpText;
+    private static string Activity(AutomationElement window) => window.Current.ItemStatus;
+    private static string NoteFeedback(AutomationElement window, string scope) =>
+        Find(window, scope + "NotesSurface").Current.ItemStatus;
+    private static string Freshness(AutomationElement window) => Find(window, "WorkspaceName").Current.ItemStatus;
+
+    private static void PickWorkspaceFolder(AutomationElement window, string? folder,
+        string action = "OpenWorkspace", Action? observePicker = null)
+    {
+        if (folder is not null && !Directory.Exists(folder))
+            throw new InvalidOperationException("The scenario must explicitly prepare a selectable folder before opening the native picker: " + folder);
+        ControlReadiness.AwaitPattern(() => Find(window, action),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
+        AutomationElement? FindPicker()
+        {
+            var condition = new AndCondition(
+                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window),
+                new PropertyCondition(AutomationElement.NameProperty, "Open Workspace"));
+            return AutomationElement.RootElement.FindFirst(TreeScope.Children, condition) ??
+                window.FindFirst(TreeScope.Descendants, condition);
+        }
+        AutomationElement? picker = null;
+        Await(() => (picker = FindPicker()) is not null && !picker.Current.IsOffscreen);
+        observePicker?.Invoke();
+        if (folder is not null)
+        {
+            AutomationElement FolderEntry() => Find(picker!, "1152", ControlType.Edit);
+            var entry = ControlReadiness.AwaitPattern(FolderEntry, control => control.Current.IsEnabled,
+                control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await);
+            entry.SetValue(Path.GetFullPath(folder));
+            if (entry.Current.Value != Path.GetFullPath(folder))
+                throw new InvalidOperationException("The native picker did not retain the requested folder entry.");
+        }
+        Click(picker!, folder is null ? "2" : "1", ControlType.Button);
+        Await(() => FindPicker() is null);
+    }
+
+    private static void ShowTechnicalSettings(AutomationElement window)
+    {
+        SetSettingsVisible(window, true);
+        var details = Find(window, "TechnicalDetails");
+        var expansion = (ExpandCollapsePattern)details.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Expanded) expansion.Expand();
+        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
     }
     private static void SetSettingsVisible(AutomationElement window, bool visible)
     {
@@ -159,11 +206,11 @@ internal static partial class Program
     private static void AwaitLocalWorkIdle(AutomationElement window)
     {
         Await(() =>
-            Find(window, "WorkflowActivity").Current.Name == "Ready" &&
-            !Find(window, "Status").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
+            Activity(window) == "Ready" &&
+            !Status(window).StartsWith("Pending", StringComparison.Ordinal) &&
             (CurrentPersonEmail(window).Length == 0 ||
-                !Find(window, "PersonNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal) &&
-                !Find(window, "TeamNoteStatus").Current.Name.StartsWith("Pending", StringComparison.Ordinal)));
+                !NoteFeedback(window, "Person").StartsWith("Pending", StringComparison.Ordinal) &&
+                !NoteFeedback(window, "Team").StartsWith("Pending", StringComparison.Ordinal)));
     }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {

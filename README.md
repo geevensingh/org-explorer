@@ -32,11 +32,14 @@ dotnet run --project src\OrgExplorer.Desktop
 ```
 
 Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
-label. In **Settings**, choose an empty local folder outside the installation,
-then **Open Workspace**. The full folder path and folder-opening controls live
-there rather than in the everyday toolbar.
+label. In **Settings → Open Workspace...**, select or create an empty local
+folder outside the installation in the native folder picker. Accepting the
+picker immediately attempts the validated open; cancelling changes nothing.
+Settings displays the full current path with keyboard/context-menu **Copy path**,
+not an editable pending path or a second Open step.
 Choose **Settings → Import...** without entering Edit profile, choose a version-1
-JSON file, review **Preview import**, and deliberately **Apply reviewed import**.
+JSON file, review **Preview import** (also Enter in its path), and deliberately
+**Apply reviewed import**. Enter never applies the batch.
 **Back to people** returns to reading; file selection, preview and Apply controls
 are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
@@ -46,15 +49,24 @@ changes or a profile draft; any other unsaved writing still blocks close/restart
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
-Profiles open in **View** mode with photo, identity and principal actions together.
-Role, department, Manager, location and email are immediately readable.
-**More details** reveals populated Alias, office number and LinkedIn URL fields;
-the saved LinkedIn link still opens only through an explicit action.
+Profiles open in **View** mode with a compact circular photo or initials,
+identity and principal actions together. Name, role, department and stable email
+stay visible while facts and full-width notes scroll together below them.
+Manager, office building/number/state or province/country, Directory name, Alias
+and LinkedIn URL have consistently ordered labelled slots; missing facts show
+a neutral dash rather than disappearing behind More details. The grid uses
+fewer columns at narrower available widths. Saved links still open only through
+an explicit action.
 Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
-Empty optional rows are omitted. **Edit profile** reveals all
-ordinary fields and stages text, Manager and photo changes together.
+**Edit profile** opens a labelled inline form beneath the anchored identity,
+pairing ordinary fields when space permits and stacking them in a narrow Person
+pane. Empty fields remain editable. Text, Manager and photo changes stay in
+one draft; notes remain independently accessible below it. The editing bar keeps
+**Save profile** and **Cancel** available while the form scrolls. Entry focuses
+Directory name; Tab follows field order. Enter in a field does not submit the form.
 **Save profile** validates and publishes the complete change; **Cancel**
-discards it without changing saved data or history. Empty editor text explicitly
+discards only that draft without changing saved data or history and returns focus
+to Edit profile. Empty editor text explicitly
 clears a nullable value; whitespace-only text is rejected. Preferred name is
 the prominent heading, while Directory name remains visible and independently
 editable. Email is a non-editable identity. Reopen the same Workspace to retrieve
@@ -75,17 +87,39 @@ retains the saved preference and writing, explains the problem, and shows a
 purposeful search/Favorites/People start instead of opening replacement writing.
 No unsaved edit buffer is restored.
 
-Preferred name normally appears as readable text. **Edit** (or **Add preferred
-name** when unset) reveals its independent autosaving inline editor; **Done**
-returns to reading after the save succeeds. Pending or failed writing stays in
-the editor with the existing retry/discard protections. **Mark favorite** remains
+Settings groups Workspace, Import and Updates in one bounded scrolling page.
+**Compatibility, recovery and technical details** retains validation/maintenance,
+revision-bound conflict review and update/signing/rollback guidance. Healthy
+reading has no permanent Ready/validated/saved rows or inactive recovery buttons.
+Actual activity and unresolved problems appear beneath the toolbar, with scoped
+actions and Details; editor failures remain beside the retained writing.
+
+Preferred name normally appears as the primary name. Its adjacent pencil
+(**Edit preferred name**, or **Add preferred name** when unset) reveals its
+compact anchored editor. Only **Save** or **Enter** submits that entry; typing,
+blur, navigation, Settings and update draining never save it implicitly.
+**Cancel**, **Escape**, or clicking outside closes and cancels only this entry.
+A failed save retains its input and local error for explicit Save retry against
+the original displayed base. Empty clears the name; whitespace alone is invalid.
+Cancellation cannot undo already-submitted I/O or acknowledge a published storage
+conflict, and never discards independent writing or errors. **Mark favorite** remains
 an independent one-click saved action.
 
+Wide reading keeps a resizable People pane beside one Person workspace; compact
+People opens from the left over unchanged Person bounds. Only the People divider
+is used now. Its remembered balance preserves existing version-1 preferences,
+including the unused inner profile ratio and unrelated Workspace/view/note entries.
+One toolbar search includes a clear action returning to browsing.
+This is the reading slice of the [visual refresh](docs/visual-refresh-design.md),
+not completion or visual acceptance of the whole pass.
+
 Loading, validation and local writes run off the desktop dispatcher. Rapid
-Preferred-name/Markdown typing is coalesced after a short quiet interval; the visible
-draft stays editable while a previous write completes. Pending/newer drafts are
-explicitly **not yet saved**, and navigation/closing cannot discard them. A
-failed write still requires retry or deliberate discard. Preferred name,
+Markdown typing is coalesced after a short quiet interval. Preferred-name input
+stays editable while its explicit save completes; newer input needs another
+explicit Save. Pending/newer drafts are **not yet saved** and block unsafe
+close/restart until saved or deliberately cancelled/discarded. Cancellation
+does not bypass an already-admitted save. A failed write still requires retry
+or deliberate cancellation/discard. Preferred name,
 Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
 profile through navigation, Import, archival, workspace switching or closing
 offers **Save / Discard / Stay**. A failed Save retains its owner and draft.
@@ -251,11 +285,16 @@ or closing.
 Markdown text without a network connection. Search is case-insensitive and uses
 the entered text as a substring. Results identify current information, archived
 profiles/notes, and historical matches separately, including note owners and
-Team-review warnings. Select a result to open its profile and appropriate note
-or read-only **Selected search context**. Historical matches show the exact frozen
-writing/former chain or old Profile value with its existing provenance, never
-later live writing mislabeled as history. Close that context to return to normal
-profile reading. Archived writing stays findable without joining the current org.
+Team-review warnings. Enter in the query focuses results without opening a Person;
+click a result, or select it and press Enter, to activate its guarded destination.
+Profile matches highlight and focus the actual field. Note matches open the exact
+document in Read, including empty Other notes; inherited and frozen matches reveal
+their attributed section in the existing current-context or History reading.
+Historical matches retain the frozen writing/former chain or old Profile value
+and its provenance, never later live writing mislabeled as history. There is no
+duplicate generic search inspector. Clear search restores Favorites and the
+reporting tree's expansion and two-axis browsing position without replacing the
+selected document. Archived writing stays findable without joining the current org.
 
 **Mark favorite** / **Unmark favorite** saves the selected Person's star locally.
 The **Favorites** list returns to active or clearly labeled archived profiles,

@@ -39,7 +39,9 @@ public partial interface IApplicationWorkflow : IDisposable
     bool CanNavigatePeople { get; }
     bool CanEnterImport { get; }
     bool HasFailedImport { get; }
+    bool HasPendingStorageMaintenance { get; }
     string? LocalSaveError { get; }
+    string? OperationError { get; }
     void DiscardUnsavedChanges(Guid? noteId = null);
     void DiscardImportChanges();
     bool RefreshWorkspace();
@@ -130,13 +132,17 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             ReportsOf(person.Email))
         : null; }
     private string statusSnapshot = "Choose a Workspace.";
+    private string? operationErrorSnapshot;
+    public string? OperationError => Volatile.Read(ref operationErrorSnapshot);
     public string Status
     {
         get => Volatile.Read(ref statusSnapshot);
         private set
         {
+            Volatile.Write(ref operationErrorSnapshot, null);
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
             Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
+            Volatile.Write(ref pendingStorageMaintenanceSnapshot, failedSaves.ContainsKey("storage-maintenance"));
             Volatile.Write(ref navigationBlockedSnapshot,
                 failedSaves.Keys.Any(operation => operation is not ("import" or "storage-maintenance")));
             Volatile.Write(ref saveErrorSnapshot, error);
@@ -329,13 +335,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             }
             var preview = new ImportPreview(id, errors.Count == 0, changes, errors) { Warnings = warnings };
             if (preview.CanApply) pending = new Pending(preview, proposed, batchId, fingerprint, root.Clone(), proposedPhotos, resources);
-            Status = preview.CanApply ? "Preview ready. Review changes before Apply." : string.Join("\n", errors);
+            if (preview.CanApply) Status = "Preview ready. Review changes before Apply.";
+            else Fail(string.Join("\n", errors));
             return preview;
         }
         catch (Exception ex) when (StorageError(ex) || ex is InvalidOperationException or KeyNotFoundException)
         {
             errors.Add(ex.Message);
-            Status = "Import rejected: " + string.Join("\n", errors);
+            Fail("Import rejected: " + string.Join("\n", errors));
             return new ImportPreview(id, false, changes, errors);
         }
     }
@@ -385,7 +392,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     public bool EditPreferredName(string email, string? preferredName) =>
         EditPersonText(email, PersonTextField.PreferredName, preferredName);
 
-    private bool Fail(string message) { Status = message; return false; }
+    private bool Fail(string message)
+    {
+        Status = message;
+        Volatile.Write(ref operationErrorSnapshot, message);
+        return false;
+    }
     public ImportPreview PreviewImportFile(string path)
     { lock (workspaceGate) return PreviewImportFileCore(path); }
 

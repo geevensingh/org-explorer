@@ -16,6 +16,7 @@ public sealed partial class ApplicationWorkflow
     private long refreshNotBefore;
     private string? saveErrorSnapshot;
     private bool failedImportSnapshot;
+    private bool pendingStorageMaintenanceSnapshot;
     private bool navigationBlockedSnapshot;
     private readonly Dictionary<string, string> failedSaves = [];
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
@@ -34,6 +35,7 @@ public sealed partial class ApplicationWorkflow
     }
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
     public bool HasFailedImport => Volatile.Read(ref failedImportSnapshot);
+    public bool HasPendingStorageMaintenance => Volatile.Read(ref pendingStorageMaintenanceSnapshot);
 
     public void DiscardImportChanges()
     {

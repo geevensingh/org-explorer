@@ -25,6 +25,7 @@ internal static partial class Program
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}]}
             """);
         var workspace = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(workspace);
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var link = $"https://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/profile";
@@ -33,32 +34,56 @@ internal static partial class Program
         {
             process = Launch(executable);
             var window = Window(process);
+            CaptureWindowIconEvidence(window, executable, "profile");
             var settings = Find(window, "OpenSettings");
             if (settings.Current.Name != "Settings" || !settings.Current.IsKeyboardFocusable)
                 throw new InvalidOperationException("Settings lacks a meaningful, keyboard-accessible action.");
             settings.SetFocus();
             PressCopyKey(0x20);
-            try { Await(() => Find(window, "WorkspacePath").Current.HasKeyboardFocus); }
+            try { Await(() => Find(window, "OpenWorkspace").Current.HasKeyboardFocus); }
             catch (TimeoutException error)
             {
-                var path = Find(window, "WorkspacePath").Current;
+                var path = Find(window, "OpenWorkspace").Current;
                 var focused = AutomationElement.FocusedElement.Current;
                 throw new TimeoutException(
-                    "Settings opened but Workspace folder did not receive keyboard focus. " +
+                    "Settings opened but Open Workspace did not receive keyboard focus. " +
                     $"Folder: enabled={path.IsEnabled}, focusable={path.IsKeyboardFocusable}, offscreen={path.IsOffscreen}, bounds={path.BoundingRectangle}. " +
                     $"Focused: id='{focused.AutomationId}', name='{focused.Name}', type={focused.ControlType.ProgrammaticName}.", error);
             }
-            Set(window, "WorkspacePath", workspace);
-            Click(window, "OpenWorkspace");
-            AwaitLocalWorkIdle(window);
+            CaptureVisualEvidence(window, "settings-grouped-first-run");
+            var orientation = (Find(window, "WorkspaceName").Current.Name,
+                Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkspaceName").Current.ItemStatus,
+                Find(window, "WorkspacePath").Current.Name);
+            var preferencePath = Path.Combine(root, "app-settings", "workspace-settings.json");
+            var preference = File.Exists(preferencePath) ? File.ReadAllBytes(preferencePath) : null;
+            PickWorkspaceFolder(window, null, observePicker: () => CaptureVisualEvidence(window, "settings-native-picker-cancel"));
+            Await(() => Find(window, "OpenWorkspace").Current.HasKeyboardFocus);
+            if (orientation != (Find(window, "WorkspaceName").Current.Name,
+                    Find(window, "WorkspaceName").Current.HelpText, Find(window, "WorkspaceName").Current.ItemStatus,
+                    Find(window, "WorkspacePath").Current.Name) ||
+                File.Exists(preferencePath) != (preference is not null) ||
+                preference is not null && !File.ReadAllBytes(preferencePath).SequenceEqual(preference) ||
+                Directory.GetFileSystemEntries(workspace).Length != 0)
+                throw new InvalidOperationException("Cancelling the native picker changed orientation, preferences or initialized a Workspace.");
+            PickWorkspaceFolder(window, workspace);
+            AwaitRestoredWorkspace(window, workspace);
             AssertEverydayChrome(window, "workspace");
             AssertImportHidden(window);
+            SetSettingsVisible(window, true);
+            if (Find(window, "WorkspacePath").Current.ControlType != ControlType.Text ||
+                Find(window, "WorkspacePath").Current.Name != Path.GetFullPath(workspace))
+                throw new InvalidOperationException("Settings did not display the full current Workspace path.");
+            AssertKeyboardCopy(window, "WorkspacePath", Path.GetFullPath(workspace), "Copy path");
+            CaptureVisualEvidence(window, "settings-grouped-current-workspace");
+            SetSettingsVisible(window, false);
             OpenImportView(window);
             Set(window, "ImportPath", import);
-            Click(window, "PreviewImport");
+            Find(window, "ImportPath").SetFocus();
+            PressCopyKey(0x0D);
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            CaptureVisualEvidence(window, "settings-import-enter-preview");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
                 if (!saved.OpenWorkspace(workspace) || saved.People.Count != 0)
@@ -66,25 +91,25 @@ internal static partial class Program
             }
             Set(window, "ImportPath", import + ".missing");
             Await(() => !Find(window, "ApplyImport").Current.IsEnabled &&
-                Find(window, "Status").Current.Name.Contains("Preview again"));
+                Status(window).Contains("Preview again"));
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
             {
                 Click(window, "ApplyImport");
-                Await(() => Find(window, "Status").Current.Name.Contains("NOT saved") &&
+                Await(() => Status(window).Contains("NOT saved") &&
                     Find(window, "DiscardImport").Current.IsEnabled);
                 ReturnToPeople(window);
                 Click(window, "DiscardImport");
-                Await(() => Find(window, "Status").Current.Name.Contains("Import discarded") &&
-                    Find(window, "WorkflowActivity").Current.Name == "Ready");
+                Await(() => Status(window).Contains("Import discarded") &&
+                    Activity(window) == "Ready");
             }
             OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
@@ -92,15 +117,17 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
-            Find(window, "DirectoryName").SetFocus();
+            Find(window, "JobTitleValue").SetFocus();
             PressCopyKey(0x09);
-            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
+            Await(() => Find(window, "DepartmentValue").Current.HasKeyboardFocus);
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
             BeginProfileEditing(window);
+            AssertProfileFieldKeyboard(window, workspace);
             Set(window, "OfficeNumber", "Cancelled office");
             Click(window, "ClearPhoto");
+            CaptureVisualEvidence(window, "profile-inline-photo-clear-staged");
             CancelProfileEditing(window);
             AwaitLocalWorkIdle(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -108,10 +135,10 @@ internal static partial class Program
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Stable email identity became editable.");
             NavigateToManager(window, "morgan@example.com");
-            var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
-                ?? throw new InvalidOperationException("Imported report navigation is missing.");
-            ((SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            Await(() => window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportedReports")) is not { } reports ||
+                reports.Current.IsOffscreen);
+            SelectTreePerson(window, "avery@example.com");
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000003",
@@ -119,23 +146,80 @@ internal static partial class Program
                 """);
             OpenImportView(window);
             Click(window, "PreviewImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import rejected"));
+            Await(() => Status(window).Contains("Import rejected"));
             if (Find(window, "ApplyImport").Current.IsEnabled ||
                 !Find(window, "Preview").Current.Name.Contains("avery@example.com.managerEmail"))
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
             ReturnToPeople(window);
             AssertPreferredNameReading(window, "", "Add preferred name");
             Click(window, "EditPreferredName");
-            Set(window, "PreferredName", " ");
-            Await(() => Find(window, "Status").Current.Name.Contains("preferredName"));
-            AssertValue(window, "PreferredName", " ");
-            Click(window, "ReadPreferredName");
-            AssertValue(window, "PreferredName", " ");
-            Set(window, "PreferredName", "Ave");
-            Await(() => Find(window, "Status").Current.Name == "Saved locally.");
+            var entry = PreferredNameEntry(window);
+            Set(entry, "PreferredName", "Unconfirmed name");
+            Find(entry, "PreferredName").SetFocus();
+            PressCopyKey(0x09);
+            Await(() => Find(entry, "SavePreferredName").Current.HasKeyboardFocus);
+            Thread.Sleep(650);
+            using (var saved = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!saved.OpenWorkspace(workspace) || saved.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+                    throw new InvalidOperationException("Typing or blur published an unconfirmed Preferred name.");
+            }
+            CaptureVisualEvidence(window, "preferred-name-normal-entry");
+            var beforeNameFailure = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
+            Set(entry, "PreferredName", " ");
+            Click(entry, "SavePreferredName");
+            Await(() => Find(entry, "PreferredNameError").Current.HelpText.Contains("preferredName") &&
+                Find(entry, "SavePreferredName").Current.IsEnabled);
+            AssertValue(entry, "PreferredName", " ");
+            CaptureVisualEvidence(window, "preferred-name-retained-failure");
+            var failureDetails = Find(entry, "PreferredNameFailureDetails");
+            var detailsHeader = Find(failureDetails, "HeaderSite");
+            detailsHeader.SetFocus();
+            Await(() => detailsHeader.Current.HasKeyboardFocus);
+            PressCopyKey(0x20);
+            Await(() => ((ExpandCollapsePattern)failureDetails.GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                    .Current.ExpandCollapseState == ExpandCollapseState.Expanded &&
+                !Find(entry, "PreferredNameErrorDetails").Current.IsOffscreen &&
+                Find(entry, "PreferredNameErrorDetails").Current.Name.Contains("preferredName"));
+            if (FindPreferredNameEntry(window) is null || Value(entry, "PreferredName") != " " ||
+                !Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal))
+                throw new InvalidOperationException("Keyboard Details expansion cancelled the retained name or hid its unsafe state.");
+            AssertWorkspaceBytes(workspace, beforeNameFailure);
+            CaptureVisualEvidence(window, "preferred-name-retained-failure-keyboard-details");
+            Set(entry, "PreferredName", "Ave");
+            Find(entry, "PreferredName").SetFocus();
+            Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+            PressCopyKey(0x0D);
+            Await(() => Status(window) == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
-            Click(window, "ReadPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
+            foreach (var dismissal in new[] { "cancel", "escape", "outside" })
+            {
+                Click(window, "EditPreferredName");
+                entry = PreferredNameEntry(window);
+                Set(entry, "PreferredName", "Must not save " + dismissal);
+                if (dismissal == "cancel") Click(entry, "CancelPreferredName");
+                else if (dismissal == "escape")
+                {
+                    Find(entry, "PreferredName").SetFocus();
+                    Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+                    PressCopyKey(0x1B);
+                }
+                else
+                {
+                    var target = Find(window, "SearchQuery").Current.BoundingRectangle;
+                    if (target.IsEmpty || !SetCursorPos((int)(target.Left + target.Width / 2), (int)(target.Top + target.Height / 2)))
+                        throw new InvalidOperationException("The hosted Preferred-name outside-click target is unavailable.");
+                    mouse_event(2, 0, 0, 0, 0);
+                    mouse_event(4, 0, 0, 0, 0);
+                }
+                AssertPreferredNameReading(window, "Ave", "Edit");
+                Await(() => Find(window, dismissal == "outside" ? "SearchQuery" : "EditPreferredName").Current.HasKeyboardFocus);
+                CaptureVisualEvidence(window, "preferred-name-dismissed-" + dismissal);
+                using var saved = ApplicationWorkflow.CreateFileBacked();
+                if (!saved.OpenWorkspace(workspace) || saved.GetRelationships("avery@example.com")!.Person.PreferredName != "Ave")
+                    throw new InvalidOperationException("Preferred-name dismissal changed the durable value: " + dismissal);
+            }
             BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
             SaveProfileEditing(window);
@@ -158,7 +242,7 @@ internal static partial class Program
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
-            Await(() => Find(window, "Status").Current.Name.Contains("Import applied"));
+            Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&
@@ -186,8 +270,9 @@ internal static partial class Program
             AssertPhotoVisible(window);
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
-            Await(() => Value(window, "PreferredName") == "Ave");
-            Click(window, "ReadPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Ave");
+            Click(entry, "CancelPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
             if (listener.Pending()) throw new InvalidOperationException("Profile presentation fetched a remote link.");
             Close(process);
@@ -199,7 +284,28 @@ internal static partial class Program
     {
         Click(window, "EditProfile");
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
-            !Find(window, "DirectoryNameEditor").Current.IsOffscreen);
+            !Find(window, "DirectoryNameEditor").Current.IsOffscreen &&
+            Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+    }
+
+    private static void AssertProfileFieldKeyboard(AutomationElement window, string workspace)
+    {
+        PressCopyKey(0x09);
+        Await(() => Find(window, "Alias").Current.HasKeyboardFocus);
+        Set(window, "OfficeNumber", "Not submitted by Enter");
+        Find(window, "OfficeNumber").SetFocus();
+        Await(() => Find(window, "OfficeNumber").Current.HasKeyboardFocus);
+        PressCopyKey(0x0D);
+        PressCopyKey(0x09);
+        Await(() => Find(window, "OfficeState").Current.HasKeyboardFocus);
+        AssertValue(window, "OfficeNumber", "Not submitted by Enter");
+        if (!IsVisible(window, "ProfileEditingState") || !IsVisible(window, "SaveProfile") ||
+            !IsVisible(window, "CancelProfile") || Find(window, "Email").Current.Name != "avery@example.com")
+            throw new InvalidOperationException("Field Enter submitted or displaced the complete contextual profile draft.");
+        using var saved = ApplicationWorkflow.CreateFileBacked();
+        if (!saved.OpenWorkspace(workspace) || saved.GetRelationships("avery@example.com")!.Person.OfficeNumber != "007B")
+            throw new InvalidOperationException("A profile field Enter published staged text before explicit Save.");
+        CaptureVisualEvidence(window, "profile-inline-field-enter-retained");
     }
 
     [DllImport("user32.dll")]
@@ -211,7 +317,7 @@ internal static partial class Program
         keybd_event(key, 0, 2, 0);
     }
 
-    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected)
+    private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
     {
         var value = Find(window, name);
         if (!value.Current.IsKeyboardFocusable)
@@ -223,7 +329,7 @@ internal static partial class Program
         Await(() => AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
-            new PropertyCondition(AutomationElement.NameProperty, "Copy value"))) is not null);
+            new PropertyCondition(AutomationElement.NameProperty, copyAction))) is not null);
         PressCopyKey(0x28);
         PressCopyKey(0x0D);
         Await(() => System.Windows.Clipboard.GetText() == expected);
@@ -233,18 +339,18 @@ internal static partial class Program
     {
         Click(window, "SaveProfile");
         Await(() => Find(window, "EditProfile").Current.IsEnabled &&
-            Find(window, "Status").Current.Name.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+            Status(window).StartsWith("Profile saved locally.", StringComparison.Ordinal));
     }
 
     private static void CancelProfileEditing(AutomationElement window)
     {
         Click(window, "CancelProfile");
-        Await(() => Find(window, "EditProfile").Current.IsEnabled);
+        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
+            Find(window, "EditProfile").Current.HasKeyboardFocus);
     }
 
     private static void AssertProfileValue(AutomationElement window, string field, string expected)
     {
-        if (field is "Alias" or "OfficeNumber" or "LinkedInProfileUrl") ExpandProfileDetails(window);
         var observed = "not yet observed";
         try
         {
@@ -254,7 +360,9 @@ internal static partial class Program
                     new PropertyCondition(AutomationElement.AutomationIdProperty, field + "Value"));
                 observed = value is null ? "missing" :
                     $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
-                if (expected.Length == 0) return value is null;
+                if (expected.Length == 0)
+                    return field is "JobTitle" or "Department" ? value is null :
+                        value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == "—";
                 return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
             });
         }
@@ -262,17 +370,6 @@ internal static partial class Program
         {
             throw new TimeoutException($"{field} reading expected '{expected}'; last UI observation: {observed}.", error);
         }
-    }
-
-    private static void ExpandProfileDetails(AutomationElement window)
-    {
-        var details = window.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileDetails"));
-        if (details is null) return;
-        var expansion = (ExpandCollapsePattern)details.GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        if (expansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
-            expansion.Expand();
-        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
     }
 
     private static void AssertEverydayChrome(AutomationElement window, string workspaceName)
@@ -290,12 +387,19 @@ internal static partial class Program
 
     private static void AssertCompactProfile(AutomationElement window)
     {
-        var details = (ExpandCollapsePattern)Find(window, "ProfileDetails").GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        if (details.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
-            throw new InvalidOperationException("A Person did not open with a concise initial summary.");
+        if (window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileDetails")) is not null)
+            throw new InvalidOperationException("Ordinary facts still require a More details disclosure.");
         AssertProfileValue(window, "JobTitle", "Research engineer");
         AssertProfileValue(window, "Department", "Research");
         AssertProfileValue(window, "OfficeCountry", "Canada");
+        AssertProfileValue(window, "OfficeBuilding", "");
+        AssertProfileValue(window, "OfficeState", "");
+        AssertProfileValue(window, "LinkedInProfileUrl", "");
+        AssertProfileValue(window, "OfficeNumber", "007B");
+        AssertProfileValue(window, "Alias", "avery");
+        if (IsVisible(window, "PersonArchivalStatus"))
+            throw new InvalidOperationException("Ordinary reading must not imply Active employment or presence.");
         foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager" })
             if (Find(window, id).Current.IsOffscreen)
                 throw new InvalidOperationException($"Essential profile information is not initially visible: {id}.");
@@ -307,6 +411,7 @@ internal static partial class Program
             Find(window, "Email").Current.Name != "avery@example.com" ||
             Find(window, "Email").Current.ControlType != ControlType.Text)
             throw new InvalidOperationException("The compact header lost Directory name or stable, non-editable email.");
+        CaptureVisualEvidence(window, "profile-reading-photo-all-facts");
     }
 
     private static AutomationElement ProfileLeaveWindow(AutomationElement window)
@@ -323,11 +428,31 @@ internal static partial class Program
     {
         Await(() =>
         {
-            if (Find(window, "PreferredNameValue").Current.Name != value ||
-                Find(window, "EditPreferredName").Current.Name != action) return false;
-            var editor = window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "PreferredName"));
-            return editor is null || editor.Current.IsOffscreen;
+            var expectedHeading = value.Length == 0 ? Find(window, "DirectoryName").Current.Name : value;
+            if (Find(window, "ProfileHeading").Current.Name != expectedHeading ||
+                Find(window, "EditPreferredName").Current.Name != (action == "Edit" ? "Edit preferred name" : action)) return false;
+            return FindPreferredNameEntry(window) is null;
         });
+    }
+
+    private static AutomationElement? FindPreferredNameEntry(AutomationElement window)
+    {
+        var condition = new PropertyCondition(AutomationElement.AutomationIdProperty, "PreferredNameEntry");
+        var entry = window.FindFirst(TreeScope.Descendants, condition);
+        if (entry is not null && !entry.Current.IsOffscreen) return entry;
+        foreach (AutomationElement root in AutomationElement.RootElement.FindAll(TreeScope.Children,
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId)))
+        {
+            entry = root.FindFirst(TreeScope.Descendants, condition);
+            if (entry is not null && !entry.Current.IsOffscreen) return entry;
+        }
+        return null;
+    }
+
+    private static AutomationElement PreferredNameEntry(AutomationElement window)
+    {
+        AutomationElement? entry = null;
+        Await(() => (entry = FindPreferredNameEntry(window)) is not null);
+        return entry!;
     }
 }
