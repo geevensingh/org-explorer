@@ -261,7 +261,8 @@ public partial class MainWindow : Window
             ShowNavigationBlocked(workflow.Status);
             return false;
         }
-        if (!string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase))
+        var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
+        if (changedPerson)
         {
             HistoryAccess.IsExpanded = false;
             PersonScroll.ScrollToTop();
@@ -272,6 +273,7 @@ public partial class MainWindow : Window
         ShowPerson(person);
         PersonNotes.OpenPerson(person.Email);
         TeamNotes.OpenPerson(person.Email);
+        if (navigation || changedPerson) ExpandPersonPath(person.Email);
         UpdateStartView();
         RefreshSearchAndFavorites();
         UpdatePeopleNavigation();
@@ -345,15 +347,20 @@ public partial class MainWindow : Window
             RefreshPeople();
             return false;
         }
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        while (workflow.PeopleNavigation.IsBrowsing && context.Manager is { } manager && visited.Add(manager.Email))
-        {
-            expandedPeople.Add(manager.Email);
-            context = workflow.GetRelationships(manager.Email)!;
-        }
         RefreshPeople();
         RestoreRealizedTreeState(PeopleList);
         return true;
+    }
+    private void ExpandPersonPath(string email)
+    {
+        var context = workflow.GetRelationships(email);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (context is not null && visited.Add(context.Person.Email))
+        {
+            if (context.ImportedReports.Count > 0) expandedPeople.Add(context.Person.Email);
+            context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
+        }
+        RestoreRealizedTreeState(PeopleList);
     }
     private void RestoreRealizedTreeState(ItemsControl parent)
     {

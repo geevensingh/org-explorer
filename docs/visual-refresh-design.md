@@ -197,6 +197,11 @@ subtle blue selection, and star-marked Favorites. Do not add a photo and
 job-title subtitle to every tree row. Long/ambiguous labels must retain full
 identity through accessible detail and existing navigation, not silently lose
 People or reporting depth.
+Accepted Person selection opens that Person's immediate reports and the
+ancestors needed to reveal the entry, not every descendant. Preserve other
+branches and allow deliberate collapse after selection. A rejected destination
+must not expand. Collapsed and expanded chevrons keep the same hit-target
+position and hierarchy depth.
 
 Keep live search across existing profile/note information and current,
 archived, and historical distinctions. Search temporarily replaces Favorites

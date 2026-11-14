@@ -275,7 +275,7 @@
                 <ContentPresenter x:Name="PART_Header" ContentSource="Header" Margin="22,4,8,4"
                                   HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
               </Border>
-              <ToggleButton x:Name="Expander" Width="18" Height="28" Focusable="False"
+              <ToggleButton x:Name="Expander" Width="18" Height="28" Focusable="False" HorizontalAlignment="Left"
                             AutomationProperties.Name="Expand or collapse reporting subtree"
                             IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                 <ToggleButton.Template>

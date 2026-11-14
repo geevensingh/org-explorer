@@ -197,7 +197,7 @@ public partial class MainWindow
 
     private void RestorePeopleBrowsing()
     {
-        expandedPeople.Clear();
+        // Retain accepted Person selections made while search hid the tree.
         expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         RestoreRealizedTreeState(PeopleList);
         Dispatcher.BeginInvoke(() =>

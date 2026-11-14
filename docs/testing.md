@@ -598,6 +598,11 @@ compact mode or search. Report selection still opens its exact Person; opening
 the temporary People overlay does not change the report bounds or content extent.
 The native profile journey uses the tree for wide report navigation, while the
 note journey retains visible report-list navigation during search.
+The independent tree fixture measures the real collapsed/expanded chevron and
+requires identical toggle bounds and label indentation. Real selection providers
+must open only the accepted Person's immediate reports, preserving other branches
+and deliberate collapse. Search/clear reveals the accepted selected branch;
+failed note writing rejects another selection without expanding that destination.
 These are compiled wiring/measurement checks, not rendered acceptance.
 The same invisible regression drives the actual Preferred-name Save/Cancel
 controls: typing does not publish; failed Save retains

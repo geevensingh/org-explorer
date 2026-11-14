@@ -135,6 +135,10 @@ internal static partial class Program
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
             if (verifyProfileRefresh)
             {
+                var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyTreePresentation(treeWindow, settings); }
+                finally { treeWindow.Close(); }
                 VerifySettingsFocus(window);
                 // The empty 44-Person probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
@@ -1320,6 +1324,113 @@ internal static partial class Program
             Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
             throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
         Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
+    }
+
+    private static void VerifyTreePresentation(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "tree-presentation");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"87000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"alex@example.com","displayName":"Alex","managerEmail":"avery@example.com"},
+                 {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
+                 {"email":"jordan@example.com","displayName":"Jordan","managerEmail":"casey@example.com"}]}
+                """).Id))
+                throw new InvalidOperationException("Tree presentation fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        void Layout()
+        {
+            root.Measure(new Size(1100, 900));
+            root.Arrange(new Rect(0, 0, 1100, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Tree measurements must not show a window or create its native handle.");
+        }
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        var tree = Control<TreeView>("PeopleList");
+        var manager = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "morgan@example.com");
+        var container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        var provider = (IExpandCollapseProvider)UIElementAutomationPeer.CreatePeerForElement(container).GetPattern(PatternInterface.ExpandCollapse);
+        var expander = (ToggleButton)container.Template.FindName("Expander", container);
+        var chevron = (System.Windows.Shapes.Path)expander.Template.FindName("Chevron", expander);
+        Rect Ink() => chevron.TransformToAncestor(tree).TransformBounds(
+            chevron.RenderedGeometry.GetRenderBounds(new Pen(chevron.Stroke, chevron.StrokeThickness)));
+        Rect ToggleBounds() => expander.TransformToAncestor(tree).TransformBounds(new Rect(expander.RenderSize));
+        var collapsedToggle = ToggleBounds();
+        var collapsed = Ink();
+        var header = (FrameworkElement)container.Template.FindName("PART_Header", container);
+        var headerBefore = header.TransformToAncestor(tree).Transform(new Point());
+        provider.Expand();
+        Layout();
+        var expanded = Ink();
+        var headerAfter = header.TransformToAncestor(tree).Transform(new Point());
+        var centerBefore = collapsed.Left + collapsed.Width / 2;
+        var centerAfter = expanded.Left + expanded.Width / 2;
+        Console.WriteLine($"TREE-CHEVRON collapsed={collapsed}; expanded={expanded}; centers={centerBefore}/{centerAfter}; " +
+            $"toggle={collapsedToggle}/{ToggleBounds()}; header={headerBefore}/{headerAfter}.");
+        if (collapsedToggle != ToggleBounds() || Math.Abs(centerBefore - centerAfter) > 1 || headerBefore.X != headerAfter.X)
+            throw new InvalidOperationException("Expanded and collapsed chevrons must keep the same depth and horizontal center without moving the Person label.");
+        provider.Collapse();
+        Layout();
+        var sibling = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "casey@example.com");
+        var siblingContainer = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(sibling);
+        siblingContainer.IsExpanded = true;
+        var selection = (ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(container).GetPattern(PatternInterface.SelectionItem);
+        selection.Select();
+        Layout();
+        if (Control<TextBlock>("Email").Text != "morgan@example.com" || !container.IsExpanded)
+            throw new InvalidOperationException("Selecting a Person must expand that Person's immediate reports.");
+        var child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        if (child.IsExpanded || !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("Selecting a Person must not recursively expand reports or collapse another branch.");
+        provider.Collapse();
+        Control<TextBox>("SearchQuery").Text = "avery";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        if (container.IsExpanded)
+            throw new InvalidOperationException("A deliberate collapse of the selected Person must survive search/clear without a new Person selection.");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        var results = Control<ListBox>("SearchResults");
+        PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
+            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile));
+        results.SelectedItem = results.Items.Cast<SearchResult>().First(result =>
+            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile);
+        results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+            { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        siblingContainer = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(sibling);
+        if (!container.IsExpanded || child is null || !child.IsExpanded || !child.IsSelected ||
+            child.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single().Reports.Single()) is not TreeViewItem ||
+            !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("A Person selected through search must return to a visible, expanded branch without losing unrelated expansion.");
+        siblingContainer.IsExpanded = false;
+        var notes = Control<FrameworkElement>("PersonNotes");
+        ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((TextBox)notes.FindName("NoteTitle")).Text == "New Person note");
+        ((TextBox)notes.FindName("NoteTitle")).Text = "";
+        PumpUntil(() => ((TextBlock)notes.FindName("NoteStatus")).Text.Contains("NOT saved", StringComparison.Ordinal));
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(siblingContainer)
+            .GetPattern(PatternInterface.SelectionItem)).Select();
+        Layout();
+        if (Control<TextBlock>("Email").Text != "avery@example.com" || siblingContainer.IsExpanded || !child.IsSelected)
+            throw new InvalidOperationException("Rejected navigation must retain the owner and must not expand the rejected Person.");
+        ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((WorkspaceViewModel)tree.DataContext).CanSafelyClose);
+        Console.WriteLine("PASS: real tree selection expands only immediate reports, retains manual collapse/other branches, reveals accepted search destinations and leaves rejected branches unchanged.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)
