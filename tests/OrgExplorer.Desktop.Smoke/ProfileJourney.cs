@@ -361,7 +361,7 @@ internal static partial class Program
                 observed = value is null ? "missing" :
                     $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
                 if (expected.Length == 0)
-                    return field is "JobTitle" or "Department" ? value is null :
+                    return field is "JobTitle" ? value is null :
                         value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == "—";
                 return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
             });
@@ -393,7 +393,10 @@ internal static partial class Program
         AssertProfileValue(window, "JobTitle", "Research engineer");
         AssertProfileValue(window, "Department", "Research");
         AssertProfileValue(window, "OfficeCountry", "Canada");
-        AssertProfileValue(window, "OfficeBuilding", "");
+        var emptyBuilding = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "OfficeBuildingValue"));
+        if (emptyBuilding is not null && !emptyBuilding.Current.IsOffscreen)
+            throw new InvalidOperationException("Office with only a room must not display an empty-building placeholder.");
         AssertProfileValue(window, "OfficeState", "");
         AssertProfileValue(window, "LinkedInProfileUrl", "");
         AssertProfileValue(window, "OfficeNumber", "007B");
