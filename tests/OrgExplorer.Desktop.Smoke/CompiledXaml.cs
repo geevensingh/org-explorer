@@ -241,6 +241,17 @@ internal static partial class Program
                 .Select(text => text.Text));
             if (path != ownedName + " > Platform")
                 throw new InvalidOperationException("The compiled separators do not form the exact ordered Team-name path.");
+            foreach (var (value, expected) in segments.Zip(new[] { ownedName, "Platform" }))
+            {
+                if (!value.Focusable || !KeyboardNavigation.GetIsTabStop(value) ||
+                    value.ContextMenu is not { } menu ||
+                    menu.Items.OfType<MenuItem>().SingleOrDefault() is not { Header: "Copy value" } copy)
+                    throw new InvalidOperationException("Each Team-name segment needs its own keyboard-accessible Copy value action.");
+                menu.PlacementTarget = value;
+                System.Windows.Data.BindingOperations.GetBindingExpression(copy, FrameworkElement.TagProperty)!.UpdateTarget();
+                if (copy.Tag is not string copied || copied != expected || menu.IsOpen)
+                    throw new InvalidOperationException("Team-name Copy must bind only the actual segment label, not its owner or the full path.");
+            }
             var available = Control<ItemsControl>("TeamNames").ActualWidth;
             if (segments.Any(text => text.TranslatePoint(new Point(), Control<ItemsControl>("TeamNames")).X < -1 ||
                 text.TranslatePoint(new Point(text.ActualWidth, 0), Control<ItemsControl>("TeamNames")).X > available + 1))
@@ -395,7 +406,7 @@ internal static partial class Program
         Invoke("CancelProfileButton");
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Owned-name wiring must remain invisible without a native handle.");
-        Console.WriteLine("PASS: compiled ordered/duplicate Team-name segments, separators, owner bindings, owner-only durable Save, inherited/empty reading and live Cancel/resize automation peers without a window/native handle; physical input remains hosted evidence.");
+        Console.WriteLine("PASS: compiled ordered/duplicate Team-name segments, separators, segment-only Copy bindings, owner bindings, owner-only durable Save, inherited/empty reading and live Cancel/resize automation peers without a window/native handle; physical input remains hosted evidence.");
     }
 
     private static void VerifySettingsFocus(Window window)

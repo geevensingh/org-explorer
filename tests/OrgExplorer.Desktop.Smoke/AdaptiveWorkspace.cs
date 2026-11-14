@@ -585,6 +585,8 @@ internal static partial class Program
         AtSize("team-name-ordinary-1100-900");
         AssertTeamNameOwnerAttribution(window, "Morgan", "morgan@example.com");
         AssertTeamNameOwnerAttribution(window, "Alex", "alex@example.com", 1);
+        AssertMouseCopy(window, FindTeamNameSegment(window, 0), name);
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 1), name);
         foreach (var width in new[] { 959d, 960d, 961d })
         {
             var chrome = window.Current.BoundingRectangle.Width / scale -

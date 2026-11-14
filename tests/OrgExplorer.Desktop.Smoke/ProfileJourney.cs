@@ -353,12 +353,16 @@ internal static partial class Program
         AssertTeamNamePath(window, "Platform", "Platform");
         AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com", 0);
         AssertTeamNameOwnerAttribution(window, "Rowan Example", "rowan@example.com", 1);
+        AssertMouseCopy(window, FindTeamNameSegment(window, 0), "Platform");
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 1), "Platform");
         CaptureVisualEvidence(window, "team-name-duplicate-owner-reading");
         BeginProfileEditing(window);
         AssertValue(window, "TeamNameEditor", "Platform");
         Set(window, "TeamNameEditor", "Renamed owned label");
         SaveProfileEditing(window);
         AssertTeamNamePath(window, "Renamed owned label", "Platform");
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 0), "Renamed owned label");
+        AssertMouseCopy(window, FindTeamNameSegment(window, 1), "Platform");
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "");
         SaveProfileEditing(window);
@@ -444,15 +448,17 @@ internal static partial class Program
         }
     }
 
-    private static void AssertTeamNameOwnerAttribution(AutomationElement window, string heading, string email, int index = 0)
-    {
-        var expected = $"Owned by {heading} ({email})";
-        AutomationElement Segment() => Find(window, "TeamNames").FindAll(TreeScope.Descendants,
+    private static AutomationElement FindTeamNameSegment(AutomationElement window, int index) =>
+        Find(window, "TeamNames").FindAll(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
             .Cast<AutomationElement>().ElementAtOrDefault(index) ??
                 throw new InvalidOperationException($"Missing actual UI control: TeamNameSegment {index}");
+
+    private static void AssertTeamNameOwnerAttribution(AutomationElement window, string heading, string email, int index = 0)
+    {
+        var expected = $"Owned by {heading} ({email})";
         Find(window, "Email").SetFocus();
-        var segment = ControlReadiness.AwaitControl(Segment,
+        var segment = ControlReadiness.AwaitControl(() => FindTeamNameSegment(window, index),
             candidate => !candidate.Current.IsOffscreen && candidate.Current.HelpText == expected, Await);
         bool TooltipVisible()
         {
@@ -510,10 +516,12 @@ internal static partial class Program
     }
 
     private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
+        => AssertKeyboardCopy(window, Find(window, name), expected, copyAction);
+
+    private static void AssertKeyboardCopy(AutomationElement window, AutomationElement value, string expected, string copyAction = "Copy value")
     {
-        var value = Find(window, name);
         if (!value.Current.IsKeyboardFocusable)
-            throw new InvalidOperationException($"{name} does not accept keyboard focus.");
+            throw new InvalidOperationException($"{value.Current.AutomationId} does not accept keyboard focus.");
         value.SetFocus();
         Await(() => value.Current.HasKeyboardFocus);
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
@@ -524,6 +532,27 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.NameProperty, copyAction))) is not null);
         PressCopyKey(0x28);
         PressCopyKey(0x0D);
+        Await(() => System.Windows.Clipboard.GetText() == expected);
+    }
+
+    private static void AssertMouseCopy(AutomationElement window, AutomationElement value, string expected)
+    {
+        System.Windows.Clipboard.SetText("Copy has not been invoked.");
+        var point = value.GetClickablePoint();
+        if (!SetCursorPos((int)point.X, (int)point.Y))
+            throw new InvalidOperationException("The hosted desktop could not right-click the profile value.");
+        mouse_event(8, 0, 0, 0, 0);
+        mouse_event(16, 0, 0, 0, 0);
+        AutomationElement? copy = null;
+        Await(() => (copy = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
+            new PropertyCondition(AutomationElement.NameProperty, "Copy value")))) is not null);
+        var action = copy!.GetClickablePoint();
+        if (!SetCursorPos((int)action.X, (int)action.Y))
+            throw new InvalidOperationException("The hosted desktop could not click Copy value.");
+        mouse_event(2, 0, 0, 0, 0);
+        mouse_event(4, 0, 0, 0, 0);
         Await(() => System.Windows.Clipboard.GetText() == expected);
     }
 

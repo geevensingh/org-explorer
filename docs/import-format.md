@@ -136,7 +136,7 @@ For an existing person:
 An existing-person email-only record can be reported as having no field changes;
 it does not reconfirm all their other values. Optional fields absent during
 creation remain unknown. There is no special import-protected preferred name or
-LinkedIn layer; notes are the sole import exclusion.
+LinkedIn layer; Notes and Team names remain excluded as private workspace context.
 
 An explicit same-value observation can reconfirm that supplied field without
 creating a false profile-change event. An office-only observation must not

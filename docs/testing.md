@@ -133,7 +133,8 @@ the same workflow and real-folder seams: duplicate names, unnamed gaps, dormant
 owners retaining ancestor context, final imported graphs, refresh with retained
 writing, and unchanged frozen Team-note evidence. The existing `profile-journey`
 and `responsive-workspace` journeys require actual ` > ` separators, duplicate
-mouse/keyboard attribution, inherited read-only context and owner-only editing.
+mouse/keyboard attribution, segment-only Copy through mouse and keyboard context
+menus, inherited read-only context and owner-only editing.
 The responsive long-duplicate-name checks retain the full original size matrix
 and restore the original 44-Person graph before the remaining reading checks.
 Invisible compiled checks separately cover wrapping, exact segment/separator

@@ -147,9 +147,7 @@ public partial class MainWindow
         if (loading || selectedEmail is null) return;
         workflow.StageProfileTeamName(TeamNameEditor.Text.Length == 0 ? null : TeamNameEditor.Text);
         MarkDraftPending();
-        ApplyButton.IsEnabled = false;
-        preview = null;
-        ShowStatus();
+        InvalidateRelationshipPreview();
     }
 
     private void ShowTeamNameOwner(object sender, KeyboardFocusChangedEventArgs e)

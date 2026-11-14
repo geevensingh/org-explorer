@@ -786,6 +786,7 @@
                         <TextBlock.ToolTip>
                           <ToolTip Content="{Binding PlacementTarget.(AutomationProperties.HelpText), RelativeSource={RelativeSource Self}}"/>
                         </TextBlock.ToolTip>
+                        <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
                       </TextBlock>
                     </Grid>
                   </DataTemplate>
