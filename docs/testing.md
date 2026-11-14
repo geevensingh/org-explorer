@@ -508,6 +508,7 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 ```powershell
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
+.\tests\ImplementationBaseline.Tests.ps1
 .\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
@@ -518,6 +519,12 @@ dotnet build src\OrgExplorer.Desktop -c Release
 dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
+
+`ImplementationBaseline.Tests.ps1` runs in the core lane and invokes the real
+preflight in child PowerShell processes against isolated local Git repositories
+and bare remotes. It checks fetched versus stale local refs, divergence, failed
+fetches, explicit remote/local integration baselines and checkout preservation.
+It needs no GitHub credentials, network or desktop.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA
