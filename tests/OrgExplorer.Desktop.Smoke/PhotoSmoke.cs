@@ -120,11 +120,15 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.NameProperty, "Choose a local Person photo"));
         Await(() => (dialog = window.FindFirst(TreeScope.Descendants, condition) ??
             AutomationElement.RootElement.FindFirst(TreeScope.Children, condition)) is not null);
-        var fileName = Find(dialog!, "1148");
-        var edit = fileName.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)) ?? fileName;
-        ((ValuePattern)edit.GetCurrentPattern(ValuePattern.Pattern)).SetValue(path);
+        ControlReadiness.AwaitPattern(() =>
+        {
+            var fileName = Find(dialog!, "1148");
+            return fileName.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)) ?? fileName;
+        }, control => control.Current.IsEnabled,
+            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(path);
         Click(dialog!, "1");
+        Await(() => choose.IsCompleted);
         choose.GetAwaiter().GetResult();
         Await(() => Find(window, "Status").Current.Name == "Saved locally.");
     }

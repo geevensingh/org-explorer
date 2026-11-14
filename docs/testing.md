@@ -239,6 +239,8 @@ UI Automation invocation can return before WPF processes the queued button
 handler. Click and value helpers acquire an enabled control and its required
 pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
+The photo chooser uses the same filename readiness check and bounds observation
+of its modal invocation's completion with the existing 20-second smoke wait.
 The headless readiness regression scripts missing/disabled controls and transient
 pattern discovery at that shared helper; hosted WPF remains the actual UI proof.
 The pending-profile scenario keeps real typing active until rejection
