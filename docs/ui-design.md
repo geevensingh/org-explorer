@@ -331,6 +331,18 @@ all grow within the one Person reading scroll. Its reserved scrollbar gutter
 keeps fact slots stable when populated and empty notes have different heights.
 This does not change the separate People browsing bookmark or measured range.
 
+Historical captures use a concise local capture date and former Reporting chain,
+with a visible reminder that locally known writing is not proof of its state at
+the actual change time. Each capture has a collapsed **Capture details**
+disclosure for complete transition evidence, observations/recordings, batch
+identity and frozen note IDs, versions and update timestamps. Its read-only text
+can be selected and copied. These are capture metadata, not Team-note content.
+Each frozen note has a separate ruled reading section with its title, former
+owner and review state when captured outside that disclosure. Technical evidence
+is not repeated in the capture-count summary or note headings. Exact historical
+search still reveals the same immutable capture/note section; expanding evidence
+does not replace writing or introduce a second reading scroll.
+
 Workflow and real-file regressions cover secondary inheritance/navigation,
 durable Team designation, preference failures/nonmutation and retained drafts.
 The existing hosted Team/history journey adds actual ongoing/Other, collapsed

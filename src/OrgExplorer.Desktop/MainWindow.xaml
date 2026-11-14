@@ -922,7 +922,7 @@
           <TextBlock Text="Historical team context" Style="{StaticResource ReadingHeading}" Margin="0,16,0,4"/>
           <TextBlock Text="Frozen former context, not current inheritance" Style="{StaticResource NoteMetadata}"/>
             <TextBlock x:Name="HistoricalTeamSummary" AutomationProperties.AutomationId="HistoricalTeamSummary"
-                       Text="Select a Person to review Historical team context." Style="{StaticResource ReadingProse}"/>
+                       Text="Select a Person to review Historical team context." Style="{StaticResource NoteMetadata}"/>
             <FlowDocumentScrollViewer x:Name="HistoricalTeamReading" AutomationProperties.AutomationId="HistoricalTeamReading"
                                       AutomationProperties.Name="Historical frozen Team notes; never current inheritance"
                                       AutomationProperties.HelpText="Read-only local captures. External links open only when selected; images and raw HTML are never loaded."/>

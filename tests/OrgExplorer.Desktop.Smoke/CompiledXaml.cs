@@ -399,6 +399,7 @@ internal static partial class Program
     {
         string Writing(string marker) => string.Join("\n\n",
             Enumerable.Range(1, 32).Select(n => $"{marker} paragraph {n}. Keep the decision and its reasoning together."));
+        IReadOnlyList<HistoricalTeamContext> captures;
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
@@ -412,9 +413,14 @@ internal static partial class Program
                 seed.CreateTeamNote("avery@example.com", "Owned reading", Writing("Owned")) is null ||
                 seed.CreateTeamNote("morgan@example.com", "Former reading", Writing("Frozen")) is null ||
                 seed.CreateTeamNote("alex@example.com", "Ancestor reading", Writing("Current")) is null ||
+                !seed.EditPersonText("morgan@example.com", PersonTextField.JobTitle, "Former Director") ||
+                !seed.EditPersonManager("avery@example.com", null) ||
+                !seed.EditPersonArchived("avery@example.com", true) ||
                 !seed.EditPersonManager("avery@example.com", "alex@example.com") ||
+                !seed.EditPersonArchived("avery@example.com", false) ||
                 !seed.EditPersonText("alex@example.com", PersonTextField.JobTitle, "Director"))
                 throw new InvalidOperationException("Context reading fixture failed: " + seed.Status);
+            captures = seed.GetHistoricalTeamContexts("avery@example.com");
         }
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var person = Control<FrameworkElement>("PersonNotes");
@@ -449,6 +455,45 @@ internal static partial class Program
         var inherited = Team<FlowDocumentScrollViewer>("InheritedReading");
         var frozen = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
         string Text(FlowDocumentScrollViewer reader) => new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text;
+        if (Control<TextBlock>("HistoricalTeamSummary").Text != "Historical captures: 2")
+            throw new InvalidOperationException("The capture summary must count captures without duplicating technical evidence.");
+        var disclosures = new List<Expander>();
+        foreach (var capture in captures)
+        {
+            var section = frozen.Document.Blocks.OfType<Section>().Single(s => Equals(s.Tag, capture.Id));
+            var disclosure = (Expander)section.Blocks.OfType<BlockUIContainer>().Single().Child;
+            disclosures.Add(disclosure);
+            var evidence = (TextBox)disclosure.Content;
+            var reading = new TextRange(section.ContentStart, section.ContentEnd).Text;
+            if (disclosure.IsExpanded || disclosure.Header as string != "Capture details" ||
+                System.Windows.Automation.AutomationProperties.GetAutomationId(disclosure) != $"HistoricalCaptureDetails-{capture.Id}" ||
+                string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(disclosure)) ||
+                !evidence.IsReadOnly || !evidence.Focusable || !KeyboardNavigation.GetIsTabStop(evidence) ||
+                !evidence.Text.Contains(capture.DisplayProvenance, StringComparison.Ordinal) ||
+                reading.Contains("Prior evidence:", StringComparison.Ordinal) ||
+                !reading.Contains("Captured locally", StringComparison.Ordinal) ||
+                !reading.Contains("Exact effective date unknown", StringComparison.Ordinal))
+                throw new InvalidOperationException("Capture evidence must be separately named, collapsed and copyable without replacing honest capture attribution.");
+            foreach (var note in capture.TeamNotes)
+            {
+                var noteSection = section.Blocks.OfType<Section>().Single(s => Equals(s.Tag, note.Id));
+                var noteText = new TextRange(noteSection.ContentStart, noteSection.ContentEnd).Text;
+                if (!noteText.Contains($"Frozen Team note: {note.Title}", StringComparison.Ordinal) ||
+                    !noteText.Contains("Owned by Morgan (morgan@example.com)", StringComparison.Ordinal) ||
+                    !noteText.Contains("Needs review", StringComparison.Ordinal) ||
+                    noteText.Contains(note.Version, StringComparison.Ordinal) || noteText.Contains(note.Id.ToString(), StringComparison.Ordinal) ||
+                    !evidence.Text.Contains(note.Version, StringComparison.Ordinal) ||
+                    !evidence.Text.Contains(note.Id.ToString(), StringComparison.Ordinal) ||
+                    noteSection.BorderThickness.Left <= 0 ||
+                    !noteText.Contains("Frozen paragraph 32", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Frozen writing must retain its boundary, exact owner and captured review warning without technical note labels.");
+            }
+            if (capture.TeamNotes.Count == 0 &&
+                (!reading.Contains("(explicit no-Manager)", StringComparison.Ordinal) ||
+                 !reading.Contains("Archival closure", StringComparison.Ordinal) ||
+                 !reading.Contains("No active Team notes were locally known", StringComparison.Ordinal)))
+                throw new InvalidOperationException("A capture with no known notes must retain its former chain and evidence.");
+        }
         if (!Text(inherited).Contains("Current paragraph 32", StringComparison.Ordinal) ||
             Text(inherited).Contains("Frozen paragraph", StringComparison.Ordinal) ||
             !Text(frozen).Contains("Frozen paragraph 32", StringComparison.Ordinal) ||
@@ -479,6 +524,22 @@ internal static partial class Program
                 Control<TextBlock>("HistoricalTeamSummary").ActualWidth > 600 ||
                 Team<TextBlock>("InheritedSummary").ActualWidth > 600)
                 throw new InvalidOperationException($"Full-width context sections must align their title and bounded prose at {size}: title={title.X}, prose={prose.X}.");
+            foreach (var disclosure in disclosures)
+            {
+                var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().Single();
+                var provider = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle);
+                var before = Text(frozen);
+                provider.Toggle();
+                root.UpdateLayout();
+                var evidence = (TextBox)disclosure.Content;
+                if (!disclosure.IsExpanded || evidence.ActualHeight <= 0 || disclosure.ActualWidth > 600 ||
+                    evidence.TextWrapping != TextWrapping.Wrap || evidence.ExtentWidth > evidence.ViewportWidth + 1 ||
+                    disclosure.TransformToAncestor(viewport).Transform(new Point(disclosure.ActualWidth, 0)).X > viewport.ViewportWidth + 1 ||
+                    Text(frozen) != before)
+                    throw new InvalidOperationException($"Expanding capture evidence must wrap within the shared reading scroll without changing frozen writing at {size}.");
+                provider.Toggle();
+                root.UpdateLayout();
+            }
         }
         foreach (var notes in new[] { person, team })
         {
@@ -1051,6 +1112,15 @@ internal static partial class Program
             frozenText.Contains("Pine current writing", StringComparison.Ordinal) ||
             !frozenText.Contains("morgan@example.com", StringComparison.Ordinal))
             throw new InvalidOperationException("Historical search did not reveal the exact frozen owner's document.");
+        Activate("morgan@example.com", r => r.Person.Email == "avery@example.com" &&
+            r.Source == SearchSource.FormerReportingChain && r.Field == "email");
+        PumpUntil(() => System.Windows.Automation.AutomationProperties.GetHelpText(historical)
+            .Contains("Former Reporting chain", StringComparison.Ordinal));
+        if (!new TextRange(historical.Document.ContentStart, historical.Document.ContentEnd).Text
+                .Contains("Former Reporting chain: email", StringComparison.Ordinal) ||
+            historical.Document.Blocks.OfType<Section>().SelectMany(section => section.Blocks.OfType<BlockUIContainer>())
+                .Select(block => (Expander)block.Child).Any(disclosure => disclosure.IsExpanded))
+            throw new InvalidOperationException("Former-chain search must reveal its exact captured fact without opening technical details.");
         Activate("pine", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
         var teams = Control<FrameworkElement>("TeamNotes");
         PumpUntil(() => ((Expander)teams.FindName("CurrentTeamContext")).IsExpanded);
