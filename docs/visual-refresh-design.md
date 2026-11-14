@@ -101,13 +101,35 @@ available actions, and review warnings must still be understandable.
 
 ## Person identity and facts
 
-### Compact, anchored identity
+### Anchored identity
 
-Use a flat identity band with a compact circular photo or initials placeholder,
+Use a flat identity band with a circular photo or initials placeholder,
 the primary name and its Preferred-name pencil, role/department, email, and
 right-side Favorite, Edit profile, and More actions. Do not retain oversized
 rectangular missing-photo furniture, repeated name rows, or an empty
 Preferred-name paragraph.
+
+The November 14, 2026 photo-size amendment (#81) supersedes only the earlier
+compact photo sizing. It is approved design, not implemented or rendered
+acceptance: the verified main baseline `a76552e` still uses a 56-unit circle.
+Permanently display the selected Person's photo in a 144-by-144 logical-unit
+circle at every supported window size, following normal Windows display scaling.
+Retain centered, aspect-preserving fill and the circular crop, including
+enlargement of small sources; the whole source image need not remain visible.
+Do not introduce a separate preview, resolution cap, warning, or image enhancement.
+
+Use the same 144-unit circle when the photo is missing, with proportionally
+larger initials. Preserve the existing initials text, colors, accessible
+description, and selection behavior so choosing or clearing a photo does not
+change the photo area's footprint. Preserve explicit profile Save/Cancel and
+stored photo bytes, references, decoding, and accepted formats.
+
+Keep the photo on the left with identity and actions beside it. Accept the
+larger anchored header's space cost without moving identity into the scroll,
+shrinking text, hiding actions, or increasing the 700-by-500 minimum window.
+Facts and notes continue scrolling underneath. Actual rendered coverage must
+prove circular sizing/cropping, matching initials, and usable existing
+minimum/compact/wide layouts; compilation alone is not that evidence.
 
 Preferred name and Directory name remain distinct; email remains the stable,
 non-editable identity. Do not infer employment or presence. Ordinary

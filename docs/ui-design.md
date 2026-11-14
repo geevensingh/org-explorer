@@ -112,9 +112,18 @@ That is a drawing limitation, not the agreed behavior: use an overlay.
 ## Person profile and navigation
 
 Emphasise name, role, department, Manager, location, and contact information.
-Keep the photo/placeholder, identity, and principal actions compact rather than
+Keep the photo/placeholder, identity, and principal actions together rather than
 stacking each into a separate full-width row. Preserve Preferred name versus
 Directory name and non-editable email identity.
+
+The approved November 14 photo-size amendment (#81) specifies a permanent
+144-logical-unit circular photo or initials placeholder at every supported
+window size, with proportionally larger initials and the current centered
+circular crop. This supersedes compact photo sizing, not the anchored header,
+explicit profile Save/Cancel, or the 700-by-500 minimum window. See the
+[anchored identity contract](visual-refresh-design.md#anchored-identity) for
+the complete amendment and rendered acceptance requirements. The amendment
+still requires implementation; the verified main baseline uses a 56-unit circle.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not
