@@ -535,6 +535,14 @@ The Team surface also has a distinct identity. The compiled contract requires
 collapsed Other Team notes, collapsed inherited details with warnings outside,
 and secondary History containing profile changes, confirmations, observations
 and frozen Team evidence.
+The existing invisible `--verify-profile-refresh` contract also exercises
+Historical capture details through the real compiled disclosure template.
+It checks collapsed-by-default, named, read-only/copyable evidence; full captured
+provenance and note IDs/versions; visible frozen owner/review labels without
+technical headings; a no-Manager/no-note archival capture; and wrapping within
+the shared reading viewport at 700/1100/wide sizes. Existing exact frozen-note
+and former-chain destination checks retain the tagged capture/note identities.
+This is non-UI evidence, not a rendered hierarchy assertion.
 The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
@@ -847,6 +855,12 @@ without changing its display. They cover:
   secondary History with confirmations/observations, actual current/frozen
   reading and honest historical dates through a representative
   ancestor move, exact frozen search and reopen.
+  Capture details additionally exposes complete transition/note evidence
+  separately from frozen Markdown, with keyboard expansion/collapse and
+  nonmutation checks. Named actual-pixel states retain the collapsed capture
+  entry, expanded evidence and intermediate frozen-note boundary, including a
+  note needing review when captured. The responsive journey repeats these states
+  at 700 x 500 and 1100 x 900 alongside its complete long current/frozen reading.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.

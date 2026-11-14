@@ -209,6 +209,10 @@ internal static partial class Program
             Click(window, "ArchiveTeamNote");
             AwaitLocalWorkIdle(window);
             SelectTeamNote(window, "Morgan context");
+            BeginProfileEditing(window);
+            Set(window, "JobTitle", "Senior director");
+            SaveProfileEditing(window);
+            Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Needs review"));
             SelectTreePerson(window, "alex@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Alex context");
@@ -231,16 +235,18 @@ internal static partial class Program
             ApplyReviewedHistoryImport(window);
             ExpandHistory(window);
             Await(() => Find(window, "HistoricalTeamSummary").Current.Name.Contains("Historical captures: 1"));
-            var summary = Find(window, "HistoricalTeamSummary").Current.Name;
-            if (!summary.Contains("Morgan (morgan@example.com) → Casey (casey@example.com)") ||
-                !summary.Contains("after 2026-11-01T17:00:00Z, by 2026-11-06T17:00:00Z") ||
-                !summary.Contains("locally known at processing time") || !summary.Contains("unknown actual transfer instant"))
+            var provenance = HistoricalEvidenceText(window);
+            if (Find(window, "HistoricalTeamSummary").Current.Name != "Historical captures: 1" ||
+                !HistoricalReadingText(window).Contains("Morgan (morgan@example.com) → Casey (casey@example.com)") ||
+                !provenance.Contains("after 2026-11-01T17:00:00Z, by 2026-11-06T17:00:00Z") ||
+                !provenance.Contains("locally known at processing time") || !provenance.Contains("unknown actual transfer instant"))
                 throw new InvalidOperationException("Historical presentation lost former attribution or honest dates.");
             var frozen = HistoricalReadingText(window);
             if (!frozen.Contains("Original ancestor R&D") || !frozen.Contains("Original direct") ||
                 frozen.Contains("New branch writing") || !CurrentReadingText(window).Contains("New branch writing") ||
                 CurrentReadingText(window).Contains("Original ancestor"))
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");
+            CaptureHistoricalHierarchy(window, "");
             NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-frozen-former-owner-attribution");
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
@@ -259,6 +265,7 @@ internal static partial class Program
                         throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
                     if (!frozen.Contains("Former Team paragraph 32") || !CurrentReadingText(window).Contains("Current Team paragraph 32"))
                         throw new InvalidOperationException("Responsive context lost the complete long current/frozen writing.");
+                    CaptureHistoricalHierarchy(window, $"-{size.Width:0}");
                     NavigateMainReadingAndCapture(window, "InheritedTeamReading", "Current Team paragraph 32", $"team-current-long-reading-{size.Width:0}");
                     NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
                 }
@@ -364,6 +371,72 @@ internal static partial class Program
         ((TextPattern)Find(window, "TeamNoteReading").GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
     private static string HistoricalReadingText(AutomationElement window) =>
         SecondaryReadingText(window, "HistoryAccess", "HistoricalTeamReading");
+    private static AutomationElement[] HistoricalCaptureDetails(AutomationElement window)
+    {
+        ExpandHistory(window);
+        return Find(window, "HistoricalTeamReading").FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Group))
+            .Cast<AutomationElement>().Where(element =>
+                element.Current.AutomationId.StartsWith("HistoricalCaptureDetails-", StringComparison.Ordinal)).ToArray();
+    }
+
+    private static string HistoricalEvidenceText(AutomationElement window)
+    {
+        var disclosures = HistoricalCaptureDetails(window);
+        if (disclosures.Length == 0) throw new InvalidOperationException("Historical captures lost their Capture details disclosures.");
+        var evidence = new List<string>();
+        foreach (var disclosure in disclosures)
+        {
+            var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+            var expanded = expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded;
+            expansion.Expand();
+            var id = disclosure.Current.AutomationId.Replace("HistoricalCaptureDetails-", "HistoricalCaptureEvidence-", StringComparison.Ordinal);
+            var text = (ValuePattern)Find(disclosure, id).GetCurrentPattern(ValuePattern.Pattern);
+            if (!text.Current.IsReadOnly) throw new InvalidOperationException("Capture evidence must not be editable.");
+            evidence.Add(text.Current.Value);
+            if (!expanded) expansion.Collapse();
+        }
+        return string.Join("\n\n", evidence);
+    }
+
+    private static void CaptureHistoricalHierarchy(AutomationElement window, string suffix)
+    {
+        var disclosure = HistoricalCaptureDetails(window).Single();
+        var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+            throw new InvalidOperationException("Capture details must start collapsed.");
+        var frozen = HistoricalReadingText(window);
+        if (!frozen.Contains("Frozen Team note: Morgan context") ||
+            !frozen.Contains("Owned by Morgan (morgan@example.com)") ||
+            !frozen.Contains("Needs review — needed review when captured.") ||
+            frozen.Contains("Prior evidence:") || frozen.Contains("version "))
+            throw new InvalidOperationException("Default frozen reading must distinguish note attribution/review from technical capture evidence.");
+        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(
+            Find(window, "WorkspacePath").Current.Name);
+        NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Captured locally", "team-capture-entry-collapsed" + suffix);
+        var header = disclosure.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.IsTogglePatternAvailableProperty, true))
+            ?? throw new InvalidOperationException("Capture details has no keyboard-operable disclosure header.");
+        header.SetFocus();
+        Await(() => header.Current.HasKeyboardFocus);
+        PressCopyKey(0x20);
+        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        var evidence = HistoricalEvidenceText(window);
+        if (!evidence.Contains("Prior evidence: Imported; Observation 2026-11-01T17:00:00Z") ||
+            !evidence.Contains("batch 11000000-0000-4000-8000-000000000002") ||
+            !evidence.Contains("version ") || !evidence.Contains("local document updated ") ||
+            !evidence.Contains("needed review when captured"))
+            throw new InvalidOperationException("Expanded Capture details lost full transition or frozen-note evidence.");
+        CaptureVisualEvidence(window, "team-capture-details-expanded" + suffix);
+        header.SetFocus();
+        PressCopyKey(0x20);
+        Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        if (HistoricalReadingText(window) != frozen)
+            throw new InvalidOperationException("Reading capture evidence changed frozen writing.");
+        AssertWorkspaceBytes(Find(window, "WorkspacePath").Current.Name, before);
+        NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Frozen Team note: Morgan context", "team-frozen-note-boundary" + suffix);
+    }
+
     private static string CurrentReadingText(AutomationElement window) =>
         SecondaryReadingText(window, "CurrentTeamContext", "InheritedTeamReading");
 
