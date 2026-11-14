@@ -124,8 +124,21 @@ including regeneration after Cancel/resize; missing or wrong values still fail.
 The compiled replay uses the actual 700 x 500 editor, focuses/brings its owned
 input into view, then cancels and lays out at 1100 x 900. Its segment peer must
 belong to the current visual subtree: a cached peer for a detached TextBlock
-cannot pass. Equal Team-name projections retain their generated items instead
-of disconnecting those peers on a no-change profile refresh.
+cannot pass. Team-name updates retain generated segment controls and update
+their attributed values in place, including when a neighbour is renamed,
+cleared or restored, instead of disconnecting cached peers during a partial
+path change or no-change refresh.
+Inherited-name cases assert exact ordered labels and independent owners through
+the same workflow and real-folder seams: duplicate names, unnamed gaps, dormant
+owners retaining ancestor context, final imported graphs, refresh with retained
+writing, and unchanged frozen Team-note evidence. The existing `profile-journey`
+and `responsive-workspace` journeys require actual ` > ` separators, duplicate
+mouse/keyboard attribution, inherited read-only context and owner-only editing.
+The responsive long-duplicate-name checks retain the full original size matrix
+and restore the original 44-Person graph before the remaining reading checks.
+Invisible compiled checks separately cover wrapping, exact segment/separator
+order and live attributed peers through rename, clear, restore and Cancel/resize;
+they are not rendered interaction acceptance.
 Import navigation permits returning to its own failed Apply recovery view without
 clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds

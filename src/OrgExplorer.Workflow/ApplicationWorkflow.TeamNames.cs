@@ -22,8 +22,14 @@ public sealed partial class ApplicationWorkflow
     {
         if (queryView is { } view) return view.GetTeamNames(email);
         lock (workspaceGate)
-            return CanEditTeamName(email) && people[email].TeamName is { } name
-                ? [new(name, people[email])] : [];
+        {
+            if (!people.TryGetValue(email, out var person) || person.Archived) return [];
+            return Array.AsReadOnly(ReportingChain(person, people).Prepend(person.Email)
+                .Where(CanEditTeamName)
+                .Select(owner => people[owner])
+                .Where(owner => owner.TeamName is not null)
+                .Select(owner => new TeamNameSegment(owner.TeamName!, owner)).ToArray());
+        }
     }
 
     public bool StageProfileTeamName(string? value)

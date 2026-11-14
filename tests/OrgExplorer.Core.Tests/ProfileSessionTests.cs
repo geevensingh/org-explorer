@@ -5,6 +5,146 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class ProfileSessionTests
 {
+    [Fact]
+    public void Current_Team_names_follow_the_reporting_chain_with_the_selected_managers_own_label_first()
+    {
+        using var app = OpenTeamNameChain();
+        SetTeamName(app, "bob@example.com", "XXX");
+        SetTeamName(app, "charlie@example.com", "YYY");
+
+        Assert.Equal(new[] { ("XXX", "bob@example.com"), ("YYY", "charlie@example.com") },
+            app.GetTeamNames("alice@example.com").Select(s => (s.Name, s.Owner.Email)));
+        Assert.Equal(new[] { ("XXX", "bob@example.com"), ("YYY", "charlie@example.com") },
+            app.GetTeamNames("bob@example.com").Select(s => (s.Name, s.Owner.Email)));
+        Assert.Equal("XXX > YYY", string.Join(" > ", app.GetTeamNames("alice@example.com").Select(s => s.Name)));
+        Assert.Equal("XXX > YYY", string.Join(" > ", app.GetTeamNames("bob@example.com").Select(s => s.Name)));
+        var root = Assert.Single(app.GetTeamNames("charlie@example.com"));
+        Assert.Equal(("YYY", "charlie@example.com"), (root.Name, root.Owner.Email));
+        Assert.False(app.CanEditTeamName("alice@example.com"));
+        Assert.True(app.BeginProfileEdit("alice@example.com"));
+        Assert.Null(app.ProfileEdit!.Draft.TeamName);
+        Assert.False(app.StageProfileTeamName("Cannot replace inherited names"));
+        app.CancelProfileEdit();
+        Assert.Empty(app.GetTeamNames("absent@example.com"));
+    }
+
+    [Fact]
+    public void Duplicate_Team_names_keep_distinct_owners_and_clearing_an_unnamed_gap_keeps_higher_context()
+    {
+        using var app = OpenTeamNameChain();
+        SetTeamName(app, "bob@example.com", "Platform");
+        SetTeamName(app, "charlie@example.com", "Platform");
+        var people = new[] { "alice@example.com", "bob@example.com", "charlie@example.com" };
+        var histories = people.Select(email => app.GetProfileTimeline(email)!.Changes.ToArray()).ToArray();
+        Assert.Equal(new[] { ("Platform", "bob@example.com", "Bob"), ("Platform", "charlie@example.com", "Charlie") },
+            app.GetTeamNames("alice@example.com").Select(s => (s.Name, s.Owner.Email, s.Owner.Heading)));
+
+        Assert.True(app.BeginProfileEdit("bob@example.com"));
+        Assert.Equal("Platform", app.ProfileEdit!.Draft.TeamName);
+        Assert.True(app.StageProfileTeamName("Cancelled"));
+        app.CancelProfileEdit();
+        SetTeamName(app, "bob@example.com", "Renamed");
+        Assert.Equal(new[] { ("Renamed", "bob@example.com"), ("Platform", "charlie@example.com") },
+            app.GetTeamNames("alice@example.com").Select(s => (s.Name, s.Owner.Email)));
+        Assert.Equal("Platform", app.GetRelationships("charlie@example.com")!.Person.TeamName);
+        SetTeamName(app, "bob@example.com", null);
+        foreach (var email in new[] { "alice@example.com", "bob@example.com" })
+        {
+            var segment = Assert.Single(app.GetTeamNames(email));
+            Assert.Equal(("Platform", "charlie@example.com"), (segment.Name, segment.Owner.Email));
+        }
+        SetTeamName(app, "charlie@example.com", null);
+        for (var index = 0; index < people.Length; index++)
+        {
+            Assert.Empty(app.GetTeamNames(people[index]));
+            Assert.Equal(histories[index], app.GetProfileTimeline(people[index])!.Changes);
+            Assert.Empty(app.GetHistoricalTeamContexts(people[index]));
+        }
+    }
+
+    [Fact]
+    public void Dormant_owned_names_omit_only_the_owner_segment_and_restore_from_the_final_imported_graph()
+    {
+        using var app = OpenTeamNameChain();
+        SetTeamName(app, "bob@example.com", "XXX");
+        SetTeamName(app, "charlie@example.com", "YYY");
+        Assert.True(app.EditPersonArchived("alice@example.com", true), app.Status);
+        Assert.False(app.CanEditTeamName("bob@example.com"));
+        var inherited = Assert.Single(app.GetTeamNames("bob@example.com"));
+        Assert.Equal(("YYY", "charlie@example.com"), (inherited.Name, inherited.Owner.Email));
+        Assert.Equal("XXX", app.GetRelationships("bob@example.com")!.Person.TeamName);
+        Assert.Empty(app.GetTeamNames("alice@example.com"));
+        Assert.True(app.EditPersonArchived("bob@example.com", true), app.Status);
+        Assert.Empty(app.GetTeamNames("bob@example.com"));
+        Assert.True(app.EditPersonArchived("bob@example.com", false), app.Status);
+        Assert.Equal("YYY", Assert.Single(app.GetTeamNames("bob@example.com")).Name);
+        ApplyContextImport(app, """
+            {"email":"bob@example.com","managerEmail":"dana@example.com"},
+            {"email":"alice@example.com","archived":false,"managerEmail":"dana@example.com"}
+            """);
+        Assert.Empty(app.GetTeamNames("bob@example.com"));
+        Assert.Empty(app.GetTeamNames("charlie@example.com"));
+        Assert.Equal("YYY", app.GetRelationships("charlie@example.com")!.Person.TeamName);
+        ApplyContextImport(app, """
+            {"email":"alice@example.com","managerEmail":"bob@example.com"},
+            {"email":"bob@example.com","managerEmail":"charlie@example.com"}
+            """);
+        Assert.Equal(new[] { ("XXX", "bob@example.com"), ("YYY", "charlie@example.com") },
+            app.GetTeamNames("alice@example.com").Select(s => (s.Name, s.Owner.Email)));
+    }
+
+    [Fact]
+    public void Higher_ancestor_and_direct_moves_recompute_paths_without_changing_frozen_Team_note_evidence()
+    {
+        using var app = OpenTeamNameChain();
+        SetTeamName(app, "bob@example.com", "XXX");
+        SetTeamName(app, "charlie@example.com", "YYY");
+        var note = app.CreateTeamNote("charlie@example.com", "Context", "# Before move")!;
+        Assert.True(app.EditPersonManager("charlie@example.com", "dana@example.com"), app.Status);
+        SetTeamName(app, "dana@example.com", "ZZZ");
+        Assert.Equal("bob@example.com", app.GetRelationships("alice@example.com")!.Person.ManagerEmail);
+        Assert.Equal(new[] { ("XXX", "bob@example.com"), ("YYY", "charlie@example.com"), ("ZZZ", "dana@example.com") },
+            app.GetTeamNames("alice@example.com").Select(s => (s.Name, s.Owner.Email)));
+        Assert.True(Assert.Single(app.GetTeamNotes("charlie@example.com")).NeedsReview);
+        Assert.Equal(note.Id, Assert.Single(app.GetInheritedTeamNotes("alice@example.com")).Note.Id);
+        var frozen = Assert.Single(app.GetHistoricalTeamContexts("alice@example.com"));
+        Assert.Equal(new[] { "bob@example.com", "charlie@example.com" }, frozen.ReportingChain.Select(p => p.Email));
+        Assert.All(frozen.ReportingChain, owner => Assert.Null(owner.TeamName));
+        Assert.Equal("# Before move", Assert.Single(frozen.TeamNotes).Markdown);
+        SetTeamName(app, "charlie@example.com", "New current name");
+        Assert.True(app.EditTeamNote(note.Id, "Context", "# After move"), app.Status);
+        var retained = Assert.Single(app.GetHistoricalTeamContexts("alice@example.com"));
+        Assert.Equal(frozen.Id, retained.Id);
+        Assert.Equal(frozen.ReportingChain, retained.ReportingChain);
+        Assert.Equal(frozen.TeamNotes, retained.TeamNotes);
+        Assert.Equal(frozen.Transitions, retained.Transitions);
+        Assert.True(app.EditPersonManager("alice@example.com", "dana@example.com"), app.Status);
+        var current = Assert.Single(app.GetTeamNames("alice@example.com"));
+        Assert.Equal(("ZZZ", "dana@example.com"), (current.Name, current.Owner.Email));
+        Assert.All(app.GetHistoricalTeamContexts("alice@example.com").SelectMany(c => c.ReportingChain),
+            owner => Assert.Null(owner.TeamName));
+    }
+
+    private static WorkspaceViewModel OpenTeamNameChain()
+    {
+        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious"));
+        ApplyContextImport(app, """
+            {"email":"alice@example.com","displayName":"Alice","managerEmail":"bob@example.com"},
+            {"email":"bob@example.com","displayName":"Bob","managerEmail":"charlie@example.com"},
+            {"email":"charlie@example.com","displayName":"Charlie","managerEmail":null},
+            {"email":"dana@example.com","displayName":"Dana","managerEmail":null}
+            """);
+        return app;
+    }
+
+    private static void SetTeamName(WorkspaceViewModel app, string owner, string? name)
+    {
+        Assert.True(app.BeginProfileEdit(owner), app.Status);
+        Assert.True(app.StageProfileTeamName(name), app.Status);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+    }
+
     internal const string Batch = """
         {"schemaVersion":1,"batchId":"29000000-0000-4000-8000-000000000001",
          "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -40,7 +180,8 @@ public sealed class ProfileSessionTests
                 Assert.Equal(owner, segment.Owner.Email);
                 Assert.Equal("Morgan", segment.Owner.Heading);
             }
-            Assert.Empty(app.GetTeamNames("avery@example.com"));
+            Assert.Equal(name is null ? [] : new[] { (name, owner) },
+                app.GetTeamNames("avery@example.com").Select(s => (s.Name, s.Owner.Email)));
             Assert.Equal(history, app.GetProfileTimeline(owner)!.Changes);
             Assert.Empty(app.GetHistoricalTeamContexts(owner));
             Assert.Empty(app.GetHistoricalTeamContexts("avery@example.com"));
@@ -128,7 +269,8 @@ public sealed class ProfileSessionTests
         ApplyContextImport(app, """{"email":"avery@example.com","archived":false}""");
         Assert.True(app.CanEditTeamName(owner));
         Assert.Equal("Platform", Assert.Single(app.GetTeamNames(owner)).Name);
-        Assert.Empty(app.GetTeamNames("avery@example.com"));
+        var inherited = Assert.Single(app.GetTeamNames("avery@example.com"));
+        Assert.Equal(("Platform", owner), (inherited.Name, inherited.Owner.Email));
         Assert.Empty(app.GetTeamNames("riley@example.com"));
     }
 

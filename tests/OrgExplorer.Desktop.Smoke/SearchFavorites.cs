@@ -40,7 +40,7 @@ internal static partial class Program
             if (responsive)
             {
                 AssertLongAndMissingFacts(window);
-                AssertResponsiveOwnedTeamName(window);
+                AssertResponsiveOwnedTeamName(window, import);
             }
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");

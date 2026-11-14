@@ -753,21 +753,41 @@
             <StackPanel x:Name="TeamNameContext" AutomationProperties.AutomationId="TeamNameContext">
               <TextBlock Text="Team name" Style="{StaticResource FactLabel}" AutomationProperties.AutomationId="TeamNameLabel"/>
               <TextBlock x:Name="TeamNameEmpty" Text="Not set" AutomationProperties.AutomationId="TeamNameEmpty"/>
-              <ItemsControl x:Name="TeamNames" AutomationProperties.AutomationId="TeamNames">
+              <ItemsControl x:Name="TeamNames" AutomationProperties.AutomationId="TeamNames" AlternationCount="2147483647">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                  <Style TargetType="ContentPresenter">
+                    <Setter Property="MaxWidth" Value="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/>
+                  </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
-                               AutomationProperties.AutomationId="TeamNameSegment"
-                               GotKeyboardFocus="ShowTeamNameOwner" LostKeyboardFocus="HideTeamNameOwner">
-                      <AutomationProperties.HelpText>
-                        <MultiBinding StringFormat="Owned by {0} ({1})">
-                          <Binding Path="Owner.Heading"/><Binding Path="Owner.Email"/>
-                        </MultiBinding>
-                      </AutomationProperties.HelpText>
-                      <TextBlock.ToolTip>
-                        <ToolTip Content="{Binding PlacementTarget.(AutomationProperties.HelpText), RelativeSource={RelativeSource Self}}"/>
-                      </TextBlock.ToolTip>
-                    </TextBlock>
+                    <Grid>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                      <TextBlock Text=" &gt; " AutomationProperties.AutomationId="TeamNameSeparator">
+                        <TextBlock.Style>
+                          <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}}" Value="0">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                      </TextBlock>
+                      <TextBlock Grid.Column="1" Text="{Binding Segment.Name}" TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                                 AutomationProperties.AutomationId="TeamNameSegment"
+                                 GotKeyboardFocus="ShowTeamNameOwner" LostKeyboardFocus="HideTeamNameOwner">
+                        <AutomationProperties.HelpText>
+                          <MultiBinding StringFormat="Owned by {0} ({1})">
+                            <Binding Path="Segment.Owner.Heading"/><Binding Path="Segment.Owner.Email"/>
+                          </MultiBinding>
+                        </AutomationProperties.HelpText>
+                        <TextBlock.ToolTip>
+                          <ToolTip Content="{Binding PlacementTarget.(AutomationProperties.HelpText), RelativeSource={RelativeSource Self}}"/>
+                        </TextBlock.ToolTip>
+                      </TextBlock>
+                    </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -100,8 +103,19 @@ public partial class MainWindow
     {
         var names = person is null ? [] : workflow.GetTeamNames(person.Email);
         // Replacing equal items can leave WPF's cached item peer pointing at a detached TextBlock.
-        if (TeamNames.ItemsSource is not IReadOnlyList<TeamNameSegment> displayed || !displayed.SequenceEqual(names))
-            TeamNames.ItemsSource = names;
+        if (TeamNames.ItemsSource is not ObservableCollection<TeamNameItem> displayed)
+            TeamNames.ItemsSource = displayed = [];
+        var childrenChanged = displayed.Count != names.Count;
+        for (var index = 0; index < names.Count; index++)
+        {
+            if (index == displayed.Count) displayed.Add(new(names[index]));
+            else displayed[index].Show(names[index]);
+        }
+        while (displayed.Count > names.Count) displayed.RemoveAt(displayed.Count - 1);
+        // Drop removed UIA children after WPF has generated the current containers.
+        if (childrenChanged)
+            Dispatcher.BeginInvoke(() => UIElementAutomationPeer.FromElement(TeamNames)?.ResetChildrenCache(),
+                DispatcherPriority.Loaded);
         TeamNameEmpty.Visibility = names.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
         ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
@@ -113,6 +127,19 @@ public partial class MainWindow
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
         DirectoryName.Text = person?.DirectoryName ?? "—";
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private sealed class TeamNameItem(TeamNameSegment segment) : INotifyPropertyChanged
+    {
+        public TeamNameSegment Segment { get; private set; } = segment;
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void Show(TeamNameSegment value)
+        {
+            if (Segment == value) return;
+            Segment = value;
+            PropertyChanged?.Invoke(this, new(nameof(Segment)));
+        }
     }
 
     private void StageTeamName(object sender, TextChangedEventArgs e)

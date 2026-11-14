@@ -22,6 +22,140 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
 
     [Fact]
+    public void Inherited_names_reopen_with_duplicate_owners_dormant_ancestors_and_final_imported_relationships()
+    {
+        using var app = Open();
+        const string owner = "morgan@example.com";
+        const string ancestor = "riley@example.com";
+        Assert.True(app.EditPersonManager(owner, ancestor), app.Status);
+        SetTeamName(app, owner, "Platform");
+        SetTeamName(app, ancestor, "Platform");
+        var note = app.CreateTeamNote(ancestor, "Context", "# Original ancestor")!;
+        using (var reopened = Reopen())
+        {
+            Assert.Equal(new[] { ("Platform", owner), ("Platform", ancestor) },
+                reopened.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)));
+            Assert.Equal(new[] { ("Platform", owner), ("Platform", ancestor) },
+                reopened.GetTeamNames(owner).Select(s => (s.Name, s.Owner.Email)));
+            Assert.Equal(("Platform", ancestor),
+                reopened.GetTeamNames(ancestor).Select(s => (s.Name, s.Owner.Email)).Single());
+        }
+        SetTeamName(app, owner, null);
+        SetTeamName(app, ancestor, "Renamed ancestor");
+        using (var cleared = Reopen())
+            Assert.Equal(("Renamed ancestor", ancestor),
+                cleared.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)).Single());
+        SetTeamName(app, owner, "Platform");
+        Assert.True(app.EditPersonArchived(Email, true), app.Status);
+        using (var dormant = Reopen())
+        {
+            Assert.Empty(dormant.GetTeamNames(Email));
+            Assert.Equal(("Renamed ancestor", ancestor),
+                dormant.GetTeamNames(owner).Select(s => (s.Name, s.Owner.Email)).Single());
+            Assert.False(dormant.CanEditTeamName(owner));
+            Assert.Equal("Platform", dormant.GetRelationships(owner)!.Person.TeamName);
+            Assert.True(dormant.EditPersonArchived(owner, true), dormant.Status);
+        }
+        using (var archived = Reopen())
+        {
+            Assert.Empty(archived.GetTeamNames(owner));
+            Assert.Equal("Platform", archived.GetRelationships(owner)!.Person.TeamName);
+            Assert.True(archived.EditPersonArchived(owner, false), archived.Status);
+            Assert.Equal("Renamed ancestor", Assert.Single(archived.GetTeamNames(owner)).Name);
+            Assert.True(archived.EditPersonArchived(Email, false), archived.Status);
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(new[] { ("Platform", owner), ("Renamed ancestor", ancestor) },
+            app.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)));
+        var priorContexts = app.GetHistoricalTeamContexts(Email).Select(c => c.Id).ToHashSet();
+        var review = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000089",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"morgan@example.com","managerEmail":null},
+             {"email":"avery@example.com","managerEmail":"riley@example.com"}]}
+            """);
+        Assert.True(review.CanApply, app.Status);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        var frozen = app.GetHistoricalTeamContexts(Email).Single(c => !priorContexts.Contains(c.Id));
+        Assert.Equal("# Original ancestor", Assert.Single(frozen.TeamNotes).Markdown);
+        Assert.True(app.EditTeamNote(note.Id, "Context", "# New current writing"), app.Status);
+        using (var imported = Reopen())
+        {
+            Assert.Equal(("Renamed ancestor", ancestor),
+                imported.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)).Single());
+            Assert.Empty(imported.GetTeamNames(owner));
+            Assert.Equal("Platform", imported.GetRelationships(owner)!.Person.TeamName);
+            var retained = imported.GetHistoricalTeamContexts(Email).Single(c => c.Id == frozen.Id);
+            Assert.Equal("# Original ancestor", Assert.Single(retained.TeamNotes).Markdown);
+            Assert.All(imported.GetHistoricalTeamContexts(Email).SelectMany(c => c.ReportingChain),
+                manager => Assert.Null(manager.TeamName));
+            Assert.DoesNotContain(imported.GetProfileTimeline(owner)!.Changes, c => c.Field == "teamName");
+            Assert.DoesNotContain(imported.GetProfileTimeline(Email)!.Changes, c => c.Field == "teamName");
+            Assert.True(imported.EditPersonManager(Email, owner), imported.Status);
+        }
+        using var restored = Reopen();
+        Assert.Equal(("Platform", owner), restored.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)).Single());
+        Assert.Equal("Renamed ancestor", restored.GetRelationships(ancestor)!.Person.TeamName);
+    }
+
+    [Fact]
+    public void Delivered_names_and_ancestor_moves_refresh_paths_without_overwriting_retained_profile_or_note_writing()
+    {
+        using var app = Open();
+        const string owner = "morgan@example.com";
+        const string ancestor = "riley@example.com";
+        Assert.True(app.EditPersonManager(owner, ancestor), app.Status);
+        SetTeamName(app, owner, "Platform");
+        SetTeamName(app, ancestor, "Platform");
+        var note = app.CreatePersonNote(Email, "Private", "Saved writing")!;
+        var draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
+        app.RetainNoteDraft(draft);
+        Assert.True(app.BeginProfileEdit(owner));
+        Assert.True(app.StageProfileTeamName("Retained local label"));
+        Deliver(ancestor, "teamName", "Delivered ancestor");
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(new[] { ("Platform", owner), ("Delivered ancestor", ancestor) },
+            app.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)));
+        Assert.Equal("Retained local label", app.ProfileEdit!.Draft.TeamName);
+        Deliver(owner, "teamName", "Delivered owner");
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        Assert.False(app.SaveProfileEdit());
+        Assert.Contains("changed externally", app.LocalSaveError);
+        Assert.Equal("Retained local label", app.ProfileEdit!.Draft.TeamName);
+        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        app.CancelProfileEdit();
+        Assert.False(app.CanSafelyClose);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Private", "Independent retained writing"));
+        Assert.True(app.CanSafelyClose);
+        using (var reopened = Reopen())
+        {
+            Assert.Equal(new[] { ("Delivered owner", owner), ("Delivered ancestor", ancestor) },
+                reopened.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)));
+            Assert.Equal("Independent retained writing", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+            Assert.True(reopened.EditPersonManager(owner, null), reopened.Status);
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(("Delivered owner", owner), app.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)).Single());
+        Assert.Equal(owner, app.GetRelationships(Email)!.Person.ManagerEmail);
+        using (var provider = Reopen())
+            Assert.True(provider.EditPersonManager(owner, ancestor), provider.Status);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Deliver(ancestor, "teamName", null);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        using var cleared = Reopen();
+        Assert.Equal(("Delivered owner", owner), cleared.GetTeamNames(Email).Select(s => (s.Name, s.Owner.Email)).Single());
+        Assert.Null(cleared.GetRelationships(ancestor)!.Person.TeamName);
+    }
+
+    private static void SetTeamName(WorkspaceViewModel app, string owner, string? name)
+    {
+        Assert.True(app.BeginProfileEdit(owner), app.Status);
+        Assert.True(app.StageProfileTeamName(name), app.Status);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+    }
+
+    [Fact]
     public void Owned_Team_name_reopens_visible_then_hidden_and_returns_only_with_a_current_report()
     {
         using var app = Open();
@@ -524,7 +658,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         return WorkspaceFixtures.IndexedDocuments(Folder)["people:" + email];
     }
 
-    private void Deliver(string email, string field, string value)
+    private void Deliver(string email, string field, string? value)
     {
         var path = CurrentPersonFile(email);
         var json = JsonNode.Parse(File.ReadAllText(path))!;

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
@@ -541,17 +542,27 @@ internal static partial class Program
         Await(() => Math.Abs(RenderedPeoplePercent(window) - peoplePercent) < 1);
     }
 
-    private static void AssertResponsiveOwnedTeamName(AutomationElement window)
+    private static void AssertResponsiveOwnedTeamName(AutomationElement window, string import)
     {
         NavigateToManager(window, "morgan@example.com");
         const string name = "Platform engineering and developer experience across the current reporting subtree";
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", name);
         SaveProfileEditing(window);
+        File.WriteAllText(import, SearchImport("""
+            {"email":"morgan@example.com","managerEmail":"alex@example.com"}
+            """, 2));
+        ApplyReviewedHistoryImport(window);
+        NavigateToManager(window, "alex@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", name);
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, name);
+        SelectTreePerson(window, "morgan@example.com");
         var scale = DpiScale(window);
         void AtSize(string stateName)
         {
-            AssertTeamNameReading(window, name);
+            AssertTeamNamePath(window, name, name);
             CaptureVisualEvidence(window, stateName + "-reading");
             BeginProfileEditing(window);
             var editor = Find(window, "TeamNameEditor");
@@ -573,6 +584,7 @@ internal static partial class Program
         ResizeWindow(window, 1100, 900);
         AtSize("team-name-ordinary-1100-900");
         AssertTeamNameOwnerAttribution(window, "Morgan", "morgan@example.com");
+        AssertTeamNameOwnerAttribution(window, "Alex", "alex@example.com", 1);
         foreach (var width in new[] { 959d, 960d, 961d })
         {
             var chrome = window.Current.BoundingRectangle.Width / scale -
@@ -592,6 +604,24 @@ internal static partial class Program
         DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * percent / 100);
         Await(() => Math.Abs(RenderedPeoplePercent(window) - percent) < 1);
         ResizeWindow(window, 1100, 900);
+        QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+        AssertTeamNamePath(window, name, name);
+        BeginProfileEditing(window);
+        if (IsVisible(window, "TeamNameEditor"))
+            throw new InvalidOperationException("Responsive inherited context exposed an owned-name editor on the report.");
+        CancelProfileEditing(window);
+        NavigateToManager(window, "morgan@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, name);
+        NavigateToManager(window, "alex@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, null);
+        File.WriteAllText(import, SearchImport("""{"email":"morgan@example.com","managerEmail":null}""", 89));
+        ApplyReviewedHistoryImport(window);
         QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
         AssertTeamNameReading(window, null);
     }
