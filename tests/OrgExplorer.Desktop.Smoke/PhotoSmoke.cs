@@ -233,8 +233,9 @@ internal static partial class Program
             if (Math.Abs(text.Left + text.Width / 2 - circle.Left - circle.Width / 2) > scale ||
                 Math.Abs(text.Top + text.Height / 2 - circle.Top - circle.Height / 2) > scale)
                 throw new InvalidOperationException($"Initials must remain centered inside their photo viewport: text={text}, circle={circle}.");
+            // A pending-edit notice can move the entire header without resizing its photo area.
             if (previousPhoto is { } previous &&
-                (Math.Abs(circle.Left - previous.Left) > scale || Math.Abs(circle.Top - previous.Top) > scale))
+                (Math.Abs(circle.Width - previous.Width) > scale || Math.Abs(circle.Height - previous.Height) > scale))
                 throw new InvalidOperationException($"Initials changed the photo footprint: photo={previous}, initials={circle}.");
             // TextBlock has no TextPattern. Its original 26.6-DIP Segoe UI line box scales to 68.4 DIP.
             if (Math.Abs(text.Height / scale - 68.4) > 1)
