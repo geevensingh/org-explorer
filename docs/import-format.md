@@ -11,8 +11,11 @@ only. Schema validation does not replace the state-dependent and filesystem
 checks below.
 
 This contract specifies person updates, not direct writes into the workspace.
-**Notes cannot be imported.** Unknown properties, including note payloads or note
-operations, are errors rather than silently ignored extensions.
+**Notes and Team names cannot be imported.** Unknown properties, including note
+payloads, note operations, or Team-name values or operations, are errors rather
+than silently ignored extensions. Imports cannot set, overwrite, or clear a
+saved Team name. Imported reporting or archival changes can change whether that
+label currently applies, without deleting it.
 
 ## Files to produce
 
