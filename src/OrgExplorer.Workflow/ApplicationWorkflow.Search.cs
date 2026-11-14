@@ -57,9 +57,19 @@ public sealed partial class ApplicationWorkflow
             var text = query.Trim();
             if (text.Length == 0) return [];
             searchIndex ??= BuildSearchIndex();
+            var excerpts = new Dictionary<string, string>(ReferenceEqualityComparer.Instance);
+            string CachedExcerpt(string value)
+            {
+                if (!excerpts.TryGetValue(value, out var excerpt))
+                {
+                    excerpt = Excerpt(value, text);
+                    excerpts.Add(value, excerpt);
+                }
+                return excerpt;
+            }
             return searchIndex.Where(r => r.MatchText.Contains(text, StringComparison.OrdinalIgnoreCase) ||
                     r.NoteTitle?.Contains(text, StringComparison.OrdinalIgnoreCase) == true)
-                .Select(r => r with { IsWorkspaceCurrent = workspaceCurrent, Excerpt = Excerpt(r.MatchText, text) }).ToArray();
+                .Select(r => r with { IsWorkspaceCurrent = workspaceCurrent, Excerpt = CachedExcerpt(r.MatchText) }).ToArray();
         }
     }
 

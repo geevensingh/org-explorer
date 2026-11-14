@@ -6,6 +6,45 @@ namespace OrgExplorer.Core.Tests;
 public sealed class SearchFavoriteTests
 {
     [Fact]
+    public void Shared_Team_note_excerpts_do_not_allocate_a_normalized_body_for_every_report()
+    {
+        using var app = Open();
+        Apply(app, string.Join(",", Enumerable.Range(0, 64).Select(index =>
+            $$"""{"email":"report{{index}}@example.com","displayName":"Report {{index}}","managerEmail":"morgan@example.com"}""")), 2);
+        var markdown = "firstneedle\n" + string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
+        var note = app.CreateTeamNote("morgan@example.com", "Shared context", markdown)!;
+        app.Search("lastneedle");
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var matches = app.Search("lastneedle");
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(66, matches.Count);
+        Assert.True(allocated < 2 * 1024 * 1024,
+            $"A shared 112-KiB note must not allocate another normalized body per matching report; allocated {allocated:N0} bytes.");
+        Assert.All(matches, match =>
+        {
+            Assert.Equal(note.Id, match.NoteId);
+            Assert.Equal("morgan@example.com", match.NoteOwner!.Email);
+            Assert.Equal(markdown, match.MatchText);
+            Assert.Contains("lastneedle", match.Excerpt);
+            Assert.DoesNotContain("firstneedle", match.Excerpt);
+            Assert.True(match.Excerpt.Length <= 162);
+        });
+        var firstMatches = app.Search("firstneedle");
+        Assert.Equal(66, firstMatches.Count);
+        Assert.All(firstMatches, match =>
+        {
+            Assert.Contains("firstneedle", match.Excerpt);
+            Assert.DoesNotContain("lastneedle", match.Excerpt);
+        });
+        Assert.True(app.EditTeamNote(note.Id, "Updated context", "New current writing changedneedle"), app.Status);
+        Assert.Empty(app.Search("lastneedle"));
+        var updated = app.Search("changedneedle");
+        Assert.Equal(66, updated.Count);
+        Assert.All(updated, match => Assert.Equal("New current writing changedneedle", match.Excerpt));
+    }
+
+    [Fact]
     public void Live_search_excerpts_reveal_the_match_without_navigating_or_replacing_exact_reading()
     {
         using var app = (WorkspaceViewModel)Open();

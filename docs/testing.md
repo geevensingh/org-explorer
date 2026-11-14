@@ -67,6 +67,11 @@ No live M365 connection or desktop automation is involved.
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
+The bounded shared-Team-note excerpt regression measures allocations through
+real in-memory `Search` after warming its index: 64 reports share a long note,
+and one request must allocate less than 2 MiB instead of normalizing the body
+per result. It also checks exact owners/documents, different query excerpts and
+fresh writing after an edit. This is not either 10,000-Person scale suite.
 `BeginNoteDraft` captures an immutable Person/Team document base (or expected
 absence) at the workflow/view-model seam. Editors display that snapshot and
 `RetainNoteDraft` marks it dirty without waiting behind in-flight Workspace I/O.
