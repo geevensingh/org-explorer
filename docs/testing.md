@@ -103,6 +103,19 @@ Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
 previously incorporated delivery and unrelated-person delivery. Save revalidates
 persisted data even without an explicit view refresh.
+Owned Team-name cases extend these same profile-session seams: explicit set,
+rename, clear and Cancel; current-direct-report eligibility and commit-time
+rechecking; dormant/reappearing labels; private Import rejection/preservation;
+and exclusion from Profile changes and frozen Team context. Real folders cover
+visible/dormant reopening, archival restoration, direct delivery, stale saves,
+actual writer/selector locks and retained independent note writing. The ordinary
+profile/archival and responsive reading journeys observe the always-present row
+near Manager, owner attribution on hover/focus and owner-only editing. They remain
+hosted-only interaction evidence, distinct from invisible compiled checks.
+The existing invisible profile-refresh check also loads the compiled owned-name
+template, verifies its accessible text/owner and placement-target tooltip binding,
+and drives eligible Save plus ineligible `Not set` through real compiled controls.
+It never opens that tooltip or shows/focuses a native window.
 Import navigation permits returning to its own failed Apply recovery view without
 clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds

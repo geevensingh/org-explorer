@@ -161,6 +161,7 @@ internal static partial class Program
                 "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" })
                 if (string.IsNullOrEmpty(Find(window, id).Current.Name))
                     throw new InvalidOperationException($"Ordinary fact lost its populated or neutral-dash slot: {id}.");
+            AssertTeamNameReading(window, null);
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -538,6 +539,61 @@ internal static partial class Program
         AtSize("profile-inline-narrow-person");
         DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * peoplePercent / 100);
         Await(() => Math.Abs(RenderedPeoplePercent(window) - peoplePercent) < 1);
+    }
+
+    private static void AssertResponsiveOwnedTeamName(AutomationElement window)
+    {
+        NavigateToManager(window, "morgan@example.com");
+        const string name = "Platform engineering and developer experience across the current reporting subtree";
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", name);
+        SaveProfileEditing(window);
+        var scale = DpiScale(window);
+        void AtSize(string stateName)
+        {
+            AssertTeamNameReading(window, name);
+            CaptureVisualEvidence(window, stateName + "-reading");
+            BeginProfileEditing(window);
+            var editor = Find(window, "TeamNameEditor");
+            editor.SetFocus();
+            Await(() => editor.Current.HasKeyboardFocus && !editor.Current.IsOffscreen);
+            AssertValue(window, "TeamNameEditor", name);
+            var bounds = editor.Current.BoundingRectangle;
+            var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+            if (!editor.Current.IsEnabled || bounds.Width / scale < 180 ||
+                bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
+                bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale ||
+                !IsVisible(window, "SaveProfile") || !IsVisible(window, "CancelProfile"))
+                throw new InvalidOperationException($"Owned Team-name editing is clipped at {stateName}: {bounds}, viewport={viewport}.");
+            CaptureVisualEvidence(window, stateName + "-editor");
+            CancelProfileEditing(window);
+        }
+        ResizeWindow(window, 700, 500);
+        AtSize("team-name-minimum-700-500");
+        ResizeWindow(window, 1100, 900);
+        AtSize("team-name-ordinary-1100-900");
+        AssertTeamNameOwnerAttribution(window, "Morgan", "morgan@example.com");
+        foreach (var width in new[] { 959d, 960d, 961d })
+        {
+            var chrome = window.Current.BoundingRectangle.Width / scale -
+                Find(window, "AdaptiveWorkspace").Current.BoundingRectangle.Width / scale;
+            ResizeWindow(window, width + chrome, 900);
+            AtSize($"team-name-boundary-{width:0}");
+        }
+        var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        state.SetWindowVisualState(WindowVisualState.Maximized);
+        Await(() => state.Current.WindowVisualState == WindowVisualState.Maximized);
+        AtSize("team-name-maximized");
+        var host = Find(window, "AdaptiveWorkspace").Current.BoundingRectangle;
+        var percent = RenderedPeoplePercent(window);
+        DragDivider(window, "PeopleDivider", host.Right - 20);
+        Await(() => Math.Abs(Find(window, "ProfileScroll").Current.BoundingRectangle.Width / scale - 408) < 2);
+        AtSize("team-name-narrow-person");
+        DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * percent / 100);
+        Await(() => Math.Abs(RenderedPeoplePercent(window) - percent) < 1);
+        ResizeWindow(window, 1100, 900);
+        QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+        AssertTeamNameReading(window, null);
     }
 
     private static void AssertProtectedPeopleOverlay(AutomationElement window)

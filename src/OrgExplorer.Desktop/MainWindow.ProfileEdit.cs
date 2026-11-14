@@ -73,6 +73,12 @@ public partial class MainWindow
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         PlaceProfileLink(Manager, editing ? ManagerEditLink : ManagerReadingSlot);
+        PlaceProfileLink(TeamNameContext, editing ? TeamNameEditSlot : TeamNameReadingSlot);
+        var canEditTeamName = selectedEmail is not null && workflow.CanEditTeamName(selectedEmail);
+        var retainedTeamNameDraft = workflow.ProfileEdit is { } edit && edit.Draft.TeamName != edit.Basis.TeamName;
+        TeamNameEditorRow.Visibility = editing && (canEditTeamName || retainedTeamNameDraft)
+            ? Visibility.Visible : Visibility.Collapsed;
+        TeamNameEditor.IsEnabled = writable && editing && canEditTeamName;
         PlaceProfileLink(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
@@ -83,7 +89,7 @@ public partial class MainWindow
         UpdatePreferredNameActions();
     }
 
-    private static void PlaceProfileLink(Button link, Panel host)
+    private static void PlaceProfileLink(FrameworkElement link, Panel host)
     {
         if (ReferenceEquals(link.Parent, host)) return;
         if (link.Parent is Panel previous) previous.Children.Remove(link);
@@ -92,6 +98,9 @@ public partial class MainWindow
 
     private void ShowProfileValues(PersonProfile? person)
     {
+        var names = person is null ? [] : workflow.GetTeamNames(person.Email);
+        TeamNames.ItemsSource = names;
+        TeamNameEmpty.Visibility = names.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
         ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
         ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department, reserveSlot: false);
@@ -102,6 +111,30 @@ public partial class MainWindow
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
         DirectoryName.Text = person?.DirectoryName ?? "—";
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void StageTeamName(object sender, TextChangedEventArgs e)
+    {
+        if (loading || selectedEmail is null) return;
+        workflow.StageProfileTeamName(TeamNameEditor.Text.Length == 0 ? null : TeamNameEditor.Text);
+        MarkDraftPending();
+        ApplyButton.IsEnabled = false;
+        preview = null;
+        ShowStatus();
+    }
+
+    private void ShowTeamNameOwner(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBlock { ToolTip: ToolTip tooltip } segment)
+        {
+            tooltip.PlacementTarget = segment;
+            tooltip.IsOpen = true;
+        }
+    }
+
+    private void HideTeamNameOwner(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBlock { ToolTip: ToolTip tooltip }) tooltip.IsOpen = false;
     }
 
     private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text, bool reserveSlot = true)

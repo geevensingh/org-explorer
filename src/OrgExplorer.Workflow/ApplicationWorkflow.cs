@@ -20,6 +20,8 @@ public sealed record PersonProfile(string Email, string? DirectoryName, string? 
     public string Heading => PreferredName ?? DirectoryName ?? Email;
     public string? PhotoPath { get; init; }
     public bool IsFavorite { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TeamName { get; init; }
 }
 
 public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string> Changes, IReadOnlyList<string> Errors)

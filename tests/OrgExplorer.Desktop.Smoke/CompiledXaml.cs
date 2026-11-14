@@ -161,6 +161,10 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyReportsVisibility(reportsWindow, settings); }
                 finally { reportsWindow.Close(); }
+                var teamNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
+                finally { teamNameWindow.Close(); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -180,6 +184,68 @@ internal static partial class Program
             CompiledWorkspaceChoices.Clear();
             Directory.Delete(settings, true);
         }
+    }
+
+    private static void VerifyOwnedTeamNameProfile(Window window, string folder)
+    {
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000087",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"}]}
+                """).Id) || !seed.BeginProfileEdit("morgan@example.com") ||
+                !seed.StageProfileTeamName("Platform") || !seed.SaveProfileEdit())
+                throw new InvalidOperationException("Owned Team-name fixture failed: " + seed.Status);
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        var tree = Control<TreeView>("PeopleList");
+        var owner = tree.Items.Cast<ReportingNode>().Single();
+        void Select(ReportingNode node) =>
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, node, TreeView.SelectedItemChangedEvent));
+        Select(owner);
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        var segment = VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
+            .Single(text => text.DataContext is TeamNameSegment && text.Text == "Platform");
+        var tooltip = (ToolTip)segment.ToolTip;
+        tooltip.PlacementTarget = segment;
+        System.Windows.Data.BindingOperations.GetBindingExpression(tooltip, ContentControl.ContentProperty)!.UpdateTarget();
+        var help = System.Windows.Automation.AutomationProperties.GetHelpText(segment);
+        var tooltipText = tooltip.Content as string;
+        var peer = UIElementAutomationPeer.CreatePeerForElement(segment);
+        if (!segment.Focusable || !KeyboardNavigation.GetIsTabStop(segment) ||
+            help != "Owned by Morgan (morgan@example.com)" || tooltipText != "Owned by Morgan (morgan@example.com)" ||
+            peer.GetName() != "Platform" || peer.GetHelpText() != help)
+            throw new InvalidOperationException("The compiled owned segment lost focusable owner attribution or accessible text. " +
+                $"Focusable={segment.Focusable}; tab={KeyboardNavigation.GetIsTabStop(segment)}; help='{help}'; tooltip='{tooltipText}'; name='{peer.GetName()}'.");
+        Invoke("EditProfileButton");
+        if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Visible ||
+            Control<TextBox>("TeamNameEditor").Text != "Platform" || !Control<TextBox>("TeamNameEditor").IsEnabled)
+            throw new InvalidOperationException("Eligible profile editing did not load the owned Team name.");
+        Control<TextBox>("TeamNameEditor").Text = "Renamed platform";
+        Invoke("SaveProfileButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+            if (!reopened.OpenWorkspace(folder) ||
+                reopened.GetRelationships("morgan@example.com")!.Person.TeamName != "Renamed platform")
+                throw new InvalidOperationException("The compiled owned-name editor did not publish its displayed draft.");
+        Select(owner.Reports.Single());
+        Invoke("EditProfileButton");
+        if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("An ineligible profile exposed an owned-name editor or hid Not set.");
+        Invoke("CancelProfileButton");
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Owned-name wiring must remain invisible without a native handle.");
+        Console.WriteLine("PASS: compiled owned Team-name reading, owner bindings, eligible editing and durable Save without a window/native handle; hover/focus remain hosted evidence.");
     }
 
     private static void VerifySettingsFocus(Window window)
@@ -1301,7 +1367,8 @@ internal static partial class Program
         var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
         Layout();
-        if (facts.Children.Count != 8 || Columns() != columns ||
+        if (facts.Children.Count != 9 || Columns() != columns ||
+            Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
             slots.Any(slot => slot.Visibility != Visibility.Visible) ||
             slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
             Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
@@ -1719,7 +1786,9 @@ internal static partial class Program
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 8 || rows[0].Count() != columns ||
+            if (slots.Length != 9 || rows[0].Count() != columns ||
+                Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
+                !Control<TextBlock>("TeamNameEmpty").IsDescendantOf(facts) ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
                 slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
                 throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");

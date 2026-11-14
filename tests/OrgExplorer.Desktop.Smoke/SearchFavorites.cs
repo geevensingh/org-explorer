@@ -37,7 +37,11 @@ internal static partial class Program
                 throw new InvalidOperationException("Profile search retained a duplicate generic inspector instead of revealing the actual field.");
             CaptureVisualEvidence(window, "search-matched-office-number");
             AssertMouseSearchActivation(window);
-            if (responsive) AssertLongAndMissingFacts(window);
+            if (responsive)
+            {
+                AssertLongAndMissingFacts(window);
+                AssertResponsiveOwnedTeamName(window);
+            }
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
             Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>" +

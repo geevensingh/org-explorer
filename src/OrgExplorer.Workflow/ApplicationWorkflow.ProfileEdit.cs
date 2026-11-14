@@ -129,6 +129,11 @@ public sealed partial class ApplicationWorkflow
                         "Profile changed externally after Edit profile began; changes are NOT saved locally. " +
                         "The draft is retained. Cancel/Discard it before editing the delivered profile; retry cannot overwrite it.");
                 var next = edit.Draft with { PreferredName = current.PreferredName, IsFavorite = current.IsFavorite };
+                if (next.TeamName != current.TeamName && !CanEditTeamName(current.Email))
+                    return SaveFailed("profile-session",
+                        "Team name NOT saved: the owner must be active with a current direct report. " +
+                        "The complete profile draft is retained. Restore eligibility and retry, or Cancel.");
+                next = next with { TeamName = Text(JsonSerializer.SerializeToElement(next.TeamName), $"{next.Email}.teamName") };
                 foreach (var (field, property, _) in TextFields.Where(f => f.Field != PersonTextField.PreferredName))
                     next = WithText(next, field, ValidateText(JsonSerializer.SerializeToElement(ReadText(next, field)),
                         field, $"{next.Email}.{property}"));

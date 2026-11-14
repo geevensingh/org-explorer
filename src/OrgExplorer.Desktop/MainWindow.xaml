@@ -749,6 +749,37 @@
               <Button.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Content, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></Button.ContextMenu>
             </Button>
           </StackPanel>
+          <StackPanel x:Name="TeamNameReadingSlot" Style="{StaticResource FactSlot}">
+            <StackPanel x:Name="TeamNameContext" AutomationProperties.AutomationId="TeamNameContext">
+              <TextBlock Text="Team name" Style="{StaticResource FactLabel}" AutomationProperties.AutomationId="TeamNameLabel"/>
+              <TextBlock x:Name="TeamNameEmpty" Text="Not set" AutomationProperties.AutomationId="TeamNameEmpty"/>
+              <ItemsControl x:Name="TeamNames" AutomationProperties.AutomationId="TeamNames">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                               AutomationProperties.AutomationId="TeamNameSegment"
+                               GotKeyboardFocus="ShowTeamNameOwner" LostKeyboardFocus="HideTeamNameOwner">
+                      <AutomationProperties.HelpText>
+                        <MultiBinding StringFormat="Owned by {0} ({1})">
+                          <Binding Path="Owner.Heading"/><Binding Path="Owner.Email"/>
+                        </MultiBinding>
+                      </AutomationProperties.HelpText>
+                      <TextBlock.ToolTip>
+                        <ToolTip Content="{Binding PlacementTarget.(AutomationProperties.HelpText), RelativeSource={RelativeSource Self}}"/>
+                      </TextBlock.ToolTip>
+                    </TextBlock>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel x:Name="TeamNameEditorRow" Visibility="Collapsed" Margin="0,8,0,0">
+                <Label Target="{Binding ElementName=TeamNameEditor}" Content="Owned Team name (private)" Padding="0,0,0,4"/>
+                <TextBox x:Name="TeamNameEditor" AutomationProperties.AutomationId="TeamNameEditor"
+                         AutomationProperties.Name="Owned Team name (private)" TextChanged="StageTeamName"/>
+                <TextBlock Text="Only this Person's label. Empty clears; Save rechecks current direct reports."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
           <StackPanel x:Name="OfficeBuildingValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Office building" Style="{StaticResource FactLabel}"/>
             <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue"
@@ -882,6 +913,7 @@
             </StackPanel>
             <TextBlock Text="Saved Manager" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,4"/>
             <StackPanel x:Name="ManagerEditLink"/>
+            <StackPanel x:Name="TeamNameEditSlot" Margin="0,12,0,0"/>
             </StackPanel>
           </Border>
         </StackPanel>
