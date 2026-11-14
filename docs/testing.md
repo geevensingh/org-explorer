@@ -121,7 +121,11 @@ profile edit; otherwise that later save can disable the new focus destination.
 Its invisible replay observes the real timer/save and enabled logical entry.
 Team-name reading discovers its segment inside the existing bounded observation,
 including regeneration after Cancel/resize; missing or wrong values still fail.
-The compiled replay also checks the actual segment peer after that transition.
+The compiled replay uses the actual 700 x 500 editor, focuses/brings its owned
+input into view, then cancels and lays out at 1100 x 900. Its segment peer must
+belong to the current visual subtree: a cached peer for a detached TextBlock
+cannot pass. Equal Team-name projections retain their generated items instead
+of disconnecting those peers on a no-change profile refresh.
 Import navigation permits returning to its own failed Apply recovery view without
 clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds

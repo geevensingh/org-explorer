@@ -262,23 +262,29 @@ internal static partial class Program
                 reopened.GetRelationships("morgan@example.com")!.Person.TeamName != "Renamed platform")
                 throw new InvalidOperationException("The compiled owned-name editor did not publish its displayed draft.");
         var names = Control<ItemsControl>("TeamNames");
-        bool ExposesSegment(AutomationPeer candidate) => candidate.GetAutomationId() == "TeamNameSegment" ||
+        bool ExposesSegment(AutomationPeer candidate) =>
+            (candidate is UIElementAutomationPeer element && candidate.GetAutomationId() == "TeamNameSegment" &&
+                candidate.GetName() == "Renamed platform" && element.Owner.IsDescendantOf(names)) ||
             candidate.GetChildren()?.Any(ExposesSegment) == true;
-        void ReadingLayout(double width)
+        void ReadingLayout(double width, double height)
         {
-            root.Measure(new Size(width, 900));
-            root.Arrange(new Rect(0, 0, width, 900));
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
         }
-        ReadingLayout(700);
+        ReadingLayout(700, 500);
         var namesPeer = UIElementAutomationPeer.CreatePeerForElement(names);
         if (!ExposesSegment(namesPeer))
             throw new InvalidOperationException("The initial compiled Team-name segment is absent from its actual automation peer tree.");
         Invoke("EditProfileButton");
-        ReadingLayout(700);
+        ReadingLayout(700, 500);
+        var ownedEditor = Control<TextBox>("TeamNameEditor");
+        FocusManager.SetFocusedElement(window, ownedEditor);
+        ownedEditor.BringIntoView();
+        ReadingLayout(700, 500);
         Invoke("CancelProfileButton");
         PumpUntil(() => ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")));
-        ReadingLayout(1100);
+        ReadingLayout(1100, 900);
         if (!ExposesSegment(namesPeer))
             throw new InvalidOperationException("Cancel/resize lost the compiled Team-name segment from its actual automation peer tree. " +
                 $"Items={names.Items.Count}; visual segments={VisualDescendants(names).OfType<TextBlock>().Count(text => text.DataContext is TeamNameSegment)}.");

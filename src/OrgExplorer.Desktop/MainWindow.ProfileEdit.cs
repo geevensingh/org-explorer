@@ -99,7 +99,9 @@ public partial class MainWindow
     private void ShowProfileValues(PersonProfile? person)
     {
         var names = person is null ? [] : workflow.GetTeamNames(person.Email);
-        TeamNames.ItemsSource = names;
+        // Replacing equal items can leave WPF's cached item peer pointing at a detached TextBlock.
+        if (TeamNames.ItemsSource is not IReadOnlyList<TeamNameSegment> displayed || !displayed.SequenceEqual(names))
+            TeamNames.ItemsSource = names;
         TeamNameEmpty.Visibility = names.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
         ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
