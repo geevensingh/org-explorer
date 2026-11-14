@@ -16,6 +16,13 @@ the taskbar region, and labels its scope separately from a window-bounds capture
 Captures follow the same desktop-isolation rules below; they are comparison
 material, not behavioral proof or owner visual acceptance.
 
+The responsive reading journey also hovers the compact People dismissal
+backdrop on the hosted desktop. It samples actual uncovered Person pixels
+before opening and after the hover, requiring readable content contrast to
+survive the dimming; a uniform opaque button-hover fill fails. The backdrop
+has its own translucent template, not ordinary button hover/pressed chrome.
+The existing viewport, dismissal, focus and full size-matrix checks remain.
+
 Browsing-restoration acceptance compares every originally visible Person's exact
 identity and viewport-relative horizontal/vertical position within one rendered
 pixel, together with the existing Favorites, expansion and guarded-destination

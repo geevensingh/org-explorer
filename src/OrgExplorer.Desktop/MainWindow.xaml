@@ -935,7 +935,13 @@
       </Grid>
       <Button x:Name="PeopleDismissSurface" Grid.ColumnSpan="3" Panel.ZIndex="10" Visibility="Collapsed"
               Background="#33000000" BorderThickness="0" Focusable="False" IsTabStop="False"
-              AutomationProperties.Name="Close People overlay" Click="ClosePeople"/>
+              AutomationProperties.Name="Close People overlay" Click="ClosePeople">
+        <Button.Template>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"/>
+          </ControlTemplate>
+        </Button.Template>
+      </Button>
     </Grid>
     </GroupBox>
     <GroupBox x:Name="OperationalNotice" Grid.Row="1" Visibility="Collapsed" Background="#FFF4DC"

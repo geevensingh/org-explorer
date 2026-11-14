@@ -138,6 +138,7 @@ internal static partial class Program
         Set(window, "SearchQuery", "");
         var scale = DpiScale(window);
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        var backdropHoverChecked = false;
         void Resize(double width, double height) => ResizeWindow(window, width, height);
         bool Visible(string id) => window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element && !element.Current.IsOffscreen;
@@ -170,6 +171,15 @@ internal static partial class Program
             {
                 if (Visible("People")) throw new InvalidOperationException("Compact reading retains persistent People columns.");
                 var before = Bounds("ProfileScroll");
+                var sample = new Rect(before.Left + before.Width * .6, before.Top + 8 * scale,
+                    before.Width * .4 - 24 * scale, before.Height - 16 * scale);
+                double? originalContrast = null;
+                if (!backdropHoverChecked)
+                {
+                    originalContrast = ScreenContrast(sample);
+                    if (originalContrast < 40)
+                        throw new InvalidOperationException("The overlay fixture lacks readable Person content in its uncovered viewport.");
+                }
                 Click(window, "OpenPeople");
                 Await(() => Visible("People"));
                 var after = Bounds("ProfileScroll");
@@ -177,6 +187,16 @@ internal static partial class Program
                     throw new InvalidOperationException($"People overlay moved or narrowed the Person workspace: {before} -> {after}.");
                 if (Bounds("PeopleNavigation").Left > Bounds("OpenPeople").Left + 2 * scale)
                     throw new InvalidOperationException("The compact People trigger and overlay do not share the left edge.");
+                if (originalContrast is { } baselineContrast)
+                {
+                    if (sample.Left <= Bounds("PeopleNavigation").Right)
+                        throw new InvalidOperationException("The backdrop pixel check overlaps the People panel.");
+                    if (!SetCursorPos((int)(sample.Left + sample.Width / 2), (int)(sample.Top + sample.Height / 2)))
+                        throw new InvalidOperationException("The hosted desktop could not hover the People backdrop.");
+                    var hover = System.Diagnostics.Stopwatch.StartNew();
+                    Await(() => hover.ElapsedMilliseconds >= 100 && ScreenContrast(sample) >= baselineContrast / 2);
+                    backdropHoverChecked = true;
+                }
                 CaptureVisualEvidence(window, stateName + "-left-overlay");
                 Find(window, "ClosePeople").SetFocus();
                 Await(() => Find(window, "ClosePeople").Current.HasKeyboardFocus);
@@ -282,6 +302,31 @@ internal static partial class Program
         if (Math.Abs(preferred - restored) > .5)
             throw new InvalidOperationException("Compact transition overwrote the user's wide percentage balance.");
         return preferred;
+    }
+
+    private static double ScreenContrast(Rect bounds)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            throw new InvalidOperationException("The rendered backdrop sample is empty.");
+        var dc = GetDC(IntPtr.Zero);
+        if (dc == IntPtr.Zero) throw new InvalidOperationException("Actual desktop pixels are unavailable.");
+        try
+        {
+            var minimum = 255d;
+            var maximum = 0d;
+            for (var y = (int)Math.Ceiling(bounds.Top); y < bounds.Bottom; y += 6)
+                for (var x = (int)Math.Ceiling(bounds.Left); x < bounds.Right; x += 6)
+                {
+                    var color = GetPixel(dc, x, y);
+                    if (color == uint.MaxValue)
+                        throw new InvalidOperationException("Actual backdrop pixels are unavailable on this desktop.");
+                    var luminance = ((color & 255) + ((color >> 8) & 255) + ((color >> 16) & 255)) / 3d;
+                    minimum = Math.Min(minimum, luminance);
+                    maximum = Math.Max(maximum, luminance);
+                }
+            return maximum - minimum;
+        }
+        finally { ReleaseDC(IntPtr.Zero, dc); }
     }
 
     private static void AssertLongAndMissingFacts(AutomationElement window)
