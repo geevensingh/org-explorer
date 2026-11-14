@@ -49,9 +49,29 @@ internal static partial class Program
             File.WriteAllText(pointer, data.ToJsonString());
             var before = WorkspaceFixtures.Bytes(workspace);
             Await(() => Status(window).Contains("Upgrade"));
-            if (Find(window, "EditPreferredName").Current.IsEnabled ||
-                Find(window, "ToggleFavorite").Current.IsEnabled)
-                throw new InvalidOperationException("Incompatible external Workspace left mutation controls enabled.");
+            var mutationState = "";
+            try
+            {
+                Await(() =>
+                {
+                    var edit = window.FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, "EditPreferredName"));
+                    var favorite = window.FindFirst(TreeScope.Descendants,
+                        new PropertyCondition(AutomationElement.AutomationIdProperty, "ToggleFavorite"));
+                    mutationState = $"Preferred name: present={edit is not null}, enabled={edit?.Current.IsEnabled}; " +
+                        $"Favorite: present={favorite is not null}, enabled={favorite?.Current.IsEnabled}.";
+                    return edit is not null && favorite is not null &&
+                        !edit.Current.IsEnabled && !favorite.Current.IsEnabled;
+                });
+            }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException("Incompatible external Workspace did not present disabled mutation controls. " +
+                    mutationState, error);
+            }
+            if (CurrentPersonEmail(window) != "avery@example.com" ||
+                Find(window, "ProfileHeading").Current.Name != "Indexed UI edit")
+                throw new InvalidOperationException("Incompatible external delivery discarded the last validated Person.");
             OpenImportView(window);
             if (Find(window, "ApplyImport").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
