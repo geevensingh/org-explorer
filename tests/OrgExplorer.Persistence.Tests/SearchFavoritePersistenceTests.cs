@@ -1,10 +1,16 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using OrgExplorer.Workflow;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace OrgExplorer.Persistence.Tests;
 
-public sealed class SearchFavoritePersistenceTests : IDisposable
+public sealed class SearchFavoritePersistenceTests(ITestOutputHelper output) : IDisposable
 {
     private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
@@ -95,28 +101,118 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         var personNote = writer.CreatePersonNote("avery@example.com", "Individual", "Original orchid")!;
         var teamNote = writer.CreateTeamNote("morgan@example.com", "Team", "Original cedar")!;
         var reader = Open();
-        Assert.Contains(reader.Search("cedar"), r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
-        Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
-        Apply(writer, """{"email":"alex@example.com","isFavorite":false}""", 2);
-        Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"), writer.Status);
-        Assert.True(writer.EditPersonNote(personNote.Id, "Revised", "Revised orchid"), writer.Status);
-        Assert.True(writer.EditTeamNote(teamNote.Id, "Revised Team", "Revised cedar"), writer.Status);
-        Assert.True(SpinWait.SpinUntil(() => reader.FavoritePeople.Count == 1 && reader.FavoritePeople[0].Email == "avery@example.com" &&
-            reader.Search("0009C").Count > 0 && reader.Search("revised orchid").Count == 1 &&
-            reader.Search("revised cedar").Count == 2, TimeSpan.FromSeconds(10)), reader.Status);
-        Assert.Empty(reader.Search("original orchid"));
-        Assert.DoesNotContain(reader.Search("007B"), r => r.Context == SearchContext.Current);
-        Assert.Contains(reader.Search("007B"), r => r.Source == SearchSource.ProfileHistory);
-        Assert.True(writer.EditPersonManager("avery@example.com", "alex@example.com"));
-        Assert.True(SpinWait.SpinUntil(() => reader.Search("revised cedar").Any(r => r.Source == SearchSource.HistoricalTeamNote),
-            TimeSpan.FromSeconds(10)), reader.Status);
-        Assert.DoesNotContain(reader.Search("cedar"), r => r.Source == SearchSource.InheritedTeamNote);
-        var bytes = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Where(p => !p.EndsWith(".workspace.lock"))
-            .ToDictionary(p => p, File.ReadAllBytes);
-        Assert.True(reader.RefreshWorkspace());
-        for (var i = 0; i < 3; i++) Assert.Contains(reader.Search("cedar"), r => r.Source == SearchSource.HistoricalTeamNote);
-        Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com"));
-        foreach (var (path, original) in bytes) Assert.Equal(original, File.ReadAllBytes(path));
+        var notifications = new ConcurrentQueue<string>();
+        IReadOnlyList<SearchResult> lastTeamMatches = [];
+        DateTimeOffset? lastTeamSearchAt = null;
+        void RecordRefresh(object? sender, EventArgs args)
+        {
+            notifications.Enqueue($"{DateTimeOffset.UtcNow:O}: current={reader.IsWorkspaceCurrent}; {reader.Status}");
+            while (notifications.Count > 64) notifications.TryDequeue(out _);
+        }
+        IReadOnlyList<SearchResult> ObserveTeamSearch()
+        {
+            lastTeamMatches = reader.Search("revised cedar");
+            lastTeamSearchAt = DateTimeOffset.UtcNow;
+            return lastTeamMatches;
+        }
+        void RequireAutomaticDelivery(string phase, Func<bool> condition)
+        {
+            var elapsed = Stopwatch.StartNew();
+            var delivered = SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(10));
+            var verdictAt = DateTimeOffset.UtcNow;
+            var duration = elapsed.Elapsed;
+            var status = reader.Status;
+            if (!delivered)
+            {
+                output.WriteLine(JsonSerializer.Serialize(new
+                {
+                    Phase = phase, VerdictAt = verdictAt, Elapsed = duration, StatusAtVerdict = status,
+                    Runtime = Environment.Version.ToString(), LastTeamSearchAt = lastTeamSearchAt,
+                    LastTeamMatches = lastTeamMatches, ReaderNotifications = notifications.ToArray()
+                }));
+                WriteDeliveryFailure(writer, reader);
+            }
+            Assert.True(delivered, status);
+        }
+        reader.WorkspaceChanged += RecordRefresh;
+        try
+        {
+            Assert.Contains(reader.Search("cedar"), r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
+            Assert.True(writer.EditFavorite("avery@example.com", true), writer.Status);
+            Apply(writer, """{"email":"alex@example.com","isFavorite":false}""", 2);
+            Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"), writer.Status);
+            Assert.True(writer.EditPersonNote(personNote.Id, "Revised", "Revised orchid"), writer.Status);
+            Assert.True(writer.EditTeamNote(teamNote.Id, "Revised Team", "Revised cedar"), writer.Status);
+            RequireAutomaticDelivery("revised current writing", () => reader.FavoritePeople.Count == 1 && reader.FavoritePeople[0].Email == "avery@example.com" &&
+                reader.Search("0009C").Count > 0 && reader.Search("revised orchid").Count == 1 &&
+                ObserveTeamSearch().Count == 2);
+            Assert.Empty(reader.Search("original orchid"));
+            Assert.DoesNotContain(reader.Search("007B"), r => r.Context == SearchContext.Current);
+            Assert.Contains(reader.Search("007B"), r => r.Source == SearchSource.ProfileHistory);
+            Assert.True(writer.EditPersonManager("avery@example.com", "alex@example.com"));
+            RequireAutomaticDelivery("Historical team context", () => ObserveTeamSearch().Any(r => r.Source == SearchSource.HistoricalTeamNote));
+            Assert.DoesNotContain(reader.Search("cedar"), r => r.Source == SearchSource.InheritedTeamNote);
+            var bytes = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Where(p => !p.EndsWith(".workspace.lock"))
+                .ToDictionary(p => p, File.ReadAllBytes);
+            Assert.True(reader.RefreshWorkspace());
+            for (var i = 0; i < 3; i++) Assert.Contains(reader.Search("cedar"), r => r.Source == SearchSource.HistoricalTeamNote);
+            Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com"));
+            foreach (var (path, original) in bytes) Assert.Equal(original, File.ReadAllBytes(path));
+        }
+        finally { reader.WorkspaceChanged -= RecordRefresh; }
+    }
+
+    private void WriteDeliveryFailure(IApplicationWorkflow writer, IApplicationWorkflow reader)
+    {
+        // These observations follow the failed verdict; neither reads nor file copies form an atomic snapshot.
+        foreach (var (name, app) in new[] { ("writer", writer), ("reader", reader) })
+        {
+            try
+            {
+                output.WriteLine(JsonSerializer.Serialize(new
+                {
+                    Observation = name, StartedAt = DateTimeOffset.UtcNow, app.Status, app.IsWorkspaceCurrent,
+                    Relationships = app.GetRelationships("avery@example.com"),
+                    History = app.GetHistoricalTeamContexts("avery@example.com"),
+                    Matches = app.Search("revised cedar")
+                }));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
+            {
+                output.WriteLine($"{name} post-verdict observation failed: {ex}");
+            }
+        }
+        try
+        {
+            using var bytes = new MemoryStream();
+            using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                foreach (var path in Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+                    .Where(p => Path.GetFileName(p) != ".workspace.lock").Order())
+                {
+                    var relative = Path.GetRelativePath(folder, path);
+                    try
+                    {
+                        var startedAt = DateTimeOffset.UtcNow;
+                        var content = File.ReadAllBytes(path);
+                        using var entry = archive.CreateEntry(relative.Replace('\\', '/')).Open();
+                        entry.Write(content);
+                        output.WriteLine($"Captured {relative}: read started {startedAt:O}; {content.Length} bytes; " +
+                            $"SHA256={Convert.ToHexString(SHA256.HashData(content))}");
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        output.WriteLine($"Post-verdict file capture failed for {relative}: {ex}");
+                    }
+                }
+            }
+            output.WriteLine("Non-atomic post-verdict Workspace ZIP (base64; excludes coordination lock): " +
+                Convert.ToBase64String(bytes.ToArray()));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            output.WriteLine($"Post-verdict Workspace capture failed: {ex}");
+        }
     }
 
     [Fact]

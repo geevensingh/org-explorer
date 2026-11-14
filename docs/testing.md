@@ -122,6 +122,18 @@ reopening or creating the blocked destination or resetting the current view.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
+The automatic-delivery case in `SearchFavoritePersistenceTests` keeps both
+ten-second assertions and captures failure evidence in test output retained by
+the filesystem TRX. It records the failing phase, verdict time, last observed
+Team search results and up to 64 reader `WorkspaceChanged` notifications.
+Separate, explicitly post-verdict writer/reader observations and a base64 ZIP
+of the isolated fictitious Workspace follow. Decode the line prefixed
+`Non-atomic post-verdict Workspace ZIP (base64; excludes coordination lock): `
+with `Convert.FromBase64String` to recover it. Per-file read times and SHA256
+digests distinguish these later, non-atomic captured bytes from the failed
+observation; capture errors are reported without replacing the assertion.
+No explicit refresh is performed to diagnose or rescue either wait.
+
 `WorkspaceWriteObservationTests` drives the real file-backed workflow with an
 optional `IWorkspaceFileObserver`; payload writes and durable flushes stay real.
 It accounts for transient and repeated writes, failed publication/cleanup, and
