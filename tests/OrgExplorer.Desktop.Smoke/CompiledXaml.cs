@@ -816,8 +816,8 @@ internal static partial class Program
             throw new InvalidOperationException("Manager and Office belong in identity; Department needs a labelled facts slot.");
         foreach (var (officeBuilding, officeNumber) in new[]
         {
-            ("MILLENNIUM A", "2244"), ("MILLENNIUM A", ""), ("", ""),
-            ("South campus research and collaboration building with a long descriptive location", "2244"),
+            ("Juniper", "009C"), ("Juniper", ""), ("", ""),
+            ("South campus research and collaboration building with a long descriptive location", "009C"),
             ("", "007B")
         })
         {
