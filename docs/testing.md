@@ -502,6 +502,9 @@ The filesystem runner excludes only `Category=Performance`; ordinary persistence
 delivery, recovery and watcher coverage remains required. The core runner also
 checks the CI gate, separate-suite selection/results and named desktop-result
 contracts without launching WPF.
+It also runs `DocumentationHandoff.Tests.ps1` against isolated local Git
+repositories and a bare remote, including a source branch that advances beyond
+the approved documentation commit. These checks need no network or desktop.
 For a narrow change, use `dotnet test` with combined selectors rather than
 rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 

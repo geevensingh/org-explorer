@@ -33,6 +33,43 @@ An empty current diff is not proof of this case: the documentation might already
 be committed. Missing or unpublished documentation is an incomplete handoff, not
 `None`.
 
+## Verify the source
+
+Use `eng\Verify-DocumentationHandoff.ps1` for the Git checks in this contract,
+rather than rebuilding them in each workflow. Use a full-history source clone;
+confirm its configured remote matches **Source repository** and follow
+[account routing](issue-tracker.md#account-and-repository-routing) before fetching.
+The verifier uses the process's `gh` credential helper, bypassing cached Git
+credentials without changing saved configuration.
+
+Set the source/base/documentation/file variables from the approved handoff and
+the default branch from the source repository:
+
+```powershell
+.\eng\Verify-DocumentationHandoff.ps1 `
+  -SourceBranch $sourceBranch -DefaultBranch $defaultBranch `
+  -BaseCommit $baseCommit -DocumentationCommit $documentationCommit `
+  -MarkdownFiles $markdownFiles | ConvertTo-Json -Depth 3
+```
+
+The checkout containing the script and its `origin` remote are the defaults;
+use `-RepositoryPath` and `-Remote` when verifying a different source clone.
+The command fetches fresh source/default refs into temporary refs and removes
+them on success or failure, preserving the checkout, local writing, and existing
+tracking refs.
+
+A source branch may advance after the approved documentation commit: that commit
+must remain **reachable**, not equal the branch tip. Keep the immutable
+documentation SHA in the record; the returned source/default tips are observations,
+not replacements. The verifier checks the single immediate base parent, a nonempty
+Markdown-only delta, the exact changed path list, and that the documentation commit
+is not already reachable from the freshly fetched default branch. Renames are
+treated as deletion/addition; list both repository-relative Git paths.
+
+A failed command leaves the handoff unverified. It does not replace approval of
+the Markdown, incorporation checks after a cherry-pick, or the joint-delivery
+decision about whether the matching behavior is complete.
+
 ## Prepare the handoff
 
 For Markdown changes, after the user confirms the shared understanding and
@@ -43,8 +80,8 @@ approves the documentation:
 2. Create or identify a focused documentation-only commit containing those
    changes. Preserve unrelated local changes and follow repository commit rules.
 3. Push the source branch using the configured repository/account routing.
-   Verify that the remote commit is retrievable and that its diff from the
-   recorded base matches the approved Markdown file list and content.
+   Run the shared verifier against the recorded source/base/documentation fields
+   and approved Markdown file list.
 4. Return the handoff record. Keep the source branch reachable and unmerged into
    the default branch until delivery with implementation.
 
@@ -55,9 +92,10 @@ fails, report the unfinished handoff rather than declaring it ready.
 ## Carry the handoff into specs and tickets
 
 Read any source issue and its comments. Preserve a verified no-changes record
-unchanged. For a committed documentation handoff, preserve the source repository,
-branch, SHAs, and Markdown file list exactly. Ownership and the integration
-target can become more specific as implementation is assigned.
+unchanged. For a committed documentation handoff, run the shared verifier before
+publishing ready work, even if a prior session verified the record. Preserve the
+source repository, branch, SHAs, and Markdown file list exactly. Ownership and the
+integration target can become more specific as implementation is assigned.
 
 If the context says planning Markdown changed but supplies no verifiable record,
 obtain the producer's handoff before publishing ready work. Do not reconstruct
@@ -84,8 +122,9 @@ branch for that case.
 Missing, unpublished, or unverified handoffs do not qualify for this bypass. For
 a committed documentation handoff, complete the following checklist:
 
-1. Read the record and the source Markdown. Fetch the pushed reference into the
-   receiving worktree and verify the source/base SHAs and approved Markdown diff.
+1. Read the record and the source Markdown. Run the shared verifier in the
+   receiving source clone to fetch and verify the pushed source, source/base SHAs,
+   and approved Markdown delta.
    An inaccessible or mismatched source blocks implementation.
    If the planning changes already reached the default branch without their
    implementation, report the sequencing failure rather than treating their
