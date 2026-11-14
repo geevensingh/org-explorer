@@ -296,8 +296,19 @@ The existing Person-note and normal/responsive Team-history selections capture
 unique populated, empty-document, ambiguous, failed, unavailable, collapsed-review,
 current-owner and frozen-owner states with `CaptureVisualEvidence`. Responsive
 Team/history retains 700/1100 and exact reopen checks, adding complete long
-current/frozen Markdown. Explicit reading-range scrolling exposes the asserted
-prose before its capture; it does not repair People browsing or a destination.
+current/frozen Markdown. The owner-approved `NavigateMainReadingAndCapture`
+journey action exposes the same exact text through the actual main Workspace
+scrollbar before capturing it. Each successful half-viewport request must move
+to a distinct position; a stalled viewport, missing target at the end or native
+scroll failure remains a failure, never an action retry. Navigation and visibility
+share the original 20-second budget. The actual target is centered once when
+needed and scrollable; no People, destination, note model or product scrolling is repaired.
+The [WPF 10 text adaptor](https://raw.githubusercontent.com/dotnet/wpf/v10.0.0/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/TextAdaptor.cs)
+stops at the inner scroll provider and can pass an empty clipped rectangle to
+`BringIntoView`, aligning the whole natural-height reader rather than deep text.
+The harness therefore uses the chosen main content viewport, not that unsupported
+text-range assumption; it still asserts actual text rectangles, bounded prose,
+no nested/horizontal reading scroll, unchanged selected owner and anchored identity.
 All original GUID, attribution, saved-byte, review and rejection checks, scenario
 names and lane budgets remain. Captures require hosted Windows and are still
 pending for each new complete candidate; they are not whole-pass visual acceptance.

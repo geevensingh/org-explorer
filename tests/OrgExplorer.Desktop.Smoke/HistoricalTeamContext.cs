@@ -65,7 +65,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Owned Team reading lost decoded Markdown entities.");
             if (!TeamReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Owned Team Markdown did not show remote-image suppression.");
-            ReadAndCaptureNote(window, "TeamNoteReading", "Original ancestor", "team-note-populated-owned-reading");
+            NavigateMainReadingAndCapture(window, "TeamNoteReading", "Original ancestor", "team-note-populated-owned-reading");
             AwaitLocalWorkIdle(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Secondary empty Team note");
@@ -145,7 +145,7 @@ internal static partial class Program
             SelectTab(window, "TeamNoteReadTab");
             AssertNoteView(window, "Team", editing: false);
             Await(() => IsVisible(window, "TeamNoteReading"));
-            ReadAndCaptureNote(window, "TeamNoteReading", "Original direct", "team-owned-review-warning-outside-other-notes");
+            NavigateMainReadingAndCapture(window, "TeamNoteReading", "Original direct", "team-owned-review-warning-outside-other-notes");
             OpenPerson(window, "casey@example.com", "morgan@example.com");
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Primary Person context");
@@ -172,7 +172,7 @@ internal static partial class Program
                 !inherited.Contains("Secondary empty Team note") ||
                 !inherited.Contains("Needs review") || CurrentReadingText(window).Contains("Never inherited"))
                 throw new InvalidOperationException("Inherited context lost ancestor attribution, review feedback or private scope.");
-            ReadAndCaptureNote(window, "InheritedTeamReading", "Original direct", "team-current-all-ancestor-attribution");
+            NavigateMainReadingAndCapture(window, "InheritedTeamReading", "Original direct", "team-current-all-ancestor-attribution");
             SelectTab(window, "PersonNoteEditTab");
             Set(window, "PersonNoteTitle", " ");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
@@ -241,7 +241,7 @@ internal static partial class Program
                 frozen.Contains("New branch writing") || !CurrentReadingText(window).Contains("New branch writing") ||
                 CurrentReadingText(window).Contains("Original ancestor"))
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");
-            ReadAndCaptureNote(window, "HistoricalTeamReading", "Original direct", "team-frozen-former-owner-attribution");
+            NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-frozen-former-owner-attribution");
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
             AssertNoteView(window, "Team", editing: false);
@@ -259,14 +259,14 @@ internal static partial class Program
                         throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
                     if (!frozen.Contains("Former Team paragraph 32") || !CurrentReadingText(window).Contains("Current Team paragraph 32"))
                         throw new InvalidOperationException("Responsive context lost the complete long current/frozen writing.");
-                    ReadAndCaptureNote(window, "InheritedTeamReading", "Current Team paragraph 32", $"team-current-long-reading-{size.Width:0}");
-                    ReadAndCaptureNote(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
+                    NavigateMainReadingAndCapture(window, "InheritedTeamReading", "Current Team paragraph 32", $"team-current-long-reading-{size.Width:0}");
+                    NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
                 }
             QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Original direct", "Later writing", "HistoricalTeamReading");
             if (!Find(window, "HistoricalTeamReading").Current.HelpText.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
-            ReadAndCaptureNote(window, "HistoricalTeamReading", "Original direct", "team-exact-frozen-search");
+            NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-exact-frozen-search");
             SelectTreePerson(window, "casey@example.com");
             SelectTeamNote(window, "Secondary empty Team note");
             var secondaryId = Find(window, "TeamNoteHeading").Current.HelpText;

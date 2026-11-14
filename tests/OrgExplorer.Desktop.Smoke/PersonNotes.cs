@@ -90,7 +90,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Person-note owner was not explicit.");
             if (!ReadingText(window).Contains("Image not loaded"))
                 throw new InvalidOperationException("Image suppression was not visible in the rendered reading view.");
-            ReadAndCaptureNote(window, "PersonNoteReading", "Meeting with Avery.", "person-note-populated-ongoing");
+            NavigateMainReadingAndCapture(window, "PersonNoteReading", "Meeting with Avery.", "person-note-populated-ongoing");
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
@@ -314,11 +314,45 @@ internal static partial class Program
             throw new InvalidOperationException($"The exact empty {kind} document lost its purposeful Edit invitation.");
     }
 
-    private static void ReadAndCaptureNote(AutomationElement window, string readingId, string expected, string state)
+    private static void NavigateMainReadingAndCapture(AutomationElement window, string readingId, string expected, string state)
     {
+        var timer = Stopwatch.StartNew();
+        void RequireBudget()
+        {
+            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
+                throw new TimeoutException("Main-workspace reading exceeded its original 20-second budget.");
+        }
+        void Wait(Func<bool> condition) => Await(() =>
+        {
+            RequireBudget();
+            return condition();
+        });
         var reading = Find(window, readingId);
         var range = ((TextPattern)reading.GetCurrentPattern(TextPattern.Pattern)).DocumentRange
             .FindText(expected, false, false) ?? throw new InvalidOperationException("Missing actual note prose: " + expected);
+        var viewport = Find(window, "ProfileScroll");
+        var scrolling = (ScrollPattern)viewport.GetCurrentPattern(ScrollPattern.Pattern);
+        var identity = Find(window, "Email").Current;
+        var owner = identity.Name;
+        var identityBounds = identity.BoundingRectangle;
+        bool TargetVisible()
+        {
+            RequireBudget();
+            return !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0;
+        }
+        MainReadingNavigation.Position Position()
+        {
+            RequireBudget();
+            var current = scrolling.Current;
+            return new(current.VerticallyScrollable, current.VerticalScrollPercent, current.VerticalViewSize);
+        }
+        void Move(double percent)
+        {
+            var previous = scrolling.Current.VerticalScrollPercent;
+            RequireBudget();
+            Console.WriteLine($"MAIN-READING {state}: main viewport {previous:F4}% -> {percent:F4}%.");
+            scrolling.SetScrollPercent(ScrollPattern.NoScroll, percent);
+        }
         string Observe(string label, Func<string> read)
         {
             try { return label + "=" + read(); }
@@ -342,28 +376,49 @@ internal static partial class Program
             }) + "; " +
             Observe("outerScroll", () =>
             {
-                var viewport = Find(window, "ProfileScroll");
-                var scroll = ((ScrollPattern)viewport.GetCurrentPattern(ScrollPattern.Pattern)).Current;
-                return $"{viewport.Current.BoundingRectangle}; offscreen={viewport.Current.IsOffscreen}; " +
+                var observedViewport = Find(window, "ProfileScroll");
+                var scroll = ((ScrollPattern)observedViewport.GetCurrentPattern(ScrollPattern.Pattern)).Current;
+                return $"{observedViewport.Current.BoundingRectangle}; offscreen={observedViewport.Current.IsOffscreen}; " +
                     $"vertical={scroll.VerticallyScrollable}/{scroll.VerticalScrollPercent}/{scroll.VerticalViewSize}; " +
                     $"horizontal={scroll.HorizontallyScrollable}/{scroll.HorizontalScrollPercent}/{scroll.HorizontalViewSize}";
             });
-        var before = Metrics("before-single-scroll");
-        range.ScrollIntoView(true);
-        var after = Metrics("after-single-scroll");
-        Console.WriteLine($"READING-OBSERVATION {state}: {before}; {after}");
-        try { Await(() => !reading.Current.IsOffscreen && range.GetBoundingRectangles().Length > 0); }
-        catch (TimeoutException error)
+        var before = Metrics("before-main-reading");
+        try
         {
-            var failure = Metrics("timeout");
-            Console.Error.WriteLine($"READING-OBSERVATION {state}: {failure}");
+            MainReadingNavigation.Reveal(TargetVisible, Position, Move, Wait);
+            Wait(TargetVisible);
+            var target = range.GetBoundingRectangles()[0];
+            var bounds = viewport.Current.BoundingRectangle;
+            var current = scrolling.Current;
+            var delta = target.Top + target.Height / 2 - (bounds.Top + bounds.Height / 2);
+            if (current.VerticallyScrollable && Math.Abs(delta) > 1)
+            {
+                var scrollableHeight = bounds.Height * (100 - current.VerticalViewSize) / current.VerticalViewSize;
+                var next = Math.Clamp(current.VerticalScrollPercent + 100 * delta / scrollableHeight, 0, 100);
+                var previous = current.VerticalScrollPercent;
+                if (Math.Abs(next - previous) > .001)
+                {
+                    Move(next);
+                    Wait(() => next > previous ? scrolling.Current.VerticalScrollPercent > previous
+                        : scrolling.Current.VerticalScrollPercent < previous);
+                }
+            }
+            Wait(TargetVisible);
+            Console.WriteLine($"READING-OBSERVATION {state}: {before}; {Metrics("after-main-reading")}");
+        }
+        catch (Exception error) when (error is TimeoutException or InvalidOperationException or
+            ElementNotAvailableException or System.Runtime.InteropServices.COMException)
+        {
+            Console.Error.WriteLine($"READING-OBSERVATION {state}: {before}; {Metrics("failure")}; {error}");
             CaptureFailureEvidence(window, state + "-failure");
-            throw new TimeoutException($"Single-scroll reading visibility was not established. {before}; {after}; {failure}", error);
+            throw;
         }
         if (reading.Current.BoundingRectangle.Width / DpiScale(window) > 601 ||
             reading.TryGetCurrentPattern(ScrollPattern.Pattern, out var inner) && ((ScrollPattern)inner).Current.VerticallyScrollable ||
-            ((ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern)).Current.HorizontallyScrollable)
+            scrolling.Current.HorizontallyScrollable)
             throw new InvalidOperationException("Owned/current/frozen prose lost its bounded measure or reintroduced an independent reading scroll.");
+        if (Find(window, "Email").Current.Name != owner || Find(window, "Email").Current.BoundingRectangle != identityBounds)
+            throw new InvalidOperationException("Main-workspace reading moved the anchored identity or changed the selected Person.");
         CaptureVisualEvidence(window, state);
     }
 }
