@@ -592,6 +592,12 @@ profile form and measures four/three/two-column reading. Each facts row must fit
 its own content with a compact 12-DIP inter-row gap; a wrapped URL and its action
 in a later row must not enlarge an earlier row. Full URL text and wrapped height
 remain intact within the viewport. The check restores the original empty URL.
+An independent invisible-window fixture checks reports and their count are
+hidden when empty and during wide tree browsing, but visible when populated in
+compact mode or search. Report selection still opens its exact Person; opening
+the temporary People overlay does not change the report bounds or content extent.
+The native profile journey uses the tree for wide report navigation, while the
+note journey retains visible report-list navigation during search.
 These are compiled wiring/measurement checks, not rendered acceptance.
 The same invisible regression drives the actual Preferred-name Save/Cancel
 controls: typing does not publish; failed Save retains

@@ -135,10 +135,10 @@ internal static partial class Program
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Stable email identity became editable.");
             NavigateToManager(window, "morgan@example.com");
-            var report = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
-                ?? throw new InvalidOperationException("Imported report navigation is missing.");
-            ((SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            Await(() => window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportedReports")) is not { } reports ||
+                reports.Current.IsOffscreen);
+            SelectTreePerson(window, "avery@example.com");
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000003",

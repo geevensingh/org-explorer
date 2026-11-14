@@ -163,6 +163,7 @@ internal static partial class Program
             NavigateToManager(window, "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com"))
                 throw new InvalidOperationException("Manager navigation inherited the report's private Person notes.");
+            Await(() => !Find(window, "ImportedReports").Current.IsOffscreen);
             var ownerReport = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
                 ?? throw new InvalidOperationException("Manager lost the note owner's imported report.");

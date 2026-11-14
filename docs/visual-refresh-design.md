@@ -137,7 +137,11 @@ consolidated wide reference illustrates these eight slots in two rows.
 Remove More details as a gate for ordinary facts. Keep full text and copy-value
 access; links remain explicit actions and are never fetched/opened automatically.
 Keep Manager and Imported-report navigation, including the distinction between
-the Imported population and a complete company directory. History and provenance
+the Imported population and a complete company directory. Use the People tree
+for reports during wide browsing. Show the profile's reports list and count only
+when nonempty in compact mode or search; opening the temporary People overlay
+must not reflow the underlying profile. Never show an empty reports section.
+History and provenance
 remain secondary, not an extra permanent facts dump.
 
 ## Wide and compact composition

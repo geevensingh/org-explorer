@@ -165,7 +165,7 @@ public partial class MainWindow
 
     private void UpdatePeopleNavigation()
     {
-        if (PeoplePanel is null) return;
+        if (PeoplePanel is null || ReportsSection is null || ReportsList is null) return;
         var overlay = !wideWorkspace && workflow.PeopleNavigation.OverlayOpen;
         PeoplePanel.Visibility = wideWorkspace || overlay ? Visibility.Visible : Visibility.Collapsed;
         PeoplePanel.Width = wideWorkspace ? double.NaN : Math.Min(360, ExplorerPanel.ActualWidth);
@@ -176,6 +176,8 @@ public partial class MainWindow
         PeopleDismissSurface.Visibility = overlay ? Visibility.Visible : Visibility.Collapsed;
         SearchPanel.Visibility = workflow.PeopleNavigation.IsBrowsing ? Visibility.Collapsed : Visibility.Visible;
         BrowsingPanel.Visibility = workflow.PeopleNavigation.IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
+        ReportsSection.Visibility = ReportsList.HasItems && (!wideWorkspace || !workflow.PeopleNavigation.IsBrowsing)
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)

@@ -885,9 +885,11 @@
             </StackPanel>
           </Border>
         </StackPanel>
-        <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
-        <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
-                 SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>
+        <StackPanel x:Name="ReportsSection" Visibility="Collapsed">
+          <TextBlock x:Name="ReportCount" Text="Imported reports (not a full-company count)" TextWrapping="Wrap"/>
+          <ListBox x:Name="ReportsList" AutomationProperties.AutomationId="ImportedReports" DisplayMemberPath="Heading"
+                  SelectionChanged="NavigateReport" MaxHeight="110" Margin="0,4,0,12"/>
+        </StackPanel>
         </StackPanel>
         </GroupBox>
         <GroupBox x:Name="NotesPane" Grid.Row="1" BorderThickness="0" Padding="0"

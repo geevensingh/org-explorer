@@ -145,6 +145,10 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyRejectedOverlayGeometry(retainedWindow, settings); }
                 finally { retainedWindow.Close(); }
+                var reportsWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyReportsVisibility(reportsWindow, settings); }
+                finally { reportsWindow.Close(); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -1316,6 +1320,89 @@ internal static partial class Program
             Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
             throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
         Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
+    }
+
+    private static void VerifyReportsVisibility(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "reports-visibility");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"}]}
+                """).Id))
+                throw new InvalidOperationException("Reports visibility fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        void Layout(double width)
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Reports visibility checks must not show a window or create its native handle.");
+        }
+        bool Presented(FrameworkElement element)
+        {
+            for (DependencyObject? current = element; current is FrameworkElement parent && current != window;
+                current = LogicalTreeHelper.GetParent(current))
+                if (parent.Visibility != Visibility.Visible) return false;
+            return true;
+        }
+        void Expect(bool visible, string stage)
+        {
+            if (Presented(Control<ListBox>("ReportsList")) != visible ||
+                Presented(Control<TextBlock>("ReportCount")) != visible)
+                throw new InvalidOperationException($"Reports list and count must be {(visible ? "shown" : "hidden")} during {stage}.");
+        }
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Invoke("OpenSettingsButton");
+        if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Reports visibility must be checked in the real Person workspace, not behind Settings.");
+        var tree = Control<TreeView>("PeopleList");
+        var manager = tree.Items.Cast<ReportingNode>().Single();
+        void Select(ReportingNode person)
+        {
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
+            if (Control<TextBlock>("Email").Text != person.Person.Email)
+                throw new InvalidOperationException("The reports fixture did not navigate to its intended Person.");
+        }
+        Select(manager.Reports.Single());
+        Layout(1100);
+        Expect(false, "empty wide browsing");
+        Layout(700);
+        Expect(false, "empty compact browsing");
+        Select(manager);
+        Layout(700);
+        Expect(true, "populated compact browsing");
+        var viewport = Control<ScrollViewer>("PersonScroll");
+        var reports = Control<ListBox>("ReportsList");
+        var before = reports.TransformToAncestor(root).TransformBounds(new Rect(reports.RenderSize));
+        var extent = viewport.ExtentHeight;
+        Invoke("OpenPeopleButton");
+        Layout(700);
+        Expect(true, "temporary compact People overlay");
+        if (before != reports.TransformToAncestor(root).TransformBounds(new Rect(reports.RenderSize)) ||
+            extent != viewport.ExtentHeight)
+            throw new InvalidOperationException("Opening People must not reflow the underlying reports or profile content.");
+        Invoke("ClosePeopleButton");
+        Layout(1100);
+        Expect(false, "populated wide tree browsing");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        Expect(true, "populated wide search");
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Expect(false, "return to wide tree browsing");
+        Control<TextBox>("SearchQuery").Text = "avery";
+        reports.SelectedItem = reports.Items.Cast<PersonProfile>().Single();
+        if (Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person.");
+        Expect(false, "empty search destination");
+        Console.WriteLine("PASS: nonempty reports appear only in compact/search, empty lists and counts stay hidden, and the People overlay does not reflow the profile.");
     }
 
     private static void VerifyFactRowSpacing(Window window)
