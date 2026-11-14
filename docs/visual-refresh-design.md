@@ -104,7 +104,7 @@ available actions, and review warnings must still be understandable.
 ### Anchored identity
 
 Use a flat identity band with a circular photo or initials placeholder,
-the primary name and its Preferred-name pencil, role, email, labelled Manager
+the primary name and its Preferred-name pencil, role, email, labelled content-sized Manager
 navigation and a compact labelled Office line, and
 right-side Favorite, Edit profile, and More actions. Do not retain oversized
 rectangular missing-photo furniture, repeated name rows, or an empty

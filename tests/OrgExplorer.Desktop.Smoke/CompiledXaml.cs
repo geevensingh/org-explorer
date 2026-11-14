@@ -840,6 +840,9 @@ internal static partial class Program
                 root.Measure(new Size(width, 900));
                 root.Arrange(new Rect(0, 0, width, 900));
                 root.UpdateLayout();
+                var manager = Control<Button>("Manager");
+                if (manager.ActualWidth > manager.DesiredSize.Width + 1)
+                    throw new InvalidOperationException($"Manager's hit target stretches beyond its name at {width}: actual={manager.ActualWidth}, desired={manager.DesiredSize.Width}.");
                 if (identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1)
                     throw new InvalidOperationException($"Header context grew beyond the existing photo footprint at {width}: {identity.ActualHeight}; " +
                         string.Join("; ", new[] { "ProfileHeading", "JobTitleValue", "Email", "ManagerReadingSlot",
