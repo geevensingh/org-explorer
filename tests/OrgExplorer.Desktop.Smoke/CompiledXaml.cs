@@ -139,6 +139,14 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyTreePresentation(treeWindow, settings); }
                 finally { treeWindow.Close(); }
+                var unavailableNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyUnavailablePreferredNameEntry(unavailableNameWindow, settings); }
+                finally { unavailableNameWindow.Close(); }
+                var noteFailureWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyRetainedNoteCreationFailure(noteFailureWindow, settings); }
+                finally { noteFailureWindow.Close(); }
                 VerifySettingsFocus(window);
                 // The empty 44-Person probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
@@ -1324,6 +1332,172 @@ internal static partial class Program
             Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
             throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
         Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
+    }
+
+    private static void VerifyRetainedNoteCreationFailure(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "retained-note-creation");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"89000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+                """).Id))
+                throw new InvalidOperationException("Note-creation failure fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items.Cast<ReportingNode>().Single(),
+            TreeView.SelectedItemChangedEvent));
+        foreach (var scope in new[] { NoteScope.Person, NoteScope.Team })
+        {
+            var notes = Control<FrameworkElement>(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
+            var status = (TextBlock)notes.FindName("NoteStatus");
+            int Count() => scope == NoteScope.Person ? workflow.GetPersonNotes("avery@example.com").Count :
+                workflow.GetTeamNotes("avery@example.com").Count;
+            var originalCount = Count();
+            using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => workflow.LocalSaveError is not null && status.Text.Contains("NOT saved", StringComparison.Ordinal));
+            }
+            var retained = workflow.LocalSaveError!;
+            if (Count() != originalCount || workflow.CanSafelyClose)
+                throw new InvalidOperationException("Failed creation must retain its error without creating replacement writing.");
+            using (var provider = ApplicationWorkflow.CreateFileBacked())
+                if (!provider.OpenWorkspace(folder) ||
+                    !provider.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered " + scope))
+                    throw new InvalidOperationException("Unrelated provider delivery failed: " + provider.Status);
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            if (workflow.LocalSaveError != retained || workflow.CanSafelyClose ||
+                status.Visibility != Visibility.Visible || status.Text != retained ||
+                System.Windows.Automation.AutomationProperties.GetItemStatus(notes) != retained)
+                throw new InvalidOperationException($"Unrelated successful refresh must not replace the unresolved {scope} creation error with success feedback: {status.Text}");
+            var selector = Path.Combine(folder, "workspace.json");
+            var selectorBytes = File.ReadAllBytes(selector);
+            try
+            {
+                File.WriteAllText(selector, "{}");
+                if (workflow.RefreshWorkspace())
+                    throw new InvalidOperationException("The invalid delivery fixture was unexpectedly accepted.");
+                settled = false;
+                window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+                PumpUntil(() => settled);
+                if (!status.Text.Contains("STALE", StringComparison.Ordinal) || !status.Text.Contains(retained, StringComparison.Ordinal))
+                    throw new InvalidOperationException("A distinct current failure must remain visible alongside the retained creation error.");
+            }
+            finally { File.WriteAllBytes(selector, selectorBytes); }
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            workflow.DiscardUnsavedChanges();
+            ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Count() == originalCount + 1 && status.Visibility == Visibility.Collapsed &&
+                workflow.LocalSaveError is null);
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Note failure checks must not show a window or create its native handle.");
+        Console.WriteLine("PASS: Person/Team creation failures remain visible and accessible through successful external refresh, and healthy feedback becomes quiet after deliberate resolution.");
+    }
+
+    private static void VerifyUnavailablePreferredNameEntry(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "unavailable-preferred-name");
+        void Seed(string path, string email, string name)
+        {
+            using var source = ApplicationWorkflow.CreateFileBacked();
+            if (!source.OpenWorkspace(path) || !source.ApplyImport(source.PreviewImport($$"""
+                {"schemaVersion":1,"batchId":"88000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"{{email}}","displayName":"Directory name","preferredName":"{{name}}","managerEmail":null}]}
+                """).Id))
+                throw new InvalidOperationException("Unavailable-name fixture failed: " + source.Status);
+        }
+        Seed(folder, "avery@example.com", "Saved name");
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible) Invoke("OpenSettingsButton");
+        var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        void SelectOwner()
+        {
+            var tree = Control<TreeView>("PeopleList");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items.Cast<ReportingNode>().Single(),
+                TreeView.SelectedItemChangedEvent));
+            if (Control<TextBlock>("Email").Text != "avery@example.com")
+                throw new InvalidOperationException("Unavailable-name fixture did not select Avery.");
+        }
+        void Deliver(string email, string name)
+        {
+            var delivery = Path.Combine(settings, "preferred-delivery-" + Guid.NewGuid().ToString("N"));
+            Seed(delivery, email, name);
+            foreach (var file in Directory.GetFiles(delivery, "*", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(path) != ".workspace.lock")
+                .OrderBy(path => Path.GetFileName(path) == "workspace.json"))
+            {
+                var target = Path.Combine(folder, Path.GetRelativePath(delivery, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, true);
+            }
+            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+        }
+        Dictionary<string, byte[]> Bytes() => Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+            .Where(path => Path.GetFileName(path) != ".workspace.lock").ToDictionary(path => path, File.ReadAllBytes);
+        void Unchanged(Dictionary<string, byte[]> before)
+        {
+            var after = Bytes();
+            if (after.Count != before.Count || before.Any(pair => !after.TryGetValue(pair.Key, out var bytes) ||
+                !pair.Value.SequenceEqual(bytes)))
+                throw new InvalidOperationException("Preferred-name retention/cancellation rewrote delivered Workspace bytes.");
+        }
+        SelectOwner();
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Retained local entry";
+        Deliver("casey@example.com", "Casey");
+        var delivered = Bytes();
+        if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Visible ||
+            Control<TextBox>("PreferredName").Text != "Retained local entry" ||
+            Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("Valid owner removal must retain the unconfirmed Preferred-name entry and its owner.");
+        if (Control<Button>("SavePreferredNameButton").IsEnabled || !Control<Button>("CancelPreferredNameButton").IsEnabled ||
+            !Control<TextBlock>("PreferredNameError").Text.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+            !System.Windows.Automation.AutomationProperties.GetItemStatus(window).Contains("Pending", StringComparison.Ordinal))
+            throw new InvalidOperationException("Unavailable-owner feedback must retain unsafe state, disable Save and leave Cancel available.");
+        Invoke("CancelPreferredNameButton");
+        if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("Email").Text != "")
+            throw new InvalidOperationException("Deliberate cancellation must release the unavailable owner and close only the entry.");
+        Unchanged(delivered);
+        Deliver("avery@example.com", "Saved name");
+        SelectOwner();
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Still based on saved name";
+        Deliver("casey@example.com", "Casey");
+        Deliver("avery@example.com", "Changed externally");
+        delivered = Bytes();
+        Invoke("SavePreferredNameButton");
+        PumpUntil(() => Control<TextBlock>("PreferredNameError").Visibility == Visibility.Visible);
+        if (Control<TextBox>("PreferredName").Text != "Still based on saved name" ||
+            !System.Windows.Automation.AutomationProperties.GetHelpText(Control<TextBlock>("PreferredNameError"))
+                .Contains("changed externally", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Owner disappearance/return must not replace the entry's original save base.");
+        Unchanged(delivered);
+        Invoke("CancelPreferredNameButton");
+        Unchanged(delivered);
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Unavailable-name checks must not show a window or create its native handle.");
+        Console.WriteLine("PASS: valid owner removal retains Preferred-name input/owner/unsafe state, deliberate Cancel is nonmutating and a returning owner cannot reset the save base.");
     }
 
     private static void VerifyTreePresentation(Window window, string settings)

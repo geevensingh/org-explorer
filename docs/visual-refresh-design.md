@@ -247,6 +247,10 @@ Cancel, Escape, **or clicking outside cancels this entry and closes the editor**
 Cancellation never saves the typed value and affects only this entry, not other
 drafts or failures. Empty still clears Preferred name; existing invalid-input
 and immutable-base/external-change protections remain.
+Validated delivery removing the Person must retain an unsaved entry, its owner
+and original base. Show unavailable-owner feedback and disable Save while the
+owner is absent; deliberate cancellation releases the entry. A returning owner
+does not reset the original base.
 
 Dismissal is not acknowledgment of a published storage conflict, proof that
 nothing committed, or permission to clear another unresolved error.

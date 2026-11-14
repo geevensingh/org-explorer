@@ -623,6 +623,15 @@ The existing native profile journey also focuses the failure Details header,
 expands it with one Space key and captures the technical reason inside the same
 open entry, requiring retained input, unsafe state and unchanged Workspace bytes.
 No second disclosure action or new scenario is used.
+An independent invisible-window fixture delivers a valid replacement Workspace
+without the Preferred-name owner, requiring retained input/owner, unavailable
+feedback, disabled Save and enabled Cancel. Cancellation leaves all delivered
+bytes intact. Removing and restoring the owner with a changed Preferred name
+must still reject Save against the entry's original base.
+Another real-file fixture rejects Person/Team-note creation with the publication
+lock, then delivers an unrelated valid profile change. Note feedback keeps the
+retained creation error without a refresh-success prefix; distinct current
+failures remain alongside it, and deliberate resolution restores quiet feedback.
 These checks use the existing observable People DataContext, actual control
 activation/enablement and public workflow refresh notifications, never private
 window methods or work-completion fields. The generic update-drain refusal is

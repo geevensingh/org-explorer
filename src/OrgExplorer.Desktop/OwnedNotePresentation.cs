@@ -26,7 +26,8 @@ internal sealed class OwnedNotePresentation(NoteScope scope)
     }
 
     internal void ShowOperationStatus(WorkspaceViewModel workflow, bool retainedDraft) =>
-        ShowOperationStatus(workflow.Status, retainedDraft || workflow.OperationError is not null ||
+        ShowOperationStatus(workflow.OperationError is null ? workflow.LocalSaveError ?? workflow.Status : workflow.Status,
+            retainedDraft || workflow.OperationError is not null ||
             workflow.LocalSaveError is not null || !workflow.IsWorkspaceCurrent);
 
     internal void Show(OwnedNotesView view, bool workspaceCurrent, bool retainedDraft)

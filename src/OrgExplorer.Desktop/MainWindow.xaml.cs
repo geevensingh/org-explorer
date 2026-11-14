@@ -288,7 +288,7 @@ public partial class MainWindow : Window
         loading = false;
         if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person, navigation: false);
-        else if (selectedEmail is not null && workflow.CanSafelyClose)
+        else if (selectedEmail is not null && workflow.CanSafelyClose && !HasPreferredNameDraft)
         {
             selectedEmail = null;
             ClearSearchContext();
@@ -307,6 +307,7 @@ public partial class MainWindow : Window
             TeamNotes.OpenPerson(null);
             ShowProfileTimeline(null);
         }
+        UpdatePreferredNameActions();
     }
     private void ShowPerson(PersonProfile person)
     {

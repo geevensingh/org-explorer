@@ -154,11 +154,16 @@ public partial class MainWindow
 
     private void UpdatePreferredNameActions()
     {
+        var ownerUnavailable = preferredNameEditing && preferredNameOwner is { } owner &&
+            workflow.GetRelationships(owner) is null;
         PreferredName.IsEnabled = preferredNameEditing && workflow.IsWorkspaceCurrent &&
             (!workPending || preferredNameSavePending);
-        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && workflow.IsWorkspaceCurrent;
+        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && workflow.IsWorkspaceCurrent &&
+            !ownerUnavailable;
         CancelPreferredNameButton.IsEnabled = preferredNameEditing;
-        PreferredNameError.Text = preferredNameSaveError is null ? "" : workflow.PublicationOutcome switch
+        PreferredNameError.Text = ownerUnavailable
+            ? "This Person is unavailable. Your entry is retained. Cancel to leave this entry."
+            : preferredNameSaveError is null ? "" : workflow.PublicationOutcome switch
         {
             WorkspacePublicationOutcome.PublishedConflict =>
                 "A saved change has a conflict. Your entry is retained. See Details.",
@@ -166,10 +171,10 @@ public partial class MainWindow
                 "A save outcome is unknown. Your entry is retained. Preserve the evidence in Details.",
             _ => "Could not save. Your entry is retained. See Details before retrying."
         };
-        PreferredNameError.Visibility = preferredNameSaveError is null ? Visibility.Collapsed : Visibility.Visible;
-        System.Windows.Automation.AutomationProperties.SetHelpText(PreferredNameError, preferredNameSaveError ?? "");
+        PreferredNameError.Visibility = PreferredNameError.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        System.Windows.Automation.AutomationProperties.SetHelpText(PreferredNameError, preferredNameSaveError ?? PreferredNameError.Text);
         PreferredNameErrorDetails.Text = preferredNameSaveError ?? "";
-        PreferredNameFailureDetails.Visibility = PreferredNameError.Visibility;
+        PreferredNameFailureDetails.Visibility = preferredNameSaveError is null ? Visibility.Collapsed : Visibility.Visible;
         if (preferredNameSaveError is null) PreferredNameFailureDetails.IsExpanded = false;
     }
 }
