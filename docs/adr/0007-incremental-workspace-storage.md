@@ -1,5 +1,11 @@
 # Incremental readable-file workspace storage
 
+**Planned replacement:** [ADR 0008](0008-local-transactions-independent-sync.md)
+supersedes this storage/publication architecture and its mandatory safe-close veto
+with local SQLite, independent snapshot synchronization, and an informed Exit
+anyway option. The implemented v3 decision and amendment below remain the current
+behavior until the replacement documentation and implementation land together.
+
 Full-copy generations make even a Preferred-name autosave duplicate unrelated
 People, photos, accepted Imports, and history. Use copy-on-write documents with an
 incremental snapshot index, reusing unchanged documents and atomically publishing
