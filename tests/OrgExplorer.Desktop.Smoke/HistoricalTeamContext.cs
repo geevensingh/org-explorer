@@ -246,7 +246,7 @@ internal static partial class Program
                 frozen.Contains("New branch writing") || !CurrentReadingText(window).Contains("New branch writing") ||
                 CurrentReadingText(window).Contains("Original ancestor"))
                 throw new InvalidOperationException($"Current and Historical writing were mixed.\nFrozen:\n{frozen}\nCurrent:\n{CurrentReadingText(window)}");
-            CaptureHistoricalHierarchy(window, "");
+            CaptureHistoricalHierarchy(window, workspace, "");
             NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-frozen-former-owner-attribution");
             NavigateToManager(window, "morgan@example.com");
             SelectTeamNote(window, "Morgan context");
@@ -265,7 +265,7 @@ internal static partial class Program
                         throw new InvalidOperationException("Adaptive History access lost frozen/current context or requires horizontal reading.");
                     if (!frozen.Contains("Former Team paragraph 32") || !CurrentReadingText(window).Contains("Current Team paragraph 32"))
                         throw new InvalidOperationException("Responsive context lost the complete long current/frozen writing.");
-                    CaptureHistoricalHierarchy(window, $"-{size.Width:0}");
+                    CaptureHistoricalHierarchy(window, workspace, $"-{size.Width:0}");
                     NavigateMainReadingAndCapture(window, "InheritedTeamReading", "Current Team paragraph 32", $"team-current-long-reading-{size.Width:0}");
                     NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
                 }
@@ -399,7 +399,7 @@ internal static partial class Program
         return string.Join("\n\n", evidence);
     }
 
-    private static void CaptureHistoricalHierarchy(AutomationElement window, string suffix)
+    private static void CaptureHistoricalHierarchy(AutomationElement window, string workspace, string suffix)
     {
         var disclosure = HistoricalCaptureDetails(window).Single();
         var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
@@ -411,8 +411,7 @@ internal static partial class Program
             !frozen.Contains("Needs review — needed review when captured.") ||
             frozen.Contains("Prior evidence:") || frozen.Contains("version "))
             throw new InvalidOperationException("Default frozen reading must distinguish note attribution/review from technical capture evidence.");
-        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(
-            Find(window, "WorkspacePath").Current.Name);
+        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
         NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Captured locally", "team-capture-entry-collapsed" + suffix);
         var header = disclosure.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.IsTogglePatternAvailableProperty, true))
@@ -433,7 +432,7 @@ internal static partial class Program
         Await(() => expansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
         if (HistoricalReadingText(window) != frozen)
             throw new InvalidOperationException("Reading capture evidence changed frozen writing.");
-        AssertWorkspaceBytes(Find(window, "WorkspacePath").Current.Name, before);
+        AssertWorkspaceBytes(workspace, before);
         NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Frozen Team note: Morgan context", "team-frozen-note-boundary" + suffix);
     }
 
