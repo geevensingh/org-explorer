@@ -56,10 +56,17 @@ try {
     $doc = Commit-Fixture 'Approved documentation'
     $null = Invoke-FixtureGit $author @('push', '--quiet', 'origin', 'planning')
     $null = Invoke-FixtureGit $fixture @('clone', '--quiet', '--no-local', $remote, $reader)
+    $null = Invoke-FixtureGit $author @('tag', 'remote-only', $base)
+    $null = Invoke-FixtureGit $author @('push', '--quiet', 'origin', 'refs/tags/remote-only')
+    $null = Invoke-FixtureGit $reader @('tag', 'local-only', $base)
+    foreach ($key in @('fetch.prune', 'fetch.pruneTags', 'remote.origin.prune', 'remote.origin.pruneTags')) {
+        $null = Invoke-FixtureGit $reader @('config', '--local', $key, 'true')
+    }
     $handoff = @{
         RepositoryPath = $reader; SourceBranch = 'planning'; DefaultBranch = 'main'
         BaseCommit = $base; DocumentationCommit = $doc
         MarkdownFiles = @('GLOSSARY.md', 'docs/team design.md')
+        AllowLocalFixture = $true
     }
     'Unsaved local draft' | Set-Content -LiteralPath (Join-Path $reader 'README.md')
     'Untracked local writing' | Set-Content -LiteralPath (Join-Path $reader 'draft.txt')
@@ -67,9 +74,19 @@ try {
     $beforeHead = Invoke-FixtureGit $reader @('rev-parse', 'HEAD')
     $beforeRefs = @(Invoke-FixtureGit $reader @('for-each-ref', '--format=%(refname) %(objectname)')) -join "`n"
 
+    Rejects { Verify-Handoff @{ AllowLocalFixture = $false } } 'Unsupported remote'
     $initial = Verify-Handoff
     Assert ($initial.SourceTip -ceq $doc -and $initial.DocumentationCommit -ceq $doc) 'A source tip equal to the documentation commit must verify.'
     Assert ($initial.BaseCommit -ceq $base -and $initial.MarkdownFiles.Count -eq 2) 'The verified result must preserve the immutable base and exact Markdown paths.'
+    Assert ((@(Invoke-FixtureGit $reader @('for-each-ref', '--format=%(refname) %(objectname)')) -join "`n") -ceq $beforeRefs) 'Verification must preserve local-only tags and avoid fetching remote tags even when global and remote pruning are configured.'
+
+    $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', ([Uri]::new($remote).AbsoluteUri))
+    try {
+        Rejects { Verify-Handoff @{ AllowLocalFixture = $false } } 'Unsupported remote'
+        Assert ((Verify-Handoff).DocumentationCommit -ceq $doc) 'A file URL fixture must verify only with explicit local opt-in.'
+    } finally {
+        $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $remote)
+    }
 
     'Implementation after the approved design' | Set-Content -LiteralPath (Join-Path $author 'implementation.txt')
     $advanced = Commit-Fixture 'Advance the source branch'
@@ -80,8 +97,19 @@ try {
 
     $httpsUrl = 'https://github.com/geevensingh/org-explorer.git'
     $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $httpsUrl)
-    $null = Invoke-FixtureGit $reader @('config', '--local', 'protocol.https.allow', 'never')
+    $null = Invoke-FixtureGit $reader @('config', '--local', 'protocol.allow', 'never')
     try {
+        foreach ($url in @(
+            'git@github.com:geevensingh/org-explorer.git',
+            'ssh://git@github.com/geevensingh/org-explorer.git',
+            'http://github.com/geevensingh/org-explorer.git',
+            'https://fixture-authorization-value@github.com/geevensingh/org-explorer.git',
+            'https://fixture:fixture-authorization-value@github.com/geevensingh/org-explorer.git'
+        )) {
+            $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $url)
+            Rejects { Verify-Handoff } 'Unsupported remote'
+        }
+        $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $httpsUrl)
         foreach ($key in @('http.extraheader', 'http.https://github.com/.extraheader', "http.$httpsUrl.extraheader")) {
             $null = Invoke-FixtureGit $reader @('config', '--local', '--add', $key, 'aUtHoRiZaTiOn: Basic fixture-authorization-value')
             $null = Invoke-FixtureGit $reader @('config', '--local', '--add', $key, 'X-Fixture: safe')
@@ -97,7 +125,7 @@ try {
         $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'http.https://example.invalid/.extraheader')
         $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', "http.$httpsUrl.extraheader")
     } finally {
-        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'protocol.https.allow')
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'protocol.allow')
         $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $remote)
     }
 
@@ -111,6 +139,20 @@ try {
     $mixed = Commit-Fixture 'Mixed documentation and code'
     $null = Invoke-FixtureGit $author @('push', '--quiet', 'origin', 'mixed')
     Rejects { Verify-Handoff @{ SourceBranch = 'mixed'; DocumentationCommit = $mixed; MarkdownFiles = @('mixed.md') } } 'only Markdown'
+
+    $null = Invoke-FixtureGit $author @('switch', '--quiet', '-c', 'mixed-submodule', $base)
+    'Design' | Set-Content -LiteralPath (Join-Path $author 'submodule-design.md')
+    $null = Invoke-FixtureGit $author @('add', 'submodule-design.md')
+    $null = Invoke-FixtureGit $author @('update-index', '--add', '--cacheinfo', "160000,$base,component")
+    $null = Invoke-FixtureGit $author @('commit', '--quiet', '-m', 'Documentation and a submodule gitlink')
+    $submoduleCommit = Invoke-FixtureGit $author @('rev-parse', 'HEAD')
+    $null = Invoke-FixtureGit $author @('push', '--quiet', 'origin', 'mixed-submodule')
+    $null = Invoke-FixtureGit $reader @('config', '--local', 'diff.ignoreSubmodules', 'all')
+    try {
+        Rejects { Verify-Handoff @{ SourceBranch = 'mixed-submodule'; DocumentationCommit = $submoduleCommit; MarkdownFiles = @('submodule-design.md') } } 'only Markdown'
+    } finally {
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'diff.ignoreSubmodules')
+    }
 
     $null = Invoke-FixtureGit $author @('switch', '--quiet', '-c', 'empty', $base)
     $null = Invoke-FixtureGit $author @('commit', '--quiet', '--allow-empty', '-m', 'Empty documentation')

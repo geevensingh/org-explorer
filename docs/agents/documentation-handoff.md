@@ -37,8 +37,10 @@ be committed. Missing or unpublished documentation is an incomplete handoff, not
 
 Use `eng\Verify-DocumentationHandoff.ps1` for the Git checks in this contract,
 rather than rebuilding them in each workflow. Use a full-history source clone;
-confirm its configured remote matches **Source repository** and follow
+confirm its configured HTTPS remote matches **Source repository** and follow
 [account routing](issue-tracker.md#account-and-repository-routing) before fetching.
+URLs must not contain embedded credentials; SSH and plain HTTP cannot establish
+the required `gh` credential route and are rejected.
 The verifier uses the process's `gh` credential helper, bypassing cached Git
 credentials without changing saved configuration. Applicable configured HTTP
 Authorization extraheaders can override that account, so the verifier rejects
@@ -58,6 +60,9 @@ the default branch from the source repository:
 
 The checkout containing the script and its `origin` remote are the defaults;
 use `-RepositoryPath` and `-Remote` when verifying a different source clone.
+Local path/file remotes require `-AllowLocalFixture`, reserved for isolated
+tests. They cannot certify GitHub freshness or account routing and are not a
+fallback for a failed production fetch.
 The command fetches fresh source/default refs into temporary refs and removes
 them on success or failure, preserving the checkout, local writing, and existing
 tracking refs.
@@ -69,6 +74,7 @@ not replacements. The verifier checks the single immediate base parent, a nonemp
 Markdown-only delta, the exact changed path list, and that the documentation commit
 is not already reachable from the freshly fetched default branch. Renames are
 treated as deletion/addition; list both repository-relative Git paths.
+Submodule display preferences cannot hide non-Markdown changes from these checks.
 
 A failed command leaves the handoff unverified. It does not replace approval of
 the Markdown, incorporation checks after a cherry-pick, or the joint-delivery

@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$DocumentationCommit,
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string[]]$MarkdownFiles,
     [ValidateNotNullOrEmpty()][string]$RepositoryPath = (Split-Path $PSScriptRoot -Parent),
-    [ValidateNotNullOrEmpty()][string]$Remote = 'origin'
+    [ValidateNotNullOrEmpty()][string]$Remote = 'origin',
+    [switch]$AllowLocalFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -39,7 +40,15 @@ if ((Invoke-HandoffGit @('rev-parse', '--is-shallow-repository')) -cne 'false') 
 }
 if ($Remote -cnotin @(Invoke-HandoffGit @('remote'))) { throw 'The source remote must be a configured remote in this repository.' }
 $url = Invoke-HandoffGit @('remote', 'get-url', $Remote)
-if ($url -match '^https?://') {
+$remoteUri = $null
+$absoluteUri = [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$remoteUri)
+$https = $absoluteUri -and $remoteUri.Scheme -ceq 'https' -and [string]::IsNullOrEmpty($remoteUri.UserInfo)
+$localFixture = $AllowLocalFixture -and (($absoluteUri -and $remoteUri.IsFile) -or
+    (!$absoluteUri -and $url -notmatch ':' -and (Test-Path -LiteralPath $url -PathType Container)))
+if (!$https -and !$localFixture) {
+    throw 'Unsupported remote. Documentation verification requires an HTTPS URL without embedded credentials. Local Git test remotes require explicit -AllowLocalFixture.'
+}
+if ($https) {
     $headerSettings = @(& git --no-replace-objects -C $RepositoryPath config --get-regexp '^http\..*extraheader$')
     if ($LASTEXITCODE -notin @(0, 1)) { throw 'Cannot inspect HTTP extraheader configuration before handoff fetch.' }
     foreach ($setting in $headerSettings) {
@@ -84,7 +93,7 @@ try {
     if (Test-HandoffAncestor $DocumentationCommit $defaultTip) {
         throw 'The documentation commit is already reachable from the default branch; investigate delivery sequencing before proceeding.'
     }
-    $diff = (Invoke-HandoffGit @('diff', '--name-only', '--no-renames', '-z', $BaseCommit, $DocumentationCommit, '--')) -join "`n"
+    $diff = (Invoke-HandoffGit @('diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', $BaseCommit, $DocumentationCommit, '--')) -join "`n"
     $changedPaths = @($diff.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
     if ($changedPaths.Count -eq 0) { throw 'A documentation handoff requires a non-empty Markdown-only commit.' }
     foreach ($path in $changedPaths) {
