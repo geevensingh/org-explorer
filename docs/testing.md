@@ -136,7 +136,10 @@ The required names live in `tests\DesktopScenarios.json`. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
   binding, representative partial change/clear, save/reopen, actual copied PNG
-  and JPEG pixels, photo clear/placeholder and Profile timeline.
+  and JPEG pixels, photo clear/placeholder and Profile timeline. Photo choosing
+  and selection also check the 144-DIP area and centered whole-image fitting
+  using DPI-normalized UIA bounds and rendered edge pixels for large/small
+  square, landscape and portrait sources.
 - `draft-navigation`: visibly pending autosave versus failed Person/Team drafts,
   explicit blocked actions, retained owner/draft, deliberate discard, then
   separately successful navigation.
