@@ -22,13 +22,14 @@ function Commit([string]$Repository, [string]$File, [string]$Text) {
     $null = Git $Repository @('-c', 'user.name=Baseline Test', '-c', 'user.email=baseline@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', $Text)
     return Git $Repository @('rev-parse', 'HEAD')
 }
-function Check([string]$Name, [string[]]$Arguments, [string]$Failure = '', $Expected = $null, [string]$Repository = $client) {
+function Check([string]$Name, [string[]]$Arguments, [string]$Failure = '', $Expected = $null, [string]$Repository = $client, [switch]$WithoutFixtureOptIn) {
     $before = Git $Repository @('rev-parse', 'HEAD')
     $status = @(Git $Repository @('status', '--porcelain=v1'))
     $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
+    if (!$WithoutFixtureOptIn -and $Arguments -notcontains '-LocalBase') { $Arguments += '-AllowLocalFixture' }
     foreach ($argument in (@('-NoProfile', '-NonInteractive', '-File', $scriptPath, '-RepositoryPath', $Repository) + $Arguments)) { $start.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::Start($start)
     $output = $process.StandardOutput.ReadToEndAsync()
@@ -37,6 +38,7 @@ function Check([string]$Name, [string[]]$Arguments, [string]$Failure = '', $Expe
         if (!$process.WaitForExit(30000)) { $process.Kill($true); $process.WaitForExit(); throw "$Name timed out." }
         $text = $output.GetAwaiter().GetResult()
         $errorText = $errors.GetAwaiter().GetResult()
+        Assert (!$text.Contains('fixture-authorization-value') -and !$errorText.Contains('fixture-authorization-value')) "$Name exposed an Authorization header."
         if ($Failure) {
             Assert ($process.ExitCode -ne 0 -and $errorText.Contains($Failure)) "$Name did not fail as expected: $text $errorText"
         } else {
@@ -63,6 +65,18 @@ try {
     $null = Git $seed @('remote', 'add', 'origin', $origin)
     $null = Git $seed @('push', '--quiet', 'origin', 'main')
     $null = Git $root @('clone', '--quiet', '--branch', 'main', $origin, $client)
+    Check 'implicit local mirror is not an authoritative remote' @('-BaseBranch', 'main') 'Unsupported remote' -WithoutFixtureOptIn
+    $null = Git $client @('remote', 'set-url', 'origin', ([Uri]::new($origin).AbsoluteUri))
+    Check 'implicit file URL mirror is not an authoritative remote' @('-BaseBranch', 'main') 'Unsupported remote' -WithoutFixtureOptIn
+    Check 'explicit file URL fixture' @('-BaseBranch', 'main') -Expected @{ baseSha = $initial; ahead = 0; behind = 0 }
+    $null = Git $client @('remote', 'set-url', 'origin', 'https://github.com/geevensingh/org-explorer.git')
+    foreach ($key in @('http.extraheader', 'http.https://github.com/.extraheader', 'http.https://github.com/geevensingh/org-explorer.git.extraheader')) {
+        $null = Git $client @('config', '--local', '--add', $key, 'aUtHoRiZaTiOn: Basic fixture-authorization-value')
+        $null = Git $client @('config', '--local', '--add', $key, 'X-Fixture: safe')
+        Check "reject configured Authorization in $key before authentication or fetch" @('-BaseBranch', 'main') 'Configured HTTP Authorization extraheaders' -WithoutFixtureOptIn
+        $null = Git $client @('config', '--local', '--unset-all', $key)
+    }
+    $null = Git $client @('remote', 'set-url', 'origin', $origin)
     Check 'fresh remote main' @('-BaseBranch', 'main') -Expected @{
         startingBranch = 'main'; startingSha = $initial; baseRef = 'refs/remotes/origin/main'; baseSha = $initial
         ahead = 0; behind = 0; diverged = $false; localBase = $false

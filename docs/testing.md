@@ -524,6 +524,9 @@ dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
 preflight in child PowerShell processes against isolated local Git repositories
 and bare remotes. It checks fetched versus stale local refs, divergence, failed
 fetches, explicit remote/local integration baselines and checkout preservation.
+Local remotes require the harness's explicit fixture opt-in. Credential-route
+cases reject matching configured Authorization headers without contacting GitHub
+or printing header values.
 It needs no GitHub credentials, network or desktop.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.

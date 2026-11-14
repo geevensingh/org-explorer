@@ -22,6 +22,11 @@ spec's assumptions.
    files or branch tips; only the remote-tracking ref is refreshed.
    GitHub fetches require the repository's HTTPS origin so the verified `gh`
    account, rather than an independently selected SSH identity, supplies credentials.
+   Applicable configured HTTP Authorization extraheaders block fetching because
+   they can override that identity; reconcile their configuration explicitly.
+   Local path/file remotes require `-AllowLocalFixture`, reserved for isolated
+   tests. A local mirror cannot certify current GitHub freshness, so this switch
+   is not a production or failed-fetch workaround.
 
    Report these values before proceeding. On failure, stop before edits and
    obtain agreement to update or intentionally stack, preserving existing work.

@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$BaseBranch,
     [string]$RepositoryPath = '.',
     [Parameter(ParameterSetName = 'Remote')][string]$Remote = 'origin',
+    [Parameter(ParameterSetName = 'Remote')][switch]$AllowLocalFixture,
     [Parameter(Mandatory, ParameterSetName = 'Local')][switch]$LocalBase,
     [Parameter(Mandatory, ParameterSetName = 'Local')][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedBaseRevision
 )
@@ -35,8 +36,28 @@ if ($LocalBase) {
     $null = Invoke-BaselineGit @('check-ref-format', "refs/remotes/$Remote/$BaseBranch")
     $url = Invoke-BaselineGit @('remote', 'get-url', $Remote)
     $github = $url -cmatch '^https://github\.com/geevensingh/org-explorer(\.git)?$'
-    if (!$github -and $url -notmatch '^file://' -and !(Test-Path -LiteralPath $url)) {
-        throw 'Unsupported remote. Use the HTTPS geevensingh/org-explorer origin so the verified gh account supplies fetch credentials, or a local Git fixture.'
+    if (!$github -and (!$AllowLocalFixture -or ($url -notmatch '^file://' -and !(Test-Path -LiteralPath $url)))) {
+        throw 'Unsupported remote. Normal preflight requires the HTTPS geevensingh/org-explorer origin. Local Git test remotes require explicit -AllowLocalFixture.'
+    }
+    if ($github) {
+        $headerSettings = @(& git -C $RepositoryPath config --get-regexp '^http\..*extraheader$')
+        if ($LASTEXITCODE -notin @(0, 1)) { throw 'Cannot inspect HTTP extraheader configuration before baseline fetch.' }
+        foreach ($setting in $headerSettings) {
+            $parts = $setting -split '[\t ]+', 2
+            if ($parts.Count -ne 2 -or $parts[1] -notmatch '^\s*Authorization\s*:') { continue }
+            $applicable = $parts[0] -ieq 'http.extraheader'
+            if (!$applicable -and $parts[0] -match '^http\.(.+)\.extraheader$') {
+                $scope = $Matches[1].Replace('\', '\\').Replace('"', '\"')
+                # Match each scope separately: --get-urlmatch alone returns only the last header.
+                $config = "[http `"$scope`"]`nextraHeader = baseline-scope-match"
+                $null = $config | & git -C $RepositoryPath config --file - --get-urlmatch http.extraHeader $url
+                if ($LASTEXITCODE -notin @(0, 1)) { throw 'Cannot match HTTP extraheader scope before baseline fetch.' }
+                $applicable = $LASTEXITCODE -eq 0
+            }
+            if ($applicable) {
+                throw 'Configured HTTP Authorization extraheaders can bypass the verified account. Reconcile this credential route before baseline fetch.'
+            }
+        }
     }
     $previousGhToken = $env:GH_TOKEN
     $previousGithubToken = $env:GITHUB_TOKEN
