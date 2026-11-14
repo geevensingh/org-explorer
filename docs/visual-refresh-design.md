@@ -128,6 +128,8 @@ The accessible Image must share the 144-unit viewport, not expose oversized
 pre-crop source bounds. During profile editing, keep the existing Choose/Clear
 commands in the inline edit bar so a dirty draft and its pending notice still
 leave usable scrolling editors at the minimum window size.
+Declare photo commands before Cancel/Save to match visual, keyboard and
+automation order, and retain normal Cancel/Save button heights when commands wrap.
 
 Keep the photo on the left with identity and actions beside it. Accept the
 larger anchored header's space cost without moving identity into the scroll,

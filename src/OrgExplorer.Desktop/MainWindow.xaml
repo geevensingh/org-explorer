@@ -719,20 +719,21 @@
         </Grid>
         <Border x:Name="ProfileSessionActions" Grid.Row="1" Visibility="Collapsed" Margin="0,0,12,12"
                 Background="#EAF3FF" CornerRadius="4" Padding="10,4">
-          <DockPanel LastChildFill="True">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
-              <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile"
-                      Click="CancelProfileEdit" Margin="0,0,8,0"/>
-              <Button x:Name="SaveProfileButton" Content="Save profile" Style="{StaticResource PrimaryButton}"
-                      AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
-            </StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <WrapPanel VerticalAlignment="Center">
               <TextBlock Text="Editing profile" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
                          AutomationProperties.AutomationId="ProfileEditingState" Margin="0,5,12,5"
                          TextWrapping="Wrap" VerticalAlignment="Center"/>
               <WrapPanel x:Name="ProfilePhotoActions"/>
             </WrapPanel>
-          </DockPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+              <Button x:Name="CancelProfileButton" Content="Cancel" AutomationProperties.AutomationId="CancelProfile"
+                      Click="CancelProfileEdit" Margin="0,0,8,0"/>
+              <Button x:Name="SaveProfileButton" Content="Save profile" Style="{StaticResource PrimaryButton}"
+                      AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
+            </StackPanel>
+          </Grid>
         </Border>
       <!-- Keep fact slots aligned when a different Person's notes change the reading extent. -->
       <ScrollViewer x:Name="PersonScroll" Grid.Row="2" AutomationProperties.AutomationId="ProfileScroll"

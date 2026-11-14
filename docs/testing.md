@@ -619,6 +619,9 @@ minimum-size profile journey repeats full keyboard traversal while that draft is
 dirty. Its invisible counterpart also measures the 684 x 461 client allocation
 observed inside the hosted 700 x 500 window and requires every focused editor
 to fit without clipping; nominal content sizing alone is not native-window proof.
+The edit bar's compiled automation-peer and hosted UIA order must follow
+Choose/Clear then Cancel/Save. Wrapped photo commands must not stretch the
+Cancel/Save buttons beyond their natural height.
 Square, landscape, portrait and small-source compiled photo layouts must
 keep the Image geometry at 144 x 144; hosted automation and pixels remain the
 accessibility and visible-crop evidence.

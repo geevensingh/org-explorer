@@ -989,6 +989,20 @@ internal static partial class Program
         alias = Bounds(Control<TextBox>("Alias"));
         if (alias.Top <= directory.Bottom || Math.Abs(alias.Left - directory.Left) > 1)
             throw new InvalidOperationException("A narrow Person pane must stack labelled profile fields rather than clipping paired columns.");
+        var actions = (FrameworkElement)Control<Border>("ProfileSessionActions").Child;
+        var actionOrder = new FrameworkElementAutomationPeer(actions).GetChildren()?
+            .Select(peer => peer.GetAutomationId())
+            .Where(id => id is "ChoosePhoto" or "ClearPhoto" or "CancelProfile" or "SaveProfile").ToArray() ?? [];
+        var actionFailures = new List<string>();
+        if (!actionOrder.SequenceEqual(new[] { "ChoosePhoto", "ClearPhoto", "CancelProfile", "SaveProfile" }))
+            actionFailures.Add("Profile action automation order differs from visual order: " + string.Join(", ", actionOrder));
+        foreach (var name in new[] { "CancelProfileButton", "SaveProfileButton" })
+        {
+            var button = Control<Button>(name);
+            if (button.ActualHeight > button.DesiredSize.Height + 1)
+                actionFailures.Add($"Wrapped photo controls stretched {name}: actual={button.ActualHeight}, desired={button.DesiredSize.Height}.");
+        }
+        if (actionFailures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, actionFailures));
         Drag(originalPeople - people.ActualWidth);
         foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
         {

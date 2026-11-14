@@ -547,6 +547,14 @@ internal static partial class Program
                     bounds.Bottom > Bounds("ProfileScroll").Top + scale)
                     throw new InvalidOperationException($"Photo editing action is inaccessible above the shared scroll: {id}={bounds}.");
             }
+            var actionOrder = window.FindAll(TreeScope.Descendants, new OrCondition(
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ChoosePhoto"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ClearPhoto"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "CancelProfile"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "SaveProfile")))
+                .Cast<AutomationElement>().Select(element => element.Current.AutomationId);
+            if (!actionOrder.SequenceEqual(new[] { "ChoosePhoto", "ClearPhoto", "CancelProfile", "SaveProfile" }))
+                throw new InvalidOperationException("Profile action accessibility traversal must match its visual order.");
             CaptureVisualEvidence(window, state + "-top");
             Find(window, "DirectoryNameEditor").SetFocus();
             Await(() => Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
