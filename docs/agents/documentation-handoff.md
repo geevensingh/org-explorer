@@ -40,7 +40,11 @@ rather than rebuilding them in each workflow. Use a full-history source clone;
 confirm its configured remote matches **Source repository** and follow
 [account routing](issue-tracker.md#account-and-repository-routing) before fetching.
 The verifier uses the process's `gh` credential helper, bypassing cached Git
-credentials without changing saved configuration.
+credentials without changing saved configuration. Applicable configured HTTP
+Authorization extraheaders can override that account, so the verifier rejects
+them before fetching without printing their values. Reconcile the credential
+configuration before retrying; unrelated scopes and non-Authorization headers
+do not block verification.
 
 Set the source/base/documentation/file variables from the approved handoff and
 the default branch from the source repository:

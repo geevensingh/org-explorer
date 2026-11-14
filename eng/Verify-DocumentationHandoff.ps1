@@ -38,6 +38,27 @@ if ((Invoke-HandoffGit @('rev-parse', '--is-shallow-repository')) -cne 'false') 
     throw 'Documentation verification requires a full-history source clone.'
 }
 if ($Remote -cnotin @(Invoke-HandoffGit @('remote'))) { throw 'The source remote must be a configured remote in this repository.' }
+$url = Invoke-HandoffGit @('remote', 'get-url', $Remote)
+if ($url -match '^https?://') {
+    $headerSettings = @(& git --no-replace-objects -C $RepositoryPath config --get-regexp '^http\..*extraheader$')
+    if ($LASTEXITCODE -notin @(0, 1)) { throw 'Cannot inspect HTTP extraheader configuration before handoff fetch.' }
+    foreach ($setting in $headerSettings) {
+        $parts = $setting -split '[\t ]+', 2
+        if ($parts.Count -ne 2 -or $parts[1] -notmatch '^\s*Authorization\s*:') { continue }
+        $applicable = $parts[0] -ieq 'http.extraheader'
+        if (!$applicable -and $parts[0] -match '^http\.(.+)\.extraheader$') {
+            $scope = $Matches[1].Replace('\', '\\').Replace('"', '\"')
+            # Match scopes separately so a narrower harmless header cannot hide Authorization.
+            $config = "[http `"$scope`"]`nextraHeader = handoff-scope-match"
+            $null = $config | & git --no-replace-objects -C $RepositoryPath config --file - --get-urlmatch http.extraHeader $url
+            if ($LASTEXITCODE -notin @(0, 1)) { throw 'Cannot match HTTP extraheader scope before handoff fetch.' }
+            $applicable = $LASTEXITCODE -eq 0
+        }
+        if ($applicable) {
+            throw 'Configured HTTP Authorization extraheaders can bypass the verified account. Reconcile this credential route before handoff fetch.'
+        }
+    }
+}
 $null = Invoke-HandoffGit @('check-ref-format', "refs/heads/$SourceBranch")
 $null = Invoke-HandoffGit @('check-ref-format', "refs/heads/$DefaultBranch")
 

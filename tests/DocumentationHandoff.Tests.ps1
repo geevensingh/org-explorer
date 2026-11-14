@@ -31,6 +31,7 @@ function Verify-Handoff([hashtable]$Overrides = @{}) {
 function Rejects([scriptblock]$Action, [string]$Expected) {
     $message = ''
     try { $null = & $Action } catch { $message = $_.Exception.Message }
+    Assert (!$message.Contains('fixture-authorization-value')) 'Verification must not expose configured Authorization values.'
     Assert ($message.Contains($Expected)) "Expected rejection containing '$Expected', got '$message'."
 }
 
@@ -76,6 +77,29 @@ try {
     $result = Verify-Handoff @{ MarkdownFiles = @('docs/team design.md', 'GLOSSARY.md') }
     Assert ($result.SourceTip -ceq $advanced -and $result.DocumentationCommit -ceq $doc) 'A freshly fetched advanced branch must retain the approved documentation SHA rather than reject or replace it.'
     Assert ((Invoke-FixtureGit $reader @('rev-parse', 'origin/planning')) -ceq $doc) 'Verification must use fresh remote refs without rewriting existing tracking refs.'
+
+    $httpsUrl = 'https://github.com/geevensingh/org-explorer.git'
+    $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $httpsUrl)
+    $null = Invoke-FixtureGit $reader @('config', '--local', 'protocol.https.allow', 'never')
+    try {
+        foreach ($key in @('http.extraheader', 'http.https://github.com/.extraheader', "http.$httpsUrl.extraheader")) {
+            $null = Invoke-FixtureGit $reader @('config', '--local', '--add', $key, 'aUtHoRiZaTiOn: Basic fixture-authorization-value')
+            $null = Invoke-FixtureGit $reader @('config', '--local', '--add', $key, 'X-Fixture: safe')
+            Rejects { Verify-Handoff } 'Configured HTTP Authorization extraheaders'
+            $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', $key)
+        }
+        $null = Invoke-FixtureGit $reader @('config', '--local', 'http.https://github.com/.extraheader', 'Authorization: Basic fixture-authorization-value')
+        $null = Invoke-FixtureGit $reader @('config', '--local', "http.$httpsUrl.extraheader", 'X-Fixture: safe')
+        Rejects { Verify-Handoff } 'Configured HTTP Authorization extraheaders'
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'http.https://github.com/.extraheader')
+        $null = Invoke-FixtureGit $reader @('config', '--local', 'http.https://example.invalid/.extraheader', 'Authorization: Basic fixture-authorization-value')
+        Rejects { Verify-Handoff } "transport 'https' not allowed"
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'http.https://example.invalid/.extraheader')
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', "http.$httpsUrl.extraheader")
+    } finally {
+        $null = Invoke-FixtureGit $reader @('config', '--local', '--unset-all', 'protocol.https.allow')
+        $null = Invoke-FixtureGit $reader @('remote', 'set-url', 'origin', $remote)
+    }
 
     Rejects { Verify-Handoff @{ BaseCommit = $advanced } } 'immediate parent'
     Rejects { Verify-Handoff @{ MarkdownFiles = @('GLOSSARY.md') } } 'exact changed Markdown paths'
