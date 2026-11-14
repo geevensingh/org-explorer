@@ -587,6 +587,11 @@ held and after completion. A long document must size to content, move with facts
 under the main scroll, and leave identity fixed. Compact layout uses fewer fact
 columns, and opening its overlay must not move the Person viewport. The actual
 clear-search action returns to browsing without replacing the selected Person.
+The same compiled layout check saves a genuinely long LinkedIn URL through the
+profile form and measures four/three/two-column reading. Each facts row must fit
+its own content with a compact 12-DIP inter-row gap; a wrapped URL and its action
+in a later row must not enlarge an earlier row. Full URL text and wrapped height
+remain intact within the viewport. The check restores the original empty URL.
 These are compiled wiring/measurement checks, not rendered acceptance.
 The same invisible regression drives the actual Preferred-name Save/Cancel
 controls: typing does not publish; failed Save retains

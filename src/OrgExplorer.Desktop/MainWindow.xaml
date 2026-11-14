@@ -214,7 +214,7 @@
       </Style.Triggers>
     </Style>
     <Style x:Key="FactSlot" TargetType="StackPanel">
-      <Setter Property="Margin" Value="0,8,16,12"/>
+      <Setter Property="Margin" Value="0,4,16,8"/>
     </Style>
     <Style x:Key="FactLabel" TargetType="TextBlock">
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
@@ -740,7 +740,7 @@
         <GroupBox.Template><ControlTemplate TargetType="GroupBox"><ContentPresenter/></ControlTemplate></GroupBox.Template>
         <StackPanel>
         <Border x:Name="ProfileValues" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,1" Padding="0,8">
-          <UniformGrid x:Name="FactsGrid" Columns="4">
+          <WrapPanel x:Name="FactsGrid">
           <StackPanel x:Name="ManagerReadingSlot" Style="{StaticResource FactSlot}">
             <TextBlock Text="Manager" Style="{StaticResource FactLabel}"/>
             <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
@@ -801,7 +801,7 @@
                     Style="{StaticResource QuietButton}" Padding="0" HorizontalContentAlignment="Left"
                     AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn"/>
           </StackPanel>
-          </UniformGrid>
+          </WrapPanel>
         </Border>
         <StackPanel x:Name="ProfileForm" Visibility="Collapsed" AutomationProperties.AutomationId="ProfileForm">
           <TextBlock Text="Text, Manager and photo stay in this draft until Save. Empty clears; whitespace alone is invalid."

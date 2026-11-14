@@ -56,7 +56,8 @@ public partial class MainWindow
     private void ArrangePersonBody()
     {
         if (PersonBody is null || PersonBody.ActualWidth <= 0) return;
-        FactsGrid.Columns = Math.Clamp((int)(PersonBody.ActualWidth / 240), 1, 4);
+        var factColumns = Math.Clamp((int)(PersonBody.ActualWidth / 240), 1, 4);
+        FactsGrid.ItemWidth = PersonBody.ActualWidth / factColumns;
         ProfileTextFields.Columns = PersonBody.ActualWidth >= 560 ? 2 : 1;
         var actionsBelow = PersonWorkspace.ActualWidth < 720;
         Grid.SetRow(IdentityActions, actionsBelow ? 1 : 0);

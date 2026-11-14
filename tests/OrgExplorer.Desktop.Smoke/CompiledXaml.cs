@@ -1221,6 +1221,8 @@ internal static partial class Program
         }
         Layout();
         Contained("initial");
+        VerifyFactRowSpacing(window);
+        Layout();
         var photo = Control<FrameworkElement>("Photo");
         var placeholder = (TextBlock)photo.FindName("Placeholder");
         if (placeholder.Text != "A" || photo.ActualWidth > 64 || photo.ActualHeight > 64 ||
@@ -1273,29 +1275,30 @@ internal static partial class Program
         }
         Layout();
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "restored People 27%");
-        var facts = Control<UniformGrid>("FactsGrid");
+        var facts = Control<Panel>("FactsGrid");
         var slots = facts.Children.Cast<FrameworkElement>().ToArray();
-        var columns = facts.Columns;
         var lefts = slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X).ToArray();
+        int Columns() => slots.Select(slot => Math.Round(slot.TransformToAncestor(facts).Transform(new Point()).X, 2)).Distinct().Count();
+        var columns = Columns();
         var tree = Control<TreeView>("PeopleList");
         var originalPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "avery@example.com");
         var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
         Layout();
-        if (facts.Children.Count != 8 || facts.Columns != columns ||
+        if (facts.Children.Count != 8 || Columns() != columns ||
             slots.Any(slot => slot.Visibility != Visibility.Visible) ||
             slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
             Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
             Control<TextBlock>("OfficeNumberValue").Text != "—" ||
             Control<TextBlock>("LinkedInProfileUrlValue").Text != "—")
             throw new InvalidOperationException("Long or missing values repacked facts, lost full text, or hid labelled slots. " +
-                $"Columns: {columns} -> {facts.Columns}; X: {string.Join(",", lefts)} -> " +
+                $"Columns: {columns} -> {Columns()}; X: {string.Join(",", lefts)} -> " +
                 $"{string.Join(",", slots.Select(slot => slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X))}; " +
                 $"Directory name={Control<TextBlock>("DirectoryName").Text}; office={Control<TextBlock>("OfficeNumberValue").Text}; " +
                 $"URL={Control<TextBlock>("LinkedInProfileUrlValue").Text}; viewport={viewport.ViewportWidth}x{viewport.ViewportHeight}.");
-        var wideColumns = facts.Columns;
+        var wideColumns = Columns();
         Layout(700, 500);
-        if (facts.Columns >= wideColumns || Control<Button>("OpenPeopleButton").Visibility != Visibility.Visible ||
+        if (Columns() >= wideColumns || Control<Button>("OpenPeopleButton").Visibility != Visibility.Visible ||
             profile.ActualWidth != notes.ActualWidth || profile.ActualWidth > viewport.ViewportWidth)
             throw new InvalidOperationException("Compact facts must use fewer columns above full-width notes without shrinking type.");
         var beforeOverlay = viewport.TransformToAncestor(host).TransformBounds(new Rect(viewport.RenderSize));
@@ -1313,6 +1316,56 @@ internal static partial class Program
             Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
             throw new InvalidOperationException("Clear search must restore browsing without replacing the selected Person.");
         Console.WriteLine("PASS: actual compiled facts precede full-width, content-sized reading under anchored identity; People drags/10-DIP keys stay within the viewport; no visible window/native handle.");
+    }
+
+    private static void VerifyFactRowSpacing(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var root = (FrameworkElement)window.Content;
+        var facts = Control<Panel>("FactsGrid");
+        var url = Control<TextBlock>("LinkedInProfileUrlValue");
+        var longUrl = "https://www.linkedin.com/in/" + new string('a', 180);
+        void SetUrl(string value)
+        {
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("LinkedInProfileUrl").Text = value;
+            Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<FrameworkElement>("AttributeEditors").Visibility == Visibility.Collapsed &&
+                url.Text == (value.Length == 0 ? "—" : value));
+        }
+        if (url.Text != "—")
+            throw new InvalidOperationException("The facts-spacing fixture must begin without a LinkedIn URL.");
+        SetUrl(longUrl);
+        foreach (var (width, columns) in new[] { (1920d, 4), (1100d, 3), (700d, 2) })
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Fact measurements must not show a window or create its native handle.");
+            var slots = facts.Children.Cast<StackPanel>().ToArray();
+            Rect Bounds(FrameworkElement element) =>
+                element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
+            var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
+            if (slots.Length != 8 || rows[0].Count() != columns ||
+                url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
+                slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
+                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");
+            for (var index = 0; index < rows.Length - 1; index++)
+            {
+                var row = rows[index].ToArray();
+                var advance = rows[index + 1].Key - rows[index].Key;
+                var naturalHeight = row.Max(slot => slot.DesiredSize.Height);
+                var contentBottom = row.Max(slot => slot.Children.Cast<FrameworkElement>()
+                    .Where(child => child.Visibility == Visibility.Visible).Max(child => Bounds(child).Bottom));
+                var gap = rows[index + 1].Key - contentBottom;
+                Console.WriteLine($"FACT-ROWS width={width}; row={index}; advance={advance}; natural={naturalHeight}; gap={gap}; urlHeight={url.ActualHeight}.");
+                if (Math.Abs(advance - naturalHeight) > 1 || gap < 0 || gap > 13)
+                    throw new InvalidOperationException("Each facts row must fit its own content with at most a 12-DIP inter-row gap; a taller later row must not enlarge it.");
+            }
+        }
+        SetUrl("");
+        Console.WriteLine("PASS: actual compiled facts rows fit their own content with compact gaps and full long-URL wrapping at four/three/two columns.");
     }
 
     private sealed class UnshownInputSource : PresentationSource

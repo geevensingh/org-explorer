@@ -125,6 +125,8 @@ columns at narrower widths and multiple rows as needed. Its ordering and
 column calculation depend on available width, not on which fields a Person
 happens to have populated. Missing values retain their labelled slot with a
 neutral dash; they are not validation errors or opportunities to repack fields.
+Size each row to its own content with a compact, consistent gap. Long values
+must wrap without making unrelated rows taller.
 
 Role, department, and email already shown in identity need not repeat in the
 grid. Preserve the remaining ordinary facts: Manager, office building, office
