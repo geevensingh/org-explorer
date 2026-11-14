@@ -262,6 +262,7 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         VerifyPreferredNameEntry(window, folder, publisher);
+        VerifyPhotoViewportLayout(window);
         VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
@@ -801,6 +802,36 @@ internal static partial class Program
         Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
     }
 
+    private static void VerifyPhotoViewportLayout(Window window)
+    {
+        var photo = (FrameworkElement)window.FindName("Photo");
+        var image = (Image)photo.FindName("PhotoImage");
+        var show = photo.GetType().GetMethod("Show") ?? throw new MissingMethodException("Photo.Show");
+        var name = ((TextBlock)window.FindName("ProfileHeading")).Text;
+        var root = (FrameworkElement)window.Content;
+        try
+        {
+            foreach (var (width, height) in new[] { (300, 300), (300, 150), (150, 300), (72, 72), (72, 36) })
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(width, height, 96, 96,
+                    PixelFormats.Bgr32, null, new byte[width * height * 4], width * 4)));
+                using var bytes = new MemoryStream();
+                encoder.Save(bytes);
+                show.Invoke(photo, [new PersonPhoto("image/png", width, height, bytes.ToArray()), name]);
+                root.Measure(new Size(700, 900));
+                root.Arrange(new Rect(0, 0, 700, 900));
+                root.UpdateLayout();
+                if (Math.Abs(image.ActualWidth - 144) > 1 || Math.Abs(image.ActualHeight - 144) > 1)
+                    throw new InvalidOperationException($"Photo image geometry exceeds its accessible viewport for {width}x{height}: {image.RenderSize}.");
+            }
+        }
+        finally { show.Invoke(photo, [null, name]); }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The photo-layout regression must not show a window or create a native handle.");
+        Console.WriteLine("PASS: actual compiled square/non-square photo image geometry stays within its 144-DIP viewport; rendered crop/automation require hosted evidence.");
+    }
+
     private static void VerifyIdentityContext(Window window)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -928,6 +959,19 @@ internal static partial class Program
                 throw new InvalidOperationException("Profile identity and explicit Save/Cancel must remain anchored without a window-wide Enter/Escape action.");
             scroll.ScrollToTop();
         }
+        var savedOffice = Control<TextBox>("OfficeNumber").Text;
+        try
+        {
+            Control<TextBox>("OfficeNumber").Text = "Unsaved minimum-window office";
+            Layout(700, 500);
+            var firstEditor = Control<TextBox>("DirectoryNameEditor");
+            var firstLabel = ((Panel)firstEditor.Parent).Children.OfType<Label>().Single();
+            if (scroll.ViewportHeight < firstLabel.ActualHeight + firstEditor.ActualHeight)
+                throw new InvalidOperationException($"Dirty profile at 700x500 cannot expose a labelled editor: " +
+                    $"viewport={scroll.ViewportHeight}, required={firstLabel.ActualHeight + firstEditor.ActualHeight}, " +
+                    $"identity={identity.ActualHeight}, notice={Control<FrameworkElement>("OperationalNotice").ActualHeight}.");
+        }
+        finally { Control<TextBox>("OfficeNumber").Text = savedOffice; }
         Layout(1920, 1040);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");

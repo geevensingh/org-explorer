@@ -32,9 +32,10 @@ internal static partial class Program
         window.SetFocus();
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
         if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
-        Await(() =>
+        var observed = "photo not yet observed";
+        AwaitPhoto(() =>
         {
-            var bounds = AssertPhotoCircle(window);
+            if (!TryPhotoCircle(window, out var bounds, out observed)) return false;
             var dc = GetDC(IntPtr.Zero);
             try
             {
@@ -44,11 +45,12 @@ internal static partial class Program
                 var corner = GetPixel(dc, (int)bounds.Left + 1, (int)bounds.Top + 1);
                 if (corner == uint.MaxValue)
                     throw new InvalidOperationException("Actual circular photo-edge pixels are unavailable; hosted evidence cannot skip them.");
+                observed += $"; center={color:X8}, corner={corner:X8}";
                 return (color & 0xff) >= 240 && ((color >> 8) & 0xff) <= 20 && ((color >> 16) & 0xff) >= 240 &&
                     !((corner & 0xff) >= 240 && ((corner >> 8) & 0xff) <= 20 && ((corner >> 16) & 0xff) >= 240);
             }
             finally { ReleaseDC(IntPtr.Zero, dc); }
-        });
+        }, () => observed);
     }
 
     private sealed record PhotoCase(string Name, int Width, int Height, int FilledWidth, int FilledHeight,
@@ -88,30 +90,44 @@ internal static partial class Program
         encoder.Save(file);
     }
 
-    private static Rect AssertPhotoViewport(AutomationElement window)
+    private static void AwaitPhoto(Func<bool> condition, Func<string> describe)
+    {
+        try { Await(condition); }
+        catch (TimeoutException error)
+        { throw new TimeoutException("Photo presentation did not settle: " + describe(), error); }
+    }
+
+    private static bool TryPhotoViewport(AutomationElement window, out Rect viewport, out string observed)
     {
         var photo = Find(window, "Photo");
         var bounds = photo.Current.BoundingRectangle;
         var scale = DpiScale(window);
+        viewport = Rect.Empty;
+        observed = $"viewport={bounds}, offscreen={photo.Current.IsOffscreen}, scale={scale}";
         if (photo.Current.IsOffscreen || bounds.IsEmpty || Math.Abs(bounds.Width / scale - 144) > 1 ||
-            bounds.Height < bounds.Width - scale ||
-            !IsVisible(window, "ChoosePhoto") && Math.Abs(bounds.Height / scale - 144) > 1)
-            throw new InvalidOperationException($"Expected the fixed 144-DIP photo viewport above any edit actions: {bounds}, scale={scale}.");
-        return new Rect(bounds.Left, bounds.Top, bounds.Width, bounds.Width);
+            Math.Abs(bounds.Height / scale - 144) > 1)
+            return false;
+        viewport = bounds;
+        return true;
+    }
+
+    private static bool TryPhotoCircle(AutomationElement window, out Rect viewport, out string observed)
+    {
+        if (!TryPhotoViewport(window, out viewport, out observed)) return false;
+        var image = Find(window, "PersonPhoto");
+        var bounds = image.Current.BoundingRectangle;
+        var scale = DpiScale(window);
+        observed += $"; accessible image={bounds}, offscreen={image.Current.IsOffscreen}";
+        return !image.Current.IsOffscreen && !bounds.IsEmpty &&
+            Math.Abs(bounds.Left - viewport.Left) <= scale && Math.Abs(bounds.Top - viewport.Top) <= scale &&
+            Math.Abs(bounds.Width - viewport.Width) <= scale && Math.Abs(bounds.Height - viewport.Height) <= scale;
     }
 
     private static Rect AssertPhotoCircle(AutomationElement window)
     {
-        var image = Find(window, "PersonPhoto");
-        var bounds = image.Current.BoundingRectangle;
-        var scale = DpiScale(window);
-        var viewport = AssertPhotoViewport(window);
-        if (image.Current.IsOffscreen || bounds.IsEmpty ||
-            bounds.Left > viewport.Left + scale || bounds.Top > viewport.Top + scale ||
-            bounds.Right < viewport.Right - scale || bounds.Bottom < viewport.Bottom - scale ||
-            Math.Abs(bounds.Left + bounds.Width / 2 - viewport.Left - viewport.Width / 2) > scale ||
-            Math.Abs(bounds.Top + bounds.Height / 2 - viewport.Top - viewport.Height / 2) > scale)
-            throw new InvalidOperationException($"Photo fill must be centered over the 144-DIP circular viewport: image={bounds}, viewport={viewport}.");
+        var viewport = Rect.Empty;
+        var observed = "photo not yet observed";
+        AwaitPhoto(() => TryPhotoCircle(window, out viewport, out observed), () => observed);
         return viewport;
     }
 
@@ -177,17 +193,14 @@ internal static partial class Program
 
     private static void AssertMarkedPhoto(AutomationElement window, PhotoCase fixture)
     {
-        Await(() =>
+        var observed = fixture.Name + " not yet observed";
+        AwaitPhoto(() =>
         {
-            var circle = AssertPhotoCircle(window);
+            if (!TryPhotoCircle(window, out var circle, out observed)) return false;
+            observed += $"; expected source={fixture.Width}x{fixture.Height}, name={Find(window, "PersonPhoto").Current.Name}";
             if (!Find(window, "PersonPhoto").Current.Name.Contains($"{fixture.Width} × {fixture.Height} pixels"))
                 return false;
             var scale = DpiScale(window);
-            var image = Find(window, "PersonPhoto").Current.BoundingRectangle;
-            if (Math.Abs(image.Width / scale - fixture.FilledWidth) > 1 ||
-                Math.Abs(image.Height / scale - fixture.FilledHeight) > 1)
-                throw new InvalidOperationException($"Expected {fixture.FilledWidth}x{fixture.FilledHeight} DIP pre-mask fill for " +
-                    $"{fixture.Name}, not {image.Width / scale}x{image.Height / scale}.");
             return ReadPhotoPixels(circle, scale, At =>
             {
                 bool Bands(double filled, bool horizontal, uint negative, uint positive)
@@ -214,7 +227,7 @@ internal static partial class Program
                     At(-60, 48, WhitePixel) && At(60, 48, WhitePixel) &&
                     CircleSpans(At, scale, fixture.Left, fixture.Right, fixture.Top, fixture.Bottom);
             });
-        });
+        }, () => observed);
         Console.WriteLine($"PASS: {fixture.Name}, source {fixture.Width}x{fixture.Height}, " +
             $"expected centered pre-mask fill {fixture.FilledWidth}x{fixture.FilledHeight} DIP, " +
             "centered square marker and axis bands within the final 144-DIP circle; diagonal exterior clipped.");
@@ -222,24 +235,28 @@ internal static partial class Program
 
     private static void AssertInitialsCircle(AutomationElement window, string initials, Rect? previousPhoto = null)
     {
-        Await(() =>
+        var observed = "initials not yet observed";
+        AwaitPhoto(() =>
         {
             var placeholder = Find(window, "PhotoPlaceholder");
+            observed = $"initials={placeholder.Current.Name}, offscreen={placeholder.Current.IsOffscreen}";
             if (placeholder.Current.IsOffscreen ||
                 placeholder.Current.Name != $"No local photo. Initials: {initials}") return false;
             var scale = DpiScale(window);
             var text = placeholder.Current.BoundingRectangle;
-            var circle = AssertPhotoViewport(window);
-            if (Math.Abs(text.Left + text.Width / 2 - circle.Left - circle.Width / 2) > scale ||
+            var viewportReady = TryPhotoViewport(window, out var circle, out var viewportObserved);
+            observed += $"; text={text}; {viewportObserved}";
+            if (!viewportReady) return false;
+            if (text.IsEmpty || Math.Abs(text.Left + text.Width / 2 - circle.Left - circle.Width / 2) > scale ||
                 Math.Abs(text.Top + text.Height / 2 - circle.Top - circle.Height / 2) > scale)
-                throw new InvalidOperationException($"Initials must remain centered inside their photo viewport: text={text}, circle={circle}.");
+                return false;
             // A pending-edit notice can move the entire header without resizing its photo area.
             if (previousPhoto is { } previous &&
                 (Math.Abs(circle.Width - previous.Width) > scale || Math.Abs(circle.Height - previous.Height) > scale))
-                throw new InvalidOperationException($"Initials changed the photo footprint: photo={previous}, initials={circle}.");
+                return false;
             // TextBlock has no TextPattern. Its original 26.6-DIP Segoe UI line box scales to 68.4 DIP.
             if (Math.Abs(text.Height / scale - 68.4) > 1)
-                throw new InvalidOperationException($"Initials must scale proportionally from 20 DIP at 56 to 144 DIP: text bounds={text}, scale={scale}.");
+                return false;
             return ReadPhotoPixels(circle, scale, At =>
             {
                 const uint background = 0x794b21;
@@ -264,7 +281,7 @@ internal static partial class Program
                 return inkBottom - inkTop >= 30 && inkRight - inkLeft >= 20 &&
                     CircleSpans(At, scale, background, background, background, background);
             });
-        });
+        }, () => observed);
     }
 
     private static void ChooseProfilePhoto(AutomationElement window, string path)

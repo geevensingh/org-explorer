@@ -723,9 +723,12 @@
               <Button x:Name="SaveProfileButton" Content="Save profile" Style="{StaticResource PrimaryButton}"
                       AutomationProperties.AutomationId="SaveProfile" Click="SaveProfileEdit"/>
             </StackPanel>
-            <TextBlock Text="Editing profile" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
-                       AutomationProperties.AutomationId="ProfileEditingState"
-                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+            <WrapPanel VerticalAlignment="Center">
+              <TextBlock Text="Editing profile" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"
+                         AutomationProperties.AutomationId="ProfileEditingState" Margin="0,5,12,5"
+                         TextWrapping="Wrap" VerticalAlignment="Center"/>
+              <WrapPanel x:Name="ProfilePhotoActions"/>
+            </WrapPanel>
           </DockPanel>
         </Border>
       <!-- Keep fact slots aligned when a different Person's notes change the reading extent. -->

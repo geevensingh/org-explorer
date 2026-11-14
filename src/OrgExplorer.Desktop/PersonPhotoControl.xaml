@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <StackPanel HorizontalAlignment="Left">
     <Grid Width="144" Height="144" HorizontalAlignment="Left">
-      <!-- UniformToFill can arrange oversized image ink; clip the fixed viewport instead. -->
       <Grid.Clip><EllipseGeometry Center="72,72" RadiusX="72" RadiusY="72"/></Grid.Clip>
       <Ellipse Fill="#214B79"/>
       <Image x:Name="PhotoImage" AutomationProperties.AutomationId="PersonPhoto"
@@ -13,9 +12,9 @@
                  Text="?" FontSize="51.4285714286" FontWeight="SemiBold" Foreground="White"
                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
     </Grid>
-    <WrapPanel x:Name="Actions" MaxWidth="132" Margin="0,6,0,0" IsEnabled="False" Visibility="Collapsed">
-      <Button Content="Choose photo…" AutomationProperties.AutomationId="ChoosePhoto" Click="ChoosePhoto"/>
-      <Button Content="Clear photo" AutomationProperties.AutomationId="ClearPhoto" Margin="0,4,0,0" Click="ClearPhoto"/>
+    <WrapPanel x:Name="Actions" IsEnabled="False" Visibility="Collapsed">
+      <Button Content="Choose photo…" AutomationProperties.AutomationId="ChoosePhoto" Margin="0,0,8,0" Click="ChoosePhoto"/>
+      <Button Content="Clear photo" AutomationProperties.AutomationId="ClearPhoto" Click="ClearPhoto"/>
     </WrapPanel>
   </StackPanel>
 </UserControl>

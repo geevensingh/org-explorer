@@ -608,6 +608,13 @@ anchored during scrolling. Logical entry/Cancel focus, routed field Enter and
 retained staged text are also checked without creating a native window handle.
 Physical focus, Tab scrolling, Enter delivery and appearance still require hosted
 WPF; these compiled observations cannot substitute for them.
+It also dirties the profile at 700 x 500 with the real pending notice visible and
+requires room for a complete labelled editor. The existing Choose/Clear buttons
+share the inline edit bar rather than growing the photo column. The hosted
+minimum-size profile journey repeats full keyboard traversal while that draft is
+dirty. Square, landscape, portrait and small-source compiled photo layouts must
+keep the Image geometry at 144 x 144; hosted automation and pixels remain the
+accessibility and visible-crop evidence.
 It also measures/arranges the actual compiled content and drives its real
 People splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
 drags, 27% balance recovery and a narrower wide viewport. Facts and notes must
@@ -849,10 +856,11 @@ without changing its display. They cover:
   reduction/enlargement, preserved square-marker proportions, independently
   expected pre-mask fill sizes (144 x 144, 288 x 144, 144 x 288, 144 x 144,
   288 x 144 DIP), axis-band positions and intentional circular exclusion.
-  UIA observes the existing photo control's fixed viewport and the centered
-  Image's larger pre-mask bounds; actual pixels establish the final circular
-  extent and clipping, rather than mistaking unclipped Image bounds for the
-  visible circle. Bounds and pixels use effective Windows scaling. Initials retain
+  UIA requires both the existing photo viewport and accessible Image to stay at
+  144 x 144 DIP. Centered fill happens inside a square drawing using the decoded
+  bitmap; the independent pre-mask expectations are checked through source-band
+  positions and square-marker proportions in actual pixels, not oversized
+  accessible bounds. Bounds and pixels use effective Windows scaling. Initials retain
   their accessible text and blue/white colors; UIA text geometry and rendered ink
   prove proportional enlargement, and pixel spans prove the matching 144-DIP
   circle. Choosing/clearing stays staged until explicit Save; Cancel and
@@ -1028,7 +1036,10 @@ email/context. Explicit rejection paths invoke once, assert retained owner,
 selection/draft and actionable status, and never retry their way into success.
 Pending and in-progress messages must explain waiting; failures require
 retry/discard. Poll bounded eventual states; keep existing 20-second smoke and
-180-second scale limits. Remote content is never fetched just to render notes or
+180-second scale limits. Photo/initials visibility and geometry poll within that
+existing smoke bound; persistent mismatches report the last observed geometry.
+Missing desktop pixels or failed capture still fail explicitly rather than
+being retried as layout. Remote content is never fetched just to render notes or
 profiles; loopback listeners and actual pixels/text are evidence, not filenames
 or image dimensions alone.
 

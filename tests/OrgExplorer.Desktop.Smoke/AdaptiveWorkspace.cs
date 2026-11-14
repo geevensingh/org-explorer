@@ -151,6 +151,21 @@ internal static partial class Program
             AssertInitialsCircle(window, "M", photo);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
+            foreach (var id in new[] { "EditPreferredName", "ToggleFavorite", "EditProfile", "PersonMore" })
+            {
+                var observed = id + " not yet observed";
+                AwaitPhoto(() =>
+                {
+                    if (!TryPhotoCircle(window, out var viewport, out observed)) return false;
+                    var action = Find(window, id);
+                    var bounds = action.Current.BoundingRectangle;
+                    observed += $"; identity action {id}={bounds}";
+                    return !action.Current.IsOffscreen && action.Current.IsEnabled && action.Current.IsKeyboardFocusable &&
+                        !bounds.IsEmpty && bounds.Left >= viewport.Right &&
+                        bounds.Right <= Bounds("ProfileScroll").Right + scale &&
+                        bounds.Bottom <= Bounds("ProfileScroll").Top;
+                }, () => observed);
+            }
         }
         void AtSize(bool wide, string stateName)
         {
@@ -164,15 +179,6 @@ internal static partial class Program
             var profile = Bounds("ProfileSummary");
             var notes = Bounds("NotesPane");
             var photo = AssertPhotoCircle(window);
-            foreach (var id in new[] { "EditPreferredName", "ToggleFavorite", "EditProfile", "PersonMore" })
-            {
-                var action = Find(window, id);
-                var bounds = action.Current.BoundingRectangle;
-                if (action.Current.IsOffscreen || !action.Current.IsEnabled || !action.Current.IsKeyboardFocusable ||
-                    bounds.IsEmpty || bounds.Left < photo.Right || bounds.Right > Bounds("ProfileScroll").Right + scale ||
-                    bounds.Bottom > Bounds("ProfileScroll").Top)
-                    throw new InvalidOperationException($"The enlarged photo displaced an anchored identity action: {id}={bounds}, photo={photo}.");
-            }
             if (profile.Left > notes.Left + 2 || profile.Bottom > notes.Top + 2 ||
                 Math.Abs(profile.Width - notes.Width) > 2 || notes.Width / scale < 359 ||
                 notes.Right > Bounds("ProfileScroll").Right + 1 || identity.Top >= profile.Top)
@@ -527,6 +533,14 @@ internal static partial class Program
                 !IsVisible(window, "CancelProfile") || identity.Bottom > save.Top ||
                 Math.Max(save.Bottom, cancel.Bottom) > Bounds("ProfileScroll").Top + scale)
                 throw new InvalidOperationException("The contextual profile lost its anchored identity or explicit actions.");
+            foreach (var id in new[] { "ChoosePhoto", "ClearPhoto" })
+            {
+                var action = Find(window, id);
+                var bounds = action.Current.BoundingRectangle;
+                if (action.Current.IsOffscreen || !action.Current.IsEnabled || bounds.IsEmpty ||
+                    bounds.Bottom > Bounds("ProfileScroll").Top + scale)
+                    throw new InvalidOperationException($"Photo editing action is inaccessible above the shared scroll: {id}={bounds}.");
+            }
             CaptureVisualEvidence(window, state + "-top");
             Find(window, "DirectoryNameEditor").SetFocus();
             Await(() => Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
@@ -551,6 +565,14 @@ internal static partial class Program
         }
         ResizeWindow(window, 700, 500);
         AtSize("profile-inline-minimum-700-500");
+        var savedOffice = Value(window, "OfficeNumber");
+        Set(window, "OfficeNumber", "Unsaved minimum-window office");
+        try
+        {
+            Await(() => IsVisible(window, "OperationalNotice"));
+            AtSize("profile-inline-minimum-700-500-dirty");
+        }
+        finally { Set(window, "OfficeNumber", savedOffice); }
         ResizeWindow(window, 1100, 900);
         AtSize("profile-inline-ordinary-1100-900");
         foreach (var hostWidth in new[] { 959d, 960d, 961d })

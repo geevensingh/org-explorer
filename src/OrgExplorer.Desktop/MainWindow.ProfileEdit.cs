@@ -73,6 +73,7 @@ public partial class MainWindow
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         PlaceProfileElement(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
+        PlaceProfileElement(Photo.EditActions, ProfilePhotoActions);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
         ProfilePhotoDraft.Text = workflow.ProfileEdit?.PhotoLocalPath is { } path
