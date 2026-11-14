@@ -46,6 +46,7 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Frozen Manager\nOriginal Manager writing");
+            AwaitLocalWorkIdle(window);
             BeginProfileEditing(window);
             Set(window, "TeamNameEditor", "Platform");
             SaveProfileEditing(window);

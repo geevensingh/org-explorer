@@ -338,9 +338,10 @@ internal static partial class Program
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         var label = Find(window, "TeamNameLabel");
-        var value = Find(window, expected is null ? "TeamNameEmpty" : "TeamNameSegment");
-        Await(() => !label.Current.IsOffscreen && !value.Current.IsOffscreen &&
-            value.Current.Name == (expected ?? "Not set"));
+        var value = ControlReadiness.AwaitControl(
+            () => Find(window, expected is null ? "TeamNameEmpty" : "TeamNameSegment"),
+            candidate => !label.Current.IsOffscreen && !candidate.Current.IsOffscreen &&
+                candidate.Current.Name == (expected ?? "Not set"), Await);
         if (value.Current.ControlType != ControlType.Text || IsVisible(window, "TeamNameEditor"))
             throw new InvalidOperationException("Team-name reading became an editable field or lost its explicit empty state.");
         var manager = Find(window, "NavigateManager").Current.BoundingRectangle;

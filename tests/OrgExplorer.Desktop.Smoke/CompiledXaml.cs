@@ -226,7 +226,31 @@ internal static partial class Program
             peer.GetName() != "Platform" || peer.GetHelpText() != help)
             throw new InvalidOperationException("The compiled owned segment lost focusable owner attribution or accessible text. " +
                 $"Focusable={segment.Focusable}; tab={KeyboardNavigation.GetIsTabStop(segment)}; help='{help}'; tooltip='{tooltipText}'; name='{peer.GetName()}'.");
+        var team = Control<FrameworkElement>("TeamNotes");
+        T TeamControl<T>(string name) where T : FrameworkElement => (T)team.FindName(name);
+        TeamControl<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => TeamControl<TextBox>("NoteTitle").Text == "New Team note" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        TeamControl<TextBox>("NoteTitle").Text = "Manager context";
+        TeamControl<TextBox>("MarkdownEditor").Text = "# Frozen Manager\nOriginal Manager writing";
+        var disabledDuringProfileEntry = false;
+        DependencyPropertyChangedEventHandler observeEntry = (_, e) =>
+        {
+            if (e.NewValue is false && Control<FrameworkElement>("ProfileForm").Visibility == Visibility.Visible)
+                disabledDuringProfileEntry = true;
+        };
+        Control<TextBox>("DirectoryNameEditor").IsEnabledChanged += observeEntry;
+        PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
+            TeamControl<TextBlock>("NoteStatus").Text.StartsWith(
+                "Team note saved locally and confirmed for current context.", StringComparison.Ordinal));
         Invoke("EditProfileButton");
+        PumpUntil(() => TeamControl<TextBlock>("NoteStatus").Text.StartsWith(
+            "Team note saved locally and confirmed for current context.", StringComparison.Ordinal) &&
+            Control<TextBox>("DirectoryNameEditor").IsEnabled &&
+            ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBox>("DirectoryNameEditor")));
+        Control<TextBox>("DirectoryNameEditor").IsEnabledChanged -= observeEntry;
+        if (disabledDuringProfileEntry)
+            throw new InvalidOperationException("Late Team-note fixture autosave disabled Directory name after profile entry, invalidating its focus target.");
         if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Visible ||
             Control<TextBox>("TeamNameEditor").Text != "Platform" || !Control<TextBox>("TeamNameEditor").IsEnabled)
             throw new InvalidOperationException("Eligible profile editing did not load the owned Team name.");
@@ -237,6 +261,27 @@ internal static partial class Program
             if (!reopened.OpenWorkspace(folder) ||
                 reopened.GetRelationships("morgan@example.com")!.Person.TeamName != "Renamed platform")
                 throw new InvalidOperationException("The compiled owned-name editor did not publish its displayed draft.");
+        var names = Control<ItemsControl>("TeamNames");
+        bool ExposesSegment(AutomationPeer candidate) => candidate.GetAutomationId() == "TeamNameSegment" ||
+            candidate.GetChildren()?.Any(ExposesSegment) == true;
+        void ReadingLayout(double width)
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+        }
+        ReadingLayout(700);
+        var namesPeer = UIElementAutomationPeer.CreatePeerForElement(names);
+        if (!ExposesSegment(namesPeer))
+            throw new InvalidOperationException("The initial compiled Team-name segment is absent from its actual automation peer tree.");
+        Invoke("EditProfileButton");
+        ReadingLayout(700);
+        Invoke("CancelProfileButton");
+        PumpUntil(() => ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")));
+        ReadingLayout(1100);
+        if (!ExposesSegment(namesPeer))
+            throw new InvalidOperationException("Cancel/resize lost the compiled Team-name segment from its actual automation peer tree. " +
+                $"Items={names.Items.Count}; visual segments={VisualDescendants(names).OfType<TextBlock>().Count(text => text.DataContext is TeamNameSegment)}.");
         Select(owner.Reports.Single());
         Invoke("EditProfileButton");
         if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Collapsed ||
@@ -245,7 +290,7 @@ internal static partial class Program
         Invoke("CancelProfileButton");
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Owned-name wiring must remain invisible without a native handle.");
-        Console.WriteLine("PASS: compiled owned Team-name reading, owner bindings, eligible editing and durable Save without a window/native handle; hover/focus remain hosted evidence.");
+        Console.WriteLine("PASS: compiled owned Team-name reading, owner bindings, settled note/profile entry, durable Save and Cancel/resize automation peers without a window/native handle; physical input remains hosted evidence.");
     }
 
     private static void VerifySettingsFocus(Window window)

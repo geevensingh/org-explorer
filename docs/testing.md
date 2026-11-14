@@ -116,6 +116,12 @@ The existing invisible profile-refresh check also loads the compiled owned-name
 template, verifies its accessible text/owner and placement-target tooltip binding,
 and drives eligible Save plus ineligible `Not set` through real compiled controls.
 It never opens that tooltip or shows/focuses a native window.
+The archival fixture settles its preceding Team-note autosave before entering
+profile edit; otherwise that later save can disable the new focus destination.
+Its invisible replay observes the real timer/save and enabled logical entry.
+Team-name reading discovers its segment inside the existing bounded observation,
+including regeneration after Cancel/resize; missing or wrong values still fail.
+The compiled replay also checks the actual segment peer after that transition.
 Import navigation permits returning to its own failed Apply recovery view without
 clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds
