@@ -424,6 +424,12 @@ An isolated compiled retained-draft probe records post-resize, settled,
 overlay-open and rejected-selection viewport/notice geometry. A failed note's
 already reported guard does not add another global notice line and move the
 underlay; new pending work, retries and independent errors remain distinct.
+The same real-control probe continues through query entry, query Enter/focus,
+one explicit rejected result activation and clearing. It records toolbar,
+search/clear desired and arranged bounds, logical focus and the original
+absolute Person viewport. Empty-query Clear is hidden while retaining its
+measured footprint, so its appearance cannot grow the toolbar or move the
+underlay. The native exact-rectangle equality has no pixel tolerance.
 The full guard stays available in the local editor, accessible operation status
 and Details. Hosted failures retain exact geometry/owner/title/document checks
 and add before/after metrics plus a failure frame, without layout repair.

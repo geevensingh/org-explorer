@@ -378,7 +378,7 @@
               <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
                 <Style.Triggers>
                   <DataTrigger Binding="{Binding Text, ElementName=SearchQuery}" Value="">
-                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Setter Property="Visibility" Value="Hidden"/>
                   </DataTrigger>
                 </Style.Triggers>
               </Style>

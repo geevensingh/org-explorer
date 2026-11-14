@@ -823,6 +823,8 @@ internal static partial class Program
         var savedFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
         var savedBytes = File.ReadAllBytes(savedFile);
         var root = (FrameworkElement)window.Content;
+        var searchFrame = (FrameworkElement)LogicalTreeHelper.GetParent(Control<TextBox>("SearchQuery"));
+        var toolbar = (FrameworkElement)LogicalTreeHelper.GetParent(searchFrame);
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
         void Layout()
         {
@@ -832,6 +834,10 @@ internal static partial class Program
         }
         void Measure(string phase) => Console.WriteLine($"OVERLAY-PROBE {phase}: viewport={Bounds(Control<ScrollViewer>("PersonScroll"))}; " +
             $"notice={Bounds(Control<GroupBox>("OperationalNotice"))}; owner={Control<TextBlock>("Email").Text}; " +
+            $"toolbar={Bounds(toolbar)}; searchFrame={Bounds(searchFrame)}; search={Bounds(Control<TextBox>("SearchQuery"))}; " +
+            $"clear={Bounds(Control<Button>("ClearSearchButton"))}/{Control<Button>("ClearSearchButton").Visibility}; " +
+            $"desiredSearch={Control<TextBox>("SearchQuery").DesiredSize}; desiredClear={Control<Button>("ClearSearchButton").DesiredSize}; " +
+            $"logicalFocus={(FocusManager.GetFocusedElement(window) as FrameworkElement)?.Name}; " +
             $"title='{Note<TextBox>("NoteTitle").Text}'; editing={Note<TabControl>("Views").SelectedItem == notes.FindName("EditTab")}; " +
             $"editor={Bounds(Note<TextBox>("MarkdownEditor"))}; " +
             $"panel={Control<GroupBox>("PeoplePanel").Visibility}; summary={Control<TextBlock>("NoticeSummary").Text.Replace('\n', '|')}.");
@@ -862,6 +868,39 @@ internal static partial class Program
                 !Note<TextBlock>("NoteStatus").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
                 !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
                 throw new InvalidOperationException("Measured rejected overlay navigation changed geometry, owner, retained editor or panel.");
+            var note = System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading"));
+            var draft = Note<TextBox>("MarkdownEditor").Text;
+            Measure("before-query");
+            Control<TextBox>("SearchQuery").Text = "casey@example";
+            var results = Control<ListBox>("SearchResults");
+            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result => result.Person.Email == "casey@example.com"));
+            Layout();
+            Measure("after-query-before-activate");
+            void Enter(UIElement target) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = root }, 0, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            FocusManager.SetFocusedElement(window, Control<TextBox>("SearchQuery"));
+            Enter(Control<TextBox>("SearchQuery"));
+            Layout();
+            Measure("query-enter-focus");
+            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result => result.Person.Email == "casey@example.com");
+            Enter(results);
+            PumpUntil(() => results.SelectedItem is null);
+            Layout();
+            Measure("rejected-search");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
+                Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
+                Note<TextBox>("MarkdownEditor").Text != draft ||
+                System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")) != note ||
+                Control<TextBox>("SearchQuery").Text != "casey@example" ||
+                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+                Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
+                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
+                throw new InvalidOperationException("Measured rejected search changed absolute viewport or retained query, owner, note, writing or panel.");
+            Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            Measure("query-cleared");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) || Control<TextBox>("SearchQuery").Text != "")
+                throw new InvalidOperationException("Clearing the query changed the original absolute Person viewport.");
         }
         finally
         {
