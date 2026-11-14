@@ -60,9 +60,10 @@ public partial class MainWindow
         FactsGrid.ItemWidth = PersonBody.ActualWidth / factColumns;
         ProfileTextFields.Columns = PersonBody.ActualWidth >= 560 ? 2 : 1;
         var actionsBelow = PersonWorkspace.ActualWidth < 720;
-        Grid.SetRow(IdentityActions, actionsBelow ? 1 : 0);
-        Grid.SetColumn(IdentityActions, actionsBelow ? 1 : 2);
-        IdentityActions.Margin = new Thickness(actionsBelow ? 0 : 12, actionsBelow ? 8 : 0, 0, 0);
+        PlaceProfileElement(IdentityActions, actionsBelow ? IdentityDetails : PersonIdentity);
+        ProfileHeading.TextWrapping = actionsBelow ? TextWrapping.NoWrap : TextWrapping.Wrap;
+        ProfileHeading.TextTrimming = TextTrimming.CharacterEllipsis;
+        IdentityActions.Margin = new Thickness(actionsBelow ? 0 : 12, actionsBelow ? 2 : 0, 0, 0);
     }
 
     private void BeginPaneResize(object sender, DragStartedEventArgs e)

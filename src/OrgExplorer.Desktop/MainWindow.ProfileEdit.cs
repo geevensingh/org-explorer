@@ -72,8 +72,7 @@ public partial class MainWindow
         AttributeEditors.Visibility = ManagerEditor.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
-        PlaceProfileLink(Manager, editing ? ManagerEditLink : ManagerReadingSlot);
-        PlaceProfileLink(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
+        PlaceProfileElement(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
         ProfilePhotoDraft.Text = workflow.ProfileEdit?.PhotoLocalPath is { } path
@@ -83,20 +82,25 @@ public partial class MainWindow
         UpdatePreferredNameActions();
     }
 
-    private static void PlaceProfileLink(Button link, Panel host)
+    private static void PlaceProfileElement(FrameworkElement element, Panel host)
     {
-        if (ReferenceEquals(link.Parent, host)) return;
-        if (link.Parent is Panel previous) previous.Children.Remove(link);
-        host.Children.Add(link);
+        if (ReferenceEquals(element.Parent, host)) return;
+        if (element.Parent is Panel previous) previous.Children.Remove(element);
+        host.Children.Add(element);
     }
 
     private void ShowProfileValues(PersonProfile? person)
     {
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
         ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
-        ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department, reserveSlot: false);
-        ShowProfileValue(OfficeBuildingValueRow, OfficeBuildingValue, person?.OfficeBuilding);
-        ShowProfileValue(OfficeNumberValueRow, OfficeNumberValue, person?.OfficeNumber);
+        ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department);
+        ShowProfileValue(OfficeReadingSlot, OfficeBuildingValue, person?.OfficeBuilding);
+        ShowProfileValue(OfficeReadingSlot, OfficeNumberValue, person?.OfficeNumber);
+        OfficeBuildingValue.Visibility = person?.OfficeBuilding is not null || person?.OfficeNumber is null
+            ? Visibility.Visible : Visibility.Collapsed;
+        OfficeNumberValue.Visibility = person?.OfficeNumber is not null ? Visibility.Visible : Visibility.Collapsed;
+        OfficeSeparator.Visibility = person?.OfficeBuilding is not null && person.OfficeNumber is not null
+            ? Visibility.Visible : Visibility.Collapsed;
         ShowProfileValue(OfficeStateValueRow, OfficeStateValue, person?.OfficeState);
         ShowProfileValue(OfficeCountryValueRow, OfficeCountryValue, person?.OfficeCountry);
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);

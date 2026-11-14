@@ -104,7 +104,8 @@ available actions, and review warnings must still be understandable.
 ### Anchored identity
 
 Use a flat identity band with a circular photo or initials placeholder,
-the primary name and its Preferred-name pencil, role/department, email, and
+the primary name and its Preferred-name pencil, role, email, labelled Manager
+navigation and a compact labelled Office line, and
 right-side Favorite, Edit profile, and More actions. Do not retain oversized
 rectangular missing-photo furniture, repeated name rows, or an empty
 Preferred-name paragraph.
@@ -139,6 +140,11 @@ identified and retain existing access/reactivation safeguards.
 Keep identity visible while reading farther down the Person. Long names,
 emails, Manager labels, and values must remain readable or accessible without
 shrinking type or requiring horizontal page scrolling.
+Office combines building and room with a middle dot only when both are present;
+one available part stands alone, and no Office data uses a neutral dash.
+Retain individual building/room Copy and search destinations. At narrow widths,
+single-line ellipsis keeps header context and actions within the existing photo
+height; full values remain available through accessibility, tooltips and Copy.
 
 ### All ordinary facts, predictable positions
 
@@ -150,11 +156,11 @@ neutral dash; they are not validation errors or opportunities to repack fields.
 Size each row to its own content with a compact, consistent gap. Long values
 must wrap without making unrelated rows taller.
 
-Role, department, and email already shown in identity need not repeat in the
-grid. Preserve the remaining ordinary facts: Manager, office building, office
-number, office state/province, office country, Directory name, Alias, and
-LinkedIn profile URL. Use consistent grouping/order across People. The
-consolidated wide reference illustrates these eight slots in two rows.
+Role, email, Manager and Office already shown in identity need not repeat in the
+grid. Preserve six labelled facts: Department, office state/province, office
+country, Directory name, Alias, and LinkedIn profile URL. Use consistent
+grouping/order across People. This header-context amendment supersedes the
+earlier eight-slot grouping in the consolidated wide reference.
 
 Remove More details as a gate for ordinary facts. Keep full text and copy-value
 access; links remain explicit actions and are never fetched/opened automatically.

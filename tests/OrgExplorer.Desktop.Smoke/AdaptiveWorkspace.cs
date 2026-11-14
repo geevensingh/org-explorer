@@ -177,10 +177,18 @@ internal static partial class Program
                 Math.Abs(profile.Width - notes.Width) > 2 || notes.Width / scale < 359 ||
                 notes.Right > Bounds("ProfileScroll").Right + 1 || identity.Top >= profile.Top)
                 throw new InvalidOperationException($"Facts must precede full-width notes below anchored identity: identity={identity}, facts={profile}, notes={notes}.");
-            foreach (var id in new[] { "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue",
+            foreach (var id in new[] { "DepartmentValue", "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue",
                 "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" })
                 if (string.IsNullOrEmpty(Find(window, id).Current.Name))
                     throw new InvalidOperationException($"Ordinary fact lost its populated or neutral-dash slot: {id}.");
+            foreach (var id in new[] { "NavigateManager", "OfficeBuildingValue", "OfficeNumberValue" })
+            {
+                var context = Bounds(id);
+                if (!Visible(id) || context.Left < photo.Right || context.Bottom > Bounds("ProfileScroll").Top)
+                    throw new InvalidOperationException($"Manager and Office must remain beside the photo above the scroll: {id}={context}.");
+            }
+            if (Bounds("DepartmentValue").Top < Bounds("ProfileScroll").Top)
+                throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -354,7 +362,7 @@ internal static partial class Program
 
     private static void AssertLongAndMissingFacts(AutomationElement window)
     {
-        var ids = new[] { "NavigateManager", "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue",
+        var ids = new[] { "DepartmentValue", "OfficeStateValue",
             "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" };
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
@@ -369,7 +377,7 @@ internal static partial class Program
         for (var index = 0; index < ids.Length; index++)
             if (Math.Abs(Find(window, ids[index]).Current.BoundingRectangle.Left - lefts[index]) > 2)
                 throw new InvalidOperationException("Populated and missing facts repacked a width-stable labelled slot: " + ids[index]);
-        foreach (var id in new[] { "OfficeNumberValue", "OfficeCountryValue", "LinkedInProfileUrlValue" })
+        foreach (var id in new[] { "DepartmentValue", "OfficeCountryValue", "LinkedInProfileUrlValue" })
             if (Find(window, id).Current.Name != "—")
                 throw new InvalidOperationException("A missing ordinary fact lost its neutral-dash slot: " + id);
         const string building = "South campus research and collaboration building with a deliberately long descriptive location";

@@ -128,8 +128,12 @@ remain separate delivery gates.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not
-repack the grid. Role, department and email remain in identity, not duplicated
-in the facts. Edit
+repack the grid. Role and email remain in identity, alongside labelled Manager navigation and a
+compact Office line combining building and room with a middle dot. Show only
+available Office parts, or a neutral dash if both are missing. Department is a
+labelled fact, not an unlabelled identity value. Long header values retain their
+full accessible text, Copy action and tooltip when ellipsized; the header must
+not grow beyond the existing photo footprint for ordinary reading. Edit
 profile still exposes all editable fields, including empty ones, and retains
 its explicit Save/Cancel and stale-draft behavior. Preserve independent
 Preferred-name and Favorite quick actions, Manager/report navigation, and

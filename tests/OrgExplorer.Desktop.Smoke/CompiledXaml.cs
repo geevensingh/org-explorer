@@ -262,6 +262,7 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         VerifyPreferredNameEntry(window, folder, publisher);
+        VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
             throw new InvalidOperationException("People resizing or compact transitions erased the unused existing inner ratio.");
@@ -798,6 +799,65 @@ internal static partial class Program
         ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
         Console.WriteLine("PASS: invisible compiled Preferred-name typing does not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
         Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
+    }
+
+    private static void VerifyIdentityContext(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        var identity = Control<Grid>("PersonIdentity");
+        var building = Control<TextBlock>("OfficeBuildingValue");
+        var number = Control<TextBlock>("OfficeNumberValue");
+        if (!Control<Button>("Manager").IsDescendantOf(identity) ||
+            !building.IsDescendantOf(identity) || !number.IsDescendantOf(identity) ||
+            !Control<TextBlock>("DepartmentValue").IsDescendantOf(Control<Panel>("FactsGrid")) ||
+            !Control<Panel>("DepartmentValueRow").Children.OfType<TextBlock>().Any(label => label.Text == "Department"))
+            throw new InvalidOperationException("Manager and Office belong in identity; Department needs a labelled facts slot.");
+        foreach (var (officeBuilding, officeNumber) in new[]
+        {
+            ("MILLENNIUM A", "2244"), ("MILLENNIUM A", ""), ("", ""),
+            ("South campus research and collaboration building with a long descriptive location", "2244"),
+            ("", "007B")
+        })
+        {
+            Invoke("EditProfileButton");
+            if (!Control<Button>("Manager").IsDescendantOf(identity))
+                throw new InvalidOperationException("Editing must retain anchored saved-Manager navigation.");
+            Control<TextBox>("OfficeBuilding").Text = officeBuilding;
+            Control<TextBox>("OfficeNumber").Text = officeNumber;
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed &&
+                building.Text == (officeBuilding.Length == 0 ? "—" : officeBuilding) &&
+                number.Text == (officeNumber.Length == 0 ? "—" : officeNumber));
+            if ((building.Visibility == Visibility.Visible) != (officeBuilding.Length > 0 || officeNumber.Length == 0) ||
+                (number.Visibility == Visibility.Visible) != (officeNumber.Length > 0) ||
+                (Control<TextBlock>("OfficeSeparator").Visibility == Visibility.Visible) !=
+                    (officeBuilding.Length > 0 && officeNumber.Length > 0))
+                throw new InvalidOperationException("Office must join available building/room values without stray separators or missing-part dashes.");
+            foreach (var width in new[] { 700d, 1100d, 1920d })
+            {
+                root.Measure(new Size(width, 900));
+                root.Arrange(new Rect(0, 0, width, 900));
+                root.UpdateLayout();
+                if (identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1)
+                    throw new InvalidOperationException($"Header context grew beyond the existing photo footprint at {width}: {identity.ActualHeight}; " +
+                        string.Join("; ", new[] { "ProfileHeading", "JobTitleValue", "Email", "ManagerReadingSlot",
+                            "OfficeReadingSlot", "IdentityActions", "PersonArchivalStatus" }
+                            .Select(name => $"{name}={Control<FrameworkElement>(name).RenderSize}, desired={Control<FrameworkElement>(name).DesiredSize}")));
+                foreach (var value in new FrameworkElement[] { Control<Button>("Manager"), building, number })
+                {
+                    if (value.Visibility != Visibility.Visible) continue;
+                    var bounds = value.TransformToAncestor(identity).TransformBounds(new Rect(value.RenderSize));
+                    if (bounds.Width <= 0 || bounds.Left < 0 || bounds.Right > identity.ActualWidth + 1 ||
+                        bounds.Bottom > identity.ActualHeight + 1)
+                        throw new InvalidOperationException($"Anchored context is clipped at {width}: {value.Name}={bounds}.");
+                }
+            }
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The identity-context regression must remain invisible without a native handle.");
+        Console.WriteLine("PASS: labelled anchored Manager/Office, partial/missing office values and labelled Department facts fit the existing photo-height header.");
     }
 
     private static void VerifyInlineProfileLayout(Window window)
@@ -1371,7 +1431,7 @@ internal static partial class Program
         var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
         Layout();
-        if (facts.Children.Count != 8 || Columns() != columns ||
+        if (facts.Children.Count != 6 || Columns() != columns ||
             slots.Any(slot => slot.Visibility != Visibility.Visible) ||
             slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
             Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
@@ -1789,7 +1849,7 @@ internal static partial class Program
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 8 || rows[0].Count() != columns ||
+            if (slots.Length != 6 || rows[0].Count() != columns ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
                 slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
                 throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");

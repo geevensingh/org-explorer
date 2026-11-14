@@ -594,6 +594,12 @@ The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also exercises labelled Manager and Office in the anchored header, joined
+building/room values and partial/missing Office data, with Department in a
+labelled facts slot. Header context fits the existing photo height at
+minimum/ordinary/wide sizes while saved-Manager navigation remains anchored
+during profile editing. Full building/room Copy and profile-search targets remain
+separate; Department follows the facts grid's stable missing-value policy.
 Its inline profile check measures paired fields at wide widths and stacked fields
 at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
 content. It requires enabled, Tab-accessible, readable-width fields without

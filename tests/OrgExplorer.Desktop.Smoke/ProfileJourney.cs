@@ -119,7 +119,7 @@ internal static partial class Program
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
             Find(window, "JobTitleValue").SetFocus();
             PressCopyKey(0x09);
-            Await(() => Find(window, "DepartmentValue").Current.HasKeyboardFocus);
+            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
@@ -400,7 +400,7 @@ internal static partial class Program
         AssertProfileValue(window, "Alias", "avery");
         if (IsVisible(window, "PersonArchivalStatus"))
             throw new InvalidOperationException("Ordinary reading must not imply Active employment or presence.");
-        foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager" })
+        foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager", "OfficeNumberValue" })
             if (Find(window, id).Current.IsOffscreen)
                 throw new InvalidOperationException($"Essential profile information is not initially visible: {id}.");
         var photo = Find(window, "PersonPhoto").Current.BoundingRectangle;

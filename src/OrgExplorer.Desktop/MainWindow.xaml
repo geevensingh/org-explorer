@@ -610,10 +610,9 @@
       <Grid x:Name="PersonWorkspace" Grid.Column="2" Margin="12,0,0,0" Background="White">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid x:Name="PersonIdentity" Visibility="Collapsed" Margin="0,8,12,16">
-          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <local:PersonPhotoControl x:Name="Photo" Grid.RowSpan="2" Margin="0,0,16,0" VerticalAlignment="Top" Focusable="True"/>
-          <StackPanel Grid.Column="1">
+          <local:PersonPhotoControl x:Name="Photo" Margin="0,0,16,0" VerticalAlignment="Top" Focusable="True"/>
+          <StackPanel x:Name="IdentityDetails" Grid.Column="1">
             <DockPanel HorizontalAlignment="Left">
               <StackPanel x:Name="PreferredNameContext" DockPanel.Dock="Right" IsEnabled="False">
                 <WrapPanel x:Name="PreferredNameReadPanel">
@@ -625,28 +624,40 @@
               <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24" Focusable="True"
                          FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
             </DockPanel>
-            <Grid Margin="0,4">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-              <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed" Margin="0,0,12,0">
-                <TextBlock x:Name="JobTitleValue" TextWrapping="Wrap" AutomationProperties.AutomationId="JobTitleValue"
-                           MaxHeight="44"
+            <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed">
+                <TextBlock x:Name="JobTitleValue" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="JobTitleValue"
                            Foreground="{StaticResource MutedBrush}" Focusable="True" KeyboardNavigation.IsTabStop="True">
                   <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
                 </TextBlock>
-              </StackPanel>
-              <StackPanel x:Name="DepartmentValueRow" Grid.Column="1" Visibility="Collapsed">
-                <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
-                           MaxHeight="44"
-                           Foreground="{StaticResource MutedBrush}" Focusable="True" KeyboardNavigation.IsTabStop="True">
-                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-                </TextBlock>
-              </StackPanel>
-            </Grid>
-            <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" TextWrapping="Wrap" MaxHeight="44"
+            </StackPanel>
+            <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" TextTrimming="CharacterEllipsis"
                        ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
+            <DockPanel x:Name="ManagerReadingSlot" Margin="0,2,0,0">
+              <TextBlock Text="Manager:" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+              <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
+                      Style="{StaticResource QuietButton}" Padding="0" MinHeight="0" HorizontalContentAlignment="Left" IsEnabled="False">
+                <Button.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/></DataTemplate></Button.ContentTemplate>
+                <Button.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Content, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></Button.ContextMenu>
+              </Button>
+            </DockPanel>
+            <DockPanel x:Name="OfficeReadingSlot">
+              <TextBlock Text="Office:" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0"/>
+              <DockPanel HorizontalAlignment="Left" KeyboardNavigation.TabNavigation="Local">
+                <TextBlock x:Name="OfficeNumberValue" DockPanel.Dock="Right" TextTrimming="CharacterEllipsis" MaxWidth="100"
+                           AutomationProperties.AutomationId="OfficeNumberValue"
+                           Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabIndex="1">
+                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+                </TextBlock>
+                <TextBlock x:Name="OfficeSeparator" DockPanel.Dock="Right" Text=" &#xB7; "/>
+                <TextBlock x:Name="OfficeBuildingValue" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="OfficeBuildingValue"
+                           Focusable="True" KeyboardNavigation.IsTabStop="True" KeyboardNavigation.TabIndex="0">
+                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
+                </TextBlock>
+              </DockPanel>
+            </DockPanel>
             <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
                        Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0" Focusable="True"/>
             <Popup x:Name="PreferredNamePopup" PlacementTarget="{Binding ElementName=EditPreferredNameButton}"
@@ -741,24 +752,9 @@
         <StackPanel>
         <Border x:Name="ProfileValues" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,1" Padding="0,8">
           <WrapPanel x:Name="FactsGrid">
-          <StackPanel x:Name="ManagerReadingSlot" Style="{StaticResource FactSlot}">
-            <TextBlock Text="Manager" Style="{StaticResource FactLabel}"/>
-            <Button x:Name="Manager" AutomationProperties.AutomationId="NavigateManager" Click="NavigateManager"
-                    Style="{StaticResource QuietButton}" Padding="0" HorizontalContentAlignment="Left" IsEnabled="False">
-              <Button.ContentTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Button.ContentTemplate>
-              <Button.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Content, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></Button.ContextMenu>
-            </Button>
-          </StackPanel>
-          <StackPanel x:Name="OfficeBuildingValueRow" Style="{StaticResource FactSlot}">
-            <TextBlock Text="Office building" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="OfficeBuildingValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeBuildingValue"
-                       Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
-          </StackPanel>
-          <StackPanel x:Name="OfficeNumberValueRow" Style="{StaticResource FactSlot}">
-            <TextBlock Text="Office number" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="OfficeNumberValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeNumberValue"
+          <StackPanel x:Name="DepartmentValueRow" Style="{StaticResource FactSlot}">
+            <TextBlock Text="Department" Style="{StaticResource FactLabel}"/>
+            <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
               <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
             </TextBlock>
@@ -880,8 +876,6 @@
               <TextBlock Text="No inferred report changes." Foreground="{StaticResource MutedBrush}"
                          TextWrapping="Wrap" Margin="0,8,0,0"/>
             </StackPanel>
-            <TextBlock Text="Saved Manager" Foreground="{StaticResource MutedBrush}" Margin="0,8,0,4"/>
-            <StackPanel x:Name="ManagerEditLink"/>
             </StackPanel>
           </Border>
         </StackPanel>
