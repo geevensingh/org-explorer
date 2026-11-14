@@ -573,7 +573,7 @@ handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
 The same invisible-control regression exercises all ordinary facts, labelled
-missing-value slots, long identity/facts, compact initials, full editing of an empty field and Cancel,
+missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
 Its inline profile check measures paired fields at wide widths and stacked fields
@@ -816,11 +816,24 @@ without changing its display. They cover:
   physical Enter, retained inline validation failure, Cancel/Escape/outside-click
   dismissal without mutation, popup discovery/focus and uniquely named normal,
   failure and dismissal captures,
-  quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
+  quiet chrome and Settings keyboard entry/focus, anchored photo/identity bounds,
   all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
-  and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
+  and JPEG pixels, photo clear/placeholder and Profile timeline. Its marked
+  300 x 300, 300 x 150, 150 x 300, 72 x 72 and 72 x 36 PNGs prove centered
+  reduction/enlargement, preserved square-marker proportions, independently
+  expected pre-mask fill sizes (144 x 144, 288 x 144, 144 x 288, 144 x 144,
+  288 x 144 DIP), axis-band positions and intentional circular exclusion.
+  UIA observes the existing photo control's fixed viewport and the centered
+  Image's larger pre-mask bounds; actual pixels establish the final circular
+  extent and clipping, rather than mistaking unclipped Image bounds for the
+  visible circle. Bounds and pixels use effective Windows scaling. Initials retain
+  their accessible text and blue/white colors; UIA text geometry and rendered ink
+  prove proportional enlargement, and pixel spans prove the matching 144-DIP
+  circle. Choosing/clearing stays staged until explicit Save; Cancel and
+  Person switching retain the correct saved photo/initials footprint.
+  Import is opened
   explicitly, replaces the people view, and returns to reading with Import
   controls absent. Choosing/previewing retains the saved population; changing the
   path invalidates Apply until reviewed again.
@@ -889,6 +902,10 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
   Segoe UI text, People 240 / Person allocation 420 minimums, 600-DIP prose cap,
   all-facts ordering and long/missing text, anchored main scrolling, overlay bounds/focus,
   mouse/keyboard People resizing, percentage resize/reopen and search/clear position.
+  At each reading size and the minimum Person allocation, the same real photo
+  and a Manager's initials retain their 144-DIP circle without a footprint
+  change on selection. Identity actions remain visible, focusable and beside
+  the photo; the photo stays anchored during the existing long-note scroll.
 - `responsive-draft-navigation`: the complete draft-protection journey plus
   actual compact overlay rejection retaining the exact owner/editor and feedback.
   Its inline form also traverses every ordinary field and Manager by Tab at

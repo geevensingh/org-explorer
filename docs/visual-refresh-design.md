@@ -110,8 +110,8 @@ rectangular missing-photo furniture, repeated name rows, or an empty
 Preferred-name paragraph.
 
 The November 14, 2026 photo-size amendment (#81) supersedes only the earlier
-compact photo sizing. It is approved design, not implemented or rendered
-acceptance: the verified main baseline `a76552e` still uses a 56-unit circle.
+compact photo sizing. The native control implements this amendment; this is not
+a claim of hosted rendered verification or owner visual acceptance.
 Permanently display the selected Person's photo in a 144-by-144 logical-unit
 circle at every supported window size, following normal Windows display scaling.
 Retain centered, aspect-preserving fill and the circular crop, including

@@ -1241,9 +1241,9 @@ internal static partial class Program
         Layout();
         var photo = Control<FrameworkElement>("Photo");
         var placeholder = (TextBlock)photo.FindName("Placeholder");
-        if (placeholder.Text != "A" || photo.ActualWidth > 64 || photo.ActualHeight > 64 ||
+        if (placeholder.Text != "A" || Math.Abs(photo.ActualWidth - 144) > 1 || Math.Abs(photo.ActualHeight - 144) > 1 ||
             !System.Windows.Automation.AutomationProperties.GetName(placeholder).Contains("No local photo", StringComparison.Ordinal))
-            throw new InvalidOperationException("Missing photos need compact, accessible initials rather than oversized missing-photo furniture.");
+            throw new InvalidOperationException("Missing photos need the same 144-DIP footprint and accessible initials as saved photos.");
         Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
         ResizeWithKey(peopleDivider, people, Key.Right, 10);
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");

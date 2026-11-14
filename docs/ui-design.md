@@ -122,8 +122,9 @@ window size, with proportionally larger initials and the current centered
 circular crop. This supersedes compact photo sizing, not the anchored header,
 explicit profile Save/Cancel, or the 700-by-500 minimum window. See the
 [anchored identity contract](visual-refresh-design.md#anchored-identity) for
-the complete amendment and rendered acceptance requirements. The amendment
-still requires implementation; the verified main baseline uses a 56-unit circle.
+the complete amendment and rendered acceptance requirements. The native control
+implements this sizing; hosted rendered verification and owner visual acceptance
+remain separate, outstanding delivery gates.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not

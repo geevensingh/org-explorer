@@ -17,7 +17,8 @@ internal static partial class Program
         var workspace = Path.Combine(root, "search-workspace");
         Directory.CreateDirectory(workspace);
         var import = Path.Combine(root, "search-import.json");
-        File.WriteAllText(import, SearchImport(SearchBrowsingPeople(responsive), 1));
+        if (responsive) CreatePhotoFixture(Path.Combine(root, "avery.png"));
+        File.WriteAllText(import, SearchImport(SearchBrowsingPeople(responsive, photo: responsive), 1));
         try
         {
             process = Launch(executable);
@@ -138,11 +139,11 @@ internal static partial class Program
         }
     }
 
-    private static string SearchBrowsingPeople(bool responsive) => """
+    private static string SearchBrowsingPeople(bool responsive, bool photo = false) => $$"""
             {"email":"avery@example.com","displayName":"Avery Directory","preferredName":"Ave Preferred","alias":"avhandle",
              "jobTitle":"Scientist","department":"Research","officeBuilding":"Juniper","officeNumber":"007B",
              "officeState":"Ontario","officeCountry":"Canada","linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery",
-             "managerEmail":"morgan@example.com"},
+             "managerEmail":"morgan@example.com"{{(photo ? ",\"photoPath\":\"avery.png\"" : "")}}},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
             """ + (responsive ? """

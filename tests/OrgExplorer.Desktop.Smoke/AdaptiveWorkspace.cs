@@ -143,9 +143,19 @@ internal static partial class Program
         bool Visible(string id) => window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element && !element.Current.IsOffscreen;
         Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
+        void PhotoAndInitials()
+        {
+            AssertPhotoVisible(window);
+            var photo = AssertPhotoCircle(window);
+            NavigateToManager(window, "morgan@example.com");
+            AssertInitialsCircle(window, "M", photo);
+            SelectTreePerson(window, "avery@example.com");
+            AssertPhotoVisible(window);
+        }
         void AtSize(bool wide, string stateName)
         {
             Await(() => Visible("OpenPeople") != wide);
+            PhotoAndInitials();
             var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
             if (scroll.Current.HorizontallyScrollable)
                 throw new InvalidOperationException("Ordinary adaptive profile reading requires horizontal scrolling.");
@@ -153,6 +163,16 @@ internal static partial class Program
             var identity = Bounds("Email");
             var profile = Bounds("ProfileSummary");
             var notes = Bounds("NotesPane");
+            var photo = AssertPhotoCircle(window);
+            foreach (var id in new[] { "EditPreferredName", "ToggleFavorite", "EditProfile", "PersonMore" })
+            {
+                var action = Find(window, id);
+                var bounds = action.Current.BoundingRectangle;
+                if (action.Current.IsOffscreen || !action.Current.IsEnabled || !action.Current.IsKeyboardFocusable ||
+                    bounds.IsEmpty || bounds.Left < photo.Right || bounds.Right > Bounds("ProfileScroll").Right + scale ||
+                    bounds.Bottom > Bounds("ProfileScroll").Top)
+                    throw new InvalidOperationException($"The enlarged photo displaced an anchored identity action: {id}={bounds}, photo={photo}.");
+            }
             if (profile.Left > notes.Left + 2 || profile.Bottom > notes.Top + 2 ||
                 Math.Abs(profile.Width - notes.Width) > 2 || notes.Width / scale < 359 ||
                 notes.Right > Bounds("ProfileScroll").Right + 1 || identity.Top >= profile.Top)
@@ -248,10 +268,12 @@ internal static partial class Program
         personScroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
         var anchoredHeading = Bounds("ProfileHeading");
         var anchoredEmail = Bounds("Email");
+        var anchoredPhoto = AssertPhotoCircle(window);
         var factsTop = Bounds("ProfileSummary").Top;
         personScroll.SetScrollPercent(ScrollPattern.NoScroll, 40);
         Await(() => personScroll.Current.VerticalScrollPercent > 39);
         if (Bounds("ProfileHeading") != anchoredHeading || Bounds("Email") != anchoredEmail ||
+            AssertPhotoCircle(window) != anchoredPhoto ||
             Bounds("ProfileSummary").Top >= factsTop - 100 * scale || reading.Current.IsOffscreen)
             throw new InvalidOperationException("Identity moved or long note reading failed to share the facts scroll.");
         if (reading.TryGetCurrentPattern(ScrollPattern.Pattern, out var inner) &&
@@ -270,6 +292,7 @@ internal static partial class Program
         if (Bounds("NotesPane").Width / scale < 359 ||
             Bounds("NotesPane").Right > Bounds("ProfileScroll").Right + 1)
             throw new InvalidOperationException("Maximum People drag pushed full-width reading outside its viewport.");
+        PhotoAndInitials();
         divider.SetFocus();
         Await(() => divider.Current.HasKeyboardFocus);
         previousPeople = Bounds("PeopleNavigation").Width;
@@ -354,7 +377,8 @@ internal static partial class Program
         if (Find(window, "ProfileHeading").Current.Name !=
             "Alexandra Reference with a deliberately long Directory name for accessible Person reading" ||
             Find(window, "PhotoPlaceholder").Current.IsOffscreen || scroll.Current.HorizontallyScrollable)
-            throw new InvalidOperationException("Long identity/facts lost full accessible text or compact initials, or require horizontal scrolling.");
+            throw new InvalidOperationException("Long identity/facts lost full accessible text or initials, or require horizontal scrolling.");
+        AssertInitialsCircle(window, "AR");
         CaptureVisualEvidence(window, "reading-long-and-missing-facts-initials");
         QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
     }
