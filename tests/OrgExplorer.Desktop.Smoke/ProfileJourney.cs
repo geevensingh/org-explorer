@@ -126,7 +126,7 @@ internal static partial class Program
             BeginProfileEditing(window);
             AssertProfileFieldKeyboard(window, workspace);
             Set(window, "OfficeNumber", "Cancelled office");
-            Click(window, "ClearPhoto");
+            StageProfilePhotoClear(window);
             CaptureVisualEvidence(window, "profile-inline-photo-clear-staged");
             CancelProfileEditing(window);
             AwaitLocalWorkIdle(window);

@@ -600,6 +600,10 @@ labelled facts slot. Header context fits the existing photo height at
 minimum/ordinary/wide sizes while saved-Manager navigation remains anchored
 during profile editing. Full building/room Copy and profile-search targets remain
 separate; Department follows the facts grid's stable missing-value policy.
+The same real-control check saves multiline header values, bounds their visible
+height while retaining full text/tooltips/automation names, and requires Office
+automation-peer traversal to follow building then room. Hosted adaptive reading
+also checks that Office traversal order.
 Its inline profile check measures paired fields at wide widths and stacked fields
 at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
 content. It requires enabled, Tab-accessible, readable-width fields without
@@ -612,7 +616,10 @@ It also dirties the profile at 700 x 500 with the real pending notice visible an
 requires room for a complete labelled editor. The existing Choose/Clear buttons
 share the inline edit bar rather than growing the photo column. The hosted
 minimum-size profile journey repeats full keyboard traversal while that draft is
-dirty. Square, landscape, portrait and small-source compiled photo layouts must
+dirty. Its invisible counterpart also measures the 684 x 461 client allocation
+observed inside the hosted 700 x 500 window and requires every focused editor
+to fit without clipping; nominal content sizing alone is not native-window proof.
+Square, landscape, portrait and small-source compiled photo layouts must
 keep the Image geometry at 144 x 144; hosted automation and pixels remain the
 accessibility and visible-crop evidence.
 It also measures/arranges the actual compiled content and drives its real
@@ -865,6 +872,9 @@ without changing its display. They cover:
   prove proportional enlargement, and pixel spans prove the matching 144-DIP
   circle. Choosing/clearing stays staged until explicit Save; Cancel and
   Person switching retain the correct saved photo/initials footprint.
+  Clear is invoked once and its visible staged-clear notice must appear before
+  asserting the unchanged saved photo or cancelling; pixels already present
+  before the click do not establish that the handler ran.
   Import is opened
   explicitly, replaces the people view, and returns to reading with Import
   controls absent. Choosing/previewing retains the saved population; changing the

@@ -263,6 +263,7 @@ internal static partial class Program
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         VerifyPreferredNameEntry(window, folder, publisher);
         VerifyPhotoViewportLayout(window);
+        VerifyHeaderTextAndReadingOrder(window);
         VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
@@ -832,6 +833,65 @@ internal static partial class Program
         Console.WriteLine("PASS: actual compiled square/non-square photo image geometry stays within its 144-DIP viewport; rendered crop/automation require hosted evidence.");
     }
 
+    private static void VerifyHeaderTextAndReadingOrder(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var fields = new[] { (Editor: "JobTitle", Value: "JobTitleValue"),
+            (Editor: "OfficeBuilding", Value: "OfficeBuildingValue"), (Editor: "OfficeNumber", Value: "OfficeNumberValue") };
+        var multiline = "First header line\r\n" + string.Join("\r\n", Enumerable.Repeat("Additional header line", 20)) +
+            "\r\nLast header line";
+        var root = (FrameworkElement)window.Content;
+        var manager = Control<Button>("Manager");
+        var originalManager = manager.Content;
+        var failures = new List<string>();
+        Invoke("EditProfileButton");
+        var original = fields.ToDictionary(field => field.Editor, field => Control<TextBox>(field.Editor).Text);
+        try
+        {
+            foreach (var field in fields) Control<TextBox>(field.Editor).Text = multiline;
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed &&
+                fields.All(field => Control<TextBlock>(field.Value).Text == multiline));
+            foreach (var width in new[] { 700d, 1100d, 1920d })
+            {
+                manager.Content = multiline;
+                root.Measure(new Size(width, 500));
+                root.Arrange(new Rect(0, 0, width, 500));
+                root.UpdateLayout();
+                var lineHeight = Control<TextBlock>("Email").ActualHeight;
+                foreach (var field in fields)
+                {
+                    var value = Control<TextBlock>(field.Value);
+                    if (value.ActualHeight > lineHeight + 2)
+                        failures.Add($"Multiline {field.Value} grew beyond one header line at {width}: {value.ActualHeight}.");
+                    if (value.Text != multiline || value.ToolTip as string != multiline ||
+                        !new TextBlockAutomationPeer(value).GetName().Contains("Last header line", StringComparison.Ordinal))
+                        failures.Add($"Bounded {field.Value} lost its full Copy/tooltip/accessible value.");
+                }
+                if (manager.ActualHeight > lineHeight + 4 ||
+                    !new ButtonAutomationPeer(manager).GetName().Contains("Last header line", StringComparison.Ordinal))
+                    failures.Add($"Multiline Manager must remain bounded with its full accessible name: {manager.ActualHeight}.");
+                var office = (FrameworkElement)Control<TextBlock>("OfficeBuildingValue").Parent;
+                var order = new FrameworkElementAutomationPeer(office).GetChildren()?
+                    .Select(peer => peer.GetAutomationId())
+                    .Where(id => id is "OfficeBuildingValue" or "OfficeNumberValue").ToArray() ?? [];
+                if (!order.SequenceEqual(new[] { "OfficeBuildingValue", "OfficeNumberValue" }))
+                    failures.Add("Office automation reading order must be building then room: " + string.Join(", ", order));
+            }
+        }
+        finally
+        {
+            manager.Content = originalManager;
+            Invoke("EditProfileButton");
+            foreach (var field in fields) Control<TextBox>(field.Editor).Text = original[field.Editor];
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed);
+        }
+        if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        Console.WriteLine("PASS: multiline header values stay bounded without losing full text; Office automation order matches visual building/room order.");
+    }
+
     private static void VerifyIdentityContext(Window window)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -970,6 +1030,19 @@ internal static partial class Program
                 throw new InvalidOperationException($"Dirty profile at 700x500 cannot expose a labelled editor: " +
                     $"viewport={scroll.ViewportHeight}, required={firstLabel.ActualHeight + firstEditor.ActualHeight}, " +
                     $"identity={identity.ActualHeight}, notice={Control<FrameworkElement>("OperationalNotice").ActualHeight}.");
+            // Reproduce the client allocation observed inside the hosted 700x500 native window.
+            Layout(684, 461);
+            foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+            {
+                var editor = Control<Control>(name);
+                editor.BringIntoView();
+                Layout(684, 461);
+                var bounds = Bounds(editor);
+                var viewport = Bounds(scroll);
+                if (bounds.Top < viewport.Top - 1 || bounds.Bottom > viewport.Bottom + 1)
+                    throw new InvalidOperationException($"Dirty native-minimum client clips {name}: editor={bounds}, viewport={viewport}.");
+            }
         }
         finally { Control<TextBox>("OfficeNumber").Text = savedOffice; }
         Layout(1920, 1040);
@@ -1439,6 +1512,7 @@ internal static partial class Program
         try
         {
             reading.Document = longReading;
+            viewport.ScrollToTop();
             Layout();
             var identityBefore = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
             var factsBefore = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
@@ -1450,7 +1524,9 @@ internal static partial class Program
             var identityAfter = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
             var factsAfter = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
             if (identityBefore != identityAfter || Math.Abs(factsBefore.Top - factsAfter.Top - 240) > 1)
-                throw new InvalidOperationException("The shared scroll moved identity or failed to move facts with notes.");
+                throw new InvalidOperationException($"The shared scroll moved identity or failed to move facts with notes: " +
+                    $"identity={identityBefore}->{identityAfter}, facts={factsBefore}->{factsAfter}, " +
+                    $"offset={viewport.VerticalOffset}, extent={viewport.ExtentHeight}, viewport={viewport.ViewportHeight}.");
             var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(viewport).GetPattern(PatternInterface.Scroll);
             if (!provider.VerticallyScrollable)
                 throw new InvalidOperationException("The long reading fixture must still exercise a genuinely scrollable axis.");

@@ -144,9 +144,13 @@ identified and retain existing access/reactivation safeguards.
 Keep identity visible while reading farther down the Person. Long names,
 emails, Manager labels, and values must remain readable or accessible without
 shrinking type or requiring horizontal page scrolling.
+Bound embedded line breaks in Job title, Manager and Office display values;
+retained full tooltip, Copy and accessible values must not be rewritten merely
+to constrain the anchored band.
 Office combines building and room with a middle dot only when both are present;
 one available part stands alone, and no Office data uses a neutral dash.
-Retain individual building/room Copy and search destinations. At narrow widths,
+Retain individual building/room Copy and search destinations, with visual,
+keyboard and automation reading order all following building then room. At narrow widths,
 single-line ellipsis keeps header context and actions within the existing photo
 height; full values remain available through accessibility, tooltips and Copy.
 

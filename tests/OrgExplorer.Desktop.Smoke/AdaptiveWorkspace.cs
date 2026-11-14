@@ -193,6 +193,12 @@ internal static partial class Program
                 if (!Visible(id) || context.Left < photo.Right || context.Bottom > Bounds("ProfileScroll").Top)
                     throw new InvalidOperationException($"Manager and Office must remain beside the photo above the scroll: {id}={context}.");
             }
+            var officeOrder = window.FindAll(TreeScope.Descendants, new OrCondition(
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OfficeBuildingValue"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OfficeNumberValue")))
+                .Cast<AutomationElement>().Select(element => element.Current.AutomationId);
+            if (!officeOrder.SequenceEqual(new[] { "OfficeBuildingValue", "OfficeNumberValue" }))
+                throw new InvalidOperationException("Office accessibility traversal must match its visual building/room order.");
             if (Bounds("DepartmentValue").Top < Bounds("ProfileScroll").Top)
                 throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
             if (wide)

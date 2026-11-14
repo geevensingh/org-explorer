@@ -284,6 +284,15 @@ internal static partial class Program
         }, () => observed);
     }
 
+    private static void StageProfilePhotoClear(AutomationElement window)
+    {
+        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+        if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+        Click(window, "ClearPhoto");
+        Await(() => IsVisible(window, "ProfilePhotoDraft") &&
+            Find(window, "ProfilePhotoDraft").Current.Name.StartsWith("Photo clear staged.", StringComparison.Ordinal));
+    }
+
     private static void ChooseProfilePhoto(AutomationElement window, string path)
     {
         Click(window, "ChoosePhoto");
@@ -338,7 +347,7 @@ internal static partial class Program
             throw new InvalidOperationException("Actual JPEG did not display on the profile.");
         BeginProfileEditing(window);
         var photoBounds = AssertPhotoCircle(window);
-        Click(window, "ClearPhoto");
+        StageProfilePhotoClear(window);
         AssertPhotoVisible(window);
         SaveProfileEditing(window);
         AssertInitialsCircle(window, "A", photoBounds);
@@ -379,12 +388,12 @@ internal static partial class Program
         Await(() => Find(window, "Email").Current.Name == "avery@example.com");
         AssertMarkedPhoto(window, fixtures[^1]);
         BeginProfileEditing(window);
-        Click(window, "ClearPhoto");
+        StageProfilePhotoClear(window);
         AssertMarkedPhoto(window, fixtures[^1]);
         CancelProfileEditing(window);
         AssertMarkedPhoto(window, fixtures[^1]);
         BeginProfileEditing(window);
-        Click(window, "ClearPhoto");
+        StageProfilePhotoClear(window);
         SaveProfileEditing(window);
         AssertInitialsCircle(window, "A", photoBounds);
         Console.WriteLine("PASS: copied PNG/JPEG, centered circular reduction/enlargement, matching readable initials, " +
