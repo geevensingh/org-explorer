@@ -165,12 +165,27 @@ internal static partial class Program
                     throw new InvalidOperationException("Typing or blur published an unconfirmed Preferred name.");
             }
             CaptureVisualEvidence(window, "preferred-name-normal-entry");
+            var beforeNameFailure = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
             Set(entry, "PreferredName", " ");
             Click(entry, "SavePreferredName");
             Await(() => Find(entry, "PreferredNameError").Current.HelpText.Contains("preferredName") &&
                 Find(entry, "SavePreferredName").Current.IsEnabled);
             AssertValue(entry, "PreferredName", " ");
             CaptureVisualEvidence(window, "preferred-name-retained-failure");
+            var failureDetails = Find(entry, "PreferredNameFailureDetails");
+            var detailsHeader = Find(failureDetails, "HeaderSite");
+            detailsHeader.SetFocus();
+            Await(() => detailsHeader.Current.HasKeyboardFocus);
+            PressCopyKey(0x20);
+            Await(() => ((ExpandCollapsePattern)failureDetails.GetCurrentPattern(ExpandCollapsePattern.Pattern))
+                    .Current.ExpandCollapseState == ExpandCollapseState.Expanded &&
+                !Find(entry, "PreferredNameErrorDetails").Current.IsOffscreen &&
+                Find(entry, "PreferredNameErrorDetails").Current.Name.Contains("preferredName"));
+            if (FindPreferredNameEntry(window) is null || Value(entry, "PreferredName") != " " ||
+                !Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal))
+                throw new InvalidOperationException("Keyboard Details expansion cancelled the retained name or hid its unsafe state.");
+            AssertWorkspaceBytes(workspace, beforeNameFailure);
+            CaptureVisualEvidence(window, "preferred-name-retained-failure-keyboard-details");
             Set(entry, "PreferredName", "Ave");
             Find(entry, "PreferredName").SetFocus();
             Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);

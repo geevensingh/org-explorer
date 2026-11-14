@@ -9,6 +9,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private Workflow.WorkspaceConflictReview? publicationConflictReview;
+    private string? retainedWritingNavigationFeedback;
 
     private async void ReviewPublicationConflicts(object sender, RoutedEventArgs e)
     {
@@ -92,7 +93,8 @@ public partial class MainWindow
             }
         }
         var feedbackLine = feedback?.Split('\n')[0];
-        if (!string.IsNullOrEmpty(feedbackLine) && !retainedErrors.Contains(feedbackLine, StringComparer.Ordinal))
+        if (!string.IsNullOrEmpty(feedbackLine) && !retainedErrors.Contains(feedbackLine, StringComparer.Ordinal) &&
+            !(error is not null && feedback == retainedWritingNavigationFeedback))
             messages.Add(feedbackLine);
         NoticeSummary.Text = string.Join("\n", messages.Distinct());
         LocalWritingDetails.Text = workflow.LocalSaveError ?? "";

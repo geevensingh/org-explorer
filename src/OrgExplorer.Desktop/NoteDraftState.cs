@@ -11,12 +11,12 @@ internal sealed class NoteDraftState
     private readonly Func<bool> workPending;
     private readonly Action markPending;
     private readonly Action<string> showStatus;
-    private readonly Action<string> showNavigationBlocked;
+    private readonly Action<string, bool> showNavigationBlocked;
     private bool saveFailed;
     public bool HasUnsavedChanges { get; private set; }
 
     public NoteDraftState(string kind, EventHandler save, Func<bool> workPending,
-        Action markPending, Action<string> showStatus, Action<string> showNavigationBlocked)
+        Action markPending, Action<string> showStatus, Action<string, bool> showNavigationBlocked)
     {
         this.kind = kind;
         this.workPending = workPending;
@@ -29,11 +29,12 @@ internal sealed class NoteDraftState
     public bool TryLeave()
     {
         if (!HasUnsavedChanges) return true;
-        var message = saveFailed && !workPending()
+        var retainedFailure = saveFailed && !workPending();
+        var message = retainedFailure
             ? $"Navigation blocked: {kind} was not saved. Retry or discard the draft before leaving or closing."
             : $"Navigation blocked: {kind} edits are pending or saving. Please wait before leaving or closing.";
         showStatus(message);
-        showNavigationBlocked(message);
+        showNavigationBlocked(message, retainedFailure);
         return false;
     }
 

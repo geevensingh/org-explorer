@@ -14,6 +14,16 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static void CaptureFailureEvidence(AutomationElement window, string state)
+    {
+        try { CaptureVisualEvidence(window, state); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception or
+            ElementNotAvailableException or InvalidOperationException or ArgumentException or COMException)
+        {
+            Console.Error.WriteLine($"Failure frame '{state}' could not be captured: {error}");
+        }
+    }
+
     private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
     {
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))

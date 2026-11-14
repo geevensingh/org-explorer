@@ -31,11 +31,18 @@ public static class DraftDiscardProbe
             var refreshes = 0;
             var discards = 0;
             var reloads = 0;
+            var retainedNavigation = false;
             var draft = new OrgExplorer.Desktop.NoteDraftState(kind, (_, _) => { },
-                () => pending, () => { }, value => message = value, _ => { });
+                () => pending, () => { }, value => message = value, (_, retained) => retainedNavigation = retained);
             draft.Edited();
+            if (draft.TryLeave() || retainedNavigation)
+                throw new InvalidOperationException(kind + ": new pending writing was misclassified as an already reported failure.");
             draft.CompleteSave(false, "title", "writing", "title", "writing");
+            if (draft.TryLeave() || !retainedNavigation)
+                throw new InvalidOperationException(kind + ": failed writing did not retain its reported-failure guard.");
             pending = true;
+            if (draft.TryLeave() || retainedNavigation)
+                throw new InvalidOperationException(kind + ": in-flight retry must remain distinct from an idle retained failure.");
             async Task<bool> Refresh()
             {
                 refreshes++;
@@ -59,7 +66,7 @@ public static class DraftDiscardProbe
 '@ | Set-Content -LiteralPath $probe
     Add-Type -Path @((Resolve-Path -LiteralPath $Source).Path, $probe)
     $null = [DraftDiscardProbe]::Run().GetAwaiter().GetResult()
-    Write-Host 'PASS: failed Person/Team drafts refuse discard during a retry without starting refresh or clearing writing; idle discard still works.'
+    Write-Host 'PASS: Person/Team pending, retained failure and retry guards stay distinct; in-flight discard refuses overlap and idle discard still works.'
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force
 }

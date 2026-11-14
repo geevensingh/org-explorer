@@ -31,7 +31,7 @@ public partial class PersonNotesControl : UserControl
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
             message => presentation.ShowOperationStatus(message),
-            message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
+            (message, retainedFailure) => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message, retainedFailure));
         Unloaded += (_, _) => draft.Stop();
     }
     public void Attach(WorkspaceViewModel application, Action onChanged)

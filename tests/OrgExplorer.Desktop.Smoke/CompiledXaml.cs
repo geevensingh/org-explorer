@@ -141,6 +141,10 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyEmptyReadingScroll(emptyReadingWindow, settings); }
                 finally { emptyReadingWindow.Close(); }
+                var retainedWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyRejectedOverlayGeometry(retainedWindow, settings); }
+                finally { retainedWindow.Close(); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -788,6 +792,84 @@ internal static partial class Program
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");
         Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
+    }
+
+    private static void VerifyRejectedOverlayGeometry(Window window, string settings)
+    {
+        var folder = Path.Combine(settings, "retained-overlay");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000005",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com","officeNumber":"Discard me"}]}
+                """).Id))
+                throw new InvalidOperationException("Retained overlay fixture failed: " + seed.Status);
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        var notes = Control<FrameworkElement>("PersonNotes");
+        T Note<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
+        Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("WorkspaceName").Text == "retained-overlay" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var tree = Control<TreeView>("PeopleList");
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        var casey = workflow.ReportingRoots.Single();
+        var avery = casey.Reports.Single();
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+        Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => Note<TextBox>("NoteTitle").Text == "New Person note" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var savedFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
+        var savedBytes = File.ReadAllBytes(savedFile);
+        var root = (FrameworkElement)window.Content;
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        void Layout()
+        {
+            root.Measure(new Size(700, 900));
+            root.Arrange(new Rect(0, 0, 700, 900));
+            root.UpdateLayout();
+        }
+        void Measure(string phase) => Console.WriteLine($"OVERLAY-PROBE {phase}: viewport={Bounds(Control<ScrollViewer>("PersonScroll"))}; " +
+            $"notice={Bounds(Control<GroupBox>("OperationalNotice"))}; owner={Control<TextBlock>("Email").Text}; " +
+            $"title='{Note<TextBox>("NoteTitle").Text}'; editing={Note<TabControl>("Views").SelectedItem == notes.FindName("EditTab")}; " +
+            $"editor={Bounds(Note<TextBox>("MarkdownEditor"))}; " +
+            $"panel={Control<GroupBox>("PeoplePanel").Visibility}; summary={Control<TextBlock>("NoticeSummary").Text.Replace('\n', '|')}.");
+        try
+        {
+            Note<TextBox>("NoteTitle").Text = "";
+            PumpUntil(() => Note<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal) &&
+                Control<Button>("OpenWorkspaceButton").IsEnabled);
+            Layout();
+            Measure("after-resize");
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            Layout();
+            var before = Bounds(Control<ScrollViewer>("PersonScroll"));
+            Measure("baseline");
+            Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            Measure("opened");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(avery, casey, TreeView.SelectedItemChangedEvent));
+            Layout();
+            Measure("rejected");
+            if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
+                Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
+                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+                Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
+                !Control<TextBlock>("StatusText").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
+                !Note<TextBlock>("NoteStatus").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
+                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
+                throw new InvalidOperationException("Measured rejected overlay navigation changed geometry, owner, retained editor or panel.");
+        }
+        finally
+        {
+            Note<Button>("DiscardButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" && workflow.CanSafelyClose);
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Overlay measurement must remain invisible without a native main-window handle.");
     }
 
     private static void VerifyEmptyReadingScroll(Window window, string settings)

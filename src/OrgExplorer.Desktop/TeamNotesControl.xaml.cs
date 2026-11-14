@@ -45,7 +45,7 @@ public partial class TeamNotesControl : UserControl
             () => ((MainWindow)Window.GetWindow(this)).HasPendingWork,
             () => ((MainWindow)Window.GetWindow(this)).MarkDraftPending(),
             message => presentation.ShowOperationStatus(message),
-            message => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message));
+            (message, retainedFailure) => ((MainWindow)Window.GetWindow(this)).ShowNavigationBlocked(message, retainedFailure));
         Unloaded += (_, _) => draft.Stop();
     }
 
