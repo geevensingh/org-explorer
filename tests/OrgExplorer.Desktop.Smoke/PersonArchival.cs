@@ -46,6 +46,10 @@ internal static partial class Program
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Frozen Manager\nOriginal Manager writing");
+            AwaitLocalWorkIdle(window);
+            BeginProfileEditing(window);
+            Set(window, "TeamNameEditor", "Platform");
+            SaveProfileEditing(window);
             NavigateToManager(window, "casey@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Ancestor context");
@@ -119,6 +123,7 @@ internal static partial class Program
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
+            AssertTeamNameReading(window, null);
             AssertPhotoVisible(window);
             AssertPreferredNameReading(window, "Ave", "Edit");
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -148,6 +153,7 @@ internal static partial class Program
             EnsurePeopleBrowsing(window);
             ((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectArchivedPerson(window, "avery@example.com");
+            AssertTeamNameReading(window, null);
             AssertPhotoVisible(window);
             AssertProfileValue(window, "Alias", "avery");
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -169,6 +175,11 @@ internal static partial class Program
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Retained individual");
             AssertNoteView(window, "Person", editing: false);
             NavigateToManager(window, "morgan@example.com");
+            AssertTeamNameReading(window, null);
+            BeginProfileEditing(window);
+            if (IsVisible(window, "TeamNameEditor"))
+                throw new InvalidOperationException("A manager with only archived reports can edit a dormant Team name.");
+            CancelProfileEditing(window);
             SelectTeamNote(window, "Manager context");
             SelectTab(window, "TeamNoteEditTab");
             Set(window, "TeamNoteMarkdown", "# Later Manager\nLater Manager writing");
@@ -182,6 +193,8 @@ internal static partial class Program
             if (HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Canceled reactivation changed retained history.");
             BeginProfileEditing(window);
+            if (IsVisible(window, "TeamNameEditor"))
+                throw new InvalidOperationException("An Archived person has a Team-name editing action.");
             Set(window, "OfficeCountry", "France");
             RequestPersonArchival(window, archived: false);
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
@@ -192,6 +205,9 @@ internal static partial class Program
             if (!CurrentReadingText(window).Contains("Later Manager writing") ||
                 HistoricalReadingText(window) != frozen)
                 throw new InvalidOperationException("Reactivation mixed frozen writing into current context.");
+            NavigateToManager(window, "morgan@example.com");
+            AssertTeamNameReading(window, "Platform");
+            OpenPerson(window, "casey@example.com", "morgan@example.com");
 
             BeginProfileEditing(window);
             SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");

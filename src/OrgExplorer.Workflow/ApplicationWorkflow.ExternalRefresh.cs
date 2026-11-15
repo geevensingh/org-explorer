@@ -238,7 +238,7 @@ public sealed partial class ApplicationWorkflow
         CheckRecordVersion(root, "Person", workspaceVersion);
         CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
             "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
-            "managerEmail", "archived", "isFavorite", "photoPath", "heading"], "Person");
+            "managerEmail", "archived", "isFavorite", "photoPath", "heading", "teamName"], "Person");
         var email = Email(Required(root, "email", "Person"), "Person.email");
         Required(root, "directoryName", email);
         var manager = Required(root, "managerEmail", email);
@@ -246,6 +246,7 @@ public sealed partial class ApplicationWorkflow
         var person = DeserializeVersionedRecord<PersonProfile>(root) ?? throw new FormatException("Invalid Person data.");
         foreach (var (field, property, _) in TextFields)
             ValidateText(JsonSerializer.SerializeToElement(ReadText(person, field)), field, $"{person.Email}.{property}");
+        Text(JsonSerializer.SerializeToElement(person.TeamName), $"{person.Email}.teamName");
         return person;
     }
 
