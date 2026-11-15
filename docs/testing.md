@@ -1157,6 +1157,9 @@ Raw Click/Set and idle/startup observations never open or close Settings.
 Physical copy click/hover preparation likewise captures a visible usable point
 within that wait, then sends input once. Eligible targets must be enabled;
 deliberate missing-value checks retain their disabled automation peers.
+Copy/owner hovers send actual absolute mouse movement on the verified primary
+display, not position-only `SetCursorPos`, which left the hosted cursor suppressed
+despite hitting the correct value. The native visible-hand/non-hand assertion remains.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

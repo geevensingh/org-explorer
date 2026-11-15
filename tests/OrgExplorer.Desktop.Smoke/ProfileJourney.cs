@@ -508,11 +508,9 @@ internal static partial class Program
                     tooltip.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty,
                         "Click to copy\n" + segment.Current.Name + "\n" + expected)) is not null);
         }
-        var point = AwaitClickablePoint(segment);
-        if (!SetCursorPos((int)point.X, (int)point.Y))
-            throw new InvalidOperationException("The hosted desktop could not hover the Team-name segment.");
+        HoverCopyValue(segment);
         Await(TooltipVisible);
-        AssertCopyCursor(true, segment, point);
+        AssertCopyCursor(true);
         var away = AwaitClickablePoint(Find(window, "Email"));
         if (!SetCursorPos((int)away.X, (int)away.Y))
             throw new InvalidOperationException("The hosted desktop could not leave the Team-name segment.");
@@ -651,47 +649,33 @@ internal static partial class Program
         mouse_event(4, 0, 0, 0, 0);
     }
 
-    private static void AssertCopyCursor(bool copyable, AutomationElement value, Point point)
+    private static void HoverCopyValue(AutomationElement value, bool requireEnabled = true)
+    {
+        var point = AwaitClickablePoint(value, requireEnabled);
+        var width = GetSystemMetrics(0);
+        var height = GetSystemMetrics(1);
+        if (width <= 1 || height <= 1 || point.X < 0 || point.Y < 0 || point.X >= width || point.Y >= height)
+            throw new InvalidOperationException("The hosted hover point is outside the verified primary display: " + point);
+        // Position-only SetCursorPos leaves the hosted touch/pen cursor suppressed.
+        mouse_event(0x8001, (uint)Math.Round(point.X * 65535 / (width - 1)),
+            (uint)Math.Round(point.Y * 65535 / (height - 1)), 0, 0);
+    }
+
+    private static void AssertCopyCursor(bool copyable)
     {
         var cursor = new CopyCursorInfo { Size = Marshal.SizeOf<CopyCursorInfo>() };
         var hand = LoadCursor(IntPtr.Zero, (IntPtr)32649);
         if (hand == IntPtr.Zero) throw new InvalidOperationException("The hosted hand cursor is unavailable.");
-        try
+        Await(() =>
         {
-            Await(() =>
-            {
-                ReadCopyCursor(ref cursor);
-                return cursor.Flags == 1 && (cursor.Cursor == hand) == copyable;
-            });
-        }
-        catch (TimeoutException)
-        {
-            // [DEBUG-profile-copy-native] Temporary post-interop-fix hosted observation; remove after diagnosis.
-            Console.WriteLine($"[DEBUG-profile-copy-native] copyable={copyable}; flags={cursor.Flags}; " +
-                $"cursor={cursor.Cursor}; hand={hand}; requested={point}; actual={cursor.Position.X},{cursor.Position.Y}.");
-            var target = value.Current;
-            var requestedHit = AutomationElement.FromPoint(point).Current;
-            var actualHit = AutomationElement.FromPoint(new Point(cursor.Position.X, cursor.Position.Y)).Current;
-            Console.WriteLine($"[DEBUG-profile-copy-native] target={target.AutomationId}/{target.ProcessId}; " +
-                $"enabled={target.IsEnabled}; offscreen={target.IsOffscreen}; bounds={target.BoundingRectangle}; " +
-                $"requestedHit={requestedHit.AutomationId}/{requestedHit.ProcessId}/{requestedHit.ControlType.ProgrammaticName}; " +
-                $"requestedHitBounds={requestedHit.BoundingRectangle}; " +
-                $"actualHit={actualHit.AutomationId}/{actualHit.ProcessId}/{actualHit.ControlType.ProgrammaticName}; " +
-                $"actualHitBounds={actualHit.BoundingRectangle}.");
-            throw;
-        }
+            ReadCopyCursor(ref cursor);
+            return cursor.Flags == 1 && (cursor.Cursor == hand) == copyable;
+        });
     }
 
     private static void AssertCopyHint(AutomationElement window, AutomationElement value, string expected)
     {
-        var point = AwaitClickablePoint(value);
-        if (!SetCursorPos((int)point.X, (int)point.Y))
-            throw new InvalidOperationException("The hosted desktop could not hover a copyable profile value.");
-        var beforeTooltip = new CopyCursorInfo();
-        ReadCopyCursor(ref beforeTooltip);
-        Console.WriteLine($"[DEBUG-profile-copy-native] before-tooltip target={value.Current.AutomationId}; " +
-            $"flags={beforeTooltip.Flags}; cursor={beforeTooltip.Cursor}; requested={point}; " +
-            $"actual={beforeTooltip.Position.X},{beforeTooltip.Position.Y}.");
+        HoverCopyValue(value);
         Await(() =>
         {
             var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
@@ -702,7 +686,7 @@ internal static partial class Program
                     tooltip.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty,
                         "Click to copy\n" + expected)) is not null);
         });
-        AssertCopyCursor(true, value, point);
+        AssertCopyCursor(true);
     }
 
     private static void AssertCopyFeedback(AutomationElement window, AutomationElement value)
@@ -770,11 +754,9 @@ internal static partial class Program
     private static void AssertMissingCopy(AutomationElement window, AutomationElement value)
     {
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
-        var point = AwaitClickablePoint(value, requireEnabled: false);
-        if (!SetCursorPos((int)point.X, (int)point.Y))
-            throw new InvalidOperationException("The hosted missing-value target cannot be hovered.");
+        HoverCopyValue(value, requireEnabled: false);
         Thread.Sleep(700);
-        AssertCopyCursor(false, value, point);
+        AssertCopyCursor(false);
         if (value.Current.ItemStatus.Contains("Click to copy", StringComparison.Ordinal))
             throw new InvalidOperationException("Missing profile values advertise an unavailable copy action.");
         var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
