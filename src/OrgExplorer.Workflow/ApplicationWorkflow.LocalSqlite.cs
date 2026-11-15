@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 
 namespace OrgExplorer.Workflow;
 
@@ -9,8 +10,6 @@ public sealed partial class ApplicationWorkflow
     private const string SqliteDatabase = "workspace.sqlite";
     private const string SqliteDiscriminator = "local-workspace.format";
     private const string SqliteFormat = "OrgExplorer local SQLite Workspace";
-    private const string SqliteEditingUnavailable =
-        "Ordinary edits are not implemented for this staged SQLite Workspace. Initial People-only Import and browsing are available.";
     private bool localSqlite;
 
     private SqliteConnection OpenLocalConnection(bool create = false)
@@ -60,7 +59,7 @@ public sealed partial class ApplicationWorkflow
                     identity TEXT NOT NULL,
                     revision TEXT NOT NULL
                 );
-                INSERT INTO workspace VALUES (1, 2, $identity, $revision);
+                INSERT INTO workspace VALUES (1, 3, $identity, $revision);
                 CREATE TABLE people (email TEXT PRIMARY KEY COLLATE NOCASE, profile TEXT NOT NULL);
                 CREATE TABLE profile_history (
                     email TEXT PRIMARY KEY COLLATE NOCASE REFERENCES people(email), history TEXT NOT NULL
@@ -71,6 +70,7 @@ public sealed partial class ApplicationWorkflow
             command.Parameters.AddWithValue("$revision", Guid.NewGuid().ToString("D"));
             command.ExecuteNonQuery();
             CreateLocalNoteSchema(command);
+            CreateLocalProfileSchema(command);
             transaction.Commit();
         }
         if (!File.Exists(Path.Combine(workspace!, SqliteDiscriminator)) ||
@@ -85,6 +85,8 @@ public sealed partial class ApplicationWorkflow
         var loadedTeamNotes = new Dictionary<Guid, TeamNote>();
         var confirmations = new Dictionary<Guid, Guid>();
         var contexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        var historical = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
+        var loadedPhotos = new Dictionary<string, byte[]>();
         string committedRevision;
         int version;
         using (var connection = OpenLocalConnection())
@@ -102,7 +104,7 @@ public sealed partial class ApplicationWorkflow
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace exists. Creation did not complete.");
             version = reader.GetInt32(0);
-            if (version is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            if (version is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
             if (!Guid.TryParseExact(reader.GetString(1), "D", out var identity) || identity == Guid.Empty ||
                 !Guid.TryParseExact(reader.GetString(2), "D", out var commit) || commit == Guid.Empty)
                 throw new FormatException("Invalid local SQLite Workspace identity or revision.");
@@ -117,7 +119,8 @@ public sealed partial class ApplicationWorkflow
                     json.Add("schemaVersion", 2);
                     var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json), 2);
                     if (!profiles.GetString(0).Equals(person.Email, StringComparison.OrdinalIgnoreCase) ||
-                        !loaded.TryAdd(person.Email, person) || person.PhotoPath is not null || person.TeamName is not null)
+                        !loaded.TryAdd(person.Email, person) ||
+                        version < 3 && (person.PhotoPath is not null || person.TeamName is not null))
                         throw new FormatException("Unsupported or inconsistent local Person data. Nothing is partially opened.");
                 }
             ValidateGraph(loaded);
@@ -143,9 +146,15 @@ public sealed partial class ApplicationWorkflow
                     accepted.Add(imports.GetString(0), item!);
                 }
             foreach (var item in history.Values)
+            {
                 foreach (var evidence in item.Observations)
-                    if (evidence.BatchId is not { } batchId || !accepted.ContainsKey(batchId.ToString("D")))
-                        throw new FormatException("Local Profile evidence requires its accepted Import.");
+                    RequireAcceptedEvidence(evidence);
+                foreach (var change in item.Changes)
+                {
+                    RequireAcceptedEvidence(change.Evidence);
+                    if (change.PreviousEvidence is { } prior) RequireAcceptedEvidence(prior);
+                }
+            }
             if (version >= 2)
             {
                 command.CommandText = "SELECT scope, id, owner_email, metadata, markdown FROM notes;";
@@ -186,26 +195,73 @@ public sealed partial class ApplicationWorkflow
                     contexts.Add(context.GetString(0), contextRevision);
                 }
             }
+            if (version >= 3)
+            {
+                command.CommandText = "SELECT email, contexts FROM historical_team_context;";
+                using (var captures = command.ExecuteReader())
+                {
+                    var ids = new HashSet<Guid>();
+                    while (captures.Read())
+                    {
+                        var email = captures.GetString(0);
+                        var items = JsonSerializer.Deserialize<List<HistoricalTeamContext>>(captures.GetString(1), JsonOptions)
+                            ?? throw new FormatException("Invalid local Historical team context.");
+                        if (!loaded.ContainsKey(email) || !historical.TryAdd(email, items))
+                            throw new FormatException("Unknown or duplicate Historical team context owner.");
+                        foreach (var capture in items)
+                        {
+                            ValidateHistoricalCapture(capture, email, ids);
+                            foreach (var transition in capture.Transitions)
+                            {
+                                RequireAcceptedEvidence(transition.Change.Evidence);
+                                if (transition.Change.PreviousEvidence is { } prior) RequireAcceptedEvidence(prior);
+                            }
+                        }
+                    }
+                }
+                command.CommandText = "SELECT reference, content FROM photos;";
+                using var resources = command.ExecuteReader();
+                while (resources.Read())
+                {
+                    var reference = resources.GetString(0);
+                    var bytes = (byte[])resources.GetValue(1);
+                    ValidateLocalPhoto(reference, bytes);
+                    loadedPhotos.Add(reference, bytes);
+                }
+            }
+            foreach (var reference in RequiredIncrementalPhotos(loaded, history, historical))
+            {
+                ValidateHistoryValue("photoPath", JsonSerializer.SerializeToElement(reference));
+                if (!loadedPhotos.ContainsKey(reference))
+                    throw new FormatException("Required current or retained Profile photo is unavailable.");
+            }
+
+            void RequireAcceptedEvidence(FieldEvidence evidence)
+            {
+                if (evidence.Source == ProfileChangeSource.Import &&
+                    (evidence.BatchId is not { } batchId || !accepted.ContainsKey(batchId.ToString("D"))))
+                    throw new FormatException("Local Profile evidence requires its accepted Import.");
+            }
         }
         people = loaded;
         batches = accepted;
         profileHistory = history;
         revision = committedRevision;
-        historicalTeamContexts = new(StringComparer.OrdinalIgnoreCase);
+        historicalTeamContexts = historical;
         personNotes = loadedPersonNotes;
         teamNotes = loadedTeamNotes;
         teamNoteConfirmations = confirmations;
         teamContextRevisions = contexts;
-        photos = [];
+        photos = loadedPhotos;
         InvalidateProjections();
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            $"Local SQLite Workspace (format {version}). Person/Team notes, initial People-only Import and browsing are available. " +
-            "Profile edits and synchronization are not implemented on this staged path. Settings remain available.",
+            $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and initial People-only Import are available. " +
+            "Synchronization is not implemented on this staged path. Settings remain available.",
             workspace, version)
         {
-            SupportsOrdinaryEdits = false, SupportsNoteEdits = true,
-            SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 2
+            SupportsOrdinaryEdits = true, SupportsNoteEdits = true,
+            SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
     }
 
@@ -216,7 +272,7 @@ public sealed partial class ApplicationWorkflow
         command.CommandText = "SELECT format_version, revision FROM workspace WHERE singleton=1;";
         using var reader = command.ExecuteReader();
         if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace revision exists.");
-        if (reader.GetInt32(0) is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
+        if (reader.GetInt32(0) is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
         return reader.GetString(1);
     }
 
@@ -251,7 +307,7 @@ public sealed partial class ApplicationWorkflow
         {
             if (!reader.Read()) throw new FormatException("No committed local Workspace exists.");
             version = reader.GetInt32(0);
-            if (version is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            if (version is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
             if (reader.GetString(1) != revision)
                 throw new IOException("Local Workspace changed. Reopen to reconcile the note before retrying.");
         }
@@ -270,61 +326,146 @@ public sealed partial class ApplicationWorkflow
         command.Parameters.AddWithValue("$markdown", markdown);
         command.ExecuteNonQuery();
         var next = Guid.NewGuid().ToString("D");
-        command.CommandText = "UPDATE workspace SET format_version=2, revision=$revision WHERE singleton=1;";
+        command.CommandText = "UPDATE workspace SET format_version=$version, revision=$revision WHERE singleton=1;";
         command.Parameters.Clear();
         command.Parameters.AddWithValue("$revision", next);
+        command.Parameters.AddWithValue("$version", Math.Max(version, 2));
         command.ExecuteNonQuery();
         transaction.Commit();
         revision = next;
     }
 
-    private bool SaveLocalSqliteImport(Dictionary<string, PersonProfile> proposed,
-        Dictionary<string, AcceptedBatch> accepted, Dictionary<string, PersonHistory> history, string operation)
+    private bool SaveLocalSqlite(Dictionary<string, PersonProfile> proposed,
+        Dictionary<string, AcceptedBatch> accepted, Dictionary<string, byte[]> proposedPhotos,
+        Dictionary<string, PersonHistory> history, Dictionary<string, Guid> nextContexts,
+        Dictionary<string, List<HistoricalTeamContext>> nextHistorical, string operation,
+        IReadOnlyList<PhotoResource>? resources)
     {
-        if (operation != "import") return Fail(SqliteEditingUnavailable);
         try
         {
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = "SELECT revision FROM workspace WHERE singleton=1;";
-            if (command.ExecuteScalar() as string != revision)
-                throw new IOException("Local Workspace changed. Reopen and review the Import again.");
+            command.CommandText = "SELECT format_version, revision FROM workspace WHERE singleton=1;";
+            using (var reader = command.ExecuteReader())
+            {
+                if (!reader.Read()) throw new FormatException("No committed local Workspace exists.");
+                if (reader.GetInt32(0) is not (1 or 2 or 3))
+                    throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
+                if (reader.GetString(1) != revision)
+                    throw new IOException("Local Workspace changed. Reopen to reconcile before retrying.");
+            }
+            ValidateGraph(proposed);
+            foreach (var person in proposed.Values) ValidateProfileHistory(history[person.Email], person);
+            foreach (var reference in RequiredIncrementalPhotos(proposed, history, nextHistorical))
+                if (!proposedPhotos.ContainsKey(reference))
+                    throw new IOException("Required current or retained Profile photo is unavailable. Nothing saved.");
+            CreateLocalNoteSchema(command);
+            CreateLocalProfileSchema(command);
             foreach (var person in proposed.Values)
             {
-                command.CommandText = "INSERT INTO people VALUES ($key, $value);";
+                if (people.GetValueOrDefault(person.Email) == person &&
+                    ReferenceEquals(profileHistory.GetValueOrDefault(person.Email), history[person.Email])) continue;
+                command.CommandText = """
+                    INSERT INTO people VALUES ($key, $value)
+                    ON CONFLICT(email) DO UPDATE SET profile=excluded.profile;
+                    """;
                 command.Parameters.Clear();
                 command.Parameters.AddWithValue("$key", person.Email);
                 command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(person, JsonOptions));
                 command.ExecuteNonQuery();
-                command.CommandText = "INSERT INTO profile_history VALUES ($key, $value);";
+                command.CommandText = """
+                    INSERT INTO profile_history VALUES ($key, $value)
+                    ON CONFLICT(email) DO UPDATE SET history=excluded.history;
+                    """;
                 command.Parameters["$value"].Value = JsonSerializer.Serialize(history[person.Email], JsonOptions);
                 command.ExecuteNonQuery();
             }
             foreach (var (id, batch) in accepted)
             {
+                if (batches.ContainsKey(id)) continue;
                 command.CommandText = "INSERT INTO accepted_batches VALUES ($key, $value);";
                 command.Parameters.Clear();
                 command.Parameters.AddWithValue("$key", id);
                 command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(batch, JsonOptions));
                 command.ExecuteNonQuery();
             }
+            foreach (var (email, context) in nextContexts)
+            {
+                if (teamContextRevisions.GetValueOrDefault(email) == context) continue;
+                command.CommandText = """
+                    INSERT INTO team_context VALUES ($key, $value)
+                    ON CONFLICT(email) DO UPDATE SET revision=excluded.revision;
+                    """;
+                command.Parameters.Clear();
+                command.Parameters.AddWithValue("$key", email);
+                command.Parameters.AddWithValue("$value", context.ToString("D"));
+                command.ExecuteNonQuery();
+            }
+            foreach (var (email, captures) in nextHistorical)
+            {
+                if (ReferenceEquals(historicalTeamContexts.GetValueOrDefault(email), captures)) continue;
+                command.CommandText = """
+                    INSERT INTO historical_team_context VALUES ($key, $value)
+                    ON CONFLICT(email) DO UPDATE SET contexts=excluded.contexts;
+                    """;
+                command.Parameters.Clear();
+                command.Parameters.AddWithValue("$key", email);
+                command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(captures, JsonOptions));
+                command.ExecuteNonQuery();
+            }
+            foreach (var (reference, bytes) in proposedPhotos)
+            {
+                if (photos.ContainsKey(reference)) continue;
+                ValidateLocalPhoto(reference, bytes);
+                command.CommandText = "INSERT INTO photos VALUES ($key, $value);";
+                command.Parameters.Clear();
+                command.Parameters.AddWithValue("$key", reference);
+                command.Parameters.AddWithValue("$value", bytes);
+                command.ExecuteNonQuery();
+            }
+            if (resources is not null && !PhotoResourcesUnchanged(resources))
+                throw new IOException("Required photo changed while saving. Nothing saved; retain the draft and choose the intended image again.");
             var next = Guid.NewGuid().ToString("D");
-            command.CommandText = "UPDATE workspace SET revision=$revision WHERE singleton=1;";
+            command.CommandText = "UPDATE workspace SET format_version=3, revision=$revision WHERE singleton=1;";
             command.Parameters.Clear();
             command.Parameters.AddWithValue("$revision", next);
             command.ExecuteNonQuery();
             transaction.Commit();
             revision = next;
+            teamContextRevisions = nextContexts;
+            historicalTeamContexts = nextHistorical;
             failedSaves.Remove(operation);
             return true;
         }
+
         catch (Exception error) when (StorageError(error))
         {
-            workspaceCurrent = false;
-            return SaveFailed(operation, "Initial Import NOT confirmed saved locally. Reopen to reconcile the transaction before reviewing again. " + error.Message);
+            if (operation == "import") workspaceCurrent = false;
+            return SaveFailed(operation, "Change NOT confirmed saved locally. Draft retained; reopen to reconcile before retrying. " + error.Message);
         }
+    }
+
+    private static void CreateLocalProfileSchema(SqliteCommand command)
+    {
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS historical_team_context (
+                email TEXT PRIMARY KEY COLLATE NOCASE REFERENCES people(email), contexts TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS photos (reference TEXT PRIMARY KEY, content BLOB NOT NULL);
+            """;
+        command.Parameters.Clear();
+        command.ExecuteNonQuery();
+    }
+
+    private static void ValidateLocalPhoto(string reference, byte[] bytes)
+    {
+        ValidateHistoryValue("photoPath", JsonSerializer.SerializeToElement(reference));
+        var photo = DecodePhoto(bytes, "Local Workspace photo");
+        if (reference != Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() +
+            (photo.ContentType == "image/png" ? ".png" : ".jpg"))
+            throw new FormatException("Local photo content does not match its immutable resource reference.");
     }
 
     private static void RequireLocalSqliteLocation(string workspacePath)

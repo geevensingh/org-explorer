@@ -160,7 +160,7 @@ public sealed partial class ApplicationWorkflow
         for (var index = 0; index < capture.ReportingChain.Count; index++)
         {
             var person = capture.ReportingChain[index];
-            if (person is null || person.Archived ||
+            if (person is null || person.Archived || person.TeamName is not null ||
                 string.Equals(person.Email, email, StringComparison.OrdinalIgnoreCase) ||
                 !chain.TryAdd(Email(JsonSerializer.SerializeToElement(person.Email), "Historical chain.email"), person) ||
                 !string.Equals(person.ManagerEmail, index + 1 < capture.ReportingChain.Count

@@ -200,6 +200,7 @@ internal static partial class Program
                     commitMs, reopenReadMs = reopenMs, p95DispatchMs = P95(dispatchMs), p95AddThroughLayoutMs = P95(layoutMs),
                     p95SelectionThroughLayoutMs = P95(selectionMs), p95CommitMs = P95(commitMs),
                     boundary = "Actual invisible compiled event handlers/layout and first-request-to-real-workflow reopen; not native focus, rendered pixels or hosted latency acceptance." }));
+            VerifyLocalProfileControls(window, workflow, Select, ArrangeContent, settings);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("SQLite navigation verification must not show a window or create its native handle.");
             Console.WriteLine("PASS: compiled SQLite Create returns to the ordinary start view and normal Settings Import reaches a real reviewed preview without a visible window/native handle.");
@@ -241,6 +242,7 @@ internal static partial class Program
             Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", "1");
             string local;
             IReadOnlyDictionary<NoteScope, (Guid Id, string Title, string Markdown)> savedNotes;
+            LocalPersonJourney personJourney;
             using (var process = Launch(executable))
             {
                 try
@@ -275,11 +277,14 @@ internal static partial class Program
                     AssertProfileValue(window, "OfficeNumber", "007B");
                     AssertProfileValue(window, "Department", "Research");
                     Await(() => Find(window, "ProfileHeading").Current.Name == "Avery Example");
-                    if (Find(window, "EditProfile").Current.IsEnabled ||
-                        Find(window, "ToggleFavorite").Current.IsEnabled)
-                        throw new InvalidOperationException("The incomplete SQLite path enabled unsupported ordinary edits.");
+                    if (!Find(window, "EditProfile").Current.IsEnabled ||
+                        !Find(window, "ToggleFavorite").Current.IsEnabled)
+                        throw new InvalidOperationException("The SQLite path did not enable its implemented ordinary Person edits.");
                     CaptureVisualEvidence(window, "sqlite-initial-import-browsing");
                     savedNotes = RunLocalNoteAutosaveJourney(window, local);
+                    personJourney = RunLocalPersonSaveJourney(window, local, root, savedNotes[NoteScope.Team]);
+                    savedNotes = savedNotes.ToDictionary(pair => pair.Key, pair => pair.Key == NoteScope.Team
+                        ? (pair.Value.Id, pair.Value.Title, pair.Value.Markdown + "\nLater current-only writing") : pair.Value);
                     SelectTreePerson(window, "avery@example.com");
                     Await(() => CurrentPersonEmail(window) == "avery@example.com");
                     AssertWorkspaceBytes(oldWorkspace, originals);
@@ -292,8 +297,25 @@ internal static partial class Program
             {
                 var window = Window(reopened);
                 AwaitRestoredWorkspace(window, local, "avery@example.com");
-                AssertProfileValue(window, "OfficeNumber", "007B");
+                AssertProfileValue(window, "OfficeNumber", "008C");
                 AssertProfileValue(window, "OfficeCountry", "Canada");
+                AssertPhotoVisible(window);
+                AssertProfileValue(window, "JobTitle", "Independent researcher");
+                AssertTeamNameReading(window, "Platform");
+                using (var reading = ApplicationWorkflow.CreateFileBacked())
+                {
+                    if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
+                        reading.GetRelationships("avery@example.com")!.Person.PreferredName != "Avery reference" ||
+                        !reading.GetRelationships("avery@example.com")!.Person.IsFavorite ||
+                        reading.GetRelationships("avery@example.com")!.Person.Archived ||
+                        reading.GetPhoto("avery@example.com") is not { } photo ||
+                        Convert.ToHexString(SHA256.HashData(photo.Bytes.Span)) != personJourney.PhotoSha256 ||
+                        reading.GetHistoricalTeamContexts("avery@example.com").Single(c => c.Id == personJourney.CaptureId)
+                            .TeamNotes.Single(note => note.Id == personJourney.NoteId).Version != personJourney.FrozenVersion)
+                        throw new InvalidOperationException("Hosted SQLite profile reopening lost committed personal context or history.");
+                }
+                CaptureVisualEvidence(window, "sqlite-person-saves-reopened");
+                WriteLocalPersonJourneyEvidence(window, personJourney);
                 Click(window, "NavigateManager");
                 Await(() => CurrentPersonEmail(window) == "morgan@example.com");
                 var savedTeam = savedNotes[NoteScope.Team];
@@ -322,6 +344,271 @@ internal static partial class Program
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
             Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", previousOptIn);
         }
+    }
+
+    private static void VerifyLocalProfileControls(Window window, WorkspaceViewModel workflow,
+        Action<string> select, Action arrange, string root)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        select("morgan@example.com");
+        Invoke("EditProfileButton");
+        Control<TextBox>("TeamNameEditor").Text = "Platform";
+        Invoke("SaveProfileButton");
+        PumpUntil(() => workflow.ProfileEdit is null && Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        select("avery@example.com");
+        Invoke("EditProfileButton");
+        Control<TextBox>("OfficeNumber").Text = "Retained SQLite room";
+        select("morgan@example.com");
+        if (workflow.ProfileEdit is not null || Control<FrameworkElement>("ProfileForm").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Compiled browsing exposed another owner's retained profile fields.");
+        select("avery@example.com");
+        if (Control<TextBox>("OfficeNumber").Text != "Retained SQLite room" ||
+            Control<FrameworkElement>("ProfileForm").Visibility != Visibility.Visible || workflow.CanSafelyClose)
+            throw new InvalidOperationException("Compiled Person navigation discarded or implicitly saved its retained profile draft.");
+        var photo = Path.Combine(root, "sqlite-profile-photo.png");
+        CreatePhotoFixture(photo);
+        workflow.StageProfilePhoto(photo);
+        using (var connection = new SqliteConnection(
+            $"Data Source={Path.Combine(workflow.Compatibility.WorkspacePath!, "workspace.sqlite")};Pooling=False"))
+        {
+            connection.Open();
+            using var held = connection.BeginTransaction();
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Saving complete profile…");
+            select("morgan@example.com");
+            arrange();
+            if (workflow.CanSafelyClose || Control<TextBlock>("Email").Text != "morgan@example.com")
+                throw new InvalidOperationException("Compiled browsing waited behind or falsely acknowledged an uncommitted profile.");
+            held.Commit();
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        }
+        select("avery@example.com");
+        using (var reading = ApplicationWorkflow.CreateFileBacked())
+            if (!reading.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
+                reading.GetRelationships("avery@example.com")!.Person.OfficeNumber != "Retained SQLite room" ||
+                reading.GetPhoto("avery@example.com")?.Width != 2)
+                throw new InvalidOperationException("Compiled explicit profile Save did not reopen coherent values and actual photo bytes.");
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Retained preferred";
+        select("morgan@example.com");
+        select("avery@example.com");
+        if (Control<TextBox>("PreferredName").Text != "Retained preferred" ||
+            workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)?.Value != "Retained preferred")
+            throw new InvalidOperationException("Compiled Person switching discarded its unsubmitted Preferred name.");
+        Invoke("CancelPreferredNameButton");
+        if (!workflow.CanSafelyClose)
+            throw new InvalidOperationException("Compiled Preferred-name Cancel did not discard only its retained entry.");
+        using (var connection = new SqliteConnection(
+            $"Data Source={Path.Combine(workflow.Compatibility.WorkspacePath!, "workspace.sqlite")};Pooling=False"))
+        {
+            connection.Open();
+            using var held = connection.BeginTransaction();
+            Invoke("EditPreferredNameButton");
+            Control<TextBox>("PreferredName").Text = "Cancelled failing request";
+            Invoke("SavePreferredNameButton");
+            Invoke("CancelPreferredNameButton");
+            if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("Compiled SQLite Cancel waited for the admitted Preferred-name request.");
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
+            if (workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
+                !workflow.CanSafelyClose)
+                throw new InvalidOperationException("Cancelled SQLite Preferred-name failure retained an invisible unsafe entry.");
+            held.Rollback();
+        }
+        Console.WriteLine("PASS: compiled SQLite profiles and Preferred names retain owner drafts across actual selection events; explicit held Save permits browsing and coherently reopens the photo without a visible window/native handle.");
+    }
+
+    private sealed record LocalPersonJourney(int EditingProcessId, Guid CaptureId, Guid NoteId, string FrozenVersion,
+        string PhotoSha256, IReadOnlyList<double> ProfileSaveMs, IReadOnlyList<double> NavigationMs);
+
+    private static LocalPersonJourney RunLocalPersonSaveJourney(AutomationElement window, string local, string root,
+        (Guid Id, string Title, string Markdown) team)
+    {
+        void Browse(string owner)
+        {
+            SelectTreePerson(window, owner, expectNavigation: false);
+            Await(() => CurrentPersonEmail(window) == owner && !Find(window, "Email").Current.IsOffscreen);
+        }
+        Browse("morgan@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Platform");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Platform");
+        AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com");
+        Browse("avery@example.com");
+        BeginProfileEditing(window);
+        Set(window, "OfficeNumber", "Unsubmitted room");
+        Browse("morgan@example.com");
+        AssertTeamNameReading(window, "Platform");
+        Browse("avery@example.com");
+        AssertValue(window, "OfficeNumber", "Unsubmitted room");
+        using (var reading = ApplicationWorkflow.CreateFileBacked())
+            if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
+                reading.GetRelationships("avery@example.com")!.Person.OfficeNumber != "007B")
+                throw new InvalidOperationException("Hosted navigation implicitly committed the retained profile.");
+        CaptureVisualEvidence(window, "sqlite-profile-retained-after-browse");
+        CancelProfileEditing(window);
+        AssertProfileValue(window, "OfficeNumber", "007B");
+
+        Click(window, "EditPreferredName");
+        Set(window, "PreferredName", "Avery reference");
+        Browse("morgan@example.com");
+        Browse("avery@example.com");
+        AssertValue(window, "PreferredName", "Avery reference");
+        Click(window, "SavePreferredName");
+        Await(() => Find(window, "ProfileHeading").Current.Name == "Avery reference");
+        Click(window, "ToggleFavorite");
+        AwaitLocalWorkIdle(window);
+        var photo = Path.Combine(root, "sqlite-profile-portrait.png");
+        CreatePhotoFixture(photo);
+        BeginProfileEditing(window);
+        Set(window, "OfficeNumber", "008C");
+        Set(window, "JobTitle", "Independent researcher");
+        ChooseProfilePhoto(window, photo);
+        SelectManagerChoice(window, "(explicit no-Manager — clear relationship)");
+        var managerSelection = (SelectionItemPattern)Find(window, "People").FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "morgan@example.com"))!
+            .GetCurrentPattern(SelectionItemPattern.Pattern);
+        var email = Find(window, "Email");
+        var heading = Find(window, "ProfileHeading");
+        var cache = new CacheRequest { TreeScope = TreeScope.Element };
+        cache.Add(AutomationElement.NameProperty);
+        cache.Add(AutomationElement.IsOffscreenProperty);
+        bool PersonReady(string expectedEmail, string expectedHeading) =>
+            email.GetUpdatedCache(cache).Cached is { Name: var actual, IsOffscreen: false } && actual == expectedEmail &&
+            heading.GetUpdatedCache(cache).Cached.Name == expectedHeading;
+        var navigation = new List<double>();
+        using (var connection = new SqliteConnection($"Data Source={Path.Combine(local, "workspace.sqlite")};Pooling=False"))
+        {
+            connection.Open();
+            using var held = connection.BeginTransaction();
+            Click(window, "SaveProfile");
+            var elapsed = Stopwatch.StartNew();
+            managerSelection.Select();
+            ObserveNoteLatency(() => PersonReady("morgan@example.com", "Morgan Example"));
+            navigation.Add(elapsed.Elapsed.TotalMilliseconds);
+            using var reading = ApplicationWorkflow.CreateFileBacked();
+            if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
+                reading.GetRelationships("avery@example.com")!.Person.OfficeNumber != "007B" ||
+                reading.GetPhoto("avery@example.com") is not null)
+                throw new InvalidOperationException("Held profile Save published partial facts or photo associations.");
+            held.Commit();
+        }
+        AwaitLocalWorkIdle(window);
+        AssertTeamNameReading(window, null);
+        Browse("avery@example.com");
+        AssertProfileValue(window, "OfficeNumber", "008C");
+        AssertPhotoVisible(window);
+        HistoricalTeamContext frozen;
+        using (var reading = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly))
+                throw new InvalidOperationException(reading.Status);
+            frozen = reading.GetHistoricalTeamContexts("avery@example.com").Single();
+            var captured = frozen.TeamNotes.Single(note => note.Id == team.Id);
+            if (captured.Markdown != team.Markdown || frozen.ReportingChain.Single().TeamName is not null ||
+                reading.GetRelationships("morgan@example.com")!.Person.TeamName != "Platform")
+                throw new InvalidOperationException("SQLite Manager Save lost frozen note writing or current-only dormant Team-name semantics.");
+        }
+        ExpandHistory(window);
+        var evidence = HistoricalEvidenceText(window);
+        if (!evidence.Contains(frozen.Id.ToString()) || !evidence.Contains(team.Id.ToString()) ||
+            !evidence.Contains(frozen.TeamNotes.Single(note => note.Id == team.Id).Version))
+            throw new InvalidOperationException("Hosted SQLite Historical disclosure omitted complete capture/note/version evidence.");
+        var disclosure = HistoricalCaptureDetails(window).Single();
+        var expansion = (ExpandCollapsePattern)disclosure.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        if (expansion.Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+            throw new InvalidOperationException("SQLite Capture details must remain collapsed before explicit reading.");
+        expansion.Expand();
+        var capturedEvidence = Find(disclosure, $"HistoricalCaptureEvidence-{frozen.Id}");
+        capturedEvidence.SetFocus();
+        Await(() => capturedEvidence.Current.HasKeyboardFocus && !capturedEvidence.Current.IsOffscreen);
+        var copyable = ((ValuePattern)capturedEvidence.GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
+        Clipboard.SetText("Capture evidence has not been copied.");
+        keybd_event(0x11, 0, 0, 0);
+        PressCopyKey(0x41);
+        PressCopyKey(0x43);
+        keybd_event(0x11, 0, 2, 0);
+        Await(() => Clipboard.GetText() == copyable);
+        CaptureVisualEvidence(window, "sqlite-person-history-capture-details");
+        expansion.Collapse();
+        Browse("morgan@example.com");
+        SelectTab(window, "TeamNoteEditTab");
+        Set(window, "TeamNoteMarkdown", team.Markdown + "\nLater current-only writing");
+        AwaitLocalWorkIdle(window);
+        Browse("avery@example.com");
+        if (HistoricalReadingText(window).Contains("Later current-only writing", StringComparison.Ordinal))
+            throw new InvalidOperationException("Later SQLite note writing rewrote the frozen Historical reading.");
+        RequestPersonArchival(window, archived: true, confirmed: true);
+        AwaitLocalWorkIdle(window);
+        AssertArchivalOwner(window, "avery@example.com", true);
+        RequestPersonArchival(window, archived: false, confirmed: true);
+        AwaitLocalWorkIdle(window);
+        BeginProfileEditing(window);
+        SelectManagerChoice(window, "Morgan Example (morgan@example.com)");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Platform");
+        var saves = new List<double>();
+        for (var sample = 0; sample < 20; sample++)
+        {
+            BeginProfileEditing(window);
+            var expected = sample == 19 ? "008C" : $"SQLite room {sample:D2}";
+            Set(window, "OfficeNumber", expected);
+            var save = (InvokePattern)Find(window, "SaveProfile").GetCurrentPattern(InvokePattern.Pattern);
+            using var observation = NoteCommitObservation.Begin(save.Invoke, () =>
+            {
+                using var reading = ApplicationWorkflow.CreateFileBacked();
+                if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly))
+                    throw new InvalidOperationException("Hosted profile commit could not reopen: " + reading.Status);
+                return reading.GetRelationships("avery@example.com")!.Person.OfficeNumber == expected &&
+                    reading.GetPhoto("avery@example.com")?.Width == 2;
+            });
+            AwaitLocalWorkIdle(window);
+            saves.Add(observation.Complete());
+        }
+        AssertPhotoVisible(window);
+        CaptureVisualEvidence(window, "sqlite-person-saves-committed");
+        var photoHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(photo)));
+        File.Delete(photo);
+        return new(window.Current.ProcessId, frozen.Id, team.Id, frozen.TeamNotes.Single(note => note.Id == team.Id).Version,
+            photoHash, saves, navigation);
+    }
+
+    private static void WriteLocalPersonJourneyEvidence(AutomationElement window, LocalPersonJourney journey)
+    {
+        using var process = Process.GetProcessById(window.Current.ProcessId);
+        using var input = File.OpenRead(process.MainModule!.FileName);
+        var path = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-person-saves.json");
+        if (File.Exists(path)) throw new InvalidOperationException("Hosted Person evidence already exists.");
+        var p95 = journey.ProfileSaveMs.Order().ElementAt((int)Math.Ceiling(journey.ProfileSaveMs.Count * .95) - 1);
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+            runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+            executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
+            editingProcessId = journey.EditingProcessId, reopenedProcessId = window.Current.ProcessId,
+            environment = new { os = Environment.OSVersion.ToString(), processors = Environment.ProcessorCount,
+                runtime = Environment.Version.ToString(), window = window.Current.BoundingRectangle.ToString() },
+            workspaceFormat = "SQLite format 3; no legacy authority",
+            ownerEmail = "avery@example.com", managerEmail = "morgan@example.com",
+            preferredName = "Avery reference", officeNumber = "008C", jobTitle = "Independent researcher", isFavorite = true,
+            teamName = "Platform", photoSha256 = journey.PhotoSha256, captureId = journey.CaptureId,
+            noteId = journey.NoteId, frozenVersion = journey.FrozenVersion,
+            profileDurability = new { boundary = "Native explicit Save Invoke through independently reopened exact complete profile and decoded photo; includes dispatch/queueing/commit.",
+                samplesMs = journey.ProfileSaveMs, p95Ms = p95, budgetMs = 1000,
+                percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based." },
+            heldSaveNavigation = new { boundary = "Native Person Select request through exact visible email and usable heading while a real SQLite writer holds the profile commit.",
+                samplesMs = journey.NavigationMs, budgetMs = 100 },
+            captures = new[] { "sqlite-profile-retained-after-browse", "sqlite-person-history-capture-details",
+                "sqlite-person-saves-committed", "sqlite-person-saves-reopened" },
+            scope = "Focused two-Person native edit/browse/photo/history/archive/reopen journey; not rich 10,000-Person or background-export evidence."
+        }, new JsonSerializerOptions { WriteIndented = true }));
+        if (p95 > 1000 || journey.NavigationMs.Any(sample => sample > 100))
+            throw new InvalidOperationException("Hosted SQLite Person save/navigation latency budget failed. See " + path);
+        Console.WriteLine("PASS: hosted SQLite Person saves: native retained profile/Preferred-name drafts, exact durable photo/favorite/archival/Manager history, frozen capture disclosure and process reopening; candidate-bound evidence: " + path);
     }
 
     private static IReadOnlyDictionary<NoteScope, (Guid Id, string Title, string Markdown)> RunLocalNoteAutosaveJourney(

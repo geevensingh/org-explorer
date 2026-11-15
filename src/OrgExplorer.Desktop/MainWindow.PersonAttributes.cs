@@ -67,6 +67,8 @@ public partial class MainWindow
         }
         if (!preferredNameEditing) return;
         preferredNameDirty = editor.Text != (preferredNameBasis?.PreferredName ?? "");
+        if (RetainsPersonDrafts && preferredNameBasis is { } basis)
+            workflow.RetainPersonTextDraft(basis, PersonTextField.PreferredName, value);
         MarkDraftPending();
         ApplyButton.IsEnabled = false;
         preview = null;

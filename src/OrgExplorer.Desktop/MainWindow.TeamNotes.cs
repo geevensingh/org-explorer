@@ -14,7 +14,7 @@ public partial class MainWindow
         });
         TeamNotes.OwnerRequested += noteId =>
         {
-            if (!TryLeaveLocalEdits()) return;
+            if (!TryLeaveLocalEdits(browsing: true)) return;
             if (!workflow.NavigateInheritedTeamNote(noteId))
             {
                 ShowNavigationBlocked(workflow.Status);

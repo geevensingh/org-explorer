@@ -206,8 +206,8 @@ journey still establishes actual create/import/browse/close/reopen interaction.
 The staged #92 path extends that same local authority with Person/Team notes.
 SQLite format 2 retains note identities, ownership, complete Markdown, timestamps,
 archival and Team confirmation/context revisions; an existing staged format-1
-store gains note support atomically with its first note. Profiles and synchronization
-remain explicitly unsupported, and the shipping legacy path and its coverage remain.
+store gains note support atomically with its first note. Synchronization
+remains explicitly unsupported, and the shipping legacy path and its coverage remain.
 The observable view model owns pending creations and latest drafts independently
 of displayed controls. Its first-edit 250-ms cadence cannot be postponed by typing;
 one worker serializes captured revisions, retains newer generations after completion
@@ -235,6 +235,33 @@ percentiles; named editing/reopened captures retain actual desktop evidence.
 These ordinary two-Person observations are not #100's combined rich 10,000-Person
 and background-export proof. Required scenario selection, assertions and lane budgets
 are unchanged; no hosted interaction result is claimed by compiling this tail.
+
+The #93 path adds format-3 Person/profile/Preferred-name/favorite/archival/photo
+and Manager saves through those same seams. `SqliteWorkspaceTests` checks exact
+durable reopen, complete rejection for missing photos and eligibility loss,
+independent writing, duplicate Team-name owners/unnamed gaps/dormant labels,
+frozen former-chain notes and retained resources. Actual SQLite writer/file
+locks cover browsing during a pending profile and failed-save retry. Separate
+owner drafts and newer generations remain unsubmitted until explicit Save;
+Cancel is owner-scoped. No private-table assertions or synchronization proof
+are used.
+
+The existing invisible `--verify-profile-refresh` selection also drives compiled
+profile/Preferred-name editing, real Person switches and a held explicit Save,
+then reopens exact values and decoded photos without showing a native window.
+The `compatibility-settings` hosted tail retains all original note samples and
+adds native profile draft/Preferred-name navigation, Save/Cancel, photo pixels,
+favorite/archival/reactivation, Manager/frozen history and process reopening.
+Capture details must remain separately collapsed, read-only and fully copyable;
+later current note writing cannot rewrite frozen reading.
+Its `*-sqlite-person-saves.json` schema 1 binds revision/run/attempt/product
+hash, editing/reopened processes, exact Person values/photo hash/capture/note
+version, twenty native Save-to-independent-reopen samples (nearest-rank p95
+at most 1000 ms), and a native Person-selection sample while a real SQLite
+writer holds the profile (at most 100 ms). Named retained/committed/history/
+reopened captures carry actual desktop pixels and matching metadata.
+These focused two-Person checks do not establish rich-scale/background-export,
+stalled-save orchestration or hosted acceptance before the required lane runs.
 
 The #92 latency observer refreshes native UIA caches after each request: one
 note-subtree snapshot retains exact identity, enabled/writable Edit mode, title

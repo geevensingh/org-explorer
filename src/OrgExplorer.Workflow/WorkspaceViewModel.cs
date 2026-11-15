@@ -2,11 +2,16 @@ using System.ComponentModel;
 
 namespace OrgExplorer.Workflow;
 
+public sealed record RetainedPersonTextDraft(PersonProfile Basis, PersonTextField Field, string? Value, string? Error = null);
+
 public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
     private readonly IApplicationWorkflow workflow;
     private readonly WorkspaceSettings? settings;
     private string? navigationError;
+    private readonly object personTextDraftGate = new();
+    private readonly Dictionary<(string Email, PersonTextField Field), RetainedPersonTextDraft> personTextDrafts = [];
+    private bool HasLocalPersonTextDrafts { get { lock (personTextDraftGate) return personTextDrafts.Count != 0; } }
     public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null)
     {
         this.workflow = workflow;
@@ -16,16 +21,16 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public event EventHandler? WorkspaceChanged;
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
-    public bool CanSafelyClose => !HasLocalNoteDrafts && workflow.CanSafelyClose;
+    public bool CanSafelyClose => !HasLocalNoteDrafts && !HasLocalPersonTextDrafts && workflow.CanSafelyClose;
     public bool CanNavigatePeople => workflow.CanNavigatePeople;
-    public bool CanEnterImport => workflow.CanEnterImport;
+    public bool CanEnterImport => !HasLocalPersonTextDrafts && workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
     public bool HasPendingStorageMaintenance => workflow.HasPendingStorageMaintenance;
     public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() =>
     {
-        if (!HasLocalNoteDrafts) return workflow.RestartWhenSafe(restart);
-        navigationError = "Restart blocked: private note edits are not confirmed saved locally.";
+        if (!HasLocalNoteDrafts && !HasLocalPersonTextDrafts) return workflow.RestartWhenSafe(restart);
+        navigationError = "Restart blocked: private edits are not confirmed saved locally.";
         return false;
     });
     public string? LocalSaveError => workflow.LocalSaveError;
@@ -58,15 +63,16 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
-    public string Status => navigationError ?? (HasLocalNoteDrafts
-        ? "Pending private note edits - not yet saved." +
+    public string Status => navigationError ?? (HasLocalNoteDrafts || HasLocalPersonTextDrafts
+        ? (HasLocalNoteDrafts ? "Pending private note edits - not yet saved." :
+            "Pending Preferred-name drafts - not yet saved. Choose explicit Save or Cancel on the owner.") +
             (workflow.LocalSaveError is { } error ? "\n" + error : "") : workflow.Status);
     public string? OperationError => navigationError ?? workflow.OperationError;
     public bool IsImportOpen { get; private set; }
     public bool TryOpenImport() => Observe(() =>
     {
         if (!workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Stay)) return false;
-        if (!workflow.CanEnterImport)
+        if (!CanEnterImport)
         {
             navigationError = "Import navigation blocked: local writing is pending or was NOT saved. " +
                 "Retry or discard the independent changes before leaving. " + (workflow.LocalSaveError ?? workflow.Status);
@@ -85,7 +91,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         Observe(() =>
         {
             LastWorkspaceOpenWasRejected = false;
-            if (!workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
+            if (HasLocalPersonTextDrafts || !workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
             {
                 LastWorkspaceOpenWasRejected = true;
                 navigationError = "Workspace navigation blocked: local writing is pending or was NOT saved. " +
@@ -119,10 +125,49 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
     public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
     public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
-    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) =>
-        Observe(() => workflow.SavePersonTextDraft(basis, field, value));
+    public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+    {
+        if (field != PersonTextField.PreferredName)
+            throw new ArgumentException("Ordinary fields belong to the complete profile draft.", nameof(field));
+        lock (personTextDraftGate)
+        {
+            var key = (basis.Email.ToLowerInvariant(), field);
+            if (value == basis.PreferredName && !personTextDrafts.ContainsKey(key)) return;
+            personTextDrafts[key] = new(basis, field, value, personTextDrafts.GetValueOrDefault(key)?.Error);
+        }
+        Notify();
+    }
+
+    public RetainedPersonTextDraft? GetPersonTextDraft(string email, PersonTextField field)
+    {
+        lock (personTextDraftGate) return personTextDrafts.GetValueOrDefault((email.ToLowerInvariant(), field));
+    }
+
+    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) => Observe(() =>
+    {
+        var accepted = workflow.SavePersonTextDraft(basis, field, value);
+        lock (personTextDraftGate)
+        {
+            var key = (basis.Email.ToLowerInvariant(), field);
+            if (personTextDrafts.TryGetValue(key, out var latest))
+            {
+                if (accepted is not null && latest.Value == value) personTextDrafts.Remove(key);
+                else personTextDrafts[key] = latest with
+                {
+                    Basis = accepted ?? latest.Basis,
+                    Error = accepted is null ? workflow.LocalSaveError ?? workflow.Status : null
+                };
+            }
+        }
+        return accepted;
+    });
     public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field) =>
-        Observe(() => { workflow.DiscardPersonTextDraft(basis, field); return true; });
+        Observe(() =>
+        {
+            lock (personTextDraftGate) personTextDrafts.Remove((basis.Email.ToLowerInvariant(), field));
+            workflow.DiscardPersonTextDraft(basis, field);
+            return true;
+        });
     public bool OpenLinkedInProfile(string email) => Observe(() => workflow.OpenLinkedInProfile(email));
 
     private T Observe<T>(Func<T> operation)

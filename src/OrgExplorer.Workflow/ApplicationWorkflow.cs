@@ -165,9 +165,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         if (disposed) return Fail("The Workspace workflow is closed.");
         if (workspaceConflicts.Count != 0 && !string.Equals(path, workspace, StringComparison.OrdinalIgnoreCase))
             return Fail("Resolve retained publication conflicts before switching Workspaces.");
-        if (profileEdit is { IsDirty: true })
+        if (HasUnsavedProfiles)
             return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
         CancelProfileEdit();
+        lock (profileDraftGate) localProfileEdits.Clear();
         StopWatching();
         workspaceCurrent = false;
         storageReclamationDeferred = false;
@@ -492,10 +493,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
         string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
     {
-        if (localSqlite)
-            return SaveLocalSqliteImport(proposed, accepted, history ?? profileHistory, operation);
         var nextTeamContexts = NextTeamContextRevisions(proposed);
         var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
+        if (localSqlite)
+            return SaveLocalSqlite(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
+                nextTeamContexts, nextHistoricalContexts, operation, resources);
         if (memory)
         {
             teamContextRevisions = nextTeamContexts;

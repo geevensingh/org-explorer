@@ -11,7 +11,17 @@ public partial class MainWindow
 {
     private sealed record FavoriteRow(PersonProfile Person, string Label);
     private bool refreshingQueries;
-    private bool? unsavedFavorite;
+    private readonly Dictionary<string, bool> unsavedFavorites = new(StringComparer.OrdinalIgnoreCase);
+    private bool? unsavedFavorite
+    {
+        get => selectedEmail is { } owner && unsavedFavorites.TryGetValue(owner, out var value) ? value : null;
+        set
+        {
+            if (selectedEmail is not { } owner) return;
+            if (value is { } favorite) unsavedFavorites[owner] = favorite;
+            else unsavedFavorites.Remove(owner);
+        }
+    }
     private SearchResult? selectedMatch => workflow.PeopleNavigation.SelectedResult;
     private bool queryDirty = true;
     private string? lastQuery;
@@ -126,7 +136,7 @@ public partial class MainWindow
             var query = SearchQuery.Text;
             var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
             if (query != SearchQuery.Text) return;
-            if (workPending)
+            if (workPending && !workflow.Compatibility.SupportsNonblockingNoteAutosave)
             {
                 TryLeaveLocalEdits();
                 RestoreSearchSelection();
@@ -139,7 +149,7 @@ public partial class MainWindow
                 return;
             }
             result = current;
-            if (!TryLeaveLocalEdits())
+            if (!TryLeaveLocalEdits(browsing: true))
             {
                 RestoreSearchSelection();
                 return;
@@ -272,7 +282,7 @@ public partial class MainWindow
         if (refreshingQueries || FavoritesList.SelectedItem is not FavoriteRow row) return;
         var overlay = workflow.PeopleNavigation.OverlayOpen;
         RememberPeopleBrowsing();
-        if (TryLeaveLocalEdits() && NavigateTo(row.Person.Email))
+        if (TryLeaveLocalEdits(browsing: true) && NavigateTo(row.Person.Email))
         {
             ClearSearchContext();
             if (overlay) FocusPersonAfterOverlay();
@@ -286,7 +296,7 @@ public partial class MainWindow
         FavoriteButton.Content = person.IsFavorite ? "\uE735" : "\uE734";
         System.Windows.Automation.AutomationProperties.SetName(FavoriteButton, action);
         FavoriteButton.ToolTip = action;
-        FavoriteButton.IsEnabled = CanEditCurrentWorkspace;
+        FavoriteButton.IsEnabled = CanEditCurrentWorkspace && !workPending;
         FavoriteStatus.Text = (person.IsFavorite ? "Marked favorite" : "Not marked favorite") +
             (unsavedFavorite.HasValue ? " — pending action NOT saved" : "");
         FavoriteStatus.Visibility = unsavedFavorite.HasValue ? Visibility.Visible : Visibility.Collapsed;
@@ -299,11 +309,11 @@ public partial class MainWindow
         var favorite = !person.IsFavorite;
         if (await RunWorkflowAsync(() => workflow.EditFavorite(person.Email, favorite), "Saving local favorite…"))
         {
-            unsavedFavorite = null;
+            unsavedFavorites.Remove(person.Email);
             RefreshPeople();
         }
-        else if (!workflow.CanSafelyClose) unsavedFavorite = favorite;
-        ShowFavorite(workflow.GetRelationships(person.Email)!.Person);
+        else if (!workflow.CanSafelyClose) unsavedFavorites[person.Email] = favorite;
+        if (selectedEmail == person.Email) ShowFavorite(workflow.GetRelationships(person.Email)!.Person);
         InvalidateRelationshipPreview();
     }
 }

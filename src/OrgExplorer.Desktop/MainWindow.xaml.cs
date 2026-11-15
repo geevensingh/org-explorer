@@ -258,7 +258,8 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person, bool navigation = true)
     {
-        if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) && !TryLeaveLocalEdits())
+        if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) &&
+            !TryLeaveLocalEdits(browsing: true))
             return false;
         if (navigation && !workflow.NavigatePerson(person.Email))
         {
@@ -511,8 +512,9 @@ public partial class MainWindow : Window
         SearchQuery.Focus();
     }
 
-    private bool TryLeaveLocalEdits()
+    private bool TryLeaveLocalEdits(bool browsing = false)
     {
+        if (browsing && workflow.Compatibility.SupportsNonblockingNoteAutosave) return true;
         if (workPending)
         {
             ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");

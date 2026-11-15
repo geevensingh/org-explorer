@@ -33,13 +33,12 @@ public sealed partial class ApplicationWorkflow
             compatibility.RecoveryPath)
         {
             SupportsOrdinaryEdits = !localSqlite, SupportsNoteEdits = !localSqlite,
-            SupportsNonblockingNoteAutosave = localSqlite, SupportedWorkspaceVersion = localSqlite ? 2 : 3
+            SupportsNonblockingNoteAutosave = localSqlite, SupportedWorkspaceVersion = 3
         };
     }
 
     private void EnsureWorkspaceWritable(bool allowSqliteImport = false)
     {
-        if (localSqlite && !allowSqliteImport) throw new IOException(SqliteEditingUnavailable);
         if (workspaceConflicts.Count != 0)
             throw new IOException("Resolve the retained publication conflict before any further mutation.");
         try

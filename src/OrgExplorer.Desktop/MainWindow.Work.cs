@@ -37,6 +37,7 @@ public partial class MainWindow
             {
                 pendingPreferredNameCancellation = null;
                 workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
+                if (RetainsPersonDrafts && selectedEmail == cancelledName.Email) FinishPreferredNameEntry();
                 externalRefreshPending = true;
             }
             completion.TrySetResult();

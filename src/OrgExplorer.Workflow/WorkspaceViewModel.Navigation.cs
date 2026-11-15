@@ -227,6 +227,7 @@ public sealed partial class WorkspaceViewModel
             !OpenOwnedNote(NoteScope.Person, personNote)) return false;
         if (result?.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote &&
             !OpenOwnedNote(NoteScope.Team, teamNote)) return false;
+        workflow.SelectProfilePerson(person.Email);
         PeopleNavigation = PeopleNavigation with { SelectedEmail = person.Email, SelectedResult = result, OverlayOpen = false };
         return true;
     }

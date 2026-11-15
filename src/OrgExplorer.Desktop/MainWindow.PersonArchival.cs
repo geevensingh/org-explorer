@@ -8,7 +8,17 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private sealed record ManagerChoice(string? Email, string Label);
-    private bool? unsavedArchived;
+    private readonly Dictionary<string, bool> unsavedArchivals = new(StringComparer.OrdinalIgnoreCase);
+    private bool? unsavedArchived
+    {
+        get => selectedEmail is { } owner && unsavedArchivals.TryGetValue(owner, out var value) ? value : null;
+        set
+        {
+            if (selectedEmail is not { } owner) return;
+            if (value is { } archived) unsavedArchivals[owner] = archived;
+            else unsavedArchivals.Remove(owner);
+        }
+    }
     private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedFavorite.HasValue;
 
     private void ChangeArchivedFilter(object sender, RoutedEventArgs e) => RefreshArchivedPeople();
@@ -82,10 +92,10 @@ public partial class MainWindow
         if (!TryLeaveLocalEdits()) return;
         if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived, confirmed: true), "Saving Person archival state…"))
         {
-            unsavedArchived = null;
+            unsavedArchivals.Remove(email);
             RefreshPeople();
         }
-        else if (!workflow.CanSafelyClose) unsavedArchived = archived;
+        else if (!workflow.CanSafelyClose) unsavedArchivals[email] = archived;
         InvalidateRelationshipPreview();
     }
 
@@ -146,8 +156,12 @@ public partial class MainWindow
 
     private async Task RetryRelationshipSave()
     {
-        if (selectedEmail is null) return;
-        if (unsavedArchived is { } archived && await RunWorkflowAsync(() => workflow.EditPersonArchived(selectedEmail, archived), "Retrying archival save…")) unsavedArchived = null;
-        if (unsavedFavorite is { } favorite && await RunWorkflowAsync(() => workflow.EditFavorite(selectedEmail, favorite), "Retrying favorite save…")) unsavedFavorite = null;
+        if (selectedEmail is not { } owner) return;
+        if (unsavedArchivals.TryGetValue(owner, out var archived) &&
+            await RunWorkflowAsync(() => workflow.EditPersonArchived(owner, archived), "Retrying archival save…"))
+            unsavedArchivals.Remove(owner);
+        if (unsavedFavorites.TryGetValue(owner, out var favorite) &&
+            await RunWorkflowAsync(() => workflow.EditFavorite(owner, favorite), "Retrying favorite save…"))
+            unsavedFavorites.Remove(owner);
     }
 }

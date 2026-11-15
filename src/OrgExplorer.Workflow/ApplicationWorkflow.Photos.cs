@@ -37,16 +37,18 @@ public sealed partial class ApplicationWorkflow
         {
             var proposedPhotos = new Dictionary<string, byte[]>(photos);
             string? name = null;
+            PhotoResource? resource = null;
             if (localPath is not null)
             {
-                var resource = ReadLocalPhoto(localPath, email);
+                resource = ReadLocalPhoto(localPath, email);
                 name = resource.Hash.ToLowerInvariant() + resource.Extension;
                 proposedPhotos[name] = resource.Bytes;
             }
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [email] = person with { PhotoPath = name } };
             var history = CaptureLocalHistory(person, proposed[email], "photoPath");
-            if (!Save(proposed, batches, proposedPhotos, history, $"photo:{email.ToLowerInvariant()}")) return false;
+            if (!Save(proposed, batches, proposedPhotos, history, $"photo:{email.ToLowerInvariant()}",
+                resource is null ? null : [resource])) return false;
             people = proposed;
             photos = proposedPhotos;
             profileHistory = history;

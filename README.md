@@ -41,17 +41,21 @@ dotnet run --project src\OrgExplorer.Desktop
 
 **Settings → Create local Workspace (preview)** creates a new app-managed
 Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
-It preserves the previous Workspace. This first slice supports a reviewed
+It preserves the previous Workspace. The staged path supports a reviewed
 initial People-only Import, browsing and startup reopening, with all supplied
 Person attributes, relationships and accepted evidence committed together.
 Successful creation returns to the browsing start view, like Open Workspace;
 open **Settings → Import...** to review the initial population.
-Photos, subsequent Imports, ordinary editing, synchronization and the new exit
-interaction are not available yet; unsupported actions are disabled or rejected,
-never sent to the legacy writer. Exact Import replay remains a no-op.
+Person/Team note autosave, explicit profile and Preferred-name saves, photos,
+favorites, archival/reactivation, Manager transitions, private Team names and
+frozen Historical team context also use this authority. Person browsing retains
+unsaved owner-specific profile and Preferred-name drafts without applying them.
+Subsequent Imports, synchronization, stall orchestration and the new exit
+interaction are not available yet; unsupported actions are rejected, never sent
+to the legacy writer. Exact Import replay remains a no-op.
 Do not synchronize the live database or its journal, and do not treat local
 commit as publication or provider delivery. See the
-[staged format](docs/workspace-format.md#staged-local-sqlite-format-1).
+[staged format](docs/workspace-format.md#staged-local-sqlite-formats).
 
 Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
 label. In **Settings → Open Workspace...**, select or create an empty local

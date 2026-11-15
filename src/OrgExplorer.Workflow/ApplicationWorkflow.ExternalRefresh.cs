@@ -18,10 +18,10 @@ public sealed partial class ApplicationWorkflow
     private bool failedImportSnapshot;
     private bool pendingStorageMaintenanceSnapshot;
     private bool navigationBlockedSnapshot;
-    private readonly Dictionary<string, string> failedSaves = [];
+    private readonly IDictionary<string, string> failedSaves = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
-        ProfileEdit is not { IsDirty: true };
+        !HasUnsavedProfiles;
     public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
     public bool CanEnterImport
@@ -30,7 +30,7 @@ public sealed partial class ApplicationWorkflow
         {
             lock (workspaceGate)
                 return failedSaves.Keys.All(operation => operation == "import") && unsavedNoteBases.IsEmpty &&
-                    ProfileEdit is not { IsDirty: true };
+                    !HasUnsavedProfiles;
         }
     }
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);

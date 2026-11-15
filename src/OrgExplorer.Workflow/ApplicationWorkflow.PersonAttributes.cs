@@ -51,6 +51,12 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite && !RefreshWorkspaceCore())
+            {
+                SaveFailed($"profile:{basis.Email.ToLowerInvariant()}:{field}",
+                    "Profile field NOT saved. Draft retained; restore local storage and retry. " + Status);
+                return null;
+            }
             if (!Enum.IsDefined(field))
             {
                 EditPersonTextCore(basis.Email, field, value);

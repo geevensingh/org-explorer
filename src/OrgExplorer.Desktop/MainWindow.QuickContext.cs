@@ -16,6 +16,7 @@ public partial class MainWindow
     private long preferredNameEntryVersion;
     private string? preferredNameSaveError;
     private bool HasPreferredNameDraft => preferredNameEditing && (preferredNameDirty || preferredNameSaveError is not null);
+    private bool RetainsPersonDrafts => workflow.Compatibility.SupportsNonblockingNoteAutosave;
 
     private void LoadPreferredName(PersonProfile person)
     {
@@ -23,6 +24,14 @@ public partial class MainWindow
         {
             preferredNameOwner = person.Email;
             FinishPreferredNameEntry();
+            if (RetainsPersonDrafts && workflow.GetPersonTextDraft(person.Email, PersonTextField.PreferredName) is { } retained)
+            {
+                preferredNameBasis = retained.Basis;
+                PreferredName.Text = retained.Value ?? "";
+                preferredNameDirty = retained.Value != retained.Basis.PreferredName;
+                preferredNameSaveError = retained.Error;
+                SetPreferredNameEditing(true);
+            }
         }
         var action = person.PreferredName is null ? "Add preferred name" : "Edit preferred name";
         System.Windows.Automation.AutomationProperties.SetName(EditPreferredNameButton, action);
@@ -49,13 +58,15 @@ public partial class MainWindow
     {
         if (selectedEmail is null || !CanEditCurrentWorkspace || workPending) return;
         if (preferredNameEditing) return;
-        preferredNameBasis = displayedPreferredNameBase;
+        var retained = RetainsPersonDrafts
+            ? workflow.GetPersonTextDraft(selectedEmail, PersonTextField.PreferredName) : null;
+        preferredNameBasis = retained?.Basis ?? displayedPreferredNameBase;
         if (preferredNameBasis is null) return;
         preferredNameEntryVersion++;
-        preferredNameDirty = false;
-        preferredNameSaveError = null;
+        preferredNameDirty = retained is not null && retained.Value != retained.Basis.PreferredName;
+        preferredNameSaveError = retained?.Error;
         loading = true;
-        PreferredName.Text = preferredNameBasis.PreferredName ?? "";
+        PreferredName.Text = retained is null ? preferredNameBasis.PreferredName ?? "" : retained.Value ?? "";
         loading = false;
         SetPreferredNameEditing(true);
         if (IsVisible)
@@ -87,7 +98,7 @@ public partial class MainWindow
         if (entry != preferredNameEntryVersion)
         {
             // Dismissal cannot revoke an admitted write or acknowledge its durable conflict.
-            workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+            if (!RetainsPersonDrafts) workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         }
         else if (accepted is not null)
         {
@@ -118,7 +129,7 @@ public partial class MainWindow
         FinishPreferredNameEntry();
         if (workPending)
         {
-            if (!preferredNameSavePending) pendingPreferredNameCancellation = basis;
+            if (!preferredNameSavePending || RetainsPersonDrafts) pendingPreferredNameCancellation = basis;
             StatusText.Text = "Preferred-name entry closed. Admitted local work is still in progress; wait for its outcome.";
             return;
         }
@@ -135,7 +146,11 @@ public partial class MainWindow
 
     private void PreferredNameDismissed(object sender, EventArgs e)
     {
-        if (!PreferredNamePopup.IsOpen) CancelPreferredNameEntry();
+        if (!PreferredNamePopup.IsOpen)
+        {
+            if (RetainsPersonDrafts) FinishPreferredNameEntry();
+            else CancelPreferredNameEntry();
+        }
     }
 
     private async void PreferredNameKeyDown(object sender, KeyEventArgs e)

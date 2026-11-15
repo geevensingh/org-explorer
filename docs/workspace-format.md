@@ -8,7 +8,7 @@ Preserve the old folder and explicitly choose a new empty folder to create a
 Workspace; do not delete the owner's data. Import version 1 is independent and
 unchanged.
 
-## Staged local SQLite format 1
+## Staged local SQLite formats
 
 The #91 vertical slice adds explicit local SQLite creation and automatic format
 recognition on reopening. Version-3 readable files remain the normal shipping
@@ -21,7 +21,7 @@ Keep this app-managed directory outside any other synchronization provider too.
 
 `local-workspace.format` is an immutable format discriminator, not a second
 population authority. `workspace.sqlite` is the sole committed-state authority,
-with SQLite application ID `0x4f455850`, local format version 1, a Workspace
+with SQLite application ID `0x4f455850`, local format version 3, a Workspace
 identity and committed revision. A missing discriminator/database, incompatible
 version, corrupt data or mixed SQLite/legacy selector is an explicit open error;
 there is no empty-state, migration or legacy fallback.
@@ -34,13 +34,37 @@ commit atomically. Reopening validates SQLite integrity and the same Person,
 graph and evidence rules as the existing workflow before exposing any population.
 Durability remains bounded by the OS and storage device's actual guarantees.
 
+Format 2 added complete Person/Team notes and Team confirmation/context revisions.
+Format 3 adds coherent profile mutation, private owned Team names, frozen
+Historical team context and immutable photo resources. Existing staged formats
+1/2 remain readable; their first profile mutation adds the new tables atomically
+with its commit. A format-1 note mutation adds note support as format 2; later
+note saves never downgrade format 3.
+
+Photos are decoded JPEG/PNG bytes in the database, keyed by their SHA-256 content
+reference and decoded extension. Current profiles, complete Profile-change
+evidence and frozen former-chain profiles keep every required resource
+recoverable after replacement/clear or removal of the original selected file.
+No photo reclamation or snapshot packaging is introduced here. Reopen validates
+required associations, hashes, decoded content, historical capture versions and
+accepted Import provenance before exposing the coherent state.
+
+Ordinary profile, Preferred-name, favorite, archival and Manager mutations use
+the same durable local transaction boundary. Manager transitions capture the
+former chain and locally known Team notes, not Team names. Labels retain
+current-only ownership, eligibility and dormant values. Profile Save/Cancel and
+Preferred-name Save/Cancel are explicit; browsing retains owner-specific drafts
+and older completions do not overwrite newer writing. A rejected complete
+profile, including an unavailable required photo, leaves committed values and
+history unchanged.
+
 The staged path supports browsing, startup restoration and exact accepted-batch
-replay. It explicitly rejects photos, subsequent new Imports, ordinary edits
-and legacy recovery export. An unconfirmed Import remains an error requiring
+replay. It still explicitly rejects photo-bearing initial Imports, subsequent
+new Imports and legacy recovery export. An unconfirmed Import remains an error requiring
 reopening/reconciliation, not a saved state. Later replacement slices extend
 these capabilities; no missing family is silently written through the legacy
 engine. Publication, cross-computer snapshots and redesigned exit are not
-implemented by this slice. Never synchronize a live database or journal.
+implemented by these slices. Never synchronize a live database or journal.
 
 ## Readable-file version 3
 
