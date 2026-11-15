@@ -316,6 +316,8 @@ internal static partial class Program
                     throw new InvalidOperationException(name + " lost its full value, copy hint or accessible action.");
                 foreach (var gesture in new[] { "primary", "Enter", "Space", "menu", "accessible Invoke" })
                 {
+                    if (name is "Email" or "OfficeNumberValue")
+                        PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
                     copied = "Copy has not been invoked.";
                     if (gesture == "primary")
                         value.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
@@ -349,9 +351,10 @@ internal static partial class Program
                     throw new InvalidOperationException("The compiled Team tooltip must retain the full label, copy hint and owner without opening.");
                 foreach (var key in new[] { Key.Enter, Key.Space })
                 {
+                    PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
                     copied = "Copy has not been invoked.";
                     ActivateKey(segment, key);
-                    if (copied != "Platform" || feedback.Text != "Team name copied.")
+                    if (copied != "Platform" || feedback.Visibility != Visibility.Visible || feedback.Text != "Team name copied.")
                         throw new InvalidOperationException("Team-name activation must copy only that segment with the shared feedback.");
                 }
             }

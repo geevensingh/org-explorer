@@ -655,6 +655,12 @@ retains the selected Person, profile/Person-note drafts and exact Workspace byte
 No native window, tooltip or real local clipboard is opened/written by this
 fixture. These are compiled-control observations, not physical input or rendered
 confirmation acceptance.
+Representative identity, ordinary-fact and Team-name gesture checks start with
+the previous confirmation expired, then require newly visible success. Exhaustive
+eligible-value payload checks remain; expiry is not added to every matrix gesture.
+Hosted Workspace-path primary-click nonmutation observes the subsequent physical
+Tab transition from the focused path to Open Workspace before reading the sentinel.
+That ordered input proves WPF processed the click, rather than sampling early.
 It also exercises labelled Manager and Office in the anchored header, joined
 building/room values and partial/missing Office data, with Department in a
 labelled facts slot. Header context fits the existing photo height at
@@ -1143,6 +1149,9 @@ handler. Click and value helpers acquire an enabled control and its required
 pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
 Raw Click/Set and idle/startup observations never open or close Settings.
+Physical copy click/hover preparation likewise captures a visible usable point
+within that wait, then sends input once. Eligible targets must be enabled;
+deliberate missing-value checks retain their disabled automation peers.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

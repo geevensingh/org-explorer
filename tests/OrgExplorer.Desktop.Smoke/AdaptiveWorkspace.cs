@@ -386,7 +386,7 @@ internal static partial class Program
             ("OfficeBuildingValue", "Juniper"), ("OfficeNumberValue", "007B"), ("DepartmentValue", "Research"),
             ("OfficeStateValue", "Ontario"), ("OfficeCountryValue", "Canada"), ("DirectoryName", "Avery Directory"),
             ("AliasValue", "avhandle"), ("LinkedInProfileUrlValue", "https://www.linkedin.com/in/fictitious-avery") })
-            AssertPrimaryCopy(window, Find(window, id), expected);
+            AssertPrimaryCopy(window, Find(window, id), expected, freshFeedback: id is "Email" or "DepartmentValue");
         foreach (var key in new byte[] { 0x0D, 0x20 })
             AssertFocusedCopy(window, Find(window, "Email"), "avery@example.com", key);
         AwaitCopyFeedbackGone(window);
@@ -701,8 +701,10 @@ internal static partial class Program
         void AtSize(string stateName)
         {
             AssertTeamNamePath(window, name, name);
-            AssertPrimaryCopy(window, FindTeamNameSegment(window, 0), name);
-            AssertPrimaryCopy(window, FindTeamNameSegment(window, 1), name);
+            AssertPrimaryCopy(window, FindTeamNameSegment(window, 0), name,
+                freshFeedback: stateName == "team-name-ordinary-1100-900");
+            AssertPrimaryCopy(window, FindTeamNameSegment(window, 1), name,
+                freshFeedback: stateName == "team-name-ordinary-1100-900");
             CaptureVisualEvidence(window, stateName + "-reading");
             BeginProfileEditing(window);
             var editor = Find(window, "TeamNameEditor");
