@@ -406,6 +406,38 @@ internal static partial class Program
         Invoke("CancelPreferredNameButton");
         if (!workflow.CanSafelyClose)
             throw new InvalidOperationException("Compiled Preferred-name Cancel did not discard only its retained entry.");
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Saved preferred";
+        select("morgan@example.com");
+        select("avery@example.com");
+        Invoke("SavePreferredNameButton");
+        PumpUntil(() => workflow.GetRelationships("avery@example.com")!.Person.PreferredName == "Saved preferred" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        Invoke("FavoriteButton");
+        PumpUntil(() => workflow.GetRelationships("avery@example.com")!.Person.IsFavorite &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        var personFeedback = AutomationProperties.GetItemStatus(Control<UserControl>("PersonNotes"));
+        var teamFeedback = AutomationProperties.GetItemStatus(Control<UserControl>("TeamNotes"));
+        if (!workflow.CanSafelyClose || workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
+            personFeedback.StartsWith("Pending", StringComparison.Ordinal) || teamFeedback.StartsWith("Pending", StringComparison.Ordinal))
+            throw new InvalidOperationException("Committed SQLite Preferred-name/favorite changes left stale pending note-surface feedback: " +
+                $"Person='{personFeedback}'; Team='{teamFeedback}'; safelyClose={workflow.CanSafelyClose}.");
+        Invoke("EditPreferredNameButton");
+        Control<TextBox>("PreferredName").Text = "Still unsubmitted";
+        Invoke("FavoriteButton");
+        PumpUntil(() => !workflow.GetRelationships("avery@example.com")!.Person.IsFavorite &&
+            Control<Button>("FavoriteButton").IsEnabled);
+        if (workflow.CanSafelyClose ||
+            workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)?.Value != "Still unsubmitted" ||
+            !AutomationProperties.GetItemStatus(Control<UserControl>("PersonNotes")).StartsWith("Pending", StringComparison.Ordinal) ||
+            !AutomationProperties.GetItemStatus(Control<UserControl>("TeamNotes")).StartsWith("Pending", StringComparison.Ordinal))
+            throw new InvalidOperationException("Independent favorite success cleared or falsely acknowledged retained Preferred-name writing.");
+        Invoke("CancelPreferredNameButton");
+        if (!workflow.CanSafelyClose ||
+            AutomationProperties.GetItemStatus(Control<UserControl>("PersonNotes")).StartsWith("Pending", StringComparison.Ordinal) ||
+            AutomationProperties.GetItemStatus(Control<UserControl>("TeamNotes")).StartsWith("Pending", StringComparison.Ordinal))
+            throw new InvalidOperationException("Explicit Preferred-name Cancel left stale pending note feedback.");
+        Console.WriteLine("PASS: compiled SQLite Preferred-name/favorite saves refresh truthful note-surface feedback without clearing retained writing; real idle metadata agrees with safe close.");
         using (var connection = new SqliteConnection(
             $"Data Source={Path.Combine(workflow.Compatibility.WorkspacePath!, "workspace.sqlite")};Pooling=False"))
         {
@@ -466,7 +498,14 @@ internal static partial class Program
         Click(window, "SavePreferredName");
         Await(() => Find(window, "ProfileHeading").Current.Name == "Avery reference");
         Click(window, "ToggleFavorite");
-        AwaitLocalWorkIdle(window);
+        try { AwaitLocalWorkIdle(window); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("SQLite Person favorite did not reach the real idle state: " +
+                $"owner='{CurrentPersonEmail(window)}'; activity='{Activity(window)}'; status='{Status(window)}'; " +
+                $"Person-note feedback='{NoteFeedback(window, "Person")}'; Team-note feedback='{NoteFeedback(window, "Team")}'.", error);
+        }
+        Console.WriteLine("PASS: hosted SQLite Preferred-name/favorite commits reach truthful idle feedback after retained-owner browsing.");
         var photo = Path.Combine(root, "sqlite-profile-portrait.png");
         CreatePhotoFixture(photo);
         BeginProfileEditing(window);

@@ -92,6 +92,7 @@ public partial class TeamNotesControl : UserControl
             $"Owned by {email}; applies to current formal descendants.";
         NewButton.IsEnabled = email is not null;
         if (changedOwner || !HasRetainedDraft && !LocalAutosave) RefreshNotes();
+        else if (LocalAutosave && workflow is not null) presentation.ShowOperationStatus(workflow, HasRetainedDraft);
         RefreshContext();
     }
 

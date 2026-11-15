@@ -249,6 +249,11 @@ are used.
 The existing invisible `--verify-profile-refresh` selection also drives compiled
 profile/Preferred-name editing, real Person switches and a held explicit Save,
 then reopens exact values and decoded photos without showing a native window.
+Its actual compiled Preferred-name/browse/Save/favorite replay also requires
+both note surfaces' accessible ItemStatus to agree with the real idle/safe-close
+state. Same-owner local browsing refreshes only feedback, not note editors:
+completed independent saves cannot leave stale global Pending text, while
+genuine unsubmitted writing remains retained and pending after favorite success.
 The `compatibility-settings` hosted tail retains all original note samples and
 adds native profile draft/Preferred-name navigation, Save/Cancel, photo pixels,
 favorite/archival/reactivation, Manager/frozen history and process reopening.

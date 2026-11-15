@@ -62,7 +62,11 @@ public partial class PersonNotesControl : UserControl
 
     public void OpenPerson(string? email)
     {
-        if (string.Equals(owner, email, StringComparison.OrdinalIgnoreCase)) return;
+        if (string.Equals(owner, email, StringComparison.OrdinalIgnoreCase))
+        {
+            if (LocalAutosave && workflow is not null) presentation.ShowOperationStatus(workflow, HasRetainedDraft);
+            return;
+        }
         if (!TryLeave()) return;
         if (workflow?.OpenOwnedNotes(NoteScope.Person, email) != true) return;
         owner = email;
