@@ -161,10 +161,22 @@ internal static partial class Program
                 if (window.FindName(name) is not TextBlock value || !value.Focusable ||
                     !KeyboardNavigation.GetIsTabStop(value) || value.ContextMenu is null)
                     failures.Add($"{name}: View-mode Copy must be reachable by keyboard.");
+                else if (UIElementAutomationPeer.CreatePeerForElement(value).GetPattern(PatternInterface.Invoke) is not IInvokeProvider)
+                    failures.Add($"{name}: the read-only value must expose its copy action to accessibility clients.");
+                else
+                {
+                    value.ContextMenu.PlacementTarget = value;
+                    var copy = value.ContextMenu.Items.OfType<MenuItem>().Single();
+                    System.Windows.Data.BindingOperations.GetBindingExpression(copy, UIElement.IsEnabledProperty)?.UpdateTarget();
+                    if (copy.IsEnabled || value.Cursor == Cursors.Hand ||
+                        System.Windows.Automation.AutomationProperties.GetItemStatus(value).Contains("Click to copy", StringComparison.Ordinal))
+                        failures.Add($"{name}: an absent value must not advertise or enable copying.");
+                }
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
             if (verifyProfileRefresh)
             {
+                VerifyProfileCopyControls(type, settings);
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyTreePresentation(treeWindow, settings); }
@@ -216,6 +228,216 @@ internal static partial class Program
         }
     }
 
+    private static void VerifyProfileCopyControls(Type windowType, string settings)
+    {
+        var folder = Path.Combine(settings, "copy-workspace");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000104",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery Example","alias":"avery",
+                  "jobTitle":"Research\r\nengineer","department":"Research","officeBuilding":"Juniper",
+                  "officeNumber":"007B","officeState":"Ontario","officeCountry":"Canada",
+                  "linkedInProfileUrl":"https://example.com/avery","managerEmail":"morgan@example.com"},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":"rowan@example.com"},
+                 {"email":"rowan@example.com","displayName":"Rowan","managerEmail":null},
+                 {"email":"unset@example.com","displayName":"Unset","managerEmail":null}]}
+                """).Id))
+                throw new InvalidOperationException("Copy fixture failed: " + seed.Status);
+            if (seed.CreatePersonNote("avery@example.com", "Saved", "# Saved") is null)
+                throw new InvalidOperationException("Copy note fixture failed: " + seed.Status);
+            foreach (var owner in new[] { "morgan@example.com", "rowan@example.com" })
+                if (!seed.BeginProfileEdit(owner) || !seed.StageProfileTeamName("Platform") || !seed.SaveProfileEdit())
+                    throw new InvalidOperationException("Copy Team-name fixture failed: " + seed.Status);
+        }
+        var copied = "Copy has not been invoked.";
+        var failClipboard = false;
+        Action<string> clipboard = text =>
+        {
+            if (failClipboard) throw new System.Runtime.InteropServices.ExternalException("Clipboard is held by another application.");
+            copied = text;
+        };
+        Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [ApplicationWorkflow.CreateFileBacked(), chooseFolder, clipboard], null)!;
+        try
+        {
+            T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ChooseCompiledWorkspace(window, folder);
+            PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+            var tree = Control<TreeView>("PeopleList");
+            var avery = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "rowan@example.com")
+                .Reports.Single().Reports.Single();
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+            var beforeCopy = WorkspaceFixtures.Bytes(folder);
+            var room = Control<TextBlock>("OfficeNumberValue");
+            room.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            if (copied != "007B")
+                throw new InvalidOperationException("Primary activation must copy the exact office number, including leading zeroes.");
+            if (window.FindName("ProfileCopyFeedback") is not TextBlock { Visibility: Visibility.Visible } feedback ||
+                feedback.Text != "Office number copied." ||
+                UIElementAutomationPeer.CreatePeerForElement(feedback).GetName() != "Office number copied." ||
+                feedback.IsHitTestVisible)
+                throw new InvalidOperationException("Copy success needs a non-blocking, accessible confirmation that omits the copied value.");
+            var lifetime = System.Diagnostics.Stopwatch.StartNew();
+            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            if (lifetime.Elapsed > TimeSpan.FromSeconds(3))
+                throw new InvalidOperationException("Copy confirmation did not return to quiet reading within three seconds.");
+            if (Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("A completed copy must return healthy reading to quiet.");
+            var fields = new[]
+            {
+                ("Email", "avery@example.com", "Email"),
+                ("JobTitleValue", "Research\r\nengineer", "Job title"),
+                ("OfficeBuildingValue", "Juniper", "Office building"),
+                ("OfficeNumberValue", "007B", "Office number"),
+                ("DepartmentValue", "Research", "Department"),
+                ("OfficeStateValue", "Ontario", "Office state / province"),
+                ("OfficeCountryValue", "Canada", "Office country"),
+                ("DirectoryName", "Avery Example", "Directory name"),
+                ("AliasValue", "avery", "Alias"),
+                ("LinkedInProfileUrlValue", "https://example.com/avery", "LinkedIn profile URL")
+            };
+            void ActivateKey(TextBlock value, Key key) => value.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
+            foreach (var (name, expected, label) in fields)
+            {
+                var value = Control<TextBlock>(name);
+                var menu = value.ContextMenu!;
+                var copy = menu.Items.OfType<MenuItem>().Single();
+                System.Windows.Data.BindingOperations.GetBindingExpression(copy, UIElement.IsEnabledProperty)!.UpdateTarget();
+                if (!copy.IsEnabled || value.Cursor != Cursors.Hand ||
+                    value.ToolTip as string != "Click to copy\n" + expected ||
+                    UIElementAutomationPeer.CreatePeerForElement(value).GetName() != expected ||
+                    System.Windows.Automation.AutomationProperties.GetItemStatus(value) != "Click to copy")
+                    throw new InvalidOperationException(name + " lost its full value, copy hint or accessible action.");
+                foreach (var gesture in new[] { "primary", "Enter", "Space", "menu", "accessible Invoke" })
+                {
+                    copied = "Copy has not been invoked.";
+                    if (gesture == "primary")
+                        value.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                            { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                    else if (gesture == "menu") copy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    else if (gesture == "accessible Invoke")
+                    {
+                        ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(value).GetPattern(PatternInterface.Invoke)).Invoke();
+                        PumpUntil(() => copied == expected);
+                    }
+                    else ActivateKey(value, gesture == "Enter" ? Key.Enter : Key.Space);
+                    if (copied != expected || feedback.Visibility != Visibility.Visible || feedback.Text != label + " copied.")
+                        throw new InvalidOperationException($"{name} {gesture} must copy its exact payload with the same value-free confirmation.");
+                }
+            }
+            var root = (FrameworkElement)window.Content;
+            root.Measure(new Size(700, 500));
+            root.Arrange(new Rect(0, 0, 700, 500));
+            root.UpdateLayout();
+            var segments = VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
+                .Where(value => System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameSegment").ToArray();
+            if (segments.Length != 2) throw new InvalidOperationException("Copy fixture lost duplicate attributed Team names.");
+            foreach (var (segment, owner) in segments.Zip(new[] { "Morgan (morgan@example.com)", "Rowan (rowan@example.com)" }))
+            {
+                if (System.Windows.Automation.AutomationProperties.GetHelpText(segment) != "Owned by " + owner ||
+                    segment.ToolTip is not ToolTip tooltip)
+                    throw new InvalidOperationException("Copyable duplicate Team names must retain independent owners.");
+                tooltip.PlacementTarget = segment;
+                System.Windows.Data.BindingOperations.GetBindingExpression(tooltip, ContentControl.ContentProperty)!.UpdateTarget();
+                if (tooltip.Content as string != "Click to copy\nPlatform\nOwned by " + owner || tooltip.IsOpen)
+                    throw new InvalidOperationException("The compiled Team tooltip must retain the full label, copy hint and owner without opening.");
+                foreach (var key in new[] { Key.Enter, Key.Space })
+                {
+                    copied = "Copy has not been invoked.";
+                    ActivateKey(segment, key);
+                    if (copied != "Platform" || feedback.Text != "Team name copied.")
+                        throw new InvalidOperationException("Team-name activation must copy only that segment with the shared feedback.");
+                }
+            }
+            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            AssertWorkspaceBytes(folder, beforeCopy);
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!,
+                tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "unset@example.com"),
+                TreeView.SelectedItemChangedEvent));
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("DirectoryNameEditor").Clear();
+            Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<FrameworkElement>("ProfileForm").Visibility == Visibility.Collapsed);
+            foreach (var (name, _, _) in fields.Where(field => field.Item1 != "Email"))
+            {
+                var value = Control<TextBlock>(name);
+                var copy = value.ContextMenu!.Items.OfType<MenuItem>().Single();
+                System.Windows.Data.BindingOperations.GetBindingExpression(copy, UIElement.IsEnabledProperty)!.UpdateTarget();
+                if (copy.IsEnabled || value.Cursor == Cursors.Hand || value.ToolTip is not null ||
+                    UIElementAutomationPeer.CreatePeerForElement(value).IsEnabled() ||
+                    System.Windows.Automation.AutomationProperties.GetItemStatus(value) != "")
+                    throw new InvalidOperationException("Absent " + name + " must expose no enabled copy action, cursor or hint.");
+                copied = "Copy has not been invoked.";
+                value.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                    { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                ActivateKey(value, Key.Enter);
+                ActivateKey(value, Key.Space);
+                copy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                if (copied != "Copy has not been invoked." || feedback.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("An absent value replaced the clipboard sentinel or displayed success.");
+            }
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("OfficeState").Text = "—";
+            Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<FrameworkElement>("ProfileForm").Visibility == Visibility.Collapsed);
+            copied = "Copy has not been invoked.";
+            Control<TextBlock>("OfficeStateValue").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            if (copied != "—") throw new InvalidOperationException("A real dash value is not a missing-value placeholder.");
+            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
+            var notes = Control<FrameworkElement>("PersonNotes");
+            var title = (TextBox)notes.FindName("NoteTitle");
+            var noteStatus = (TextBlock)notes.FindName("NoteStatus");
+            title.Text = "";
+            PumpUntil(() => noteStatus.Text.Contains("NOT saved", StringComparison.Ordinal));
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("DirectoryNameEditor").Text = "Retained profile draft";
+            var unrelatedStatus = Control<TextBlock>("StatusText").Text;
+            var unrelatedNoteStatus = noteStatus.Text;
+            var bytes = WorkspaceFixtures.Bytes(folder);
+            room.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            copied = "Copy has not been invoked.";
+            failClipboard = true;
+            room.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            if (feedback.Visibility != Visibility.Collapsed || copied != "Copy has not been invoked." ||
+                !Control<TextBlock>("NoticeSummary").Text.Contains("Copy failed", StringComparison.Ordinal) ||
+                Control<TextBlock>("StatusText").Text != unrelatedStatus || noteStatus.Text != unrelatedNoteStatus ||
+                Control<TextBox>("DirectoryNameEditor").Text != "Retained profile draft" ||
+                Control<TextBlock>("Email").Text != "avery@example.com" || title.Text != "")
+                throw new InvalidOperationException("Clipboard failure must report failure without success or displacing unrelated errors, the Person or staged writing.");
+            AssertWorkspaceBytes(folder, bytes);
+            failClipboard = false;
+            Control<TextBlock>("Email").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            if (!Control<TextBlock>("NoticeSummary").Text.Contains("Person note", StringComparison.Ordinal) ||
+                noteStatus.Text != unrelatedNoteStatus)
+                throw new InvalidOperationException("Successful copy or its expiry dismissed an independent writing failure.");
+            AssertWorkspaceBytes(folder, bytes);
+            Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Copy checks must stay invisible without a native window or real clipboard writes.");
+            Console.WriteLine("PASS: compiled primary/Enter/Space/menu copying retains exact ordinary and duplicate Team-name values, missing-value sentinels, actual-dash data, accessible hints and transient feedback; clipboard failure preserves independent errors/drafts/Workspace bytes. Only the clipboard boundary is substituted; no window/native handle or real clipboard writes.");
+        }
+        finally
+        {
+            ((Button)window.FindName("CancelProfileButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var notes = (FrameworkElement)window.FindName("PersonNotes");
+            ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.Close();
+        }
+    }
+
     private static void VerifyOwnedTeamNameProfile(Window window, string folder)
     {
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -263,7 +485,7 @@ internal static partial class Program
             if (separators.Length != 1 || separators[0].Text != " > " ||
                 separators[0].Focusable || segments.Any(text =>
                     UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Value) is not null ||
-                    UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Invoke) is not null))
+                    UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Invoke) is not IInvokeProvider))
                 throw new InvalidOperationException("The compiled path must separate read-only segments with exactly ' > '.");
             var path = string.Concat(VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
                 .Where(text => text.Visibility == Visibility.Visible &&
@@ -320,7 +542,7 @@ internal static partial class Program
         var tooltipText = tooltip.Content as string;
         var peer = UIElementAutomationPeer.CreatePeerForElement(segment);
         if (!segment.Focusable || !KeyboardNavigation.GetIsTabStop(segment) ||
-            help != "Owned by Morgan (morgan@example.com)" || tooltipText != "Owned by Morgan (morgan@example.com)" ||
+            help != "Owned by Morgan (morgan@example.com)" || tooltipText != "Click to copy\nPlatform\nOwned by Morgan (morgan@example.com)" ||
             peer.GetName() != "Platform" || peer.GetHelpText() != help)
             throw new InvalidOperationException("The compiled owned segment lost focusable owner attribution or accessible text. " +
                 $"Focusable={segment.Focusable}; tab={KeyboardNavigation.GetIsTabStop(segment)}; help='{help}'; tooltip='{tooltipText}'; name='{peer.GetName()}'.");
@@ -1130,7 +1352,7 @@ internal static partial class Program
                     var value = Control<TextBlock>(field.Value);
                     if (value.ActualHeight > lineHeight + 2)
                         failures.Add($"Multiline {field.Value} grew beyond one header line at {width}: {value.ActualHeight}.");
-                    if (value.Text != multiline || value.ToolTip as string != multiline ||
+                    if (value.Text != multiline || value.ToolTip as string != "Click to copy\n" + multiline ||
                         !new TextBlockAutomationPeer(value).GetName().Contains("Last header line", StringComparison.Ordinal))
                         failures.Add($"Bounded {field.Value} lost its full Copy/tooltip/accessible value.");
                 }

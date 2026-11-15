@@ -586,7 +586,9 @@ dispatcher; startup restore/update Loaded handlers and an external UI Automation
 client are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
-It also checks that all ten profile Copy targets accept focus and Tab navigation.
+It also checks that the ten fixed profile Copy targets accept focus and Tab
+navigation and expose an accessible copy action. Absent values disable their
+Copy value action and expose neither the hand cursor nor a copy hint.
 The actual compiled Person-note surface and secondary title list must expose
 distinct automation identities, so collapsed/empty-list discovery cannot select
 the visible surrounding surface instead.
@@ -643,6 +645,16 @@ The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+Its profile-copy fixture substitutes only the Windows clipboard write boundary.
+Actual compiled primary/key/menu connections retain exact multiline text and
+leading zeroes, segment-only duplicate Team names and owner/full-value hints.
+Missing/cleared values leave a sentinel untouched, while a real dash value still
+copies. The transient, non-hit-testable accessible confirmation expires without
+clearing independent errors. A rejected clipboard write shows no success and
+retains the selected Person, profile/Person-note drafts and exact Workspace bytes.
+No native window, tooltip or real local clipboard is opened/written by this
+fixture. These are compiled-control observations, not physical input or rendered
+confirmation acceptance.
 It also exercises labelled Manager and Office in the anchored header, joined
 building/room values and partial/missing Office data, with Department in a
 labelled facts slot. Header context fits the existing photo height at
@@ -921,6 +933,15 @@ without changing its display. They cover:
   quiet chrome and Settings keyboard entry/focus, anchored photo/identity bounds,
   all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
+  primary copying of every eligible value, representative Enter/Space and the
+  retained mouse/keyboard Copy value menus, exact multiline/leading-zero payloads,
+  actual hand cursors/full-value/owner hints and rendered transient confirmations.
+  Clipboard-sentinel checks protect absent values, Heading/Manager navigation,
+  editor Enter and Workspace-path primary clicks. A genuinely held OS clipboard
+  rejects copying without success or loss of staged profile writing; explicit
+  retry returns to quiet reading. The responsive journey repeats the eligible
+  property set, long/truncated/wrapped values and duplicate Team-name activation
+  throughout its unchanged size matrix. Both remain hosted-only evidence,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Its marked
   300 x 300, 300 x 150, 150 x 300, 72 x 72 and 72 x 36 PNGs prove centered
