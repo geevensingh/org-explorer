@@ -126,6 +126,18 @@ the complete amendment and rendered acceptance requirements. The native control
 implements this sizing; hosted rendered verification and owner visual acceptance
 remain separate delivery gates.
 
+Manager remains anchored in identity. Always show Team name as the first
+scrolling fact immediately below that header, keeping the full wrapping path
+out of the fixed-height identity band. Display the applicable names nearest-first,
+including an eligible selected manager's own label, separated by ` > `. Each
+segment identifies its owning manager on hover or keyboard focus; inherited
+labels are read-only. An edit action changes only the eligible selected manager's
+own label, never the displayed path. Preserve duplicate labels and skip unnamed
+managers. Use `Not set` when no names apply, including on archived profiles;
+unlike other missing facts, this row does not use a dash or disappear. Eligibility
+requires at least one current, non-archived direct report in the workspace.
+A retained label is hidden and not editable while that requirement is unmet.
+
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not
 repack the grid. Role and email remain in identity, alongside labelled Manager navigation and a
@@ -249,7 +261,7 @@ The numeric implementation choices are:
 | Wide breakpoint | Available Workspace host width >= 960; this excludes native window chrome and the 20-DIP outer margin on each side |
 | Supported window | Minimum 700 x 500; initial 1100 x 900, unchanged |
 | Pane minimums | People 240; one Person allocation 420, preserving at least 360 for content after padding/scrollbar |
-| Facts | Eight stable labelled slots, one to four equal columns from available width (240-DIP target per slot), above notes |
+| Facts | Stable labelled slots, one to four equal columns from available width (240-DIP target per slot), above notes; Team name stays near Manager |
 | Default proportions | People 25% of navigation/Person space, excluding the divider; the legacy profile ratio is retained but unused |
 | Divider | People only, 8 wide; mouse drag and 10-DIP keyboard arrow steps, constrained to usable minimums |
 | Compact People overlay | Up to 360 wide, over the unchanged Person viewport |

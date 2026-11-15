@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
@@ -201,6 +202,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Office accessibility traversal must match its visual building/room order.");
             if (Bounds("DepartmentValue").Top < Bounds("ProfileScroll").Top)
                 throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
+            AssertTeamNameReading(window, null);
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -654,6 +656,92 @@ internal static partial class Program
         AtSize("profile-inline-narrow-person");
         DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * peoplePercent / 100);
         Await(() => Math.Abs(RenderedPeoplePercent(window) - peoplePercent) < 1);
+    }
+
+    private static void AssertResponsiveOwnedTeamName(AutomationElement window, string import)
+    {
+        NavigateToManager(window, "morgan@example.com");
+        const string name = "Platform engineering and developer experience across the current reporting subtree";
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", name);
+        SaveProfileEditing(window);
+        File.WriteAllText(import, SearchImport("""
+            {"email":"morgan@example.com","managerEmail":"alex@example.com"}
+            """, 2));
+        ApplyReviewedHistoryImport(window);
+        NavigateToManager(window, "alex@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", name);
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, name);
+        SelectTreePerson(window, "morgan@example.com");
+        var scale = DpiScale(window);
+        void AtSize(string stateName)
+        {
+            AssertTeamNamePath(window, name, name);
+            CaptureVisualEvidence(window, stateName + "-reading");
+            BeginProfileEditing(window);
+            var editor = Find(window, "TeamNameEditor");
+            editor.SetFocus();
+            Await(() => editor.Current.HasKeyboardFocus && !editor.Current.IsOffscreen);
+            AssertValue(window, "TeamNameEditor", name);
+            var bounds = editor.Current.BoundingRectangle;
+            var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+            if (!editor.Current.IsEnabled || bounds.Width / scale < 180 ||
+                bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
+                bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale ||
+                !IsVisible(window, "SaveProfile") || !IsVisible(window, "CancelProfile"))
+                throw new InvalidOperationException($"Owned Team-name editing is clipped at {stateName}: {bounds}, viewport={viewport}.");
+            CaptureVisualEvidence(window, stateName + "-editor");
+            CancelProfileEditing(window);
+        }
+        ResizeWindow(window, 700, 500);
+        AtSize("team-name-minimum-700-500");
+        ResizeWindow(window, 1100, 900);
+        AtSize("team-name-ordinary-1100-900");
+        AssertTeamNameOwnerAttribution(window, "Morgan", "morgan@example.com");
+        AssertTeamNameOwnerAttribution(window, "Alex", "alex@example.com", 1);
+        AssertMouseCopy(window, FindTeamNameSegment(window, 0), name);
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 1), name);
+        foreach (var width in new[] { 959d, 960d, 961d })
+        {
+            var chrome = window.Current.BoundingRectangle.Width / scale -
+                Find(window, "AdaptiveWorkspace").Current.BoundingRectangle.Width / scale;
+            ResizeWindow(window, width + chrome, 900);
+            AtSize($"team-name-boundary-{width:0}");
+        }
+        var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
+        state.SetWindowVisualState(WindowVisualState.Maximized);
+        Await(() => state.Current.WindowVisualState == WindowVisualState.Maximized);
+        AtSize("team-name-maximized");
+        var host = Find(window, "AdaptiveWorkspace").Current.BoundingRectangle;
+        var percent = RenderedPeoplePercent(window);
+        DragDivider(window, "PeopleDivider", host.Right - 20);
+        Await(() => Math.Abs(Find(window, "ProfileScroll").Current.BoundingRectangle.Width / scale - 408) < 2);
+        AtSize("team-name-narrow-person");
+        DragDivider(window, "PeopleDivider", host.Left + (host.Width - 8 * scale) * percent / 100);
+        Await(() => Math.Abs(RenderedPeoplePercent(window) - percent) < 1);
+        ResizeWindow(window, 1100, 900);
+        QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+        AssertTeamNamePath(window, name, name);
+        BeginProfileEditing(window);
+        if (IsVisible(window, "TeamNameEditor"))
+            throw new InvalidOperationException("Responsive inherited context exposed an owned-name editor on the report.");
+        CancelProfileEditing(window);
+        NavigateToManager(window, "morgan@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, name);
+        NavigateToManager(window, "alex@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, null);
+        File.WriteAllText(import, SearchImport("""{"email":"morgan@example.com","managerEmail":null}""", 89));
+        ApplyReviewedHistoryImport(window);
+        QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+        AssertTeamNameReading(window, null);
     }
 
     private static void AssertProtectedPeopleOverlay(AutomationElement window)

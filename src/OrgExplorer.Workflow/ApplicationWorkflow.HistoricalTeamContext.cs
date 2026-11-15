@@ -76,7 +76,8 @@ public sealed partial class ApplicationWorkflow
                 return frozen with { Version = CapturedNoteVersion(frozen) };
             })).ToArray();
             var capture = new HistoricalTeamContext(Guid.NewGuid(), before.Email,
-                transitions[0].Change.Evidence.RecordedAt, oldChain.Select(email => people[email]).ToArray(),
+                transitions[0].Change.Evidence.RecordedAt,
+                oldChain.Select(email => people[email] with { TeamName = null }).ToArray(),
                 notes, transitions);
             next[before.Email] = [.. next.GetValueOrDefault(before.Email) ?? [], capture];
         }

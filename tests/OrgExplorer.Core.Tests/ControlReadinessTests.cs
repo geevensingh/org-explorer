@@ -7,6 +7,36 @@ public sealed class ControlReadinessTests
 {
     [Theory]
     [Trait("Category", "Runner")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Team_name_reading_waits_for_post_cancel_resize_discovery_without_repeating_an_action(bool initiallyMissing)
+    {
+        var observations = 0;
+        var pending = new Reading("Previous label", true);
+        var displayed = new Reading("Platform", false);
+        var observed = ControlReadiness.AwaitControl(
+            () => ++observations == 1
+                ? initiallyMissing ? throw new InvalidOperationException("Missing actual UI control: TeamNameSegment") : pending
+                : displayed,
+            control => !control.Offscreen && control.Name == "Platform", AwaitReady);
+
+        Assert.Same(displayed, observed);
+        Assert.Equal(2, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Missing_or_wrong_Team_name_reading_still_fails_the_same_bounded_observation()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitControl<Reading>(
+            () => throw new InvalidOperationException("Missing actual UI control: TeamNameSegment"),
+            _ => true, AwaitReady));
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitControl(
+            () => new Reading("Wrong owner label", false), control => control.Name == "Platform", AwaitReady));
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
     [InlineData(false, 0)]
     [InlineData(true, 1)]
     public void Fully_visible_reading_needs_no_scroll_action_but_a_scrollable_axis_is_requested_once(bool scrollable, int expected)
@@ -154,4 +184,5 @@ public sealed class ControlReadinessTests
 
     private sealed record Control(bool Enabled, object Pattern);
     private sealed record Viewport(bool Offscreen, double Width, double Height);
+    private sealed record Reading(string Name, bool Offscreen);
 }

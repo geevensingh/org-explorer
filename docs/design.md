@@ -89,6 +89,7 @@ automatic continuity across changed or reused email addresses.
 | Preferred name | Display prominently when supplied; searchable alongside the directory name. |
 | Alias | Short company handle, not another name or full email address. |
 | Job title and department | Structured organizational attributes. |
+| Team name | Private manager-owned label, displayed with applicable ancestor names near Manager. |
 | Office building | Building name or number, as text. |
 | Office number | Room or office identifier, as text; preserve leading zeros and letters. |
 | Office state and country | Geographic attributes, separate from building and office number. |
@@ -96,14 +97,16 @@ automatic continuity across changed or reused email addresses.
 | Photo | Locally stored image; a clear placeholder is allowed when genuinely unavailable. |
 | Favorite | Quick access to frequently consulted people. |
 
-All non-identity profile fields are editable in the app and importable. Preferred
-name and LinkedIn URL are not protected override layers: an explicit import may
-replace them after review. Omission preserves them.
+Ordinary non-identity profile attributes are editable in the app and importable.
+Preferred name and LinkedIn URL are not protected override layers: an explicit
+import may replace them after review. Omission preserves them.
 
-Notes are the sole exception: **notes cannot be imported**. They remain local
-workspace documents, including copies delivered by the external sync provider.
-An imported profile change may cause a local historical capture or review flag,
-but imported data must not supply note bodies or note operations.
+Notes and Team names are private workspace context: **neither can be imported**.
+Notes remain local workspace documents, including copies delivered by the external
+sync provider. An imported profile change may cause a local historical capture or
+review flag, but imported data must not supply note bodies, note operations, or
+Team-name values or operations. Team names are maintained manually, not inferred
+from imported department, job title, or other attributes.
 
 Opening a profile, rendering Markdown, or displaying a photo must not fetch
 remote content. An explicitly selected external link may open in the user's
@@ -220,6 +223,40 @@ When a manager changes role or reporting context, potentially stale team notes
 remain visible with a needs-review warning in both change review and inherited
 context. The user can confirm, edit, or archive them; the app does not silently
 hide or relocate them.
+
+## Team names
+
+A Person can own one optional Team name for their reporting subtree. This is a
+private label, not a separate Team entity with independently managed membership.
+Setting, editing, or clearing it requires at least one current, non-archived
+direct report recorded in the workspace. Unlike Team notes, Team names are not
+editable on a Person with no current direct reports.
+
+If the last current direct report leaves or is archived, retain the saved label
+but hide it and disable editing. It becomes applicable again automatically if
+the Person gains a current direct report. Reporting changes and imports must not
+erase that retained label or transfer it to a replacement manager.
+
+On an active Person's profile, display their own Team name first if they qualify
+as a current manager, followed by the names of successive managers in their
+formal reporting chain, nearest first. Skip unnamed managers without stopping
+the traversal. Names need not be unique: preserve repeated labels as separate
+segments. For Alice reporting to Bob (XXX), who reports to Charlie (YYY), Alice
+and Bob both see `XXX > YYY`; Charlie sees `YYY` if no ancestor has a name.
+Clearing Bob's label removes only his segment, leaving `YYY` visible.
+
+Always show the Team name row near Manager, with `Not set` when no names apply.
+The full path is read-only; an eligible selected manager can edit only their own
+label, not inherited labels. Each segment identifies its owning manager on hover
+or keyboard focus. An archived Person has no current Team-name path and sees
+`Not set`; retain any owned label for restoration, subject to the same current
+direct-report requirement.
+
+Team names are durable private workspace context but current-only. Renaming,
+clearing, and reporting changes update applicable current paths automatically.
+Do not capture names in Historical team context or create Profile change events
+for Team-name edits on either the owner or their reports. Existing Team-note
+history and review behavior are unchanged.
 
 ## Observed history
 

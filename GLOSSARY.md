@@ -56,6 +56,11 @@ ancestor context, rather than a presumed complete company directory.
 A private note about one person that is not inherited through reporting relationships.
 _Avoid_: Personal note
 
+**Team name**:
+A private label assigned to a manager's reporting subtree, not an independently
+identified team.
+_Avoid_: Permanent-team identity, department
+
 **Team note**:
 A private note owned by a manager that supplies context for people in that
 manager's current reporting subtree.

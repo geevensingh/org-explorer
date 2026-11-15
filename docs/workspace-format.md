@@ -66,6 +66,16 @@ Office identifiers remain text; unknown optional values stay unknown.
 Email inside the record is authoritative. All textual values and the complete
 reporting graph are validated on load as well as edit/Import.
 
+The optional `teamName` on the owning Person document is private current context:
+nonblank text or null (omission in existing version-2 records also means unset).
+It is not a structured observed attribute or an Import field. Only that owned
+value is stored; applicability is derived from current non-archived direct
+reports, so dormant labels remain durable. A label-only save uses the same
+incremental publication, recovery and delivery guards without creating Profile
+changes, Team-note review revisions or Historical team context. Captured former
+chain profiles omit `teamName`; the historical reader rejects it. Existing strict
+readers reject a nonnull unknown `teamName` instead of silently erasing it.
+
 Each accepted-batch document retains one entry of the version-1 map representation:
 batch identity, logical fingerprint, original source envelope (producer and
 Observation times) and local application time. Each Team-context document

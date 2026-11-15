@@ -173,7 +173,8 @@ Size each row to its own content with a compact, consistent gap. Long values
 must wrap without making unrelated rows taller.
 
 Role, email, Manager and Office already shown in identity need not repeat in the
-grid. Preserve six labelled facts: Department, office state/province, office
+grid. Team name is the first scrolling fact below anchored Manager; preserve
+the six other labelled facts: Department, office state/province, office
 country, Directory name, Alias, and LinkedIn profile URL. Use consistent
 grouping/order across People. This header-context amendment supersedes the
 earlier eight-slot grouping in the consolidated wide reference.

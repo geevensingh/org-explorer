@@ -58,6 +58,7 @@ a neutral dash rather than disappearing behind More details. The grid uses
 fewer columns at narrower available widths. Saved links still open only through
 an explicit action.
 Right-click a value to copy it, or Tab to it and use the context-menu key / Shift+F10.
+Each Team-name segment copies only its label, not its owner or the rest of the path.
 **Edit profile** opens a labelled inline form beneath the anchored identity,
 pairing ordinary fields when space permits and stacking them in a narrow Person
 pane. Empty fields remain editable. Text, Manager and photo changes stay in
