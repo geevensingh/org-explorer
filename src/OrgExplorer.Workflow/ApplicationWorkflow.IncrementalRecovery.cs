@@ -351,7 +351,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    public bool RetryStorageMaintenance() => MaintainAcceptedStorage();
+    public bool RetryStorageMaintenance() => localSqlite ? RefreshWorkspace() : MaintainAcceptedStorage();
 
     private bool MaintainAcceptedStorage()
     {
@@ -404,6 +404,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite) return Fail("Recovery export is not implemented for this staged SQLite Workspace. No legacy recovery is used.");
             if (workspace is null) return Fail("No incremental recovery source is open.");
             if (!CanSafelyClose) return Fail("Resolve retained writing and recovery maintenance before switching to a recovered Workspace.");
             try

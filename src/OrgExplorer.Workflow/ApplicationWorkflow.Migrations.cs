@@ -30,11 +30,13 @@ public sealed partial class ApplicationWorkflow
             "Installer rollback does not restore Workspace data.",
             workspace, error is UnsupportedWorkspaceVersion unsupported ? unsupported.Version :
                 compatibility.State == WorkspaceCompatibilityState.RecoveryRequired ? compatibility.DataVersion : null,
-            compatibility.RecoveryPath);
+            compatibility.RecoveryPath)
+        { SupportsOrdinaryEdits = !localSqlite, SupportedWorkspaceVersion = localSqlite ? 1 : 3 };
     }
 
-    private void EnsureWorkspaceWritable()
+    private void EnsureWorkspaceWritable(bool allowSqliteImport = false)
     {
+        if (localSqlite && !allowSqliteImport) throw new IOException(SqliteEditingUnavailable);
         if (workspaceConflicts.Count != 0)
             throw new IOException("Resolve the retained publication conflict before any further mutation.");
         try
@@ -42,7 +44,8 @@ public sealed partial class ApplicationWorkflow
             if (workspace is null) throw new IOException("Open a Workspace first.");
             // Check versions again before even creating a local writer lease: the
             // provider can deliver incompatible bytes before its watcher event.
-            if (!memory) InspectWorkspaceVersions();
+            if (localSqlite) LocalSqliteRevision();
+            else if (!memory) InspectWorkspaceVersions();
             if (!workspaceCurrent)
                 throw new IOException("Workspace unavailable; retained information is STALE. No changes saved.");
         }

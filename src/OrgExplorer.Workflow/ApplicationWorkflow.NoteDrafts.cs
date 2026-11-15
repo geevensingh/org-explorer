@@ -51,6 +51,11 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite)
+            {
+                Fail(SqliteEditingUnavailable);
+                return null;
+            }
             if (workspace is null || !people.TryGetValue(ownerEmail, out var owner)) return null;
             if (noteId is null)
             {
@@ -81,6 +86,11 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite)
+            {
+                Fail(SqliteEditingUnavailable);
+                return null;
+            }
             RetainNoteDraft(draft);
             try { ValidateNoteDraft(draft.Scope, draft.Id); }
             catch (IOException error)

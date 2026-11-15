@@ -248,12 +248,13 @@ public partial class PersonNotesControl : UserControl
             else if (workflow.IsWorkspaceCurrent && selected is { } id)
                 noteBase = workflow.BeginNoteDraft(NoteScope.Person, owner, id);
         }
-        NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        NewButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits;
         if (!draft.HasUnsavedChanges)
         {
-            var editable = workflow.IsWorkspaceCurrent && workflow.PersonNotesView.SelectedNote is { Archived: false };
+            var editable = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits &&
+                workflow.PersonNotesView.SelectedNote is { Archived: false };
             NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = editable;
-            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
+            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits && selected is not null;
         }
         if (!draft.HasUnsavedChanges) presentation.ShowOperationStatus(workflow, retainedDraft: false);
         ShowPresentation();
@@ -274,7 +275,7 @@ public partial class PersonNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent, draft.HasUnsavedChanges);
+        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits, draft.HasUnsavedChanges);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
     }
 

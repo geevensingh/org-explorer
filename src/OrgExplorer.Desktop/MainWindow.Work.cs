@@ -20,6 +20,7 @@ public partial class MainWindow
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = false;
+        CreateLocalSqliteWorkspaceButton.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
         PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
@@ -41,11 +42,12 @@ public partial class MainWindow
             completion.TrySetResult();
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = true;
+            CreateLocalSqliteWorkspaceButton.IsEnabled = true;
             PersonNotes.IsEnabled = TeamNotes.IsEnabled = true;
             UpdateProfileMode();
             var person = selectedEmail is null ? null : workflow.GetRelationships(selectedEmail)?.Person;
-            FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
-            PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
+            FavoriteButton.IsEnabled = CanEditCurrentWorkspace && person is not null;
+            PersonMoreMenu.IsEnabled = CanEditCurrentWorkspace && person is not null;
             queryDirty = true;
             if (externalRefreshPending)
             {

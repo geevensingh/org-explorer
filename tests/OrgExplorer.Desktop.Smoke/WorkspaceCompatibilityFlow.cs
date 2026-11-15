@@ -145,6 +145,7 @@ internal static partial class Program
             StopApplication(recovery);
         }
         RunStartupRecoveryFlow(executable, root, recoveryWorkspace);
+        RunLocalSqliteWorkspaceFlow(executable, root);
     }
 
     private static void RunStartupRecoveryFlow(string executable, string root, string workspace)

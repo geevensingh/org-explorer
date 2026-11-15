@@ -8,6 +8,42 @@ Preserve the old folder and explicitly choose a new empty folder to create a
 Workspace; do not delete the owner's data. Import version 1 is independent and
 unchanged.
 
+## Staged local SQLite format 1
+
+The #91 vertical slice adds explicit local SQLite creation and automatic format
+recognition on reopening. Version-3 readable files remain the normal shipping
+path until the replacement's final cutover. Creation is available in Settings
+only with `ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES=1`; the app chooses a fresh
+folder below its app-local `LocalWorkspaces` directory. Existing folders are
+never converted, overwritten or deleted. Known OneDrive roots, network shares,
+folder links and installation locations are rejected for local SQLite storage.
+Keep this app-managed directory outside any other synchronization provider too.
+
+`local-workspace.format` is an immutable format discriminator, not a second
+population authority. `workspace.sqlite` is the sole committed-state authority,
+with SQLite application ID `0x4f455850`, local format version 1, a Workspace
+identity and committed revision. A missing discriminator/database, incompatible
+version, corrupt data or mixed SQLite/legacy selector is an explicit open error;
+there is no empty-state, migration or legacy fallback.
+
+Creation and the reviewed initial People-only Import use SQLite transactions
+with `synchronous=EXTRA` and the rollback journal. Success is reported only
+after `Commit` returns. Person profiles, complete reporting relationships,
+Profile baseline evidence and the original accepted Import envelope/fingerprint
+commit atomically. Reopening validates SQLite integrity and the same Person,
+graph and evidence rules as the existing workflow before exposing any population.
+Durability remains bounded by the OS and storage device's actual guarantees.
+
+The staged path supports browsing, startup restoration and exact accepted-batch
+replay. It explicitly rejects photos, subsequent new Imports, ordinary edits
+and legacy recovery export. An unconfirmed Import remains an error requiring
+reopening/reconciliation, not a saved state. Later replacement slices extend
+these capabilities; no missing family is silently written through the legacy
+engine. Publication, cross-computer snapshots and redesigned exit are not
+implemented by this slice. Never synchronize a live database or journal.
+
+## Readable-file version 3
+
 `workspace.json` is the atomic current selector:
 
 ```json

@@ -31,7 +31,7 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
-public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly }
+public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly, CreateLocalSqlite }
 
 public partial interface IApplicationWorkflow : IDisposable
 {
@@ -173,15 +173,23 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         storageReclamationDeferred = false;
         pending = null;
         workspace = null;
+        localSqlite = false;
         compatibility = new(WorkspaceCompatibilityState.NotOpened,
             "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
         try
         {
+            if (!Enum.IsDefined(mode)) throw new ArgumentException("Choose a supported Workspace opening mode.");
+            if (memory && mode == WorkspaceOpenMode.CreateLocalSqlite)
+                throw new IOException("Local SQLite creation requires the real-storage workflow.");
             var fullPath = Path.GetFullPath(path);
             if (fullPath.StartsWith(@"\\", StringComparison.Ordinal))
                 throw new IOException("Choose an ordinary local Workspace, not a network share.");
             if (!memory && fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
                 throw new IOException("Choose a Workspace outside the application installation.");
+            localSqlite = !memory && (mode == WorkspaceOpenMode.CreateLocalSqlite ||
+                File.Exists(Path.Combine(fullPath, SqliteDiscriminator)) ||
+                File.Exists(Path.Combine(fullPath, SqliteDatabase)));
+            if (localSqlite) RequireLocalSqliteLocation(fullPath);
             if (!memory)
             {
                 if (mode == WorkspaceOpenMode.ExistingOnly)
@@ -192,6 +200,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 else Directory.CreateDirectory(fullPath);
             }
             workspace = fullPath;
+            if (localSqlite)
+            {
+                OpenLocalSqlite(mode == WorkspaceOpenMode.CreateLocalSqlite);
+                Status = mode == WorkspaceOpenMode.CreateLocalSqlite
+                    ? "SQLite Workspace created and saved locally."
+                    : "Local SQLite Workspace opened.";
+                return true;
+            }
             if (!memory) LoadPublicationConflicts();
             ReadAndAcceptWorkspace();
             if (!memory) StartWatching();
@@ -211,7 +227,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             teamContextRevisions.Clear();
             photos.Clear();
             InvalidateProjections();
-            if (!memory && mode != WorkspaceOpenMode.ExistingOnly && workspace is not null && Directory.Exists(workspace)) StartWatching();
+            if (!memory && !localSqlite && mode != WorkspaceOpenMode.ExistingOnly && workspace is not null && Directory.Exists(workspace)) StartWatching();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }
@@ -238,6 +254,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var observed = root.GetProperty("observedAt").GetString()!;
             root.TryGetProperty("producer", out var producer);
             var previouslyAccepted = batches.ContainsKey(batchId);
+            if (localSqlite && batches.Count != 0 && !previouslyAccepted)
+                throw new FormatException("This staged SQLite Workspace supports only the initial People-only Import. Subsequent Imports are not implemented.");
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var canonical = new List<string>();
@@ -267,6 +285,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 string? photoHash = null;
                 if (record.TryGetProperty("photoPath", out var photo))
                 {
+                    if (localSqlite && photo.ValueKind != JsonValueKind.Null)
+                        throw new FormatException("Photos are not implemented in the initial People-only Import for this staged SQLite Workspace.");
                     if (photo.ValueKind == JsonValueKind.Null) photoPath = null;
                     else
                     {
@@ -356,10 +376,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     {
         try
         {
-            EnsureWorkspaceWritable();
+            EnsureWorkspaceWritable(allowSqliteImport: true);
             if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
             if ((importPath is not null && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(importPath))) != importHash) ||
-                (!memory && WorkspaceFingerprint() != revision) || !PhotoResourcesUnchanged(pending.Resources))
+                (!memory && (localSqlite ? LocalSqliteRevision() : WorkspaceFingerprint()) != revision) || !PhotoResourcesUnchanged(pending.Resources))
             {
                 pending = null;
                 return Fail("Workspace or import file changed. Reopen and preview again before applying.");
@@ -422,7 +442,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             return new ImportPreview(Guid.NewGuid(), false, [], [Status]);
         }
     }
-    private static bool StorageError(Exception ex) => ex is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException;
+    private static bool StorageError(Exception ex) => ex is IOException or UnauthorizedAccessException or JsonException or FormatException or ArgumentException or Microsoft.Data.Sqlite.SqliteException;
     private static void ValidateGraph(Dictionary<string, PersonProfile> proposed)
     {
         foreach (var person in proposed.Values)
@@ -472,6 +492,8 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
         string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
     {
+        if (localSqlite)
+            return SaveLocalSqliteImport(proposed, accepted, history ?? profileHistory, operation);
         var nextTeamContexts = NextTeamContextRevisions(proposed);
         var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
         if (memory)

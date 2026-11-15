@@ -279,12 +279,13 @@ public partial class TeamNotesControl : UserControl
                 noteBase = workflow.BeginNoteDraft(NoteScope.Team, owner, id);
         }
         RefreshContext();
-        NewButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        NewButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits;
         if (!draft.HasUnsavedChanges)
         {
             NoteTitle.IsEnabled = MarkdownEditor.IsEnabled =
-                workflow.IsWorkspaceCurrent && workflow.TeamNotesView.SelectedNote is { Archived: false };
-            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && selected is not null;
+                workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits &&
+                workflow.TeamNotesView.SelectedNote is { Archived: false };
+            ArchiveButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits && selected is not null;
         }
         if (!draft.HasUnsavedChanges) presentation.ShowOperationStatus(workflow, retainedDraft: false);
         ShowPresentation();
@@ -351,13 +352,14 @@ public partial class TeamNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent, draft.HasUnsavedChanges);
+        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits, draft.HasUnsavedChanges);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
         var note = notes.FirstOrDefault(n => n.Id == selected);
         ReviewStatus.Text = note?.ReviewStatus ?? "";
         ReviewStatus.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
-        ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && note is { NeedsReview: true, Archived: false };
+        ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits &&
+            note is { NeedsReview: true, Archived: false };
         ConfirmButton.Visibility = note is { NeedsReview: true, Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         var warnings = notes.Where(n => n.NeedsReview && !n.Archived).ToArray();
         OwnedReviewWarnings.Text = string.Join("\n", warnings.Select(n =>

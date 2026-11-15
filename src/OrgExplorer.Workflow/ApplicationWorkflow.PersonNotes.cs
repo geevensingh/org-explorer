@@ -38,8 +38,8 @@ public sealed partial class ApplicationWorkflow
             Fail("Person note title must be nonblank.");
             return null;
         }
-        var draft = BeginNoteDraft(NoteScope.Person, person.Email)!;
-        return SaveNoteDraft(draft, title, markdown) is { } saved ? personNotes[saved.Id] : null;
+        var draft = BeginNoteDraft(NoteScope.Person, person.Email);
+        return draft is not null && SaveNoteDraft(draft, title, markdown) is { } saved ? personNotes[saved.Id] : null;
     }
 
     public bool EditPersonNote(Guid noteId, string title, string markdown)

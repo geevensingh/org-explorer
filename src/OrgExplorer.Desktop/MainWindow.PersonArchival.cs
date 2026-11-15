@@ -44,10 +44,10 @@ public partial class MainWindow
             : "";
         PersonArchivalStatus.ToolTip = "Profile, photos, notes and history retained. No current inherited context.";
         PersonArchivalStatus.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;
-        PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && !workPending;
+        PersonMoreMenu.IsEnabled = CanEditCurrentWorkspace && !workPending;
         ArchivePersonMenuItem.Visibility = person.Archived ? Visibility.Collapsed : Visibility.Visible;
         ReactivatePersonMenuItem.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;
-        ManagerEditor.IsEnabled = workflow.IsWorkspaceCurrent;
+        ManagerEditor.IsEnabled = CanEditCurrentWorkspace;
         var choices = new List<ManagerChoice> { new(null, "(explicit no-Manager — clear relationship)") };
         choices.AddRange(workflow.People.Where(p => !string.Equals(p.Email, person.Email, StringComparison.OrdinalIgnoreCase))
             .Select(p => new ManagerChoice(p.Email, $"{p.Heading} ({p.Email})" + (p.Archived ? " — Archived" : ""))));

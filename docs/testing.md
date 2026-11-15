@@ -167,6 +167,20 @@ Older-version rejection has zero observed writes. The
 [incremental storage protocol](incremental-workspace-storage-protocol.md)
 defines the shipping publication, recovery and guarded reclamation contract.
 
+`SqliteWorkspaceTests` observes the staged #91 path through the same real-storage
+`IApplicationWorkflow` / `WorkspaceViewModel` seams. It covers explicit creation,
+reviewed People-only Import, all supplied attributes, exact accepted evidence and
+replay, startup reopening, stale review, actual file-access failure, unavailable
+or corrupt local storage, explicit unsupported actions and preservation of an
+existing legacy Workspace. It does not inspect private tables or substitute an
+in-memory success. The existing `compatibility-settings` hosted journey also
+enables the development opt-in in isolated app settings, creates the app-managed
+local format, previews/applies, browses rendered Person facts and reporting
+navigation, closes and reopens the same population, and checks the old Workspace
+bytes. The opt-in is restored afterwards; all prior scenario steps remain.
+Compiling this journey or passing filesystem cases does not establish hosted
+WPF interaction evidence or any 10,000-Person responsiveness claim.
+
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
 an empty Workspace, seeds accepted Import evidence, and reopens profile text,

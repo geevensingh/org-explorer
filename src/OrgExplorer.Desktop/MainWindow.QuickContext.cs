@@ -32,7 +32,7 @@ public partial class MainWindow
             displayedPreferredNameBase = person;
             PreferredName.Text = person.PreferredName ?? "";
         }
-        PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent;
+        PreferredNameContext.IsEnabled = CanEditCurrentWorkspace;
         UpdatePreferredNameActions();
     }
 
@@ -47,7 +47,7 @@ public partial class MainWindow
 
     private void EditPreferredName(object sender, RoutedEventArgs e)
     {
-        if (selectedEmail is null || !workflow.IsWorkspaceCurrent || workPending) return;
+        if (selectedEmail is null || !CanEditCurrentWorkspace || workPending) return;
         if (preferredNameEditing) return;
         preferredNameBasis = displayedPreferredNameBase;
         if (preferredNameBasis is null) return;
@@ -156,9 +156,9 @@ public partial class MainWindow
     {
         var ownerUnavailable = preferredNameEditing && preferredNameOwner is { } owner &&
             workflow.GetRelationships(owner) is null;
-        PreferredName.IsEnabled = preferredNameEditing && workflow.IsWorkspaceCurrent &&
+        PreferredName.IsEnabled = preferredNameEditing && CanEditCurrentWorkspace &&
             (!workPending || preferredNameSavePending);
-        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && workflow.IsWorkspaceCurrent &&
+        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && CanEditCurrentWorkspace &&
             !ownerUnavailable;
         CancelPreferredNameButton.IsEnabled = preferredNameEditing;
         PreferredNameError.Text = ownerUnavailable

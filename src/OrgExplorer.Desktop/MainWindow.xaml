@@ -428,7 +428,12 @@
                       Style="{StaticResource PrimaryButton}"
                       AutomationProperties.AutomationId="OpenWorkspace" AutomationProperties.Name="Open Workspace..."
                       Click="OpenWorkspace"/>
+              <Button x:Name="CreateLocalSqliteWorkspaceButton" Content="Create local Workspace (preview)"
+                      AutomationProperties.AutomationId="CreateLocalSqliteWorkspace" Visibility="Collapsed"
+                      Click="CreateLocalSqliteWorkspace"/>
             </WrapPanel>
+            <TextBlock x:Name="SqlitePreviewGuidance" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,16"
+                      Text="SQLite preview: initial People-only Import and browsing only. Ordinary editing and synchronization are not available. The existing Workspace is preserved."/>
             <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
             <TextBlock Text="Import" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
             <TextBlock Text="Review the proposed changes before applying them." TextWrapping="Wrap"

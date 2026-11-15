@@ -181,6 +181,12 @@ public sealed partial class ApplicationWorkflow
         if (memory) return true;
         try
         {
+            if (localSqlite)
+            {
+                OpenLocalSqlite(create: false);
+                Status = "Workspace refreshed from committed local SQLite data.";
+                return true;
+            }
             using var access = CoordinateWorkspaceIo(workspace);
             LoadPublicationConflicts();
             if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;

@@ -65,7 +65,7 @@ public partial class MainWindow
     private void UpdateProfileMode()
     {
         var editing = workflow.ProfileEdit is not null;
-        var writable = workflow.IsWorkspaceCurrent && selectedEmail is not null && !workPending;
+        var writable = CanEditCurrentWorkspace && selectedEmail is not null && !workPending;
         EditProfileButton.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         EditProfileButton.IsEnabled = writable;
         ProfileSessionActions.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;

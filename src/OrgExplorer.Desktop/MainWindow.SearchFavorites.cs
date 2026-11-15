@@ -286,7 +286,7 @@ public partial class MainWindow
         FavoriteButton.Content = person.IsFavorite ? "\uE735" : "\uE734";
         System.Windows.Automation.AutomationProperties.SetName(FavoriteButton, action);
         FavoriteButton.ToolTip = action;
-        FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent;
+        FavoriteButton.IsEnabled = CanEditCurrentWorkspace;
         FavoriteStatus.Text = (person.IsFavorite ? "Marked favorite" : "Not marked favorite") +
             (unsavedFavorite.HasValue ? " — pending action NOT saved" : "");
         FavoriteStatus.Visibility = unsavedFavorite.HasValue ? Visibility.Visible : Visibility.Collapsed;

@@ -32,6 +32,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (localSqlite) return Fail(SqliteEditingUnavailable);
             if (profileEdit is { IsDirty: true }) return Fail("Unsaved profile: Save, Discard or Stay before leaving.");
             if (!workspaceCurrent || !people.TryGetValue(email, out var person)) return Fail("Open a current Person first.");
             profileEdit = new(person, person);

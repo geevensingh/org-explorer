@@ -31,6 +31,26 @@ On Windows 11 x64 with the .NET 10 SDK:
 dotnet run --project src\OrgExplorer.Desktop
 ```
 
+The staged SQLite replacement is available only through an explicit development
+opt-in, not as the normal shipping creation path:
+
+```powershell
+$env:ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES='1'
+dotnet run --project src\OrgExplorer.Desktop
+```
+
+**Settings → Create local Workspace (preview)** creates a new app-managed
+Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
+It preserves the previous Workspace. This first slice supports a reviewed
+initial People-only Import, browsing and startup reopening, with all supplied
+Person attributes, relationships and accepted evidence committed together.
+Photos, subsequent Imports, ordinary editing, synchronization and the new exit
+interaction are not available yet; unsupported actions are disabled or rejected,
+never sent to the legacy writer. Exact Import replay remains a no-op.
+Do not synchronize the live database or its journal, and do not treat local
+commit as publication or provider delivery. See the
+[staged format](docs/workspace-format.md#staged-local-sqlite-format-1).
+
 Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
 label. In **Settings → Open Workspace...**, select or create an empty local
 folder outside the installation in the native folder picker. Accepting the

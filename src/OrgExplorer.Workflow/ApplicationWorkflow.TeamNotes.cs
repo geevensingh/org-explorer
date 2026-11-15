@@ -62,8 +62,8 @@ public sealed partial class ApplicationWorkflow
             Fail("Team note title must be nonblank.");
             return null;
         }
-        var draft = BeginNoteDraft(NoteScope.Team, person.Email)!;
-        return SaveNoteDraft(draft, title, markdown) is { } saved ? teamNotes[saved.Id] : null;
+        var draft = BeginNoteDraft(NoteScope.Team, person.Email);
+        return draft is not null && SaveNoteDraft(draft, title, markdown) is { } saved ? teamNotes[saved.Id] : null;
     }
 
     public bool EditTeamNote(Guid noteId, string title, string markdown)

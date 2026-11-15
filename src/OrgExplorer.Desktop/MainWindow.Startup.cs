@@ -71,7 +71,7 @@ public partial class MainWindow
         if (!TryLeaveLocalEdits()) return;
         var opened = await RunWorkflowAsync(() => mode == WorkspaceOpenMode.ExistingOnly
             ? workspaceSettings.RestoreWorkspace(workflow, path)
-            : workspaceSettings.OpenWorkspace(workflow, path), "Opening Workspace...");
+            : workspaceSettings.OpenWorkspace(workflow, path, mode), "Opening Workspace...");
         if (!opened && (workflow.LastWorkspaceOpenWasRejected || workflow.ProfileEdit is not null))
         {
             ShowStatus();
@@ -112,6 +112,13 @@ public partial class MainWindow
     private async void RetryStartupWorkspace(object sender, RoutedEventArgs e)
     {
         if (startupRestorePath is { } path) await OpenWorkspaceAtPathAsync(path, WorkspaceOpenMode.ExistingOnly);
+    }
+
+    private async void CreateLocalSqliteWorkspace(object sender, RoutedEventArgs e)
+    {
+        if (CreateLocalSqliteWorkspaceButton.Visibility != Visibility.Visible || workPending) return;
+        var path = Path.Combine(SettingsDirectory, "LocalWorkspaces", Guid.NewGuid().ToString("D"));
+        await OpenWorkspaceAtPathAsync(path, WorkspaceOpenMode.CreateLocalSqlite);
     }
 
     private async void ChooseAnotherWorkspace(object sender, RoutedEventArgs e)

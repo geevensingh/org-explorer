@@ -10,6 +10,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
+    private bool CanEditCurrentWorkspace => workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits;
     private readonly Func<Window, string?> chooseWorkspaceFolder;
     private Guid? preview;
     private string? selectedEmail;
@@ -26,6 +27,9 @@ public partial class MainWindow : Window
         this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         workflow = new(application, workspaceSettings);
         InitializeComponent();
+        CreateLocalSqliteWorkspaceButton.Visibility =
+            Environment.GetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES") == "1"
+                ? Visibility.Visible : Visibility.Collapsed;
         InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;
@@ -432,6 +436,8 @@ public partial class MainWindow : Window
         WorkspacePath.Text = path ?? "No Workspace open";
         WorkspacePathLabel.Text = workflow.IsWorkspaceCurrent || path is null
             ? "Current Workspace folder" : "Workspace folder (unavailable)";
+        SqlitePreviewGuidance.Visibility = CreateLocalSqliteWorkspaceButton.Visibility == Visibility.Visible ||
+            !workflow.Compatibility.SupportsOrdinaryEdits ? Visibility.Visible : Visibility.Collapsed;
         System.Windows.Automation.AutomationProperties.SetName(WorkspacePath, WorkspacePath.Text);
         UpdateMainViews();
         RefreshSearchAndFavorites();
@@ -459,7 +465,7 @@ public partial class MainWindow : Window
         DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
-        if (!workflow.IsWorkspaceCurrent)
+        if (!CanEditCurrentWorkspace)
         {
             PersonMoreMenu.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
