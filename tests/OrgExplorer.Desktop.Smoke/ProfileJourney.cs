@@ -114,6 +114,7 @@ internal static partial class Program
             OpenPerson(window, "morgan@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
+            AssertTeamNameReading(window, null);
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
@@ -124,6 +125,8 @@ internal static partial class Program
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
             BeginProfileEditing(window);
+            if (IsVisible(window, "TeamNameEditor"))
+                throw new InvalidOperationException("A Person without current direct reports can edit a Team name.");
             AssertProfileFieldKeyboard(window, workspace);
             Set(window, "OfficeNumber", "Cancelled office");
             Click(window, "ClearPhoto");
@@ -135,6 +138,8 @@ internal static partial class Program
             if (Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Stable email identity became editable.");
             NavigateToManager(window, "morgan@example.com");
+            AssertOwnedTeamNameEditing(window, workspace);
+            AssertInheritedTeamNameEditing(window, import, workspace);
             Await(() => window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportedReports")) is not { } reports ||
                 reports.Current.IsOffscreen);
@@ -258,7 +263,7 @@ internal static partial class Program
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             AssertImportHidden(window);
-            OpenPerson(window, "morgan@example.com");
+            OpenPerson(window, "rowan@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertPreferredNameReading(window, "Ave", "Edit");
             if (Find(window, "DirectoryName").Current.Name != "Avery Example")
@@ -268,6 +273,9 @@ internal static partial class Program
             AssertProfileValue(window, "Alias", "avery");
             AssertProfileValue(window, "LinkedInProfileUrl", link);
             AssertPhotoVisible(window);
+            NavigateToManager(window, "morgan@example.com");
+            AssertTeamNamePath(window, "Platform", "Platform");
+            SelectTreePerson(window, "avery@example.com");
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
             entry = PreferredNameEntry(window);
@@ -286,6 +294,196 @@ internal static partial class Program
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
             !Find(window, "DirectoryNameEditor").Current.IsOffscreen &&
             Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+    }
+
+    private static void AssertOwnedTeamNameEditing(AutomationElement window, string workspace)
+    {
+        AssertTeamNameReading(window, null);
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Cancelled label");
+        CancelProfileEditing(window);
+        AssertTeamNameReading(window, null);
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Platform");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Platform");
+        AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Renamed platform");
+        using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Click(window, "SaveProfile");
+            Await(() => Status(window).Contains("NOT saved") && Find(window, "SaveProfile").Current.IsEnabled);
+            AssertValue(window, "TeamNameEditor", "Renamed platform");
+            using var saved = ApplicationWorkflow.CreateFileBacked();
+            if (!saved.OpenWorkspace(workspace) ||
+                saved.GetRelationships("morgan@example.com")!.Person.TeamName != "Platform")
+                throw new InvalidOperationException("Rejected Team-name Save changed the committed owned label.");
+            CaptureVisualEvidence(window, "team-name-rejected-save-retained");
+        }
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Renamed platform");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, null);
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Platform");
+        SaveProfileEditing(window);
+        CaptureVisualEvidence(window, "team-name-owned-reading");
+    }
+
+    private static void AssertInheritedTeamNameEditing(AutomationElement window, string import, string workspace)
+    {
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
+             "observedAt":"2026-11-02T16:00:00Z","people":[
+             {"email":"morgan@example.com","managerEmail":"rowan@example.com"},
+             {"email":"rowan@example.com","displayName":"Rowan Example","managerEmail":null}]}
+            """);
+        ApplyReviewedHistoryImport(window);
+        Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
+        NavigateToManager(window, "rowan@example.com");
+        AssertTeamNameReading(window, null);
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Platform");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Platform");
+        SelectTreePerson(window, "morgan@example.com");
+        AssertTeamNamePath(window, "Platform", "Platform");
+        AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com", 0);
+        AssertTeamNameOwnerAttribution(window, "Rowan Example", "rowan@example.com", 1);
+        AssertMouseCopy(window, FindTeamNameSegment(window, 0), "Platform");
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 1), "Platform");
+        CaptureVisualEvidence(window, "team-name-duplicate-owner-reading");
+        BeginProfileEditing(window);
+        AssertValue(window, "TeamNameEditor", "Platform");
+        Set(window, "TeamNameEditor", "Renamed owned label");
+        SaveProfileEditing(window);
+        AssertTeamNamePath(window, "Renamed owned label", "Platform");
+        AssertKeyboardCopy(window, FindTeamNameSegment(window, 0), "Renamed owned label");
+        AssertMouseCopy(window, FindTeamNameSegment(window, 1), "Platform");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "");
+        SaveProfileEditing(window);
+        AssertTeamNameReading(window, "Platform");
+        AssertTeamNameOwnerAttribution(window, "Rowan Example", "rowan@example.com");
+        BeginProfileEditing(window);
+        Set(window, "TeamNameEditor", "Platform");
+        SaveProfileEditing(window);
+        SelectTreePerson(window, "avery@example.com");
+        AssertTeamNamePath(window, "Platform", "Platform");
+        BeginProfileEditing(window);
+        if (IsVisible(window, "TeamNameEditor"))
+            throw new InvalidOperationException("Inherited context granted a non-manager an owned-name editor.");
+        CancelProfileEditing(window);
+        using var saved = ApplicationWorkflow.CreateFileBacked();
+        if (!saved.OpenWorkspace(workspace) ||
+            saved.GetRelationships("morgan@example.com")!.Person.TeamName != "Platform" ||
+            saved.GetRelationships("rowan@example.com")!.Person.TeamName != "Platform" ||
+            saved.GetRelationships("avery@example.com")!.Person.TeamName is not null)
+            throw new InvalidOperationException("Owner-only editing copied or overwrote the inherited path.");
+        NavigateToManager(window, "morgan@example.com");
+    }
+
+    private static void AssertTeamNameReading(AutomationElement window, string? expected)
+        => AssertTeamNamePath(window, expected is null ? [] : [expected]);
+
+    private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
+    {
+        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        var label = Find(window, "TeamNameLabel");
+        AutomationElement[] values = [];
+        Await(() =>
+        {
+            var names = Find(window, "TeamNames");
+            var segments = names.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
+                .Cast<AutomationElement>().ToArray();
+            if (label.Current.IsOffscreen || !segments.Select(segment => segment.Current.Name).SequenceEqual(expected) ||
+                segments.Any(segment => segment.Current.IsOffscreen))
+                return false;
+            values = expected.Length == 0 ? [Find(window, "TeamNameEmpty")] : segments;
+            return values.All(value => !value.Current.IsOffscreen) &&
+                (expected.Length != 0 || values[0].Current.Name == "Not set");
+        });
+        if (values.Any(value => value.Current.ControlType != ControlType.Text ||
+            value.TryGetCurrentPattern(ValuePattern.Pattern, out _) ||
+            value.TryGetCurrentPattern(InvokePattern.Pattern, out _)) || IsVisible(window, "TeamNameEditor"))
+            throw new InvalidOperationException("Team-name reading became an editable field or lost its explicit empty state.");
+        var separators = Find(window, "TeamNames").FindAll(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator"))
+            .Cast<AutomationElement>().Where(separator => !separator.Current.IsOffscreen).ToArray();
+        if (separators.Length != Math.Max(0, expected.Length - 1) ||
+            separators.Any(separator => separator.Current.Name != " > " || separator.Current.IsKeyboardFocusable))
+            throw new InvalidOperationException("The rendered Team-name path lost its exact read-only ' > ' separators.");
+        var renderedPath = string.Concat(Find(window, "TeamNames").FindAll(TreeScope.Descendants, new OrCondition(
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator")))
+            .Cast<AutomationElement>().Where(value => !value.Current.IsOffscreen).Select(value => value.Current.Name));
+        if (renderedPath != string.Join(" > ", expected))
+            throw new InvalidOperationException($"The actual rendered Team-name path is out of order: '{renderedPath}'.");
+        var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
+        var row = label.Current.BoundingRectangle;
+        var scale = DpiScale(window);
+        if (row.IsEmpty || manager.IsEmpty || row.Top < manager.Top - 30 * scale ||
+            row.Top > manager.Bottom + 24 * scale)
+            throw new InvalidOperationException($"Team name is not near Manager: label={row}, Manager={manager}.");
+        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        foreach (var value in values.Concat(separators))
+        {
+            var bounds = value.Current.BoundingRectangle;
+            if (scroll.Current.HorizontallyScrollable || bounds.Left < viewport.Left - scale ||
+                bounds.Right > viewport.Right + scale || bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
+                throw new InvalidOperationException($"Team-name reading is clipped: value={bounds}, viewport={viewport}.");
+            if (value.Current.AutomationId == "TeamNameSegment" && value.TryGetCurrentPattern(TextPattern.Pattern, out var text))
+            {
+                var lastWord = value.Current.Name.Split(' ')[^1];
+                var last = ((TextPattern)text).DocumentRange.FindText(lastWord, false, false);
+                if (last is null || last.GetBoundingRectangles().Length == 0)
+                    throw new InvalidOperationException("The end of the actual rendered Team name is not readable.");
+            }
+        }
+    }
+
+    private static AutomationElement FindTeamNameSegment(AutomationElement window, int index) =>
+        Find(window, "TeamNames").FindAll(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
+            .Cast<AutomationElement>().ElementAtOrDefault(index) ??
+                throw new InvalidOperationException($"Missing actual UI control: TeamNameSegment {index}");
+
+    private static void AssertTeamNameOwnerAttribution(AutomationElement window, string heading, string email, int index = 0)
+    {
+        var expected = $"Owned by {heading} ({email})";
+        Find(window, "Email").SetFocus();
+        var segment = ControlReadiness.AwaitControl(() => FindTeamNameSegment(window, index),
+            candidate => !candidate.Current.IsOffscreen && candidate.Current.HelpText == expected, Await);
+        bool TooltipVisible()
+        {
+            var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ToolTip),
+                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId)));
+            return tooltip is not null && !tooltip.Current.IsOffscreen &&
+                (tooltip.Current.Name == expected || tooltip.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, expected)) is not null);
+        }
+        var point = segment.GetClickablePoint();
+        if (!SetCursorPos((int)point.X, (int)point.Y))
+            throw new InvalidOperationException("The hosted desktop could not hover the Team-name segment.");
+        Await(TooltipVisible);
+        var away = Find(window, "Email").GetClickablePoint();
+        if (!SetCursorPos((int)away.X, (int)away.Y))
+            throw new InvalidOperationException("The hosted desktop could not leave the Team-name segment.");
+        Await(() => !TooltipVisible());
+        segment.SetFocus();
+        Await(() => segment.Current.HasKeyboardFocus && TooltipVisible());
+        if (!segment.Current.IsKeyboardFocusable || segment.Current.HelpText != expected)
+            throw new InvalidOperationException("The Team-name owner is not independently attributed on keyboard focus.");
+        PressCopyKey(0x09);
+        Await(() => !segment.Current.HasKeyboardFocus && !TooltipVisible());
+        Find(window, "Email").SetFocus();
     }
 
     private static void AssertProfileFieldKeyboard(AutomationElement window, string workspace)
@@ -318,10 +516,12 @@ internal static partial class Program
     }
 
     private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
+        => AssertKeyboardCopy(window, Find(window, name), expected, copyAction);
+
+    private static void AssertKeyboardCopy(AutomationElement window, AutomationElement value, string expected, string copyAction = "Copy value")
     {
-        var value = Find(window, name);
         if (!value.Current.IsKeyboardFocusable)
-            throw new InvalidOperationException($"{name} does not accept keyboard focus.");
+            throw new InvalidOperationException($"{value.Current.AutomationId} does not accept keyboard focus.");
         value.SetFocus();
         Await(() => value.Current.HasKeyboardFocus);
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
@@ -332,6 +532,27 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.NameProperty, copyAction))) is not null);
         PressCopyKey(0x28);
         PressCopyKey(0x0D);
+        Await(() => System.Windows.Clipboard.GetText() == expected);
+    }
+
+    private static void AssertMouseCopy(AutomationElement window, AutomationElement value, string expected)
+    {
+        System.Windows.Clipboard.SetText("Copy has not been invoked.");
+        var point = value.GetClickablePoint();
+        if (!SetCursorPos((int)point.X, (int)point.Y))
+            throw new InvalidOperationException("The hosted desktop could not right-click the profile value.");
+        mouse_event(8, 0, 0, 0, 0);
+        mouse_event(16, 0, 0, 0, 0);
+        AutomationElement? copy = null;
+        Await(() => (copy = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem),
+            new PropertyCondition(AutomationElement.NameProperty, "Copy value")))) is not null);
+        var action = copy!.GetClickablePoint();
+        if (!SetCursorPos((int)action.X, (int)action.Y))
+            throw new InvalidOperationException("The hosted desktop could not click Copy value.");
+        mouse_event(2, 0, 0, 0, 0);
+        mouse_event(4, 0, 0, 0, 0);
         Await(() => System.Windows.Clipboard.GetText() == expected);
     }
 

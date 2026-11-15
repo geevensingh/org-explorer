@@ -2,6 +2,18 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class ControlReadiness
 {
+    internal static TControl AwaitControl<TControl>(Func<TControl> find, Func<TControl, bool> isReady,
+        Action<Func<bool>> awaitState) where TControl : class
+    {
+        TControl? control = null;
+        awaitState(() =>
+        {
+            control = find();
+            return isReady(control);
+        });
+        return control!;
+    }
+
     internal static void ScrollToTopIfScrollable(Func<bool> isScrollable, Action scrollToTop)
     {
         if (isScrollable()) scrollToTop();

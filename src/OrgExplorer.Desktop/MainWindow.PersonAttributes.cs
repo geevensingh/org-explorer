@@ -17,6 +17,7 @@ public partial class MainWindow
         workflow.CancelProfileEdit();
         FinishPreferredNameEntry();
         foreach (var editor in PersonEditors) editor.Clear();
+        TeamNameEditor.Clear();
         ShowProfileValues(null);
         preferredNameOwner = null;
         displayedPreferredNameBase = null;
@@ -41,6 +42,7 @@ public partial class MainWindow
         OfficeState.Text = draft.OfficeState ?? "";
         OfficeCountry.Text = draft.OfficeCountry ?? "";
         LinkedInProfileUrl.Text = draft.LinkedInProfileUrl ?? "";
+        TeamNameEditor.Text = draft.TeamName ?? "";
         AttributeEditors.IsEnabled = true;
         OpenLinkedInButton.IsEnabled = person.LinkedInProfileUrl is not null;
         OpenLinkedInButton.ToolTip = person.LinkedInProfileUrl;

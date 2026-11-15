@@ -37,7 +37,11 @@ internal static partial class Program
                 throw new InvalidOperationException("Profile search retained a duplicate generic inspector instead of revealing the actual field.");
             CaptureVisualEvidence(window, "search-matched-office-number");
             AssertMouseSearchActivation(window);
-            if (responsive) AssertLongAndMissingFacts(window);
+            if (responsive)
+            {
+                AssertLongAndMissingFacts(window);
+                AssertResponsiveOwnedTeamName(window, import);
+            }
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
             Set(window, "PersonNoteMarkdown", $"# Orchid\nPrivate Person writing\n![remote]({remote}/image.png)\n<script>fetch('{remote}')</script>" +
@@ -99,7 +103,8 @@ internal static partial class Program
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             AssertSearchReading(window, "Image not loaded", readingId: "HistoricalTeamReading");
-            if (!Find(window, "HistoricalTeamSummary").Current.Name.Contains("effective date unknown") ||
+            if (!HistoricalReadingText(window).Contains("Exact effective date unknown") ||
+                !HistoricalEvidenceText(window).Contains("effective date unknown") ||
                 !Find(window, "HistoricalTeamReading").Current.HelpText.Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search omitted frozen ownership/provenance.");
             CaptureVisualEvidence(window, "search-exact-frozen-note-owner-capture");

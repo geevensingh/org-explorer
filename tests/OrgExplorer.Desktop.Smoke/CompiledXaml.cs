@@ -161,6 +161,10 @@ internal static partial class Program
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyReportsVisibility(reportsWindow, settings); }
                 finally { reportsWindow.Close(); }
+                var teamNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
+                finally { teamNameWindow.Close(); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -180,6 +184,229 @@ internal static partial class Program
             CompiledWorkspaceChoices.Clear();
             Directory.Delete(settings, true);
         }
+    }
+
+    private static void VerifyOwnedTeamNameProfile(Window window, string folder)
+    {
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000087",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"rowan@example.com","displayName":"Rowan","managerEmail":null},
+                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":"rowan@example.com"},
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
+                 {"email":"unset@example.com","displayName":"Unset","managerEmail":null}]}
+                """).Id) || !seed.BeginProfileEdit("morgan@example.com") ||
+                !seed.StageProfileTeamName("Platform") || !seed.SaveProfileEdit() ||
+                !seed.BeginProfileEdit("rowan@example.com") ||
+                !seed.StageProfileTeamName("Platform") || !seed.SaveProfileEdit())
+                throw new InvalidOperationException("Owned Team-name fixture failed: " + seed.Status);
+        }
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Invoke("OpenSettingsButton");
+        ChooseCompiledWorkspace(window, folder);
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        var tree = Control<TreeView>("PeopleList");
+        var ancestor = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "rowan@example.com");
+        var owner = ancestor.Reports.Single();
+        void Select(ReportingNode node) =>
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, node, TreeView.SelectedItemChangedEvent));
+        Select(owner);
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        TextBlock[] Segments() => VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
+            .Where(text => System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "TeamNameSegment").ToArray();
+        void AssertPath(string ownedName)
+        {
+            var segments = Segments();
+            if (!segments.Select(text => (text.Text, System.Windows.Automation.AutomationProperties.GetHelpText(text)))
+                .SequenceEqual(new[] { (ownedName, "Owned by Morgan (morgan@example.com)"),
+                    ("Platform", "Owned by Rowan (rowan@example.com)") }))
+                throw new InvalidOperationException("The compiled path lost ordered duplicate labels or their distinct owners.");
+            var separators = VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
+                .Where(text => System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "TeamNameSeparator" &&
+                    text.Visibility == Visibility.Visible).ToArray();
+            if (separators.Length != 1 || separators[0].Text != " > " ||
+                separators[0].Focusable || segments.Any(text =>
+                    UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Value) is not null ||
+                    UIElementAutomationPeer.CreatePeerForElement(text).GetPattern(PatternInterface.Invoke) is not null))
+                throw new InvalidOperationException("The compiled path must separate read-only segments with exactly ' > '.");
+            var path = string.Concat(VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
+                .Where(text => text.Visibility == Visibility.Visible &&
+                    System.Windows.Automation.AutomationProperties.GetAutomationId(text) is "TeamNameSegment" or "TeamNameSeparator")
+                .Select(text => text.Text));
+            if (path != ownedName + " > Platform")
+                throw new InvalidOperationException("The compiled separators do not form the exact ordered Team-name path.");
+            foreach (var (value, expected) in segments.Zip(new[] { ownedName, "Platform" }))
+            {
+                if (!value.Focusable || !KeyboardNavigation.GetIsTabStop(value) ||
+                    value.ContextMenu is not { } menu ||
+                    menu.Items.OfType<MenuItem>().SingleOrDefault() is not { Header: "Copy value" } copy)
+                    throw new InvalidOperationException("Each Team-name segment needs its own keyboard-accessible Copy value action.");
+                menu.PlacementTarget = value;
+                System.Windows.Data.BindingOperations.GetBindingExpression(copy, FrameworkElement.TagProperty)!.UpdateTarget();
+                if (copy.Tag is not string copied || copied != expected || menu.IsOpen)
+                    throw new InvalidOperationException("Team-name Copy must bind only the actual segment label, not its owner or the full path.");
+            }
+            var available = Control<ItemsControl>("TeamNames").ActualWidth;
+            if (segments.Any(text => text.TranslatePoint(new Point(), Control<ItemsControl>("TeamNames")).X < -1 ||
+                text.TranslatePoint(new Point(text.ActualWidth, 0), Control<ItemsControl>("TeamNames")).X > available + 1))
+                throw new InvalidOperationException("A compiled Team-name segment overflows its supported fact width.");
+        }
+        AssertPath("Platform");
+        IEnumerable<UIElementAutomationPeer> SegmentPeers(AutomationPeer candidate)
+        {
+            if (candidate is UIElementAutomationPeer element && candidate.GetAutomationId() == "TeamNameSegment")
+                yield return element;
+            foreach (var child in candidate.GetChildren() ?? [])
+                foreach (var descendant in SegmentPeers(child)) yield return descendant;
+        }
+        var initialNames = Control<ItemsControl>("TeamNames");
+        void AssertLivePeers(params (string Name, string Help)[] expected)
+        {
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            var peers = SegmentPeers(UIElementAutomationPeer.CreatePeerForElement(initialNames)).ToArray();
+            if (!peers.Select(peer => (peer.GetName(), peer.GetHelpText())).SequenceEqual(expected) ||
+                peers.Any(peer => !peer.Owner.IsDescendantOf(initialNames)))
+                throw new InvalidOperationException("Team-name path updates lost distinct live attributed automation peers. " +
+                    $"Expected={string.Join("; ", expected)}; " +
+                    $"Peers={string.Join("; ", peers.Select(peer => $"{peer.GetName()} / {peer.GetHelpText()} / live={peer.Owner.IsDescendantOf(initialNames)}"))}; " +
+                    $"Visual={string.Join("; ", Segments().Select(text => $"{text.Text} / {System.Windows.Automation.AutomationProperties.GetHelpText(text)}"))}; " +
+                    $"Items={initialNames.Items.Count}; status={Control<TextBlock>("StatusText").Text}.");
+        }
+        AssertLivePeers(("Platform", "Owned by Morgan (morgan@example.com)"),
+            ("Platform", "Owned by Rowan (rowan@example.com)"));
+        var segment = Segments()[0];
+        var tooltip = (ToolTip)segment.ToolTip;
+        tooltip.PlacementTarget = segment;
+        System.Windows.Data.BindingOperations.GetBindingExpression(tooltip, ContentControl.ContentProperty)!.UpdateTarget();
+        var help = System.Windows.Automation.AutomationProperties.GetHelpText(segment);
+        var tooltipText = tooltip.Content as string;
+        var peer = UIElementAutomationPeer.CreatePeerForElement(segment);
+        if (!segment.Focusable || !KeyboardNavigation.GetIsTabStop(segment) ||
+            help != "Owned by Morgan (morgan@example.com)" || tooltipText != "Owned by Morgan (morgan@example.com)" ||
+            peer.GetName() != "Platform" || peer.GetHelpText() != help)
+            throw new InvalidOperationException("The compiled owned segment lost focusable owner attribution or accessible text. " +
+                $"Focusable={segment.Focusable}; tab={KeyboardNavigation.GetIsTabStop(segment)}; help='{help}'; tooltip='{tooltipText}'; name='{peer.GetName()}'.");
+        var team = Control<FrameworkElement>("TeamNotes");
+        T TeamControl<T>(string name) where T : FrameworkElement => (T)team.FindName(name);
+        TeamControl<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => TeamControl<TextBox>("NoteTitle").Text == "New Team note" &&
+            Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        TeamControl<TextBox>("NoteTitle").Text = "Manager context";
+        TeamControl<TextBox>("MarkdownEditor").Text = "# Frozen Manager\nOriginal Manager writing";
+        var disabledDuringProfileEntry = false;
+        DependencyPropertyChangedEventHandler observeEntry = (_, e) =>
+        {
+            if (e.NewValue is false && Control<FrameworkElement>("ProfileForm").Visibility == Visibility.Visible)
+                disabledDuringProfileEntry = true;
+        };
+        Control<TextBox>("DirectoryNameEditor").IsEnabledChanged += observeEntry;
+        PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
+            TeamControl<TextBlock>("NoteStatus").Text.StartsWith(
+                "Team note saved locally and confirmed for current context.", StringComparison.Ordinal));
+        Invoke("EditProfileButton");
+        PumpUntil(() => TeamControl<TextBlock>("NoteStatus").Text.StartsWith(
+            "Team note saved locally and confirmed for current context.", StringComparison.Ordinal) &&
+            Control<TextBox>("DirectoryNameEditor").IsEnabled &&
+            ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBox>("DirectoryNameEditor")));
+        Control<TextBox>("DirectoryNameEditor").IsEnabledChanged -= observeEntry;
+        if (disabledDuringProfileEntry)
+            throw new InvalidOperationException("Late Team-note fixture autosave disabled Directory name after profile entry, invalidating its focus target.");
+        if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Visible ||
+            Control<TextBox>("TeamNameEditor").Text != "Platform" || !Control<TextBox>("TeamNameEditor").IsEnabled)
+            throw new InvalidOperationException("Eligible profile editing did not load the owned Team name.");
+        Control<TextBox>("TeamNameEditor").Text = "Renamed platform";
+        Invoke("SaveProfileButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+            if (!reopened.OpenWorkspace(folder) ||
+                reopened.GetRelationships("morgan@example.com")!.Person.TeamName != "Renamed platform")
+                throw new InvalidOperationException("The compiled owned-name editor did not publish its displayed draft.");
+        var names = Control<ItemsControl>("TeamNames");
+        bool ExposesSegment(AutomationPeer candidate) =>
+            (candidate is UIElementAutomationPeer element && candidate.GetAutomationId() == "TeamNameSegment" &&
+                candidate.GetName() == "Renamed platform" && element.Owner.IsDescendantOf(names)) ||
+            candidate.GetChildren()?.Any(ExposesSegment) == true;
+        void ReadingLayout(double width, double height)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+        }
+        ReadingLayout(700, 500);
+        AssertPath("Renamed platform");
+        var namesPeer = UIElementAutomationPeer.CreatePeerForElement(names);
+        if (!ExposesSegment(namesPeer))
+            throw new InvalidOperationException("The initial compiled Team-name segment is absent from its actual automation peer tree.");
+        Invoke("EditProfileButton");
+        ReadingLayout(700, 500);
+        var ownedEditor = Control<TextBox>("TeamNameEditor");
+        FocusManager.SetFocusedElement(window, ownedEditor);
+        ownedEditor.BringIntoView();
+        ReadingLayout(700, 500);
+        Invoke("CancelProfileButton");
+        PumpUntil(() => ReferenceEquals(FocusManager.GetFocusedElement(window), Control<Button>("EditProfileButton")));
+        ReadingLayout(1100, 900);
+        AssertPath("Renamed platform");
+        AssertLivePeers(("Renamed platform", "Owned by Morgan (morgan@example.com)"),
+            ("Platform", "Owned by Rowan (rowan@example.com)"));
+        if (!ExposesSegment(namesPeer))
+            throw new InvalidOperationException("Cancel/resize lost the compiled Team-name segment from its actual automation peer tree. " +
+                $"Items={names.Items.Count}; visual segments={Segments().Length}.");
+        const string longName = "Platform engineering and developer experience across the current reporting subtree";
+        Invoke("EditProfileButton");
+        Control<TextBox>("TeamNameEditor").Text = longName;
+        Invoke("SaveProfileButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        foreach (var size in new[] { new Size(700, 500), new Size(1100, 900) })
+        {
+            ReadingLayout(size.Width, size.Height);
+            AssertPath(longName);
+        }
+        Invoke("EditProfileButton");
+        Control<TextBox>("TeamNameEditor").Clear();
+        Invoke("SaveProfileButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        ReadingLayout(700, 500);
+        AssertLivePeers(("Platform", "Owned by Rowan (rowan@example.com)"));
+        if (Segments().Single().Text != "Platform" || VisualDescendants(names).OfType<TextBlock>().Any(text =>
+            System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "TeamNameSeparator" &&
+            text.Visibility == Visibility.Visible))
+            throw new InvalidOperationException("Clearing the owned label removed or misdelimited the inherited ancestor.");
+        Invoke("EditProfileButton");
+        Control<TextBox>("TeamNameEditor").Text = "Renamed platform";
+        Invoke("SaveProfileButton");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text.StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        ReadingLayout(1100, 900);
+        AssertPath("Renamed platform");
+        AssertLivePeers(("Renamed platform", "Owned by Morgan (morgan@example.com)"),
+            ("Platform", "Owned by Rowan (rowan@example.com)"));
+        Select(owner.Reports.Single());
+        Invoke("EditProfileButton");
+        if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Collapsed ||
+            Control<ItemsControl>("TeamNames").Items.Count != 2)
+            throw new InvalidOperationException("An ineligible profile exposed an owned-name editor or lost inherited context.");
+        Invoke("CancelProfileButton");
+        ReadingLayout(1100, 900);
+        AssertPath("Renamed platform");
+        AssertLivePeers(("Renamed platform", "Owned by Morgan (morgan@example.com)"),
+            ("Platform", "Owned by Rowan (rowan@example.com)"));
+        Select(tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "unset@example.com"));
+        Invoke("EditProfileButton");
+        if (Control<StackPanel>("TeamNameEditorRow").Visibility != Visibility.Collapsed ||
+            Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("An empty ineligible profile exposed an owned-name editor or hid Not set.");
+        Invoke("CancelProfileButton");
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Owned-name wiring must remain invisible without a native handle.");
+        Console.WriteLine("PASS: compiled ordered/duplicate Team-name segments, separators, segment-only Copy bindings, owner bindings, owner-only durable Save, inherited/empty reading and live Cancel/resize automation peers without a window/native handle; physical input remains hosted evidence.");
     }
 
     private static void VerifySettingsFocus(Window window)
@@ -399,6 +626,7 @@ internal static partial class Program
     {
         string Writing(string marker) => string.Join("\n\n",
             Enumerable.Range(1, 32).Select(n => $"{marker} paragraph {n}. Keep the decision and its reasoning together."));
+        IReadOnlyList<HistoricalTeamContext> captures;
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
@@ -412,9 +640,14 @@ internal static partial class Program
                 seed.CreateTeamNote("avery@example.com", "Owned reading", Writing("Owned")) is null ||
                 seed.CreateTeamNote("morgan@example.com", "Former reading", Writing("Frozen")) is null ||
                 seed.CreateTeamNote("alex@example.com", "Ancestor reading", Writing("Current")) is null ||
+                !seed.EditPersonText("morgan@example.com", PersonTextField.JobTitle, "Former Director") ||
+                !seed.EditPersonManager("avery@example.com", null) ||
+                !seed.EditPersonArchived("avery@example.com", true) ||
                 !seed.EditPersonManager("avery@example.com", "alex@example.com") ||
+                !seed.EditPersonArchived("avery@example.com", false) ||
                 !seed.EditPersonText("alex@example.com", PersonTextField.JobTitle, "Director"))
                 throw new InvalidOperationException("Context reading fixture failed: " + seed.Status);
+            captures = seed.GetHistoricalTeamContexts("avery@example.com");
         }
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var person = Control<FrameworkElement>("PersonNotes");
@@ -449,6 +682,45 @@ internal static partial class Program
         var inherited = Team<FlowDocumentScrollViewer>("InheritedReading");
         var frozen = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
         string Text(FlowDocumentScrollViewer reader) => new TextRange(reader.Document.ContentStart, reader.Document.ContentEnd).Text;
+        if (Control<TextBlock>("HistoricalTeamSummary").Text != "Historical captures: 2")
+            throw new InvalidOperationException("The capture summary must count captures without duplicating technical evidence.");
+        var disclosures = new List<Expander>();
+        foreach (var capture in captures)
+        {
+            var section = frozen.Document.Blocks.OfType<Section>().Single(s => Equals(s.Tag, capture.Id));
+            var disclosure = (Expander)section.Blocks.OfType<BlockUIContainer>().Single().Child;
+            disclosures.Add(disclosure);
+            var evidence = (TextBox)disclosure.Content;
+            var reading = new TextRange(section.ContentStart, section.ContentEnd).Text;
+            if (disclosure.IsExpanded || disclosure.Header as string != "Capture details" ||
+                System.Windows.Automation.AutomationProperties.GetAutomationId(disclosure) != $"HistoricalCaptureDetails-{capture.Id}" ||
+                string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(disclosure)) ||
+                !evidence.IsReadOnly || !evidence.Focusable || !KeyboardNavigation.GetIsTabStop(evidence) ||
+                !evidence.Text.Contains(capture.DisplayProvenance, StringComparison.Ordinal) ||
+                reading.Contains("Prior evidence:", StringComparison.Ordinal) ||
+                !reading.Contains("Captured locally", StringComparison.Ordinal) ||
+                !reading.Contains("Exact effective date unknown", StringComparison.Ordinal))
+                throw new InvalidOperationException("Capture evidence must be separately named, collapsed and copyable without replacing honest capture attribution.");
+            foreach (var note in capture.TeamNotes)
+            {
+                var noteSection = section.Blocks.OfType<Section>().Single(s => Equals(s.Tag, note.Id));
+                var noteText = new TextRange(noteSection.ContentStart, noteSection.ContentEnd).Text;
+                if (!noteText.Contains($"Frozen Team note: {note.Title}", StringComparison.Ordinal) ||
+                    !noteText.Contains("Owned by Morgan (morgan@example.com)", StringComparison.Ordinal) ||
+                    !noteText.Contains("Needs review", StringComparison.Ordinal) ||
+                    noteText.Contains(note.Version, StringComparison.Ordinal) || noteText.Contains(note.Id.ToString(), StringComparison.Ordinal) ||
+                    !evidence.Text.Contains(note.Version, StringComparison.Ordinal) ||
+                    !evidence.Text.Contains(note.Id.ToString(), StringComparison.Ordinal) ||
+                    noteSection.BorderThickness.Left <= 0 ||
+                    !noteText.Contains("Frozen paragraph 32", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Frozen writing must retain its boundary, exact owner and captured review warning without technical note labels.");
+            }
+            if (capture.TeamNotes.Count == 0 &&
+                (!reading.Contains("(explicit no-Manager)", StringComparison.Ordinal) ||
+                 !reading.Contains("Archival closure", StringComparison.Ordinal) ||
+                 !reading.Contains("No active Team notes were locally known", StringComparison.Ordinal)))
+                throw new InvalidOperationException("A capture with no known notes must retain its former chain and evidence.");
+        }
         if (!Text(inherited).Contains("Current paragraph 32", StringComparison.Ordinal) ||
             Text(inherited).Contains("Frozen paragraph", StringComparison.Ordinal) ||
             !Text(frozen).Contains("Frozen paragraph 32", StringComparison.Ordinal) ||
@@ -479,6 +751,22 @@ internal static partial class Program
                 Control<TextBlock>("HistoricalTeamSummary").ActualWidth > 600 ||
                 Team<TextBlock>("InheritedSummary").ActualWidth > 600)
                 throw new InvalidOperationException($"Full-width context sections must align their title and bounded prose at {size}: title={title.X}, prose={prose.X}.");
+            foreach (var disclosure in disclosures)
+            {
+                var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().Single();
+                var provider = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle);
+                var before = Text(frozen);
+                provider.Toggle();
+                root.UpdateLayout();
+                var evidence = (TextBox)disclosure.Content;
+                if (!disclosure.IsExpanded || evidence.ActualHeight <= 0 || disclosure.ActualWidth > 600 ||
+                    evidence.TextWrapping != TextWrapping.Wrap || evidence.ExtentWidth > evidence.ViewportWidth + 1 ||
+                    disclosure.TransformToAncestor(viewport).Transform(new Point(disclosure.ActualWidth, 0)).X > viewport.ViewportWidth + 1 ||
+                    Text(frozen) != before)
+                    throw new InvalidOperationException($"Expanding capture evidence must wrap within the shared reading scroll without changing frozen writing at {size}.");
+                provider.Toggle();
+                root.UpdateLayout();
+            }
         }
         foreach (var notes in new[] { person, team })
         {
@@ -1051,6 +1339,15 @@ internal static partial class Program
             frozenText.Contains("Pine current writing", StringComparison.Ordinal) ||
             !frozenText.Contains("morgan@example.com", StringComparison.Ordinal))
             throw new InvalidOperationException("Historical search did not reveal the exact frozen owner's document.");
+        Activate("morgan@example.com", r => r.Person.Email == "avery@example.com" &&
+            r.Source == SearchSource.FormerReportingChain && r.Field == "email");
+        PumpUntil(() => System.Windows.Automation.AutomationProperties.GetHelpText(historical)
+            .Contains("Former Reporting chain", StringComparison.Ordinal));
+        if (!new TextRange(historical.Document.ContentStart, historical.Document.ContentEnd).Text
+                .Contains("Former Reporting chain: email", StringComparison.Ordinal) ||
+            historical.Document.Blocks.OfType<Section>().SelectMany(section => section.Blocks.OfType<BlockUIContainer>())
+                .Select(block => (Expander)block.Child).Any(disclosure => disclosure.IsExpanded))
+            throw new InvalidOperationException("Former-chain search must reveal its exact captured fact without opening technical details.");
         Activate("pine", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
         var teams = Control<FrameworkElement>("TeamNotes");
         PumpUntil(() => ((Expander)teams.FindName("CurrentTeamContext")).IsExpanded);
@@ -1301,7 +1598,8 @@ internal static partial class Program
         var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
         Layout();
-        if (facts.Children.Count != 8 || Columns() != columns ||
+        if (facts.Children.Count != 9 || Columns() != columns ||
+            Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
             slots.Any(slot => slot.Visibility != Visibility.Visible) ||
             slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
             Control<TextBlock>("DirectoryName").Text != "Zara with a deliberately long Directory name for accessible identity" ||
@@ -1719,7 +2017,9 @@ internal static partial class Program
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 8 || rows[0].Count() != columns ||
+            if (slots.Length != 9 || rows[0].Count() != columns ||
+                Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
+                !Control<TextBlock>("TeamNameEmpty").IsDescendantOf(facts) ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
                 slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
                 throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");

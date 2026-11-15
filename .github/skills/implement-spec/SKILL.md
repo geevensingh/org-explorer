@@ -27,7 +27,11 @@ When they carry a Documentation handoff, read
 its receiving and delivery checks. Its verified no-changes case retains the
 ordinary workflow below.
 
-2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration.
+2. Complete [Implementation preflight](../../../docs/agents/implementation-preflight.md)
+   before creating the integration branch or dispatching work. Reconcile the
+   spec/tickets with current upstream behavior using that procedure.
+   Optional exploration can then use an **exploration subagent**, saving any
+   notes outside the repo and sharing their paths with implementers.
 
 3. Create the integration branch. For committed Markdown handoffs, establish and
 verify its documentation baseline using the shared contract before step 4. If
@@ -38,7 +42,7 @@ for behavior still being implemented; the handoff's joint-delivery gate applies
 to readiness and merging into the default branch, not draft creation.
 
 4. Use a fresh **implementer subagent** for each ticket, each in its own worktree on its own branch. Each implementer subagent:
-   - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
+   - completes the shared implementation preflight in its own worktree against the coordinator's explicit integration baseline before edits;
    - verifies any handed-off documentation baseline in its own checkout using the shared contract before implementation;
    - calls the Skill tool with `tdd` to build the ticket;
    - merges the integration branch tip into its own branch before reporting done

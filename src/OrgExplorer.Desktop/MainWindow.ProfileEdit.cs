@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -73,6 +76,12 @@ public partial class MainWindow
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = writable && editing;
         ProfileValues.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         PlaceProfileLink(Manager, editing ? ManagerEditLink : ManagerReadingSlot);
+        PlaceProfileLink(TeamNameContext, editing ? TeamNameEditSlot : TeamNameReadingSlot);
+        var canEditTeamName = selectedEmail is not null && workflow.CanEditTeamName(selectedEmail);
+        var retainedTeamNameDraft = workflow.ProfileEdit is { } edit && edit.Draft.TeamName != edit.Basis.TeamName;
+        TeamNameEditorRow.Visibility = editing && (canEditTeamName || retainedTeamNameDraft)
+            ? Visibility.Visible : Visibility.Collapsed;
+        TeamNameEditor.IsEnabled = writable && editing && canEditTeamName;
         PlaceProfileLink(OpenLinkedInButton, editing ? LinkedInEditLink : LinkedInProfileUrlValueRow);
         Photo.CanEdit = writable && editing;
         ProfilePhotoDraft.Visibility = workflow.ProfileEdit is { PhotoChanged: true } ? Visibility.Visible : Visibility.Collapsed;
@@ -83,7 +92,7 @@ public partial class MainWindow
         UpdatePreferredNameActions();
     }
 
-    private static void PlaceProfileLink(Button link, Panel host)
+    private static void PlaceProfileLink(FrameworkElement link, Panel host)
     {
         if (ReferenceEquals(link.Parent, host)) return;
         if (link.Parent is Panel previous) previous.Children.Remove(link);
@@ -92,6 +101,22 @@ public partial class MainWindow
 
     private void ShowProfileValues(PersonProfile? person)
     {
+        var names = person is null ? [] : workflow.GetTeamNames(person.Email);
+        // Replacing equal items can leave WPF's cached item peer pointing at a detached TextBlock.
+        if (TeamNames.ItemsSource is not ObservableCollection<TeamNameItem> displayed)
+            TeamNames.ItemsSource = displayed = [];
+        var childrenChanged = displayed.Count != names.Count;
+        for (var index = 0; index < names.Count; index++)
+        {
+            if (index == displayed.Count) displayed.Add(new(names[index]));
+            else displayed[index].Show(names[index]);
+        }
+        while (displayed.Count > names.Count) displayed.RemoveAt(displayed.Count - 1);
+        // Drop removed UIA children after WPF has generated the current containers.
+        if (childrenChanged)
+            Dispatcher.BeginInvoke(() => UIElementAutomationPeer.FromElement(TeamNames)?.ResetChildrenCache(),
+                DispatcherPriority.Loaded);
+        TeamNameEmpty.Visibility = names.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowProfileValue(AliasValueRow, AliasValue, person?.Alias);
         ShowProfileValue(JobTitleValueRow, JobTitleValue, person?.JobTitle, reserveSlot: false);
         ShowProfileValue(DepartmentValueRow, DepartmentValue, person?.Department, reserveSlot: false);
@@ -102,6 +127,41 @@ public partial class MainWindow
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
         DirectoryName.Text = person?.DirectoryName ?? "—";
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private sealed class TeamNameItem(TeamNameSegment segment) : INotifyPropertyChanged
+    {
+        public TeamNameSegment Segment { get; private set; } = segment;
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void Show(TeamNameSegment value)
+        {
+            if (Segment == value) return;
+            Segment = value;
+            PropertyChanged?.Invoke(this, new(nameof(Segment)));
+        }
+    }
+
+    private void StageTeamName(object sender, TextChangedEventArgs e)
+    {
+        if (loading || selectedEmail is null) return;
+        workflow.StageProfileTeamName(TeamNameEditor.Text.Length == 0 ? null : TeamNameEditor.Text);
+        MarkDraftPending();
+        InvalidateRelationshipPreview();
+    }
+
+    private void ShowTeamNameOwner(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBlock { ToolTip: ToolTip tooltip } segment)
+        {
+            tooltip.PlacementTarget = segment;
+            tooltip.IsOpen = true;
+        }
+    }
+
+    private void HideTeamNameOwner(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBlock { ToolTip: ToolTip tooltip }) tooltip.IsOpen = false;
     }
 
     private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text, bool reserveSlot = true)
