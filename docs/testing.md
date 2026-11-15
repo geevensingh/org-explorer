@@ -659,6 +659,8 @@ check and hosted minimum-window keyboard journey retain full saved names, the
 visible Archived Person marker, existing actions and usable dirty editors.
 Edit-only whitespace is reclaimed rather than shrinking controls; this includes
 the taller Directory-name editor when its saved value contains a line break.
+These stored-relationship fixtures also require Manager's tooltip to retain the
+full caption and email, including `Last stored:` and an archived-manager qualifier.
 Archived reading also covers the 408-DIP minimum Person allocation, retaining
 the full visible marker beside Email and all identity actions without increasing
 the photo-height header. The real compiled divider and hosted drag both exercise

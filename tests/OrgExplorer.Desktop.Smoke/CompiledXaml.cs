@@ -23,12 +23,12 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly Queue<string?> CompiledWorkspaceChoices = new();
-    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived)[] CompactIdentityStateCases =
+    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager)[] CompactIdentityStateCases =
     [
-        ("header-directory@example.com", "Avery\r\nExample", null, false),
-        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false),
-        ("header-archived@example.com", "Archived Example", null, true),
-        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true)
+        ("header-directory@example.com", "Avery\r\nExample", null, false, false),
+        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false),
+        ("header-archived@example.com", "Archived Example", null, true, false),
+        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true)
     ];
 
     private static JsonArray CompactIdentityFixturePeople()
@@ -37,11 +37,17 @@ internal static partial class Program
         {
             ["email"] = "header-manager@example.com", ["displayName"] = "ZZZ Header Manager", ["managerEmail"] = null
         });
+        people.Add(new JsonObject
+        {
+            ["email"] = "header-archived-manager@example.com", ["displayName"] = "ZZZ Archived Header Manager",
+            ["managerEmail"] = null, ["archived"] = true
+        });
         foreach (var state in CompactIdentityStateCases)
             people.Add(new JsonObject
             {
                 ["email"] = state.Email, ["displayName"] = state.DirectoryName, ["preferredName"] = state.PreferredName,
-                ["archived"] = state.Archived, ["managerEmail"] = "header-manager@example.com",
+                ["archived"] = state.Archived,
+                ["managerEmail"] = state.ArchivedManager ? "header-archived-manager@example.com" : "header-manager@example.com",
                 ["jobTitle"] = "Engineer", ["department"] = "Research", ["officeBuilding"] = "Juniper",
                 ["officeNumber"] = "009C", ["officeState"] = "Ontario", ["officeCountry"] = "Canada"
             });
@@ -1190,6 +1196,13 @@ internal static partial class Program
             PumpUntil(() => Control<TextBlock>("Email").Text == state.Email);
             Layout();
             var fullName = state.PreferredName ?? state.DirectoryName;
+            var manager = Control<Button>("Manager");
+            var managerEmail = state.ArchivedManager ? "header-archived-manager@example.com" : "header-manager@example.com";
+            if (manager.Content is not string relation ||
+                state.Archived && !relation.StartsWith("Last stored: ", StringComparison.Ordinal) ||
+                state.ArchivedManager && !relation.Contains("\u2014 Archived", StringComparison.Ordinal) ||
+                manager.ToolTip as string != $"{relation} ({managerEmail})")
+                failures.Add($"Manager tooltip lost full relationship qualifiers for {state.Email}.");
             if (heading.Text != fullName || heading.ToolTip as string != fullName ||
                 !new TextBlockAutomationPeer(heading).GetName().Contains(fullName.Split("\r\n").Last(), StringComparison.Ordinal))
                 failures.Add($"Compact identity lost the full saved name for {state.Email}.");
