@@ -159,23 +159,44 @@ public sealed partial class ExportSession
                     ?? throw new InvalidOperationException("The original tool result has no supported content.");
         }
         else
-        {
-            text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") ?? "" : "";
-            if (text.StartsWith("MCP error ", StringComparison.Ordinal))
-            {
-                var separator = text.IndexOf(": ", StringComparison.Ordinal);
-                Require(separator > 10 && int.TryParse(text[10..separator], out _), "Unsupported MCP error wrapper.");
-                text = text[(separator + 2)..];
-            }
-        }
+            text = FailurePayloadText(outcome) ?? throw new InvalidOperationException("The original tool failure has no supported content.");
+        if (HostSavedReference(text) && !outcome.GetProperty("success").GetBoolean()
+            && FailurePayloadText(outcome) is { Length: > 0 } failure)
+            text = failure;
         return UnwrapPayload(text);
+    }
+
+    private static string? FailurePayloadText(JsonElement outcome)
+    {
+        var text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") : null;
+        if (text is null) return null;
+        if (text.StartsWith("MCP error ", StringComparison.Ordinal))
+        {
+            var separator = text.IndexOf(": ", StringComparison.Ordinal);
+            Require(separator > 10 && int.TryParse(text[10..separator], out _), "Unsupported MCP error wrapper.");
+            text = text[(separator + 2)..];
+        }
+        else if (text.StartsWith("MCP server '", StringComparison.Ordinal))
+        {
+            var separator = text.IndexOf("': ", 12, StringComparison.Ordinal);
+            Require(separator > 12 && !string.IsNullOrWhiteSpace(text[12..separator]), "Unsupported MCP server error wrapper.");
+            text = text[(separator + 3)..];
+        }
+        return text;
+    }
+
+    private static bool HostSavedReference(string text)
+    {
+        text = text.Replace("\r\n", "\n", StringComparison.Ordinal);
+        return text.StartsWith("Output too large to display.\nFull output saved to: ", StringComparison.Ordinal)
+            || (text.StartsWith("Output too large to read at once (", StringComparison.Ordinal)
+                && text.Split('\n')[0].Contains("). Saved to: ", StringComparison.Ordinal));
     }
 
     private static string UnwrapPayload(string text, int depth = 0)
     {
         Require(depth < 8, "Unsupported deeply wrapped tool result.");
-        const string savedPrefix = "Output too large to display.\nFull output saved to: ";
-        Require(!text.Replace("\r\n", "\n", StringComparison.Ordinal).StartsWith(savedPrefix, StringComparison.Ordinal),
+        Require(!HostSavedReference(text),
             "Unverified host-saved output reference: capture requires a supported immutable per-invocation file contract or source-provided digest.");
         using var payload = JsonDocument.Parse(text);
         var body = payload.RootElement;

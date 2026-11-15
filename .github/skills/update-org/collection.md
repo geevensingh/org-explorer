@@ -52,7 +52,10 @@ pages and leaves, and the ancestor Manager chain. An actual Manager-relationship
 directory user; a failed person lookup does not establish a missing Manager.
 Empty 200 payloads, unclassified 404s and denials are blockers. Continuations must remain
 on the returned user's relationship and expected Graph service; preserve tokens.
-Batch requests within the WorkIQ limit rather than calling one person at a time.
+Use at most 25 paths per structured source call in this host, within WorkIQ's
+50-path ceiling. A failed larger call can expose only one 25-result chunk in its
+native error event, leaving the original batch incomplete. Batch independent
+requests rather than calling one person at a time.
 Keep `$select`, `$top` and `$value` literal: use parsed path strings or
 single-quoted PowerShell literals, not interpolated query strings.
 
@@ -99,11 +102,16 @@ or hand-written payload substitute.
 Capture supports original JSON in event `result.content`, native
 `structuredContent`, one native text `contents` block, and full `detailedContent`.
 It also unwraps MCP `structuredContent` or one text `content` block, including
-`isError` wrappers. Native failure messages containing complete JSON, optionally
-prefixed `MCP error <integer>: `, retain mixed successes and source failures.
-Host-capped text with the marker
-`Output too large to display.\nFull output saved to: <absolute path>` is an explicit
-blocker. A path and a fresh modification time cannot establish which invocation
+`isError` wrappers. Native failure messages containing complete JSON, optionally prefixed
+`MCP error <integer>: ` or `MCP server '<configured-server>': `, retain mixed
+successes and source failures. When a failed completion's display result is
+host-capped, capture uses that completion's original inline error JSON only when
+it passes the same exact batch-cardinality and source-status checks.
+Host-capped text with either marker
+`Output too large to display.\nFull output saved to: <absolute path>` or
+`Output too large to read at once (<size>). Saved to: <absolute path>` remains an
+explicit blocker without complete inline source results.
+A path and a fresh modification time cannot establish which invocation
 wrote the bytes: another call may have replaced the file. Saved-file support
 requires an explicit adapter with a verified immutable per-invocation file
 contract or a source-provided digest bound to that completion. A digest computed
