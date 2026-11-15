@@ -35,8 +35,9 @@ public sealed partial class ExportSession : IDisposable
     public sealed record PhotoEvidence(string DirectoryId, string Etag, string ContentType, int SizeBytes,
         string Sha256, string PhotoPath, DateTimeOffset DownloadedAt, bool Reused);
     public sealed record Person(string Id, string Email, string Name, string? ManagerId, JsonObject Directory);
+    public sealed record ExcludedAgentUser(string DirectoryId, string Reason);
     public sealed record Collection(Person[] People, string[] Pending, string[] Errors, string[] Excluded,
-        int SubtreeCount, Dictionary<string, Receipt> Receipts);
+        ExcludedAgentUser[] ExcludedAgentUsers, int SubtreeCount, Dictionary<string, Receipt> Receipts);
     public sealed record ProfileOutcome(int Index, string InputFile, string? DirectoryId, bool Recorded, string? Error);
     public sealed record ProfileBatchResult(int Succeeded, int Failed, ProfileOutcome[] Items);
     private sealed record ProfileFailure(string InputFile, string? DirectoryId, DateTimeOffset? ObservedAt, string Error);
@@ -141,7 +142,8 @@ public sealed partial class ExportSession : IDisposable
             var id = Text(user, "id");
             Require(Guid.TryParse(id, out _), "A directory user is missing its authoritative ID.");
             var type = Text(user, "@odata.type");
-            Require(type.Length == 0 || type == "#microsoft.graph.user", "Unsupported directory object type: " + type);
+            Require(type.Length == 0 || type is "#microsoft.graph.user" or "#microsoft.graph.agentUser",
+                "Unsupported directory object type: " + type);
             users[id] = user;
         }
 
@@ -150,6 +152,8 @@ public sealed partial class ExportSession : IDisposable
         {
             Require(Text(root, "id") == run.RootId, "Root lookup returned a different directory identity.");
             User(root);
+            Require(Text(root, "@odata.type") != "#microsoft.graph.agentUser",
+                "Select a person, not an agentUser, as the root.");
         }
         var queue = new Queue<string>();
         queue.Enqueue(run.RootId);
@@ -210,16 +214,23 @@ public sealed partial class ExportSession : IDisposable
             current = id;
         }
 
-        var excluded = users.Where(pair => Alternate(Text(pair.Value, "displayName")))
+        var excludedAgentUsers = users.Where(pair => Text(pair.Value, "@odata.type") == "#microsoft.graph.agentUser")
+            .Select(pair => new ExcludedAgentUser(pair.Key, "Non-person directory object: #microsoft.graph.agentUser."))
+            .ToArray();
+        var agentIds = excludedAgentUsers.Select(agent => agent.DirectoryId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var alternateIds = users.Where(pair => !agentIds.Contains(pair.Key) && Alternate(Text(pair.Value, "displayName")))
             .Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Require(!excluded.Contains(run.RootId), "Select the primary account, not an alternate account, as the root.");
+        var excluded = alternateIds.Concat(agentIds).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Require(!alternateIds.Contains(run.RootId), "Select the primary account, not an alternate account, as the root.");
         var people = new List<Person>();
         foreach (var (id, user) in users)
         {
             if (excluded.Contains(id)) continue;
             if (!managers.TryGetValue(id, out var managerId)) continue;
             if (managerId is not null && excluded.Contains(managerId))
-                errors.Add("A retained person reports to an excluded alternate account: " + id);
+                errors.Add(agentIds.Contains(managerId)
+                    ? "A retained person reports to an excluded agentUser: " + id
+                    : "A retained person reports to an excluded alternate account: " + id);
             var email = Text(user, "mail");
             if (email.Length == 0) email = Text(user, "userPrincipalName");
             Require(email.Length > 0 && Text(user, "displayName").Length > 0, "Directory identity is incomplete: " + id);
@@ -227,7 +238,7 @@ public sealed partial class ExportSession : IDisposable
         }
         Require(people.Select(p => p.Email).Distinct(StringComparer.OrdinalIgnoreCase).Count() == people.Count,
             "Different directory IDs resolve to the same email. Resolve this without merging by name.");
-        return new Collection(people.ToArray(), pending.ToArray(), errors.ToArray(), excluded.ToArray(),
+        return new Collection(people.ToArray(), pending.ToArray(), errors.ToArray(), alternateIds.ToArray(), excludedAgentUsers,
             people.Count(p => subtree.Contains(p.Id)), latest);
     }
 
@@ -245,7 +256,7 @@ public sealed partial class ExportSession : IDisposable
                 jobs.Add(name);
             }
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
-            collection.Errors, sources, jobFiles = jobs,
+            collection.Errors, collection.ExcludedAgentUsers, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
@@ -443,7 +454,8 @@ public sealed partial class ExportSession : IDisposable
         Require(failures.Length == 0, "Unresolved profile inputs: " + JsonSerializer.Serialize(failures, Json));
         var byId = collection.People.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var people = new List<Dictionary<string, object?>>();
-        var warnings = new List<string>();
+        var warnings = collection.ExcludedAgentUsers
+            .Select(agent => agent.DirectoryId + ": excluded agentUser; " + agent.Reason).ToList();
         var photos = new List<PhotoEvidence>();
         foreach (var person in collection.People)
         {
@@ -503,7 +515,7 @@ public sealed partial class ExportSession : IDisposable
         {
             run.RootId, run.AccountId, run.StartedAt, completedAt = DateTimeOffset.UtcNow,
             people = people.Count, collection.SubtreeCount, ancestorCount = people.Count - collection.SubtreeCount,
-            excludedAlternateIds = collection.Excluded, photos = photos.Count,
+            excludedAlternateIds = collection.Excluded, collection.ExcludedAgentUsers, photos = photos.Count,
             unavailablePhotos = people.Count - photos.Count, updatesSha256 = hash,
             directoryUserIds = collection.People.ToDictionary(p => p.Email, p => p.Id),
             policy = "Refresh only; unknown fields and unavailable photos omitted; no archival or Workspace apply."

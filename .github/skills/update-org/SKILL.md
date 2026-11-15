@@ -40,10 +40,14 @@ Traverse every direct-report page, including leaves and excluded accounts.
 Follow the root's Manager chain to its sourced endpoint; ancestors supply context,
 not permission to enumerate their other reports.
 
-Keep distinct emails distinct. Exclude only the explicitly labeled
-`(NON EA SC ALT)` accounts; retain contractor primary accounts. Other suspected
-duplicates remain separate and are flagged, not merged by name. A retained report
-whose Manager would be excluded is a blocker, not permission to invent a move.
+Keep distinct emails distinct. Exclude explicitly labeled `(NON EA SC ALT)`
+accounts and typed `#microsoft.graph.agentUser` non-person objects; retain
+contractor primary accounts. The helper records each agent-user exclusion reason
+in `plan`, coverage and review flags. Traverse excluded objects' reporting pages
+and leaves, but enrich only retained People. Select a human root; other unsupported
+directory object types remain blockers. Other suspected duplicates remain separate
+and are flagged, not merged by name. A retained report whose Manager would be
+excluded is a blocker, not permission to invent a move.
 
 Completion: `plan` has no pending directory paths or errors, and produces
 disjoint local job files. Never silently truncate the requested subtree.

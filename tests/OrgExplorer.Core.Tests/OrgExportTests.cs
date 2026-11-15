@@ -13,6 +13,7 @@ public sealed class OrgExportTests : IDisposable
     private const string RootId = "10000000-0000-0000-0000-000000000001";
     private const string ChildId = "10000000-0000-0000-0000-000000000002";
     private const string AltId = "10000000-0000-0000-0000-000000000003";
+    private const string AgentId = "10000000-0000-0000-0000-000000000004";
     private const string AccountId = "20000000-0000-0000-0000-000000000001";
     private readonly string root = Path.Combine(Path.GetTempPath(), "OrgExportTests-" + Guid.NewGuid());
     private static readonly byte[] Png = Convert.FromBase64String(
@@ -377,6 +378,101 @@ public sealed class OrgExportTests : IDisposable
         Assert.Single(complete.Excluded);
         Assert.Equal(2, complete.People.Select(p => p.Email).Distinct().Count());
         Assert.Single(complete.People.Select(p => p.Name).Distinct());
+    }
+
+    [Fact]
+    public void Agent_users_are_recorded_and_excluded_without_skipping_their_reporting_coverage()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path, publishing: true);
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject
+            {
+                ["value"] = new JsonArray(new JsonObject
+                {
+                    ["id"] = AgentId, ["@odata.type"] = "#microsoft.graph.agentUser"
+                })
+            })));
+
+        Assert.Contains(ExportSession.ReportsPath(AgentId), session.Plan().Pending);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+        Ingest(session, (ExportSession.ReportsPath(AgentId), Empty()));
+        var plan = session.Plan();
+        Assert.Empty(plan.Pending);
+        Assert.Empty(plan.Errors);
+        Assert.Equal(RootId, Assert.Single(plan.People).Id);
+        Assert.Empty(plan.Excluded);
+        Assert.Equal(1, plan.SubtreeCount);
+        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
+        var exclusion = Assert.Single(jobs["excludedAgentUsers"]!.AsArray())!;
+        Assert.Equal(AgentId, exclusion["directoryId"]!.GetValue<string>());
+        Assert.Contains("non-person", exclusion["reason"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ExportSession.PhotoPath(RootId), Assert.Single(jobs["photoMetadataPaths"]!.AsArray())!.GetValue<string>());
+        var job = Assert.Single(jobs["jobFiles"]!.AsArray())!.GetValue<string>();
+        Assert.Equal(RootId, Assert.Single(JsonSerializer.Deserialize<ExportSession.Person[]>(
+            File.ReadAllText(job), ExportSession.Json)!).Id);
+
+        RecordProfile(session);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        var published = JsonSerializer.SerializeToNode(session.Publish(), ExportSession.Json)!;
+        var export = Path.GetDirectoryName(published["importPath"]!.GetValue<string>())!;
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(export, "coverage.json")))!;
+        Assert.Equal(exclusion.ToJsonString(), Assert.Single(coverage["excludedAgentUsers"]!.AsArray())!.ToJsonString());
+        Assert.Empty(coverage["excludedAlternateIds"]!.AsArray());
+        var updates = JsonNode.Parse(File.ReadAllText(Path.Combine(export, "updates.json")))!;
+        Assert.Equal("person1@example.test", Assert.Single(updates["people"]!.AsArray())!["email"]!.GetValue<string>());
+        Assert.Contains(JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(export, "review-required.json")))!,
+            warning => warning.Contains(AgentId, StringComparison.Ordinal) && warning.Contains("agentUser", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Human_relationships_to_excluded_agent_users_block_jobs_and_publication(bool ancestor)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path, publishing: true);
+        var agent = User(AgentId, "Fictitious agent");
+        agent["@odata.type"] = "#microsoft.graph.agentUser";
+        Ingest(session, (ExportSession.UserPath(RootId), Ok(User(RootId))));
+        if (ancestor)
+            Ingest(session,
+                (ExportSession.ReportsPath(RootId), Empty()),
+                (ExportSession.ManagerPath(RootId), Ok(agent)),
+                (ExportSession.ManagerPath(AgentId), Missing("Request_ResourceNotFound")));
+        else
+            Ingest(session,
+                (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+                (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(agent) })),
+                (ExportSession.ReportsPath(AgentId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+                (ExportSession.ReportsPath(ChildId), Empty()));
+
+        var plan = session.Plan();
+        Assert.Empty(plan.Pending);
+        Assert.Contains(plan.Errors, error => error.Contains("excluded agentUser", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan.People, person => person.Id == AgentId);
+        Assert.Contains(plan.People, person => person.Id == (ancestor ? RootId : ChildId) && person.ManagerId == AgentId);
+        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
+        Assert.Empty(jobs["jobFiles"]!.AsArray());
+        Assert.Empty(jobs["photoMetadataPaths"]!.AsArray());
+        Assert.Contains("excluded agentUser", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
+    }
+
+    [Theory]
+    [InlineData("#microsoft.graph.agentUser", "Select a person, not an agentUser")]
+    [InlineData("#microsoft.graph.group", "Unsupported directory object type")]
+    public void Agent_roots_and_other_unsupported_directory_types_still_fail_explicitly(string type, string diagnostic)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var user = User(RootId);
+        user["@odata.type"] = type;
+        Ingest(session, (ExportSession.UserPath(RootId), Ok(user)));
+
+        Assert.Contains(diagnostic, Assert.Throws<InvalidOperationException>(() => session.Plan()).Message);
     }
 
     [Fact]
