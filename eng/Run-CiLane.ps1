@@ -61,6 +61,8 @@ try {
                 '--results-directory', '.ci-results\core')
             & "$root\tests\CiGate.Tests.ps1"
             & "$root\tests\CiRunner.Tests.ps1"
+            & "$root\tests\ImplementationBaseline.Tests.ps1"
+            & "$root\tests\DocumentationHandoff.Tests.ps1"
             & "$root\tests\DraftDiscard.Tests.ps1"
             & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"

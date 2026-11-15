@@ -136,7 +136,8 @@ internal static partial class Program
                 throw new InvalidOperationException("Archival lost owned Team-note reading.");
             ExpandHistory(window);
             if (!Find(window, "TeamNoteReview").Current.Name.Contains("Needs review") ||
-                !Find(window, "HistoricalTeamSummary").Current.Name.Contains("Archival closure") ||
+                !HistoricalReadingText(window).Contains("Archival closure") ||
+                !HistoricalEvidenceText(window).Contains("Archival closure") ||
                 CurrentReadingText(window).Contains("Original Manager writing"))
                 throw new InvalidOperationException("Archival did not close current context and retain owned/frozen writing.");
             AssertAbsentFromCurrentTree(window, "avery@example.com");

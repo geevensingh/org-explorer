@@ -539,12 +539,22 @@ The filesystem runner excludes only `Category=Performance`; ordinary persistence
 delivery, recovery and watcher coverage remains required. The core runner also
 checks the CI gate, separate-suite selection/results and named desktop-result
 contracts without launching WPF.
+It also runs `DocumentationHandoff.Tests.ps1` against isolated local Git
+repositories and a bare remote, including a source branch that advances beyond
+the approved documentation commit. Local path/file fixtures explicitly opt in.
+Credential-route cases disable all transports and check rejection of SSH,
+plain HTTP, embedded credentials and applicable Authorization headers, while
+allowing harmless/unrelated headers without disclosing credential values.
+Ref-preservation checks include local-only and remote-only tags with global and
+remote pruning enabled. Mixed Markdown/gitlink commits must still be rejected
+when clone settings hide submodules. These checks need no network or desktop.
 For a narrow change, use `dotnet test` with combined selectors rather than
 rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 
 ```powershell
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
+.\tests\ImplementationBaseline.Tests.ps1
 .\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
 .\tests\DesktopResults.Tests.ps1
@@ -555,6 +565,15 @@ dotnet build src\OrgExplorer.Desktop -c Release
 dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
   src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-xaml
 ```
+
+`ImplementationBaseline.Tests.ps1` runs in the core lane and invokes the real
+preflight in child PowerShell processes against isolated local Git repositories
+and bare remotes. It checks fetched versus stale local refs, divergence, failed
+fetches, explicit remote/local integration baselines and checkout preservation.
+Local remotes require the harness's explicit fixture opt-in. Credential-route
+cases reject matching configured Authorization headers without contacting GitHub
+or printing header values.
+It needs no GitHub credentials, network or desktop.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA
@@ -572,6 +591,14 @@ The Team surface also has a distinct identity. The compiled contract requires
 collapsed Other Team notes, collapsed inherited details with warnings outside,
 and secondary History containing profile changes, confirmations, observations
 and frozen Team evidence.
+The existing invisible `--verify-profile-refresh` contract also exercises
+Historical capture details through the real compiled disclosure template.
+It checks collapsed-by-default, named, read-only/copyable evidence; full captured
+provenance and note IDs/versions; visible frozen owner/review labels without
+technical headings; a no-Manager/no-note archival capture; and wrapping within
+the shared reading viewport at 700/1100/wide sizes. Existing exact frozen-note
+and former-chain destination checks retain the tagged capture/note identities.
+This is non-UI evidence, not a rendered hierarchy assertion.
 The compiled chrome contract keeps folder management and Import inside Settings,
 the quiet Workspace name non-interactive, and search outside the People-only view.
 Settings occupies the bounded main work area rather than growing above it;
@@ -884,6 +911,12 @@ without changing its display. They cover:
   secondary History with confirmations/observations, actual current/frozen
   reading and honest historical dates through a representative
   ancestor move, exact frozen search and reopen.
+  Capture details additionally exposes complete transition/note evidence
+  separately from frozen Markdown, with keyboard expansion/collapse and
+  nonmutation checks. Named actual-pixel states retain the collapsed capture
+  entry, expanded evidence and intermediate frozen-note boundary, including a
+  note needing review when captured. The responsive journey repeats these states
+  at 700 x 500 and 1100 x 900 alongside its complete long current/frozen reading.
 - `search-favorites`: representative profile/note queries, real current,
   archived and frozen destinations, reading, favorites, failed-save rejection
   and retained favorites after reopening.
