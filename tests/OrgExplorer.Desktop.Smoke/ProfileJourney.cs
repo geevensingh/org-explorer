@@ -401,14 +401,27 @@ internal static partial class Program
 
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
-        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
-        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
-            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
-        Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
-        var label = Find(window, "TeamNameLabel");
+        AutomationElement? viewportControl = null;
+        var scrollRequested = false;
+        var scroll = ControlReadiness.AwaitPattern(() => viewportControl = Find(window, "ProfileScroll"),
+            control => !control.Current.IsOffscreen && control.Current.BoundingRectangle is { Width: > 0, Height: > 0 },
+            control =>
+            {
+                if (!control.TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)) return null;
+                var current = (ScrollPattern)pattern;
+                if (!scrollRequested)
+                {
+                    scrollRequested = true;
+                    ControlReadiness.ScrollToTopIfScrollable(() => current.Current.VerticallyScrollable,
+                        () => current.SetScrollPercent(ScrollPattern.NoScroll, 0));
+                }
+                return !current.Current.VerticallyScrollable || current.Current.VerticalScrollPercent == 0 ? current : null;
+            }, Await);
+        AutomationElement? label = null;
         AutomationElement[] values = [];
         Await(() =>
         {
+            label = Find(window, "TeamNameLabel");
             var names = Find(window, "TeamNames");
             var segments = names.FindAll(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
@@ -437,9 +450,9 @@ internal static partial class Program
         if (renderedPath != string.Join(" > ", expected))
             throw new InvalidOperationException($"The actual rendered Team-name path is out of order: '{renderedPath}'.");
         var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
-        var row = label.Current.BoundingRectangle;
+        var row = label!.Current.BoundingRectangle;
         var scale = DpiScale(window);
-        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var viewport = viewportControl!.Current.BoundingRectangle;
         if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
             throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
                 $"label={row}, Manager={manager}, viewport={viewport}.");

@@ -264,14 +264,30 @@ These focused two-Person checks do not establish rich-scale/background-export,
 stalled-save orchestration or hosted acceptance before the required lane runs.
 
 The #92 latency observer refreshes native UIA caches after each request: one
-note-subtree snapshot retains exact identity, enabled/writable Edit mode, title
-visibility and real keyboard focus; permanent native identity elements retain
+filtered note-surface snapshot requests only the selected scope's surface,
+note identity, title, Markdown and Edit tab, not unrelated reading/list controls.
+It retains exact identity, enabled/writable title and body, selected Edit mode,
+title visibility and real keyboard focus; permanent native identity elements retain
 the selected email, heading and viewport check. It does not repeatedly search
 the whole window inside a timing sample, reuse pre-request property values, or
 focus/enable controls to make readiness pass. Native pattern discovery is
 preparation; every sample still starts before the actual Invoke/Select/Set request
 and includes dispatch, layout and observation until the required state is observed.
 No measured overhead is subtracted.
+`addTeamNote.observationNodes` records each successful post-action snapshot's
+node count alongside all existing raw durations and poll counts. The invisible
+compiled replay drives both scopes and repeated Add/Person switches, requiring
+the observation view to contain only the live current editor controls and retain
+exact workflow identity/writing/writable mode. Invisible peers cannot claim
+native visibility or keyboard focus. This red/green query-work regression is
+not a substitute for hosted p95.
+
+Team-name reading discovers the live positive-size ProfileScroll and its real
+pattern inside the existing bounded scroll-settlement observation, with at most
+one scroll request. Label discovery remains inside the existing reading
+observation. Temporary missing/detached discovery cannot bypass those waits;
+permanent missing/wrong values and provider failures still fail without new
+deadlines, repeated actions or changes to profile Save/Cancel/read-only behavior.
 
 `NoteCommitObservation` independently reopens the real Workspace through the
 workflow while native navigation and six continued edits proceed. It timestamps

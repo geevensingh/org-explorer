@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using OrgExplorer.TestFixtures;
@@ -111,6 +113,8 @@ internal static partial class Program
                 if (!Note<TextBox>("NoteTitle").IsEnabled || !Note<TextBox>("MarkdownEditor").IsEnabled ||
                     Note<TabControl>("Views").SelectedItem != Note<TabItem>("EditTab"))
                     throw new InvalidOperationException("Add note did not synchronously open a usable compiled editor before persistence.");
+                ArrangeContent();
+                VerifyCompiledNoteObservation(surface, scope, workflow.GetOwnedNotesView(scope).SelectedNote!);
                 Note<TextBox>("NoteTitle").Text = $"Retained {scope}";
                 Note<TextBox>("MarkdownEditor").Text = $"Original {scope} writing";
                 PumpUntil(() => workflow.GetRetainedNoteDraft(scope, id)?.IsSaving == true);
@@ -165,6 +169,7 @@ internal static partial class Program
                 dispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
                 Layout();
                 layoutMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                VerifyCompiledNoteObservation(teams, NoteScope.Team, workflow.TeamNotesView.SelectedNote!);
                 var id = workflow.TeamNotesView.SelectedNote!.Id;
                 if (!Team<TextBox>("NoteTitle").IsEnabled || !Team<TextBox>("MarkdownEditor").IsEnabled ||
                     Team<TabControl>("Views").SelectedItem != Team<TabItem>("EditTab") ||
@@ -190,6 +195,7 @@ internal static partial class Program
                 selectionDispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
                 Layout();
                 selectionMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                VerifyCompiledNoteObservation(teams, NoteScope.Team, workflow.TeamNotesView.SelectedNote!);
                 PumpUntil(() => workflow.CanSafelyClose);
                 commitMs.Add(observation.Complete());
                 reopenMs.Add(observation.ReadMs);
@@ -205,6 +211,7 @@ internal static partial class Program
                 throw new InvalidOperationException("SQLite navigation verification must not show a window or create its native handle.");
             Console.WriteLine("PASS: compiled SQLite Create returns to the ordinary start view and normal Settings Import reaches a real reviewed preview without a visible window/native handle.");
             Console.WriteLine("PASS: compiled SQLite Person/Team editors open before commit, retain newer writing across actual selection events and durably save the original owner without a visible window/native handle.");
+            Console.WriteLine("PASS: compiled SQLite note observation selects only live current-editor controls and preserves exact identity, writable text and Edit mode across Add and Person switches; native visibility/focus remains hosted evidence.");
         }
         finally
         {
@@ -619,6 +626,7 @@ internal static partial class Program
         var durability = new List<double>();
         var editorRequests = new List<double>();
         var editorPolls = new List<int>();
+        var editorNodes = new List<int>();
         var navigationRequests = new List<double>();
         var navigationPolls = new List<int>();
         var commitRequests = new List<double>();
@@ -634,7 +642,6 @@ internal static partial class Program
         var personCache = new CacheRequest { TreeScope = TreeScope.Element };
         personCache.Add(AutomationElement.NameProperty);
         personCache.Add(AutomationElement.IsOffscreenProperty);
-        var editorCache = NoteEditorCache();
         bool PersonReady(string expectedEmail, string expectedHeading)
         {
             var currentEmail = email.GetUpdatedCache(personCache);
@@ -646,6 +653,7 @@ internal static partial class Program
             for (var sample = 0; sample < (scope == NoteScope.Team ? 20 : 1); sample++)
             {
                 var family = scope.ToString();
+                var editorCache = NoteEditorCache(family);
                 EnsurePeopleBrowsing(window);
                 var report = Find(window, "People").FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"))
@@ -660,9 +668,11 @@ internal static partial class Program
                 var interaction = Stopwatch.StartNew();
                 create.Invoke();
                 var nativeMs = interaction.Elapsed.TotalMilliseconds;
+                var observedNodes = 0;
                 var polls = ObserveNoteLatency(() =>
                 {
                     var frame = ReadNoteEditor(surface, editorCache, family);
+                    observedNodes = frame.ObservedNodes;
                     return frame.Identity != previous && Guid.TryParse(frame.Identity, out _) &&
                         frame.Writable && frame.TitleVisible && frame.TitleFocused && frame.Editing;
                 });
@@ -671,6 +681,7 @@ internal static partial class Program
                     editors.Add(interaction.Elapsed.TotalMilliseconds);
                     editorRequests.Add(nativeMs);
                     editorPolls.Add(polls);
+                    editorNodes.Add(observedNodes);
                 }
                 AssertNoteView(window, family, editing: true);
                 var id = Guid.Parse(Find(window, family + "NoteHeading").Current.HelpText);
@@ -775,12 +786,12 @@ internal static partial class Program
                 runtime = Environment.Version.ToString(), window = window.Current.BoundingRectangle.ToString() },
             workload = "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, six continued edits and immediate report/Manager switches per note. Combined rich 10,000-Person/background-export proof belongs to #100.",
             percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based.",
-            observation = "Acceptance samples retain all native-request-to-observed-state time, without subtracting instrumentation. Editor properties come from one freshly updated native subtree cache per poll; identity properties come from freshly updated permanent native elements. An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues.",
+            observation = "Acceptance samples retain all native-request-to-observed-state time, without subtracting instrumentation. Each post-action editor cache selects only the current scope's surface, exact note identity, title, Markdown and Edit tab; it does not request unrelated note reading/list controls. Identity properties come from freshly updated permanent native elements. An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues.",
             addTeamNote = new { boundary = "Native Invoke request through new exact identity, enabled writable editor, visible title and actual keyboard focus.",
                 samplesMs = editors, p95Ms = P95(editors), budgetMs = 100,
                 nativeRequestMs = editorRequests,
                 observationMs = editors.Zip(editorRequests, (total, request) => total - request).ToArray(),
-                observationPolls = editorPolls },
+                observationPolls = editorPolls, observationNodes = editorNodes },
             personNavigation = new { boundary = "Native report selection in People or Manager Invoke through exact selected email, heading and visible usable Person.",
                 samplesMs = navigation, p95Ms = P95(navigation), budgetMs = 100,
                 nativeRequestMs = navigationRequests,
@@ -814,11 +825,57 @@ internal static partial class Program
     }
 
     private sealed record NoteEditorFrame(string? Identity, string? Title, string? Markdown,
-        bool Writable, bool Editing, bool TitleVisible, bool TitleFocused);
+        bool Writable, bool Editing, bool TitleVisible, bool TitleFocused, int ObservedNodes);
 
-    private static CacheRequest NoteEditorCache()
+    private static void VerifyCompiledNoteObservation(UserControl surface, NoteScope scope, OwnedNote expected)
     {
-        var cache = new CacheRequest { TreeScope = TreeScope.Subtree, TreeFilter = Automation.RawViewCondition };
+        var family = scope.ToString();
+        var cache = NoteEditorCache(family);
+        IEnumerable<AutomationPeer> Descendants(AutomationPeer peer)
+        {
+            yield return peer;
+            foreach (var child in peer.GetChildren() ?? [])
+                foreach (var descendant in Descendants(child)) yield return descendant;
+        }
+        bool Includes(System.Windows.Automation.Condition condition, AutomationPeer peer)
+        {
+            if (condition == Automation.RawViewCondition) return true;
+            if (condition is OrCondition either) return either.GetConditions().Any(child => Includes(child, peer));
+            if (condition is PropertyCondition property && property.Property == AutomationElement.AutomationIdProperty)
+                return Equals(property.Value, peer.GetAutomationId());
+            throw new InvalidOperationException("Unsupported note observation view in the compiled contract.");
+        }
+        var root = UIElementAutomationPeer.CreatePeerForElement(surface)
+            ?? throw new InvalidOperationException("The actual compiled note surface has no automation peer.");
+        var nodes = Descendants(root).Where(peer => Includes(cache.TreeFilter, peer)).ToArray();
+        if (nodes.Any(peer => peer.GetAutomationId() is not { } id ||
+            id != family + "NotesSurface" && id != family + "NoteHeading" && id != family + "NoteTitle" &&
+            id != family + "NoteMarkdown" && id != family + "NoteEditTab"))
+            throw new InvalidOperationException("The note observation requests unrelated controls instead of only the current editor's identity, writing, mode and focus.");
+        AutomationPeer Required(string suffix) => nodes.Single(peer => peer.GetAutomationId() == family + suffix);
+        var heading = Required("NoteHeading");
+        var title = Required("NoteTitle");
+        var body = Required("NoteMarkdown");
+        var tab = Required("NoteEditTab");
+        if (heading.GetHelpText() != expected.Id.ToString() ||
+            title.GetPattern(PatternInterface.Value) is not IValueProvider titleValue || titleValue.Value != expected.Title ||
+            body.GetPattern(PatternInterface.Value) is not IValueProvider bodyValue || bodyValue.Value != expected.Markdown ||
+            !title.IsEnabled() || !body.IsEnabled() || titleValue.IsReadOnly || bodyValue.IsReadOnly ||
+            tab.GetPattern(PatternInterface.SelectionItem) is not ISelectionItemProvider selection || !selection.IsSelected ||
+            nodes.OfType<UIElementAutomationPeer>().Any(peer => peer.Owner != surface && !peer.Owner.IsDescendantOf(surface)))
+            throw new InvalidOperationException("The compiled observation lost the exact current writable note, selected mode or live owner subtree.");
+        if (surface.IsVisible || title.HasKeyboardFocus())
+            throw new InvalidOperationException("The compiled observation cannot claim native visible/focused editor acceptance.");
+    }
+
+    private static CacheRequest NoteEditorCache(string family)
+    {
+        var cache = new CacheRequest
+        {
+            TreeScope = TreeScope.Subtree,
+            TreeFilter = new OrCondition(new[] { "NotesSurface", "NoteHeading", "NoteTitle", "NoteMarkdown", "NoteEditTab" }
+                .Select(suffix => new PropertyCondition(AutomationElement.AutomationIdProperty, family + suffix)).ToArray())
+        };
         foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.HelpTextProperty,
             AutomationElement.IsEnabledProperty, AutomationElement.IsOffscreenProperty,
             AutomationElement.HasKeyboardFocusProperty, ValuePattern.IsReadOnlyProperty, ValuePattern.ValueProperty,
@@ -847,9 +904,10 @@ internal static partial class Program
             Property(title, ValuePattern.ValueProperty) as string, Property(body, ValuePattern.ValueProperty) as string,
             Equals(Property(title, AutomationElement.IsEnabledProperty), true) &&
                 Equals(Property(body, AutomationElement.IsEnabledProperty), true) &&
+                Equals(Property(title, ValuePattern.IsReadOnlyProperty), false) &&
                 Equals(Property(body, ValuePattern.IsReadOnlyProperty), false),
             Equals(Property(FindCached("NoteEditTab"), SelectionItemPattern.IsSelectedProperty), true),
             Equals(Property(title, AutomationElement.IsOffscreenProperty), false),
-            Equals(Property(title, AutomationElement.HasKeyboardFocusProperty), true));
+            Equals(Property(title, AutomationElement.HasKeyboardFocusProperty), true), nodes.Count);
     }
 }
