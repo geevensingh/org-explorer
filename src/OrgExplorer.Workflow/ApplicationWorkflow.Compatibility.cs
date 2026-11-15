@@ -7,6 +7,8 @@ public sealed record WorkspaceCompatibility(WorkspaceCompatibilityState State, s
 {
     public int SupportedWorkspaceVersion { get; init; } = 3;
     public bool SupportsOrdinaryEdits { get; init; } = true;
+    public bool SupportsNoteEdits { get; init; } = true;
+    public bool SupportsNonblockingNoteAutosave { get; init; }
 }
 
 public partial interface IApplicationWorkflow

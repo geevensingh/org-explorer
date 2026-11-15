@@ -60,7 +60,7 @@ public sealed partial class ApplicationWorkflow
                     identity TEXT NOT NULL,
                     revision TEXT NOT NULL
                 );
-                INSERT INTO workspace VALUES (1, 1, $identity, $revision);
+                INSERT INTO workspace VALUES (1, 2, $identity, $revision);
                 CREATE TABLE people (email TEXT PRIMARY KEY COLLATE NOCASE, profile TEXT NOT NULL);
                 CREATE TABLE profile_history (
                     email TEXT PRIMARY KEY COLLATE NOCASE REFERENCES people(email), history TEXT NOT NULL
@@ -70,6 +70,7 @@ public sealed partial class ApplicationWorkflow
             command.Parameters.AddWithValue("$identity", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$revision", Guid.NewGuid().ToString("D"));
             command.ExecuteNonQuery();
+            CreateLocalNoteSchema(command);
             transaction.Commit();
         }
         if (!File.Exists(Path.Combine(workspace!, SqliteDiscriminator)) ||
@@ -80,7 +81,12 @@ public sealed partial class ApplicationWorkflow
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
         var accepted = new Dictionary<string, AcceptedBatch>();
+        var loadedPersonNotes = new Dictionary<Guid, PersonNote>();
+        var loadedTeamNotes = new Dictionary<Guid, TeamNote>();
+        var confirmations = new Dictionary<Guid, Guid>();
+        var contexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         string committedRevision;
+        int version;
         using (var connection = OpenLocalConnection())
         using (var transaction = connection.BeginTransaction(deferred: true))
         using (var command = connection.CreateCommand())
@@ -95,8 +101,8 @@ public sealed partial class ApplicationWorkflow
             command.CommandText = "SELECT format_version, identity, revision FROM workspace WHERE singleton=1;";
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace exists. Creation did not complete.");
-            var version = reader.GetInt32(0);
-            if (version != 1) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            version = reader.GetInt32(0);
+            if (version is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
             if (!Guid.TryParseExact(reader.GetString(1), "D", out var identity) || identity == Guid.Empty ||
                 !Guid.TryParseExact(reader.GetString(2), "D", out var commit) || commit == Guid.Empty)
                 throw new FormatException("Invalid local SQLite Workspace identity or revision.");
@@ -140,23 +146,67 @@ public sealed partial class ApplicationWorkflow
                 foreach (var evidence in item.Observations)
                     if (evidence.BatchId is not { } batchId || !accepted.ContainsKey(batchId.ToString("D")))
                         throw new FormatException("Local Profile evidence requires its accepted Import.");
+            if (version >= 2)
+            {
+                command.CommandText = "SELECT scope, id, owner_email, metadata, markdown FROM notes;";
+                using (var notes = command.ExecuteReader())
+                    while (notes.Read())
+                    {
+                        var scope = notes.GetString(0) switch
+                        {
+                            "person" => NoteScope.Person,
+                            "team" => NoteScope.Team,
+                            _ => throw new FormatException("Unknown local note scope.")
+                        };
+                        NoteMetadata metadata = scope == NoteScope.Team
+                            ? JsonSerializer.Deserialize<TeamNoteMetadata>(notes.GetString(3), JsonOptions)!
+                            : JsonSerializer.Deserialize<NoteMetadata>(notes.GetString(3), JsonOptions)!;
+                        if (metadata is null) throw new FormatException("Invalid local note metadata.");
+                        ValidateNoteMetadata(metadata, scope, loaded, "Local note " + notes.GetString(1));
+                        if (notes.GetString(1) != metadata.Id.ToString("D") ||
+                            !notes.GetString(2).Equals(metadata.OwnerEmail, StringComparison.OrdinalIgnoreCase))
+                            throw new FormatException("Inconsistent local note identity or owner.");
+                        if (scope == NoteScope.Person)
+                            loadedPersonNotes.Add(metadata.Id, new(metadata.Id, metadata.OwnerEmail, metadata.Title,
+                                notes.GetString(4), metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt));
+                        else
+                        {
+                            loadedTeamNotes.Add(metadata.Id, new(metadata.Id, metadata.OwnerEmail, metadata.Title,
+                                notes.GetString(4), metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt));
+                            confirmations.Add(metadata.Id, ((TeamNoteMetadata)metadata).ConfirmedContextRevision);
+                        }
+                    }
+                command.CommandText = "SELECT email, revision FROM team_context;";
+                using var context = command.ExecuteReader();
+                while (context.Read())
+                {
+                    if (!loaded.ContainsKey(context.GetString(0)) ||
+                        !Guid.TryParseExact(context.GetString(1), "D", out var contextRevision))
+                        throw new FormatException("Invalid local Team context revision.");
+                    contexts.Add(context.GetString(0), contextRevision);
+                }
+            }
         }
         people = loaded;
         batches = accepted;
         profileHistory = history;
         revision = committedRevision;
         historicalTeamContexts = new(StringComparer.OrdinalIgnoreCase);
-        personNotes = [];
-        teamNotes = [];
-        teamNoteConfirmations = [];
-        teamContextRevisions = new(StringComparer.OrdinalIgnoreCase);
+        personNotes = loadedPersonNotes;
+        teamNotes = loadedTeamNotes;
+        teamNoteConfirmations = confirmations;
+        teamContextRevisions = contexts;
         photos = [];
         InvalidateProjections();
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            "Local SQLite Workspace (format 1). Initial People-only Import and browsing are available. " +
-            "Other edits and synchronization are not implemented on this staged path. Settings remain available.",
-            workspace, 1) { SupportsOrdinaryEdits = false, SupportedWorkspaceVersion = 1 };
+            $"Local SQLite Workspace (format {version}). Person/Team notes, initial People-only Import and browsing are available. " +
+            "Profile edits and synchronization are not implemented on this staged path. Settings remain available.",
+            workspace, version)
+        {
+            SupportsOrdinaryEdits = false, SupportsNoteEdits = true,
+            SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 2
+        };
     }
 
     private string LocalSqliteRevision()
@@ -166,8 +216,66 @@ public sealed partial class ApplicationWorkflow
         command.CommandText = "SELECT format_version, revision FROM workspace WHERE singleton=1;";
         using var reader = command.ExecuteReader();
         if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace revision exists.");
-        if (reader.GetInt32(0) != 1) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
+        if (reader.GetInt32(0) is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
         return reader.GetString(1);
+    }
+
+    private static void CreateLocalNoteSchema(SqliteCommand command)
+    {
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS notes (
+                scope TEXT NOT NULL CHECK (scope IN ('person','team')),
+                id TEXT NOT NULL,
+                owner_email TEXT NOT NULL COLLATE NOCASE REFERENCES people(email),
+                metadata TEXT NOT NULL,
+                markdown TEXT NOT NULL,
+                PRIMARY KEY (scope, id)
+            );
+            CREATE TABLE IF NOT EXISTS team_context (
+                email TEXT PRIMARY KEY COLLATE NOCASE REFERENCES people(email), revision TEXT NOT NULL
+            );
+            """;
+        command.Parameters.Clear();
+        command.ExecuteNonQuery();
+    }
+
+    private void SaveLocalSqliteNote(NoteScope scope, NoteMetadata metadata, string markdown)
+    {
+        using var connection = OpenLocalConnection();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT format_version, revision FROM workspace WHERE singleton=1;";
+        int version;
+        using (var reader = command.ExecuteReader())
+        {
+            if (!reader.Read()) throw new FormatException("No committed local Workspace exists.");
+            version = reader.GetInt32(0);
+            if (version is not (1 or 2)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            if (reader.GetString(1) != revision)
+                throw new IOException("Local Workspace changed. Reopen to reconcile the note before retrying.");
+        }
+        ValidateNoteDraft(scope, metadata.Id);
+        ValidateNoteMetadata(metadata, scope, people, "Local note");
+        // A staged format-1 store acquires note support atomically with its first note.
+        if (version == 1) CreateLocalNoteSchema(command);
+        command.CommandText = """
+            INSERT INTO notes VALUES ($scope, $id, $owner, $metadata, $markdown)
+            ON CONFLICT(scope, id) DO UPDATE SET metadata=excluded.metadata, markdown=excluded.markdown;
+            """;
+        command.Parameters.AddWithValue("$scope", metadata.Kind);
+        command.Parameters.AddWithValue("$id", metadata.Id.ToString("D"));
+        command.Parameters.AddWithValue("$owner", metadata.OwnerEmail);
+        command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize(metadata, metadata.GetType(), JsonOptions));
+        command.Parameters.AddWithValue("$markdown", markdown);
+        command.ExecuteNonQuery();
+        var next = Guid.NewGuid().ToString("D");
+        command.CommandText = "UPDATE workspace SET format_version=2, revision=$revision WHERE singleton=1;";
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$revision", next);
+        command.ExecuteNonQuery();
+        transaction.Commit();
+        revision = next;
     }
 
     private bool SaveLocalSqliteImport(Dictionary<string, PersonProfile> proposed,

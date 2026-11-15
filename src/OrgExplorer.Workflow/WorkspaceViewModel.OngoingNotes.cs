@@ -8,6 +8,7 @@ public sealed record OwnedNotesView(
 {
     public bool IsOngoing => SelectedNote is not null && SelectedNote.Id == OngoingNoteId;
     public bool IsEmpty { get; init; }
+    public bool HasUnsavedChanges { get; init; }
 }
 
 public sealed partial class WorkspaceViewModel
@@ -15,6 +16,7 @@ public sealed partial class WorkspaceViewModel
     private sealed record NoteView(string? Owner = null, Guid? Selected = null, bool Editing = false,
         bool OtherNotes = false, string? Error = null, bool Exact = false);
     private readonly Dictionary<NoteScope, NoteView> noteViews = [];
+    private readonly Dictionary<(NoteScope Scope, string Owner), NoteView> retainedNoteViews = [];
     private readonly Dictionary<(string Workspace, NoteScope Scope, string Owner), Guid> ongoingNotes = [];
     private string? ongoingPreferenceError;
 
@@ -22,14 +24,22 @@ public sealed partial class WorkspaceViewModel
     public OwnedNotesView TeamNotesView => GetOwnedNotesView(NoteScope.Team);
 
     private NoteView NoteViewFor(NoteScope scope) => noteViews.GetValueOrDefault(scope) ?? new();
-    private IReadOnlyList<OwnedNote> OwnedNotes(NoteScope scope, string? owner) => scope switch
+    private IReadOnlyList<OwnedNote> OwnedNotes(NoteScope scope, string? owner)
     {
-        NoteScope.Person => owner is null ? [] : workflow.GetPersonNotes(owner, true)
-            .Select(n => new OwnedNote(n.Id, n.OwnerEmail, n.Title, n.Markdown, n.Archived)).ToArray(),
-        NoteScope.Team => owner is null ? [] : workflow.GetTeamNotes(owner, true)
-            .Select(n => new OwnedNote(n.Id, n.OwnerEmail, n.Title, n.Markdown, n.Archived)).ToArray(),
-        _ => throw new ArgumentOutOfRangeException(nameof(scope))
-    };
+        IReadOnlyList<OwnedNote> notes = scope switch
+        {
+            NoteScope.Person => owner is null ? [] : workflow.GetPersonNotes(owner, true)
+                .Select(n => new OwnedNote(n.Id, n.OwnerEmail, n.Title, n.Markdown, n.Archived)).ToArray(),
+            NoteScope.Team => owner is null ? [] : workflow.GetTeamNotes(owner, true)
+                .Select(n => new OwnedNote(n.Id, n.OwnerEmail, n.Title, n.Markdown, n.Archived)).ToArray(),
+            _ => throw new ArgumentOutOfRangeException(nameof(scope))
+        };
+        if (owner is null || !Compatibility.SupportsNonblockingNoteAutosave) return notes;
+        var retained = RetainedOwnedNotes(scope, owner).ToDictionary(n => n.Id);
+        var existing = notes.Select(n => n.Id).ToHashSet();
+        return notes.Select(n => retained.GetValueOrDefault(n.Id) ?? n)
+            .Concat(retained.Values.Where(n => !existing.Contains(n.Id))).ToArray();
+    }
 
     private (string, NoteScope, string) OngoingKey(NoteScope scope, string owner) =>
         ((Compatibility.WorkspacePath ?? "").ToUpperInvariant(), scope, owner.ToUpperInvariant());
@@ -66,7 +76,8 @@ public sealed partial class WorkspaceViewModel
         return new(view.Owner, notes, ongoing, selected, view.Editing && selected is { Archived: false },
             view.OtherNotes, feedback)
         {
-            IsEmpty = empty
+            IsEmpty = empty,
+            HasUnsavedChanges = selected is not null && HasUnsavedNoteDraft(scope, selected.Id)
         };
     }
 
@@ -80,7 +91,12 @@ public sealed partial class WorkspaceViewModel
             return false;
         }
         var notes = OwnedNotes(scope, ownerEmail);
-        noteViews[scope] = new(ownerEmail, OngoingId(scope, ownerEmail, notes));
+        var previous = NoteViewFor(scope);
+        if (Compatibility.SupportsNonblockingNoteAutosave && previous.Owner is { } priorOwner)
+            retainedNoteViews[(scope, priorOwner.ToUpperInvariant())] = previous;
+        noteViews[scope] = Compatibility.SupportsNonblockingNoteAutosave && ownerEmail is { } owner &&
+            retainedNoteViews.TryGetValue((scope, owner.ToUpperInvariant()), out var retained)
+                ? retained : new(ownerEmail, OngoingId(scope, ownerEmail, notes));
         return true;
     });
 
@@ -164,6 +180,9 @@ public sealed partial class WorkspaceViewModel
         }
         if (settings is null) ongoingNotes[OngoingKey(scope, owner)] = id;
         ongoingPreferenceError = null;
+        if (Compatibility.SupportsNonblockingNoteAutosave &&
+            !string.Equals(view.Owner, owner, StringComparison.OrdinalIgnoreCase))
+            return true;
         noteViews[scope] = view with { Selected = id, Editing = false, OtherNotes = false, Error = null, Exact = false };
         RememberCurrentView(scope);
         return true;
@@ -171,6 +190,7 @@ public sealed partial class WorkspaceViewModel
 
     private bool TryLeaveOwnedNote(NoteScope scope, bool changingOwner = false)
     {
+        if (Compatibility.SupportsNonblockingNoteAutosave) return true;
         var id = GetOwnedNotesView(scope).SelectedNote?.Id ?? NoteViewFor(scope).Selected;
         if (changingOwner ? workflow.CanNavigatePeople : id is null || !workflow.HasUnsavedNoteDraft(scope, id.Value))
             return true;

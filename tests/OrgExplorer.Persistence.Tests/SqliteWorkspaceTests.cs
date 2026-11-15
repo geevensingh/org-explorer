@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -101,8 +102,6 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.False(app.EditPreferredName(before.Email, "Must not save"));
         Assert.Contains("not implemented", app.Status);
         Assert.False(app.BeginProfileEdit(before.Email));
-        Assert.Null(app.CreatePersonNote(before.Email, "Must not save", "Private writing"));
-        Assert.Null(app.CreateTeamNote(before.Email, "Must not save", "Private writing"));
         Assert.True(app.CanNavigatePeople);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -114,6 +113,199 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.Equal(before, reopened.GetRelationships(before.Email)!.Person);
         Assert.Empty(reopened.GetPersonNotes(before.Email));
         Assert.Empty(reopened.GetTeamNotes(before.Email));
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public void Local_notes_preserve_identity_writing_archival_ongoing_choice_and_scope_on_reopen(NoteScope scope)
+    {
+        var preferences = Path.Combine(root, "settings", "notes.json");
+        Guid id;
+        DateTimeOffset created;
+        using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(preferences)))
+        {
+            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+            var basis = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, "manager@example.com"));
+            var saved = Assert.IsType<NoteDraft>(app.SaveNoteDraft(basis, "Manager context", "# Original\nPrivate writing"));
+            id = saved.Id;
+            created = scope == NoteScope.Person
+                ? Assert.Single(app.GetPersonNotes(saved.OwnerEmail)).CreatedAt
+                : Assert.Single(app.GetTeamNotes(saved.OwnerEmail)).CreatedAt;
+            Assert.True(app.OpenOwnedNotes(scope, saved.OwnerEmail), app.Status);
+            Assert.True(app.DesignateOngoingNote(scope, id), app.Status);
+            Assert.NotNull(app.SaveNoteDraft(saved, "Continuing context", "# Updated\nExact latest writing"));
+            Assert.True(scope == NoteScope.Person ? app.ArchivePersonNote(id) : app.ArchiveTeamNote(id), app.Status);
+            Assert.Empty(scope == NoteScope.Person
+                ? app.GetPersonNotes(saved.OwnerEmail).Select(n => n.Id)
+                : app.GetTeamNotes(saved.OwnerEmail).Select(n => n.Id));
+            Assert.True(scope == NoteScope.Person ? app.ArchivePersonNote(id, false) : app.ArchiveTeamNote(id, false), app.Status);
+            if (scope == NoteScope.Team) Assert.True(app.ConfirmTeamNote(id), app.Status);
+            Assert.True(app.CanSafelyClose, app.Status);
+        }
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(preferences));
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.True(reopened.OpenOwnedNotes(scope, "manager@example.com"), reopened.Status);
+        var note = reopened.GetOwnedNotesView(scope).SelectedNote!;
+        Assert.Equal(id, note.Id);
+        Assert.Equal("manager@example.com", note.OwnerEmail);
+        Assert.Equal("Continuing context", note.Title);
+        Assert.Equal("# Updated\nExact latest writing", note.Markdown);
+        Assert.False(note.Archived);
+        Assert.Equal(id, reopened.GetOwnedNotesView(scope).OngoingNoteId);
+        if (scope == NoteScope.Team)
+        {
+            var inherited = Assert.Single(reopened.GetInheritedTeamNotes("report@example.com"));
+            Assert.Equal(id, inherited.Note.Id);
+            Assert.Equal("manager@example.com", inherited.Owner.Email);
+            Assert.False(inherited.Note.NeedsReview);
+            Assert.Equal(created, inherited.Note.CreatedAt);
+            Assert.Empty(reopened.GetPersonNotes("manager@example.com"));
+        }
+        else
+        {
+            Assert.Empty(reopened.GetInheritedTeamNotes("report@example.com"));
+            Assert.Equal(created, Assert.Single(reopened.GetPersonNotes("manager@example.com")).CreatedAt);
+        }
+        Assert.Empty(reopened.GetHistoricalTeamContexts("report@example.com"));
+        Assert.Empty(reopened.GetProfileTimeline("manager@example.com")!.Changes);
+        Assert.False(File.Exists(Path.Combine(Workspace, "workspace.json")));
+        Assert.False(Directory.Exists(Path.Combine(Workspace, "notes")));
+        Assert.False(Directory.Exists(Path.Combine(Workspace, "team-notes")));
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Pending_creation_and_newer_typing_survive_actual_Person_switches_and_late_commit(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        using var held = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
+        held.Open();
+        using var transaction = held.BeginTransaction();
+        var first = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+        Assert.True(app.GetOwnedNotesView(scope).IsEditing);
+        Assert.Equal(first.Id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+        app.UpdateNoteDraft(scope, first.Id, "First request", "First body");
+        await WaitUntil(() => app.GetRetainedNoteDraft(scope, first.Id)?.IsSaving == true);
+        app.UpdateNoteDraft(scope, first.Id, "Newest title", "Typed while the first commit was waiting");
+        Assert.False(app.CanSafelyClose);
+        var restarted = false;
+        Assert.False(app.RestartWhenSafe(_ => restarted = true));
+        Assert.False(restarted);
+        Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+        var second = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "report@example.com"));
+        app.UpdateNoteDraft(scope, second.Id, "Report context", "Distinct report writing");
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        Assert.Equal(first.Id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+        Assert.Equal("Newest title", app.GetOwnedNotesView(scope).SelectedNote!.Title);
+        Assert.Equal("Typed while the first commit was waiting", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+        Assert.True(app.GetOwnedNotesView(scope).IsEditing);
+        Assert.True(app.GetOwnedNotesView(scope).HasUnsavedChanges);
+        transaction.Commit();
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        Assert.False(app.GetOwnedNotesView(scope).HasUnsavedChanges);
+        Assert.True(app.CanSafelyClose, app.Status);
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Typed while the first commit was waiting", reopened.BeginNoteDraft(scope, "manager@example.com", first.Id)!.Markdown);
+        Assert.Equal("Distinct report writing", reopened.BeginNoteDraft(scope, "report@example.com", second.Id)!.Markdown);
+        Assert.Single(scope == NoteScope.Person ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Id) :
+            reopened.GetTeamNotes("manager@example.com").Select(n => n.Id));
+        Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", first.Id));
+    }
+
+    private static async Task WaitUntil(Func<bool> predicate)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!predicate()) await Task.Delay(10, deadline.Token);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Failed_creation_retains_latest_draft_browsing_and_one_identity_through_explicit_retry(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+        app.UpdateNoteDraft(scope, draft.Id, "Retained title", "Private failed creation");
+        using (File.Open(Path.Combine(Workspace, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.False(await app.FlushNoteDraftsAsync());
+        var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, draft.Id));
+        Assert.NotNull(retained.Error);
+        Assert.Equal("Private failed creation", retained.Markdown);
+        Assert.False(app.CanSafelyClose);
+        Assert.Contains("NOT saved", app.Status);
+        Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        Assert.Equal(draft.Id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+        Assert.Equal("Private failed creation", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+        Assert.True(await app.RetryNoteDraftAsync(scope, draft.Id), app.Status);
+        Assert.Null(app.GetRetainedNoteDraft(scope, draft.Id));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Private failed creation", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+        Assert.Single(scope == NoteScope.Person ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Id) :
+            reopened.GetTeamNotes("manager@example.com").Select(n => n.Id));
+    }
+
+    [Fact]
+    public async Task Discarding_an_uncommitted_creation_restores_empty_reading_without_discarding_another_owner()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var kept = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "report@example.com"));
+        var discarded = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "manager@example.com"));
+        app.DiscardUnsavedChanges(discarded.Id);
+        Assert.True(app.TeamNotesView.IsEmpty);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Empty(reopened.GetTeamNotes("manager@example.com"));
+        Assert.Equal(kept.Id, Assert.Single(reopened.GetTeamNotes("report@example.com")).Id);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Continuous_typing_becomes_durable_before_idle_and_finishes_with_exact_latest_writing(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var observed = new HashSet<string>();
+        TimeSpan? firstCommit = null;
+        for (var index = 0; index < 25; index++)
+        {
+            app.UpdateNoteDraft(scope, draft.Id, "Continuous context", $"Continuous writing {index:D2}");
+            await Task.Delay(60);
+            using var reading = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+            var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
+            if (committed?.Markdown.StartsWith("Continuous writing ", StringComparison.Ordinal) == true)
+            {
+                firstCommit ??= elapsed.Elapsed;
+                observed.Add(committed.Markdown);
+            }
+        }
+        Assert.NotNull(firstCommit);
+        Assert.True(firstCommit <= TimeSpan.FromSeconds(1), $"First ordinary local commit took {firstCommit}.");
+        Assert.True(observed.Count >= 3, "Continuous typing must make repeated durable progress, not wait until idle.");
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Continuous writing 24", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
     }
 
     [Fact]

@@ -17,6 +17,9 @@ public partial class PersonNotesControl : UserControl
     private readonly NoteDraftState draft;
     private readonly OwnedNotePresentation presentation;
     private NoteDraft? noteBase;
+    private bool LocalAutosave => workflow?.Compatibility.SupportsNonblockingNoteAutosave == true;
+    private bool HasRetainedDraft => LocalAutosave
+        ? selected is { } id && workflow!.HasUnsavedNoteDraft(NoteScope.Person, id) : draft.HasUnsavedChanges;
 
     public PersonNotesControl()
     {
@@ -47,6 +50,7 @@ public partial class PersonNotesControl : UserControl
 
     public bool TryLeave()
     {
+        if (LocalAutosave) return true;
         if (workflow is { } current && current.GetWorkspaceConflicts().Count != 0)
         {
             presentation.ShowOperationStatus(current.Status);
@@ -103,10 +107,11 @@ public partial class PersonNotesControl : UserControl
         draft.Stop();
         loading = true;
         selected = note?.Id;
-        noteBase = note is null ? null : workflow?.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id);
-        NoteTitle.Text = noteBase?.Title ?? "";
-        MarkdownEditor.Text = noteBase?.Markdown ?? "";
-        NoteHeading.Text = noteBase?.Title ?? "";
+        var retained = note is null ? null : workflow?.GetRetainedNoteDraft(NoteScope.Person, note.Id);
+        noteBase = retained?.Basis ?? (note is null ? null : workflow?.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id));
+        NoteTitle.Text = retained?.Title ?? noteBase?.Title ?? "";
+        MarkdownEditor.Text = retained?.Markdown ?? noteBase?.Markdown ?? "";
+        NoteHeading.Text = NoteTitle.Text;
         Views.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         Views.SelectedItem = editing ? EditTab : ReadTab;
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
@@ -118,6 +123,7 @@ public partial class PersonNotesControl : UserControl
         RetryButton.Visibility = DiscardButton.Visibility = Visibility.Collapsed;
         Render();
         loading = false;
+        if (LocalAutosave) RefreshLocalAutosave();
     }
 
     private void SelectNote(object sender, SelectionChangedEventArgs e)
@@ -134,11 +140,27 @@ public partial class PersonNotesControl : UserControl
     }
 
     private Task<T> RunAsync<T>(Func<T> operation, bool draft = false) =>
-        ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Person note…", noteDraft: draft ? this : null);
+        LocalAutosave ? Task.Run(operation) :
+            ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Person note…", noteDraft: draft ? this : null);
 
     private async void CreateNote(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || owner is null) return;
+        if (LocalAutosave)
+        {
+            if (workflow.CreateOwnedNoteDraft(NoteScope.Person, owner) is { } created)
+            {
+                RefreshNotes();
+                if (IsVisible) _ = Dispatcher.BeginInvoke(() =>
+                {
+                    if (selected != created.Id || owner != created.OwnerEmail) return;
+                    NoteTitle.BringIntoView();
+                    NoteTitle.Focus();
+                }, System.Windows.Threading.DispatcherPriority.Input);
+            }
+            ShowStatus();
+            return;
+        }
         var email = owner;
         var note = await RunAsync(() => workflow.CreatePersonNote(email, "New Person note", ""));
         if (note is not null)
@@ -155,6 +177,14 @@ public partial class PersonNotesControl : UserControl
     private void EditNote(object sender, TextChangedEventArgs e)
     {
         if (loading || workflow is null || selected is not { } id) return;
+        if (LocalAutosave)
+        {
+            workflow.UpdateNoteDraft(NoteScope.Person, id, NoteTitle.Text, MarkdownEditor.Text);
+            NoteHeading.Text = NoteTitle.Text;
+            Render();
+            RefreshLocalAutosave();
+            return;
+        }
         if (!draft.HasUnsavedChanges && noteBase is { } basis) workflow.RetainNoteDraft(basis);
         draft.Edited();
         RetryButton.Visibility = DiscardButton.Visibility = Visibility.Visible;
@@ -164,10 +194,17 @@ public partial class PersonNotesControl : UserControl
 
     private async void SaveNoteDraft(object? sender, EventArgs e) => await SaveNoteDraftAsync();
 
-    public Task<bool> FlushPendingDraftAsync() => draft.FlushPendingAsync(SaveNoteDraftAsync);
+    public Task<bool> FlushPendingDraftAsync() => LocalAutosave
+        ? workflow!.FlushNoteDraftsAsync() : draft.FlushPendingAsync(SaveNoteDraftAsync);
 
     private async Task SaveNoteDraftAsync()
     {
+        if (LocalAutosave)
+        {
+            await workflow!.FlushNoteDraftsAsync();
+            RefreshLocalAutosave();
+            return;
+        }
         if (workflow is null || selected is not { } id || noteBase is not { } basis) return;
         if (workflow.GetWorkspaceConflicts().Count != 0) { draft.Stop(); ShowStatus(); return; }
         if (!draft.TryBeginSave()) return;
@@ -196,10 +233,13 @@ public partial class PersonNotesControl : UserControl
     private async void ArchiveNote(object sender, RoutedEventArgs e)
     {
         if (!TryLeave() || workflow is null || selected is not { } id) return;
-        var note = workflow.GetPersonNotes(owner!, true).Single(n => n.Id == id);
+        var email = owner;
+        if (LocalAutosave && !await workflow.FlushNoteDraftsAsync()) { RefreshLocalAutosave(); return; }
+        var note = workflow.GetPersonNotes(email!, true).Single(n => n.Id == id);
         var ongoing = workflow.PersonNotesView.OngoingNoteId == id;
         if (await RunAsync(() => workflow.ArchivePersonNote(id, !note.Archived)))
         {
+            if (!string.Equals(owner, email, StringComparison.OrdinalIgnoreCase) || selected != id) return;
             if (note.Archived) workflow.OpenOwnedNote(NoteScope.Person, id);
             else if (ongoing) workflow.OpenOngoingNote(NoteScope.Person);
             RefreshNotes();
@@ -223,10 +263,25 @@ public partial class PersonNotesControl : UserControl
         }
     }
 
-    private void RetrySave(object sender, RoutedEventArgs e) => SaveNoteDraft(null, EventArgs.Empty);
+    private async void RetrySave(object sender, RoutedEventArgs e)
+    {
+        if (LocalAutosave && selected is { } id)
+        {
+            await workflow!.RetryNoteDraftAsync(NoteScope.Person, id);
+            RefreshLocalAutosave();
+        }
+        else SaveNoteDraft(null, EventArgs.Empty);
+    }
     private async void DiscardDraft(object sender, RoutedEventArgs e)
     {
-        if (!draft.HasUnsavedChanges || workflow is null) return;
+        if (!HasRetainedDraft || workflow is null) return;
+        if (LocalAutosave)
+        {
+            workflow.DiscardUnsavedChanges(selected);
+            RefreshNotes();
+            ShowStatus();
+            return;
+        }
         await draft.DiscardAsync(() => RunAsync(workflow.RefreshPersonNotes),
             () => workflow.DiscardUnsavedChanges(selected), () =>
             {
@@ -239,6 +294,7 @@ public partial class PersonNotesControl : UserControl
     public void RefreshExternalWorkspace()
     {
         if (workflow is null || owner is null) return;
+        if (LocalAutosave) { RefreshLocalAutosave(); return; }
         if (!draft.HasUnsavedChanges)
         {
             var notes = workflow.PersonNotesView.Notes.Where(n => includeArchived || !n.Archived);
@@ -262,12 +318,32 @@ public partial class PersonNotesControl : UserControl
 
     public void DiscardLocalDraft()
     {
-        if (draft.HasUnsavedChanges) RefreshNotes();
+        if (HasRetainedDraft) RefreshNotes();
+    }
+
+    private void RefreshLocalAutosave()
+    {
+        if (workflow is null) return;
+        var retained = selected is { } id ? workflow.GetRetainedNoteDraft(NoteScope.Person, id) : null;
+        var view = workflow.PersonNotesView;
+        loading = true;
+        var notes = view.Notes.Where(n => includeArchived || !n.Archived).ToArray();
+        NotesList.ItemsSource = notes;
+        NotesList.SelectedItem = notes.FirstOrDefault(n => n.Id == selected);
+        loading = false;
+        if (retained is null && selected is { } saved && owner is not null)
+            noteBase = workflow.BeginNoteDraft(NoteScope.Person, owner, saved);
+        RetryButton.Visibility = DiscardButton.Visibility = HasRetainedDraft ? Visibility.Visible : Visibility.Collapsed;
+        RetryButton.IsEnabled = DiscardButton.IsEnabled = retained is { IsSaving: false };
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.IsWorkspaceCurrent &&
+            workflow.Compatibility.SupportsNoteEdits && view.SelectedNote is { Archived: false };
+        ArchiveButton.IsEnabled = selected is not null && workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits;
+        ShowStatus();
     }
 
     private void ShowStatus()
     {
-        if (workflow is not null) presentation.ShowOperationStatus(workflow, draft.HasUnsavedChanges);
+        if (workflow is not null) presentation.ShowOperationStatus(workflow, HasRetainedDraft);
         ShowPresentation();
         changed?.Invoke();
     }
@@ -275,7 +351,7 @@ public partial class PersonNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits, draft.HasUnsavedChanges);
+        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits, HasRetainedDraft);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
     }
 
