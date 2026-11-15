@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Windows.Automation;
 
 namespace OrgExplorer.Desktop.Smoke;
@@ -11,12 +12,17 @@ internal static partial class Program
         var workspace = Path.Combine(root, "navigation-workspace");
         Directory.CreateDirectory(workspace);
         var import = Path.Combine(root, "navigation.json");
-        File.WriteAllText(import, """
+        var importData = JsonNode.Parse("""
             {"schemaVersion":1,"batchId":"21000000-0000-4000-8000-000000000001",
              "observedAt":"2026-11-01T17:00:00Z","people":[
              {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
              {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"}]}
-            """);
+            """) as JsonObject ?? throw new InvalidOperationException("Navigation fixture is not an object.");
+        if (responsive)
+            foreach (var person in CompactIdentityFixturePeople())
+                importData["people"]!.AsArray().Add(person?.DeepClone()
+                    ?? throw new InvalidOperationException("Compact identity fixture is missing a Person."));
+        File.WriteAllText(import, importData.ToJsonString());
         Process? process = null;
         try
         {

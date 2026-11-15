@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
 
@@ -120,7 +121,7 @@ internal static partial class Program
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
             Find(window, "JobTitleValue").SetFocus();
             PressCopyKey(0x09);
-            Await(() => Find(window, "DepartmentValue").Current.HasKeyboardFocus);
+            Await(() => Find(window, "Email").Current.HasKeyboardFocus);
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
@@ -129,7 +130,7 @@ internal static partial class Program
                 throw new InvalidOperationException("A Person without current direct reports can edit a Team name.");
             AssertProfileFieldKeyboard(window, workspace);
             Set(window, "OfficeNumber", "Cancelled office");
-            Click(window, "ClearPhoto");
+            StageProfilePhotoClear(window);
             CaptureVisualEvidence(window, "profile-inline-photo-clear-staged");
             CancelProfileEditing(window);
             AwaitLocalWorkIdle(window);
@@ -389,11 +390,21 @@ internal static partial class Program
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
 
+    private static bool IsFirstScrollingTeamName(Rect row, Rect manager, Rect viewport, double scale)
+    {
+        // ProfileValues' border + padding + FactSlot's top margin.
+        const double labelInset = 1 + 8 + 4;
+        return !row.IsEmpty && !manager.IsEmpty && !viewport.IsEmpty && manager.Bottom <= viewport.Top + scale &&
+            Math.Abs(row.Left - viewport.Left) <= scale &&
+            Math.Abs(row.Top - viewport.Top - labelInset * scale) <= scale;
+    }
+
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
         var label = Find(window, "TeamNameLabel");
         AutomationElement[] values = [];
         Await(() =>
@@ -428,10 +439,10 @@ internal static partial class Program
         var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
         var row = label.Current.BoundingRectangle;
         var scale = DpiScale(window);
-        if (row.IsEmpty || manager.IsEmpty || row.Top < manager.Top - 30 * scale ||
-            row.Top > manager.Bottom + 24 * scale)
-            throw new InvalidOperationException($"Team name is not near Manager: label={row}, Manager={manager}.");
         var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
+            throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
+                $"label={row}, Manager={manager}, viewport={viewport}.");
         foreach (var value in values.Concat(separators))
         {
             var bounds = value.Current.BoundingRectangle;
@@ -582,7 +593,7 @@ internal static partial class Program
                 observed = value is null ? "missing" :
                     $"{value.Current.ControlType.ProgrammaticName}, name '{value.Current.Name}', offscreen {value.Current.IsOffscreen}";
                 if (expected.Length == 0)
-                    return field is "JobTitle" or "Department" ? value is null :
+                    return field is "JobTitle" ? value is null :
                         value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == "—";
                 return value is not null && value.Current.ControlType == ControlType.Text && value.Current.Name == expected;
             });
@@ -614,14 +625,17 @@ internal static partial class Program
         AssertProfileValue(window, "JobTitle", "Research engineer");
         AssertProfileValue(window, "Department", "Research");
         AssertProfileValue(window, "OfficeCountry", "Canada");
-        AssertProfileValue(window, "OfficeBuilding", "");
+        var emptyBuilding = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "OfficeBuildingValue"));
+        if (emptyBuilding is not null && !emptyBuilding.Current.IsOffscreen)
+            throw new InvalidOperationException("Office with only a room must not display an empty-building placeholder.");
         AssertProfileValue(window, "OfficeState", "");
         AssertProfileValue(window, "LinkedInProfileUrl", "");
         AssertProfileValue(window, "OfficeNumber", "007B");
         AssertProfileValue(window, "Alias", "avery");
         if (IsVisible(window, "PersonArchivalStatus"))
             throw new InvalidOperationException("Ordinary reading must not imply Active employment or presence.");
-        foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager" })
+        foreach (var id in new[] { "JobTitleValue", "DepartmentValue", "OfficeCountryValue", "Email", "NavigateManager", "OfficeNumberValue" })
             if (Find(window, id).Current.IsOffscreen)
                 throw new InvalidOperationException($"Essential profile information is not initially visible: {id}.");
         var photo = Find(window, "PersonPhoto").Current.BoundingRectangle;

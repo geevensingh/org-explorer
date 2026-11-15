@@ -112,11 +112,23 @@ That is a drawing limitation, not the agreed behavior: use an overlay.
 ## Person profile and navigation
 
 Emphasise name, role, department, Manager, location, and contact information.
-Keep the photo/placeholder, identity, and principal actions compact rather than
+Keep the photo/placeholder, identity, and principal actions together rather than
 stacking each into a separate full-width row. Preserve Preferred name versus
 Directory name and non-editable email identity.
 
-Always show Team name near Manager. Display the applicable names nearest-first,
+The approved November 14 photo-size amendment (#81) specifies a permanent
+144-logical-unit circular photo or initials placeholder at every supported
+window size, with proportionally larger initials and the current centered
+circular crop. This supersedes compact photo sizing, not the anchored header,
+explicit profile Save/Cancel, or the 700-by-500 minimum window. See the
+[anchored identity contract](visual-refresh-design.md#anchored-identity) for
+the complete amendment and rendered acceptance requirements. The native control
+implements this sizing; hosted rendered verification and owner visual acceptance
+remain separate delivery gates.
+
+Manager remains anchored in identity. Always show Team name as the first
+scrolling fact immediately below that header, keeping the full wrapping path
+out of the fixed-height identity band. Display the applicable names nearest-first,
 including an eligible selected manager's own label, separated by ` > `. Each
 segment identifies its owning manager on hover or keyboard focus; inherited
 labels are read-only. An edit action changes only the eligible selected manager's
@@ -128,8 +140,12 @@ A retained label is hidden and not editable while that requirement is unmet.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not
-repack the grid. Role, department and email remain in identity, not duplicated
-in the facts. Edit
+repack the grid. Role and email remain in identity, alongside labelled Manager navigation and a
+compact Office line combining building and room with a middle dot. Show only
+available Office parts, or a neutral dash if both are missing. Department is a
+labelled fact, not an unlabelled identity value. Long header values retain their
+full accessible text, Copy action and tooltip when ellipsized; the header must
+not grow beyond the existing photo footprint for ordinary reading. Edit
 profile still exposes all editable fields, including empty ones, and retains
 its explicit Save/Cancel and stale-draft behavior. Preserve independent
 Preferred-name and Favorite quick actions, Manager/report navigation, and

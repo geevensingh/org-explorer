@@ -23,6 +23,36 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly Queue<string?> CompiledWorkspaceChoices = new();
+    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager)[] CompactIdentityStateCases =
+    [
+        ("header-directory@example.com", "Avery\r\nExample", null, false, false),
+        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false),
+        ("header-archived@example.com", "Archived Example", null, true, false),
+        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true)
+    ];
+
+    private static JsonArray CompactIdentityFixturePeople()
+    {
+        var people = new JsonArray(new JsonObject
+        {
+            ["email"] = "header-manager@example.com", ["displayName"] = "ZZZ Header Manager", ["managerEmail"] = null
+        });
+        people.Add(new JsonObject
+        {
+            ["email"] = "header-archived-manager@example.com", ["displayName"] = "ZZZ Archived Header Manager",
+            ["managerEmail"] = null, ["archived"] = true
+        });
+        foreach (var state in CompactIdentityStateCases)
+            people.Add(new JsonObject
+            {
+                ["email"] = state.Email, ["displayName"] = state.DirectoryName, ["preferredName"] = state.PreferredName,
+                ["archived"] = state.Archived,
+                ["managerEmail"] = state.ArchivedManager ? "header-archived-manager@example.com" : "header-manager@example.com",
+                ["jobTitle"] = "Engineer", ["department"] = "Research", ["officeBuilding"] = "Juniper",
+                ["officeNumber"] = "009C", ["officeState"] = "Ontario", ["officeCountry"] = "Canada"
+            });
+        return people;
+    }
 
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
@@ -460,6 +490,13 @@ internal static partial class Program
                       "managerEmail":null}]}
                     """).Id) || seed.CreatePersonNote("avery@example.com", "Saved title", "# Saved note") is null)
                 throw new InvalidOperationException("Profile refresh fixture failed: " + seed.Status);
+            var stateImport = seed.PreviewImport(new JsonObject
+            {
+                ["schemaVersion"] = 1, ["batchId"] = "39000000-0000-4000-8000-000000000009",
+                ["observedAt"] = "2026-11-01T17:00:00Z", ["people"] = CompactIdentityFixturePeople()
+            }.ToJsonString());
+            if (!stateImport.CanApply || !seed.ApplyImport(stateImport.Id))
+                throw new InvalidOperationException("Compact identity-state fixtures failed: " + seed.Status);
         }
         var preferences = Path.Combine(settings, "workspace-settings.json");
         if (!new WorkspaceSettings(preferences).SetPaneProportions(folder, new(25, 92)))
@@ -489,6 +526,10 @@ internal static partial class Program
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         VerifyPreferredNameEntry(window, folder, publisher);
+        VerifyPhotoViewportLayout(window);
+        VerifyHeaderTextAndReadingOrder(window);
+        VerifyCompactIdentityStates(window);
+        VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
             throw new InvalidOperationException("People resizing or compact transitions erased the unused existing inner ratio.");
@@ -1027,6 +1068,260 @@ internal static partial class Program
         Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
     }
 
+    private static void VerifyPhotoViewportLayout(Window window)
+    {
+        var photo = (FrameworkElement)window.FindName("Photo");
+        var image = (Image)photo.FindName("PhotoImage");
+        var show = photo.GetType().GetMethod("Show") ?? throw new MissingMethodException("Photo.Show");
+        var name = ((TextBlock)window.FindName("ProfileHeading")).Text;
+        var root = (FrameworkElement)window.Content;
+        try
+        {
+            foreach (var (width, height) in new[] { (300, 300), (300, 150), (150, 300), (72, 72), (72, 36) })
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(width, height, 96, 96,
+                    PixelFormats.Bgr32, null, new byte[width * height * 4], width * 4)));
+                using var bytes = new MemoryStream();
+                encoder.Save(bytes);
+                show.Invoke(photo, [new PersonPhoto("image/png", width, height, bytes.ToArray()), name]);
+                root.Measure(new Size(700, 900));
+                root.Arrange(new Rect(0, 0, 700, 900));
+                root.UpdateLayout();
+                if (Math.Abs(image.ActualWidth - 144) > 1 || Math.Abs(image.ActualHeight - 144) > 1)
+                    throw new InvalidOperationException($"Photo image geometry exceeds its accessible viewport for {width}x{height}: {image.RenderSize}.");
+            }
+        }
+        finally { show.Invoke(photo, [null, name]); }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The photo-layout regression must not show a window or create a native handle.");
+        Console.WriteLine("PASS: actual compiled square/non-square photo image geometry stays within its 144-DIP viewport; rendered crop/automation require hosted evidence.");
+    }
+
+    private static void VerifyHeaderTextAndReadingOrder(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var fields = new[] { (Editor: "JobTitle", Value: "JobTitleValue"),
+            (Editor: "OfficeBuilding", Value: "OfficeBuildingValue"), (Editor: "OfficeNumber", Value: "OfficeNumberValue") };
+        var multiline = "First header line\r\n" + string.Join("\r\n", Enumerable.Repeat("Additional header line", 20)) +
+            "\r\nLast header line";
+        var root = (FrameworkElement)window.Content;
+        var manager = Control<Button>("Manager");
+        var originalManager = manager.Content;
+        var failures = new List<string>();
+        Invoke("EditProfileButton");
+        var original = fields.ToDictionary(field => field.Editor, field => Control<TextBox>(field.Editor).Text);
+        try
+        {
+            foreach (var field in fields) Control<TextBox>(field.Editor).Text = multiline;
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed &&
+                fields.All(field => Control<TextBlock>(field.Value).Text == multiline));
+            foreach (var width in new[] { 700d, 1100d, 1920d })
+            {
+                manager.Content = multiline;
+                root.Measure(new Size(width, 500));
+                root.Arrange(new Rect(0, 0, width, 500));
+                root.UpdateLayout();
+                var lineHeight = Control<TextBlock>("Email").ActualHeight;
+                foreach (var field in fields)
+                {
+                    var value = Control<TextBlock>(field.Value);
+                    if (value.ActualHeight > lineHeight + 2)
+                        failures.Add($"Multiline {field.Value} grew beyond one header line at {width}: {value.ActualHeight}.");
+                    if (value.Text != multiline || value.ToolTip as string != multiline ||
+                        !new TextBlockAutomationPeer(value).GetName().Contains("Last header line", StringComparison.Ordinal))
+                        failures.Add($"Bounded {field.Value} lost its full Copy/tooltip/accessible value.");
+                }
+                if (manager.ActualHeight > lineHeight + 4 ||
+                    !new ButtonAutomationPeer(manager).GetName().Contains("Last header line", StringComparison.Ordinal))
+                    failures.Add($"Multiline Manager must remain bounded with its full accessible name: {manager.ActualHeight}.");
+                var office = (FrameworkElement)Control<TextBlock>("OfficeBuildingValue").Parent;
+                var order = new FrameworkElementAutomationPeer(office).GetChildren()?
+                    .Select(peer => peer.GetAutomationId())
+                    .Where(id => id is "OfficeBuildingValue" or "OfficeNumberValue").ToArray() ?? [];
+                if (!order.SequenceEqual(new[] { "OfficeBuildingValue", "OfficeNumberValue" }))
+                    failures.Add("Office automation reading order must be building then room: " + string.Join(", ", order));
+            }
+        }
+        finally
+        {
+            manager.Content = originalManager;
+            Invoke("EditProfileButton");
+            foreach (var field in fields) Control<TextBox>(field.Editor).Text = original[field.Editor];
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed);
+        }
+        if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        Console.WriteLine("PASS: multiline header values stay bounded without losing full text; Office automation order matches visual building/room order.");
+    }
+
+    private static void VerifyCompactIdentityStates(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        var identity = Control<Grid>("PersonIdentity");
+        var heading = Control<TextBlock>("ProfileHeading");
+        var marker = Control<TextBlock>("PersonArchivalStatus");
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var results = Control<ListBox>("SearchResults");
+        var failures = new List<string>();
+        void Layout(double width = 684, double height = 461)
+        {
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
+            root.UpdateLayout();
+        }
+        void DragPeople(double delta)
+        {
+            var divider = Control<GridSplitter>("PeopleDivider");
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Layout(1920, 1040);
+            divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Layout(1920, 1040);
+        }
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        foreach (var state in CompactIdentityStateCases)
+        {
+            Control<TextBox>("SearchQuery").Text = state.Email;
+            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
+                result.Person.Email == state.Email && result.Source == SearchSource.Profile));
+            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
+                result.Person.Email == state.Email && result.Source == SearchSource.Profile);
+            results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            PumpUntil(() => Control<TextBlock>("Email").Text == state.Email);
+            Layout();
+            var fullName = state.PreferredName ?? state.DirectoryName;
+            var manager = Control<Button>("Manager");
+            var managerEmail = state.ArchivedManager ? "header-archived-manager@example.com" : "header-manager@example.com";
+            if (manager.Content is not string relation ||
+                state.Archived && !relation.StartsWith("Last stored: ", StringComparison.Ordinal) ||
+                state.ArchivedManager && !relation.Contains("\u2014 Archived", StringComparison.Ordinal) ||
+                manager.ToolTip as string != $"{relation} ({managerEmail})")
+                failures.Add($"Manager tooltip lost full relationship qualifiers for {state.Email}.");
+            if (heading.Text != fullName || heading.ToolTip as string != fullName ||
+                !new TextBlockAutomationPeer(heading).GetName().Contains(fullName.Split("\r\n").Last(), StringComparison.Ordinal))
+                failures.Add($"Compact identity lost the full saved name for {state.Email}.");
+            if (heading.ActualHeight > heading.FontSize * heading.FontFamily.LineSpacing + 1)
+                failures.Add($"Compact heading adds extra lines for {state.Email}: {heading.ActualHeight}.");
+            if ((marker.Visibility == Visibility.Visible) != state.Archived ||
+                state.Archived && (marker.Text != "Archived Person" || marker.ToolTip is not string tip ||
+                    !tip.Contains("retained", StringComparison.Ordinal) || !marker.IsDescendantOf(identity)))
+                failures.Add($"Archived identity lost its visible retained-data marker for {state.Email}.");
+            if (state.Archived)
+            {
+                Layout(1920, 1040);
+                var people = Control<GroupBox>("PeoplePanel");
+                var originalPeople = people.ActualWidth;
+                DragPeople(Control<Grid>("ExplorerPanel").ActualWidth - people.ActualWidth);
+                if (Math.Abs(scroll.ActualWidth - 408) > 2 ||
+                    identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1 ||
+                    marker.ActualWidth <= 0)
+                    failures.Add($"Narrow archived reading exceeds its photo-height header for {state.Email}: " +
+                        $"viewport={scroll.ActualWidth}, identity={identity.ActualHeight}, marker={marker.RenderSize}.");
+                DragPeople(originalPeople - people.ActualWidth);
+                Layout();
+            }
+            Invoke("EditProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Visible);
+            try
+            {
+                Control<TextBox>("OfficeNumber").Text = "Unsaved compact-state office";
+                Layout();
+                if (identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1)
+                    failures.Add($"Compact state grew beyond its photo-height header for {state.Email}: {identity.ActualHeight}.");
+                foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department", "OfficeBuilding",
+                    "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+                {
+                    var editor = Control<Control>(name);
+                    editor.BringIntoView();
+                    Layout();
+                    var bounds = Bounds(editor);
+                    var viewport = Bounds(scroll);
+                    if (bounds.Top < viewport.Top - 1 || bounds.Bottom > viewport.Bottom + 1)
+                        failures.Add($"Dirty compact state clips {name} for {state.Email}: editor={bounds}, viewport={viewport}.");
+                }
+            }
+            finally { Invoke("CancelProfileButton"); }
+        }
+        Control<TextBox>("SearchQuery").Text = "";
+        var tree = Control<TreeView>("PeopleList");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!,
+            tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "avery@example.com"),
+            TreeView.SelectedItemChangedEvent));
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Compact identity-state checks must remain invisible without a native handle.");
+        Console.WriteLine("PASS: multiline saved names and populated archived identity retain their full values and usable dirty minimum-client editors.");
+    }
+
+    private static void VerifyIdentityContext(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        var identity = Control<Grid>("PersonIdentity");
+        var building = Control<TextBlock>("OfficeBuildingValue");
+        var number = Control<TextBlock>("OfficeNumberValue");
+        if (!Control<Button>("Manager").IsDescendantOf(identity) ||
+            !building.IsDescendantOf(identity) || !number.IsDescendantOf(identity) ||
+            !Control<TextBlock>("DepartmentValue").IsDescendantOf(Control<Panel>("FactsGrid")) ||
+            !Control<Panel>("DepartmentValueRow").Children.OfType<TextBlock>().Any(label => label.Text == "Department"))
+            throw new InvalidOperationException("Manager and Office belong in identity; Department needs a labelled facts slot.");
+        foreach (var (officeBuilding, officeNumber) in new[]
+        {
+            ("Juniper", "009C"), ("Juniper", ""), ("", ""),
+            ("South campus research and collaboration building with a long descriptive location", "009C"),
+            ("", "007B")
+        })
+        {
+            Invoke("EditProfileButton");
+            if (!Control<Button>("Manager").IsDescendantOf(identity))
+                throw new InvalidOperationException("Editing must retain anchored saved-Manager navigation.");
+            Control<TextBox>("OfficeBuilding").Text = officeBuilding;
+            Control<TextBox>("OfficeNumber").Text = officeNumber;
+            Invoke("SaveProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Collapsed &&
+                building.Text == (officeBuilding.Length == 0 ? "—" : officeBuilding) &&
+                number.Text == (officeNumber.Length == 0 ? "—" : officeNumber));
+            if ((building.Visibility == Visibility.Visible) != (officeBuilding.Length > 0 || officeNumber.Length == 0) ||
+                (number.Visibility == Visibility.Visible) != (officeNumber.Length > 0) ||
+                (Control<TextBlock>("OfficeSeparator").Visibility == Visibility.Visible) !=
+                    (officeBuilding.Length > 0 && officeNumber.Length > 0))
+                throw new InvalidOperationException("Office must join available building/room values without stray separators or missing-part dashes.");
+            foreach (var width in new[] { 700d, 1100d, 1920d })
+            {
+                root.Measure(new Size(width, 900));
+                root.Arrange(new Rect(0, 0, width, 900));
+                root.UpdateLayout();
+                var manager = Control<Button>("Manager");
+                if (manager.ActualWidth > manager.DesiredSize.Width + 1)
+                    throw new InvalidOperationException($"Manager's hit target stretches beyond its name at {width}: actual={manager.ActualWidth}, desired={manager.DesiredSize.Width}.");
+                if (identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1)
+                    throw new InvalidOperationException($"Header context grew beyond the existing photo footprint at {width}: {identity.ActualHeight}; " +
+                        string.Join("; ", new[] { "ProfileHeading", "JobTitleValue", "Email", "ManagerReadingSlot",
+                            "OfficeReadingSlot", "IdentityActions", "PersonArchivalStatus" }
+                            .Select(name => $"{name}={Control<FrameworkElement>(name).RenderSize}, desired={Control<FrameworkElement>(name).DesiredSize}")));
+                foreach (var value in new FrameworkElement[] { Control<Button>("Manager"), building, number })
+                {
+                    if (value.Visibility != Visibility.Visible) continue;
+                    var bounds = value.TransformToAncestor(identity).TransformBounds(new Rect(value.RenderSize));
+                    if (bounds.Width <= 0 || bounds.Left < 0 || bounds.Right > identity.ActualWidth + 1 ||
+                        bounds.Bottom > identity.ActualHeight + 1)
+                        throw new InvalidOperationException($"Anchored context is clipped at {width}: {value.Name}={bounds}.");
+                }
+            }
+        }
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("The identity-context regression must remain invisible without a native handle.");
+        Console.WriteLine("PASS: labelled anchored Manager/Office, partial/missing office values and labelled Department facts fit the existing photo-height header.");
+    }
+
     private static void VerifyInlineProfileLayout(Window window)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -1062,6 +1357,20 @@ internal static partial class Program
         alias = Bounds(Control<TextBox>("Alias"));
         if (alias.Top <= directory.Bottom || Math.Abs(alias.Left - directory.Left) > 1)
             throw new InvalidOperationException("A narrow Person pane must stack labelled profile fields rather than clipping paired columns.");
+        var actions = (FrameworkElement)Control<Border>("ProfileSessionActions").Child;
+        var actionOrder = new FrameworkElementAutomationPeer(actions).GetChildren()?
+            .Select(peer => peer.GetAutomationId())
+            .Where(id => id is "ChoosePhoto" or "ClearPhoto" or "CancelProfile" or "SaveProfile").ToArray() ?? [];
+        var actionFailures = new List<string>();
+        if (!actionOrder.SequenceEqual(new[] { "ChoosePhoto", "ClearPhoto", "CancelProfile", "SaveProfile" }))
+            actionFailures.Add("Profile action automation order differs from visual order: " + string.Join(", ", actionOrder));
+        foreach (var name in new[] { "CancelProfileButton", "SaveProfileButton" })
+        {
+            var button = Control<Button>(name);
+            if (button.ActualHeight > button.DesiredSize.Height + 1)
+                actionFailures.Add($"Wrapped photo controls stretched {name}: actual={button.ActualHeight}, desired={button.DesiredSize.Height}.");
+        }
+        if (actionFailures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, actionFailures));
         Drag(originalPeople - people.ActualWidth);
         foreach (var size in new[] { new Size(700, 500), new Size(1100, 900), new Size(1920, 1040) })
         {
@@ -1092,6 +1401,32 @@ internal static partial class Program
                 throw new InvalidOperationException("Profile identity and explicit Save/Cancel must remain anchored without a window-wide Enter/Escape action.");
             scroll.ScrollToTop();
         }
+        var savedOffice = Control<TextBox>("OfficeNumber").Text;
+        try
+        {
+            Control<TextBox>("OfficeNumber").Text = "Unsaved minimum-window office";
+            Layout(700, 500);
+            var firstEditor = Control<TextBox>("DirectoryNameEditor");
+            var firstLabel = ((Panel)firstEditor.Parent).Children.OfType<Label>().Single();
+            if (scroll.ViewportHeight < firstLabel.ActualHeight + firstEditor.ActualHeight)
+                throw new InvalidOperationException($"Dirty profile at 700x500 cannot expose a labelled editor: " +
+                    $"viewport={scroll.ViewportHeight}, required={firstLabel.ActualHeight + firstEditor.ActualHeight}, " +
+                    $"identity={identity.ActualHeight}, notice={Control<FrameworkElement>("OperationalNotice").ActualHeight}.");
+            // Reproduce the client allocation observed inside the hosted 700x500 native window.
+            Layout(684, 461);
+            foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department",
+                "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+            {
+                var editor = Control<Control>(name);
+                editor.BringIntoView();
+                Layout(684, 461);
+                var bounds = Bounds(editor);
+                var viewport = Bounds(scroll);
+                if (bounds.Top < viewport.Top - 1 || bounds.Bottom > viewport.Bottom + 1)
+                    throw new InvalidOperationException($"Dirty native-minimum client clips {name}: editor={bounds}, viewport={viewport}.");
+            }
+        }
+        finally { Control<TextBox>("OfficeNumber").Text = savedOffice; }
         Layout(1920, 1040);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The inline profile contract must stay invisible without a native window handle.");
@@ -1538,9 +1873,9 @@ internal static partial class Program
         Layout();
         var photo = Control<FrameworkElement>("Photo");
         var placeholder = (TextBlock)photo.FindName("Placeholder");
-        if (placeholder.Text != "A" || photo.ActualWidth > 64 || photo.ActualHeight > 64 ||
+        if (placeholder.Text != "A" || Math.Abs(photo.ActualWidth - 144) > 1 || Math.Abs(photo.ActualHeight - 144) > 1 ||
             !System.Windows.Automation.AutomationProperties.GetName(placeholder).Contains("No local photo", StringComparison.Ordinal))
-            throw new InvalidOperationException("Missing photos need compact, accessible initials rather than oversized missing-photo furniture.");
+            throw new InvalidOperationException("Missing photos need the same 144-DIP footprint and accessible initials as saved photos.");
         Drag(peopleDivider, 240 - people.ActualWidth, "People minimum");
         ResizeWithKey(peopleDivider, people, Key.Right, 10);
         Drag(peopleDivider, (host.ActualWidth - 8) * .27 - people.ActualWidth, "People 27%");
@@ -1559,6 +1894,7 @@ internal static partial class Program
         try
         {
             reading.Document = longReading;
+            viewport.ScrollToTop();
             Layout();
             var identityBefore = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
             var factsBefore = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
@@ -1570,7 +1906,9 @@ internal static partial class Program
             var identityAfter = identity.TransformToAncestor(host).TransformBounds(new Rect(identity.RenderSize));
             var factsAfter = profile.TransformToAncestor(host).TransformBounds(new Rect(profile.RenderSize));
             if (identityBefore != identityAfter || Math.Abs(factsBefore.Top - factsAfter.Top - 240) > 1)
-                throw new InvalidOperationException("The shared scroll moved identity or failed to move facts with notes.");
+                throw new InvalidOperationException($"The shared scroll moved identity or failed to move facts with notes: " +
+                    $"identity={identityBefore}->{identityAfter}, facts={factsBefore}->{factsAfter}, " +
+                    $"offset={viewport.VerticalOffset}, extent={viewport.ExtentHeight}, viewport={viewport.ViewportHeight}.");
             var provider = (IScrollProvider)UIElementAutomationPeer.CreatePeerForElement(viewport).GetPattern(PatternInterface.Scroll);
             if (!provider.VerticallyScrollable)
                 throw new InvalidOperationException("The long reading fixture must still exercise a genuinely scrollable axis.");
@@ -1598,7 +1936,7 @@ internal static partial class Program
         var longPerson = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "zara@example.com");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(originalPerson, longPerson, TreeView.SelectedItemChangedEvent));
         Layout();
-        if (facts.Children.Count != 9 || Columns() != columns ||
+        if (facts.Children.Count != 7 || Columns() != columns ||
             Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
             slots.Any(slot => slot.Visibility != Visibility.Visible) ||
             slots.Where((slot, index) => Math.Abs(slot.TransformToAncestor(facts).Transform(new Point(0, 0)).X - lefts[index]) > 1).Any() ||
@@ -2013,11 +2351,30 @@ internal static partial class Program
             root.UpdateLayout();
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Fact measurements must not show a window or create its native handle.");
+            Control<ScrollViewer>("PersonScroll").ScrollToTop();
+            root.UpdateLayout();
+            var teamLabel = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>()
+                .Single(value => System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
+            Rect RootBounds(FrameworkElement element) =>
+                element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+            var labelBounds = RootBounds(teamLabel);
+            var managerBounds = RootBounds(Control<Button>("Manager"));
+            var viewportBounds = RootBounds(Control<ScrollViewer>("PersonScroll"));
+            if (!IsFirstScrollingTeamName(labelBounds, managerBounds, viewportBounds, 1))
+                throw new InvalidOperationException($"First Team-name fact rejects its real layout inset: " +
+                    $"label={labelBounds}, Manager={managerBounds}, viewport={viewportBounds}.");
+            var laterRow = labelBounds;
+            laterRow.Offset(0, 54);
+            var laterColumn = labelBounds;
+            laterColumn.Offset(240, 0);
+            if (IsFirstScrollingTeamName(laterRow, managerBounds, viewportBounds, 1) ||
+                IsFirstScrollingTeamName(laterColumn, managerBounds, viewportBounds, 1))
+                throw new InvalidOperationException("Team-name placement accepted a later row or column.");
             var slots = facts.Children.Cast<StackPanel>().ToArray();
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 9 || rows[0].Count() != columns ||
+            if (slots.Length != 7 || rows[0].Count() != columns ||
                 Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
                 !Control<TextBlock>("TeamNameEmpty").IsDescendantOf(facts) ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||

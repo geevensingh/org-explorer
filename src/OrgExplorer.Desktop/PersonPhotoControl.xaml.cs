@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using OrgExplorer.Workflow;
 using Microsoft.Win32;
@@ -13,6 +14,7 @@ public partial class PersonPhotoControl : UserControl
 {
     public PersonPhotoControl() => InitializeComponent();
     public event Action<string?>? PhotoEdited;
+    internal FrameworkElement EditActions => Actions;
     public bool CanEdit
     {
         set
@@ -49,7 +51,12 @@ public partial class PersonPhotoControl : UserControl
         image.StreamSource = stream;
         image.EndInit();
         image.Freeze();
-        PhotoImage.Source = image;
+        // Crop inside a square drawing so automation bounds match the visible viewport.
+        var drawing = new DrawingImage(new GeometryDrawing(
+            new ImageBrush(image) { Stretch = Stretch.UniformToFill },
+            null, new RectangleGeometry(new Rect(0, 0, 1, 1))));
+        drawing.Freeze();
+        PhotoImage.Source = drawing;
         AutomationProperties.SetName(PhotoImage, $"Local {photo.ContentType} photo: {image.PixelWidth} × {image.PixelHeight} pixels");
         Placeholder.Visibility = Visibility.Collapsed;
         PhotoImage.Visibility = Visibility.Visible;
