@@ -23,6 +23,30 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly Queue<string?> CompiledWorkspaceChoices = new();
+    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived)[] CompactIdentityStateCases =
+    [
+        ("header-directory@example.com", "Avery\r\nExample", null, false),
+        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false),
+        ("header-archived@example.com", "Archived Example", null, true),
+        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true)
+    ];
+
+    private static JsonArray CompactIdentityFixturePeople()
+    {
+        var people = new JsonArray(new JsonObject
+        {
+            ["email"] = "header-manager@example.com", ["displayName"] = "ZZZ Header Manager", ["managerEmail"] = null
+        });
+        foreach (var state in CompactIdentityStateCases)
+            people.Add(new JsonObject
+            {
+                ["email"] = state.Email, ["displayName"] = state.DirectoryName, ["preferredName"] = state.PreferredName,
+                ["archived"] = state.Archived, ["managerEmail"] = "header-manager@example.com",
+                ["jobTitle"] = "Engineer", ["department"] = "Research", ["officeBuilding"] = "Juniper",
+                ["officeNumber"] = "009C", ["officeState"] = "Ontario", ["officeCountry"] = "Canada"
+            });
+        return people;
+    }
 
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
@@ -233,6 +257,13 @@ internal static partial class Program
                       "managerEmail":null}]}
                     """).Id) || seed.CreatePersonNote("avery@example.com", "Saved title", "# Saved note") is null)
                 throw new InvalidOperationException("Profile refresh fixture failed: " + seed.Status);
+            var stateImport = seed.PreviewImport(new JsonObject
+            {
+                ["schemaVersion"] = 1, ["batchId"] = "39000000-0000-4000-8000-000000000009",
+                ["observedAt"] = "2026-11-01T17:00:00Z", ["people"] = CompactIdentityFixturePeople()
+            }.ToJsonString());
+            if (!stateImport.CanApply || !seed.ApplyImport(stateImport.Id))
+                throw new InvalidOperationException("Compact identity-state fixtures failed: " + seed.Status);
         }
         var preferences = Path.Combine(settings, "workspace-settings.json");
         if (!new WorkspaceSettings(preferences).SetPaneProportions(folder, new(25, 92)))
@@ -264,6 +295,7 @@ internal static partial class Program
         VerifyPreferredNameEntry(window, folder, publisher);
         VerifyPhotoViewportLayout(window);
         VerifyHeaderTextAndReadingOrder(window);
+        VerifyCompactIdentityStates(window);
         VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
@@ -890,6 +922,79 @@ internal static partial class Program
         }
         if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
         Console.WriteLine("PASS: multiline header values stay bounded without losing full text; Office automation order matches visual building/room order.");
+    }
+
+    private static void VerifyCompactIdentityStates(Window window)
+    {
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var root = (FrameworkElement)window.Content;
+        var identity = Control<Grid>("PersonIdentity");
+        var heading = Control<TextBlock>("ProfileHeading");
+        var marker = Control<TextBlock>("PersonArchivalStatus");
+        var scroll = Control<ScrollViewer>("PersonScroll");
+        var results = Control<ListBox>("SearchResults");
+        var failures = new List<string>();
+        void Layout()
+        {
+            root.Measure(new Size(684, 461));
+            root.Arrange(new Rect(0, 0, 684, 461));
+            root.UpdateLayout();
+        }
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+        foreach (var state in CompactIdentityStateCases)
+        {
+            Control<TextBox>("SearchQuery").Text = state.Email;
+            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
+                result.Person.Email == state.Email && result.Source == SearchSource.Profile));
+            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
+                result.Person.Email == state.Email && result.Source == SearchSource.Profile);
+            results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            PumpUntil(() => Control<TextBlock>("Email").Text == state.Email);
+            Layout();
+            var fullName = state.PreferredName ?? state.DirectoryName;
+            if (heading.Text != fullName || heading.ToolTip as string != fullName ||
+                !new TextBlockAutomationPeer(heading).GetName().Contains(fullName.Split("\r\n").Last(), StringComparison.Ordinal))
+                failures.Add($"Compact identity lost the full saved name for {state.Email}.");
+            if (heading.ActualHeight > heading.FontSize * heading.FontFamily.LineSpacing + 1)
+                failures.Add($"Compact heading adds extra lines for {state.Email}: {heading.ActualHeight}.");
+            if ((marker.Visibility == Visibility.Visible) != state.Archived ||
+                state.Archived && (marker.Text != "Archived Person" || marker.ToolTip is not string tip ||
+                    !tip.Contains("retained", StringComparison.Ordinal) || !marker.IsDescendantOf(identity)))
+                failures.Add($"Archived identity lost its visible retained-data marker for {state.Email}.");
+            Invoke("EditProfileButton");
+            PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Visible);
+            try
+            {
+                Control<TextBox>("OfficeNumber").Text = "Unsaved compact-state office";
+                Layout();
+                if (identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1)
+                    failures.Add($"Compact state grew beyond its photo-height header for {state.Email}: {identity.ActualHeight}.");
+                foreach (var name in new[] { "DirectoryNameEditor", "Alias", "JobTitle", "Department", "OfficeBuilding",
+                    "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl", "ManagerChoices" })
+                {
+                    var editor = Control<Control>(name);
+                    editor.BringIntoView();
+                    Layout();
+                    var bounds = Bounds(editor);
+                    var viewport = Bounds(scroll);
+                    if (bounds.Top < viewport.Top - 1 || bounds.Bottom > viewport.Bottom + 1)
+                        failures.Add($"Dirty compact state clips {name} for {state.Email}: editor={bounds}, viewport={viewport}.");
+                }
+            }
+            finally { Invoke("CancelProfileButton"); }
+        }
+        Control<TextBox>("SearchQuery").Text = "";
+        var tree = Control<TreeView>("PeopleList");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!,
+            tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "avery@example.com"),
+            TreeView.SelectedItemChangedEvent));
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+        if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+            throw new InvalidOperationException("Compact identity-state checks must remain invisible without a native handle.");
+        Console.WriteLine("PASS: multiline saved names and populated archived identity retain their full values and usable dirty minimum-client editors.");
     }
 
     private static void VerifyIdentityContext(Window window)

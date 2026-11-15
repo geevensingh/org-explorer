@@ -62,6 +62,7 @@ public partial class MainWindow
         var actionsBelow = PersonWorkspace.ActualWidth < 720;
         PlaceProfileElement(IdentityActions, actionsBelow ? IdentityDetails : PersonIdentity);
         ProfileHeading.TextWrapping = actionsBelow ? TextWrapping.NoWrap : TextWrapping.Wrap;
+        ProfileHeading.MaxHeight = actionsBelow ? 32 : 64;
         ProfileHeading.TextTrimming = TextTrimming.CharacterEllipsis;
         IdentityActions.Margin = new Thickness(actionsBelow ? 0 : 12, actionsBelow ? 2 : 0, 0, 0);
     }

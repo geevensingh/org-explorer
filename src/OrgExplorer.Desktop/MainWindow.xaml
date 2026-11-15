@@ -661,8 +661,6 @@
                 </TextBlock>
               </Grid>
             </DockPanel>
-            <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
-                       Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold" Margin="0,4,0,0" Focusable="True"/>
             <Popup x:Name="PreferredNamePopup" PlacementTarget="{Binding ElementName=EditPreferredNameButton}"
                    Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Closed="PreferredNameDismissed">
               <Border x:Name="PreferredNameEditorPanel" Visibility="Collapsed" Width="320" Padding="16"
@@ -712,12 +710,15 @@
                             Click="ReactivatePerson" Visibility="Collapsed"/>
                 </MenuItem>
               </Menu>
+              <TextBlock x:Name="PersonArchivalStatus" AutomationProperties.AutomationId="PersonArchivalStatus"
+                         Visibility="Collapsed" TextWrapping="Wrap" Foreground="#8A3B12" FontWeight="SemiBold"
+                         Margin="8,0,0,0" VerticalAlignment="Center" Focusable="True"/>
             </WrapPanel>
             <TextBlock x:Name="FavoriteStatus" AutomationProperties.AutomationId="FavoriteStatus"
                        Visibility="Collapsed" Foreground="#8A3B12" TextWrapping="Wrap"/>
           </StackPanel>
         </Grid>
-        <Border x:Name="ProfileSessionActions" Grid.Row="1" Visibility="Collapsed" Margin="0,0,12,12"
+        <Border x:Name="ProfileSessionActions" Grid.Row="1" Visibility="Collapsed" Margin="0,0,12,4"
                 Background="#EAF3FF" CornerRadius="4" Padding="10,4">
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

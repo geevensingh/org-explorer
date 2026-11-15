@@ -63,6 +63,7 @@ public partial class MainWindow
     {
         var editing = workflow.ProfileEdit is not null;
         var writable = workflow.IsWorkspaceCurrent && selectedEmail is not null && !workPending;
+        PersonIdentity.Margin = new Thickness(0, 8, 12, editing ? 8 : 16);
         EditProfileButton.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         EditProfileButton.IsEnabled = writable;
         ProfileSessionActions.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;

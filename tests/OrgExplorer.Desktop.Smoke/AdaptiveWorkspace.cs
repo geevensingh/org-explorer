@@ -587,6 +587,30 @@ internal static partial class Program
             AtSize("profile-inline-minimum-700-500-dirty");
         }
         finally { Set(window, "OfficeNumber", savedOffice); }
+        CancelProfileEditing(window);
+        foreach (var identityState in CompactIdentityStateCases)
+        {
+            QueryAndSelect(window, identityState.Email, identityState.Email,
+                identityState.Archived ? "Archived" : "Current", "Profile:");
+            BeginProfileEditing(window);
+            Find(window, "OfficeNumber").SetFocus();
+            Await(() => Find(window, "OfficeNumber").Current.HasKeyboardFocus);
+            Set(window, "OfficeNumber", "Unsaved compact-state office");
+            try
+            {
+                Await(() => IsVisible(window, "OperationalNotice"));
+                var heading = Find(window, "ProfileHeading");
+                if (heading.Current.BoundingRectangle.Height / scale > 33 ||
+                    !heading.Current.Name.Contains((identityState.PreferredName ?? identityState.DirectoryName).Split("\r\n").Last(),
+                        StringComparison.Ordinal) ||
+                    IsVisible(window, "PersonArchivalStatus") != identityState.Archived)
+                    throw new InvalidOperationException("Compact saved-name or archived identity is not bounded and accessible.");
+                AtSize("profile-inline-minimum-700-500-" + identityState.Email.Split('@')[0]);
+            }
+            finally { CancelProfileEditing(window); }
+        }
+        QueryAndSelect(window, "avery@example.com", "avery@example.com", "Current", "Profile:");
+        BeginProfileEditing(window);
         ResizeWindow(window, 1100, 900);
         AtSize("profile-inline-ordinary-1100-900");
         foreach (var hostWidth in new[] { 959d, 960d, 961d })

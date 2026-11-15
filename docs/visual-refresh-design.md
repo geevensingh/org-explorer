@@ -149,6 +149,11 @@ shrinking type or requiring horizontal page scrolling.
 Bound embedded line breaks in Job title, Manager and Office display values;
 retained full tooltip, Copy and accessible values must not be rewritten merely
 to constrain the anchored band.
+At compact widths, keep the primary name to one displayed line even when its
+saved value contains line breaks, retaining full tooltip and accessible text.
+Keep the unchanged Archived Person marker in the existing header action row
+instead of adding another anchored row. Reclaim edit-only spacing so dirty
+minimum-window profiles remain editable without shrinking the photo or controls.
 Office combines building and room with a middle dot only when both are present;
 one available part stands alone, and no Office data uses a neutral dash.
 Retain individual building/room Copy and search destinations, with visual,
