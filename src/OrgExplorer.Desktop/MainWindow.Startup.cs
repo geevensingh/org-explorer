@@ -118,6 +118,8 @@ public partial class MainWindow
     {
         if (CreateLocalSqliteWorkspaceButton.Visibility != Visibility.Visible || workPending) return;
         var path = Path.Combine(SettingsDirectory, "LocalWorkspaces", Guid.NewGuid().ToString("D"));
+        SettingsPanel.Visibility = Visibility.Collapsed;
+        UpdateMainViews();
         await OpenWorkspaceAtPathAsync(path, WorkspaceOpenMode.CreateLocalSqlite);
     }
 

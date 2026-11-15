@@ -180,6 +180,13 @@ navigation, closes and reopens the same population, and checks the old Workspace
 bytes. The opt-in is restored afterwards; all prior scenario steps remain.
 Compiling this journey or passing filesystem cases does not establish hosted
 WPF interaction evidence or any 10,000-Person responsiveness claim.
+The existing invisible `--verify-profile-refresh` contract also drives the
+compiled ordinary Open Workspace and SQLite Create actions, requiring both to
+return from Settings to the browsing/start view. It then invokes normal Settings
+Import and previews real initial People without accepting them before Apply.
+It never sets presentation state to bypass navigation or shows a native window.
+This guards the hosted helper's required starting view; the unchanged hosted
+journey still establishes actual create/import/browse/close/reopen interaction.
 
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates

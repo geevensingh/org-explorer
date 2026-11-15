@@ -44,6 +44,8 @@ Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
 It preserves the previous Workspace. This first slice supports a reviewed
 initial People-only Import, browsing and startup reopening, with all supplied
 Person attributes, relationships and accepted evidence committed together.
+Successful creation returns to the browsing start view, like Open Workspace;
+open **Settings → Import...** to review the initial population.
 Photos, subsequent Imports, ordinary editing, synchronization and the new exit
 interaction are not available yet; unsupported actions are disabled or rejected,
 never sent to the legacy writer. Exact Import replay remains a no-op.
