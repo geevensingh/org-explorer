@@ -16,15 +16,25 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public event EventHandler? WorkspaceChanged;
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
-    public bool CanSafelyClose => workflow.CanSafelyClose;
+    public bool CanSafelyClose => !HasLocalNoteDrafts && workflow.CanSafelyClose;
     public bool CanNavigatePeople => workflow.CanNavigatePeople;
     public bool CanEnterImport => workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
     public bool HasPendingStorageMaintenance => workflow.HasPendingStorageMaintenance;
     public bool LastWorkspaceOpenWasRejected { get; private set; }
-    public bool RestartWhenSafe(Action<string?> restart) => Observe(() => workflow.RestartWhenSafe(restart));
+    public bool RestartWhenSafe(Action<string?> restart) => Observe(() =>
+    {
+        if (!HasLocalNoteDrafts) return workflow.RestartWhenSafe(restart);
+        navigationError = "Restart blocked: private note edits are not confirmed saved locally.";
+        return false;
+    });
     public string? LocalSaveError => workflow.LocalSaveError;
-    public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() => { workflow.DiscardUnsavedChanges(noteId); return true; });
+    public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() =>
+    {
+        if (!DiscardLocalNoteDrafts(noteId)) return false;
+        workflow.DiscardUnsavedChanges(noteId);
+        return true;
+    });
     public void DiscardImportChanges() => Observe(() => { workflow.DiscardImportChanges(); return true; });
     private void ForwardWorkspaceChange(object? sender, EventArgs e)
     {
@@ -34,6 +44,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
     public void Dispose()
     {
+        lock (noteDraftGate) noteAutosaveStopped = true;
         workflow.WorkspaceChanged -= ForwardWorkspaceChange;
         workflow.Dispose();
     }
@@ -47,7 +58,9 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
-    public string Status => navigationError ?? workflow.Status;
+    public string Status => navigationError ?? (HasLocalNoteDrafts
+        ? "Pending private note edits - not yet saved." +
+            (workflow.LocalSaveError is { } error ? "\n" + error : "") : workflow.Status);
     public string? OperationError => navigationError ?? workflow.OperationError;
     public bool IsImportOpen { get; private set; }
     public bool TryOpenImport() => Observe(() =>
@@ -85,6 +98,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             {
                 IsImportOpen = false;
                 noteViews.Clear();
+                retainedNoteViews.Clear();
                 ongoingPreferenceError = null;
                 PeopleNavigation = new("", false, null, null, [], 0);
                 LayoutPreferenceFeedback = null;

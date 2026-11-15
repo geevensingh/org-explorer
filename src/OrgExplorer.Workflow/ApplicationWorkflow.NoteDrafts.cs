@@ -49,48 +49,45 @@ public sealed partial class ApplicationWorkflow
 
     public NoteDraft? BeginNoteDraft(NoteScope scope, string ownerEmail, Guid? noteId = null)
     {
+        if (localSqlite && queryView is { } view)
+            return CaptureNoteDraft(scope, ownerEmail, noteId, view);
         lock (workspaceGate)
         {
-            if (localSqlite)
-            {
-                Fail(SqliteEditingUnavailable);
-                return null;
-            }
-            if (workspace is null || !people.TryGetValue(ownerEmail, out var owner)) return null;
-            if (noteId is null)
-            {
-                var now = DateTimeOffset.UtcNow;
-                var newId = Guid.NewGuid();
-                return scope switch
-                {
-                    NoteScope.Person => new(this, workspace, scope,
-                        new(newId, owner.Email, "", "", false, now, now), null, Guid.Empty, isNew: true),
-                    NoteScope.Team => new(this, workspace, scope, null,
-                        new(newId, owner.Email, "", "", false, now, now),
-                        teamContextRevisions.GetValueOrDefault(owner.Email), isNew: true),
-                    _ => null
-                };
-            }
-            var id = noteId.Value;
-            if (scope == NoteScope.Person && personNotes.TryGetValue(id, out var person) &&
-                person.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase))
-                return new(this, workspace, scope, person, null, Guid.Empty);
-            if (scope == NoteScope.Team && teamNotes.TryGetValue(id, out var team) &&
-                team.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase))
-                return new(this, workspace, scope, null, team, teamNoteConfirmations[id]);
-            return null;
+            return CaptureNoteDraft(scope, ownerEmail, noteId, this);
         }
+    }
+
+    private NoteDraft? CaptureNoteDraft(NoteScope scope, string ownerEmail, Guid? noteId, ApplicationWorkflow source)
+    {
+        if (workspace is null || !source.people.TryGetValue(ownerEmail, out var owner)) return null;
+        if (noteId is null)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var newId = Guid.NewGuid();
+            return scope switch
+            {
+                NoteScope.Person => new(this, workspace, scope,
+                    new(newId, owner.Email, "", "", false, now, now), null, Guid.Empty, isNew: true),
+                NoteScope.Team => new(this, workspace, scope, null,
+                    new(newId, owner.Email, "", "", false, now, now),
+                    source.teamContextRevisions.GetValueOrDefault(owner.Email), isNew: true),
+                _ => null
+            };
+        }
+        var id = noteId.Value;
+        if (scope == NoteScope.Person && source.personNotes.TryGetValue(id, out var person) &&
+            person.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase))
+            return new(this, workspace, scope, person, null, Guid.Empty);
+        if (scope == NoteScope.Team && source.teamNotes.TryGetValue(id, out var team) &&
+            team.OwnerEmail.Equals(ownerEmail, StringComparison.OrdinalIgnoreCase))
+            return new(this, workspace, scope, null, team, source.teamNoteConfirmations[id]);
+        return null;
     }
 
     public NoteDraft? SaveNoteDraft(NoteDraft draft, string title, string markdown)
     {
         lock (workspaceGate)
         {
-            if (localSqlite)
-            {
-                Fail(SqliteEditingUnavailable);
-                return null;
-            }
             RetainNoteDraft(draft);
             try { ValidateNoteDraft(draft.Scope, draft.Id); }
             catch (IOException error)

@@ -113,6 +113,12 @@ public sealed partial class ApplicationWorkflow
             }
             var metadata = new NoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt);
+            if (localSqlite)
+            {
+                SaveLocalSqliteNote(NoteScope.Person, metadata, note.Markdown);
+                AcceptNoteSave(NoteScope.Person, note.Id);
+                return true;
+            }
             var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
             WriteMarkdownAtomically("notes", note.Id, content, () => ValidateNoteDraft(NoteScope.Person, note.Id));
             AcceptNoteSave(NoteScope.Person, note.Id);

@@ -191,6 +191,39 @@ It never sets presentation state to bypass navigation or shows a native window.
 This guards the hosted helper's required starting view; the unchanged hosted
 journey still establishes actual create/import/browse/close/reopen interaction.
 
+The staged #92 path extends that same local authority with Person/Team notes.
+SQLite format 2 retains note identities, ownership, complete Markdown, timestamps,
+archival and Team confirmation/context revisions; an existing staged format-1
+store gains note support atomically with its first note. Profiles and synchronization
+remain explicitly unsupported, and the shipping legacy path and its coverage remain.
+The observable view model owns pending creations and latest drafts independently
+of displayed controls. Its first-edit 250-ms cadence cannot be postponed by typing;
+one worker serializes captured revisions, retains newer generations after completion
+and makes failed writing retryable without another creation identity. Local Person
+and exact-note browsing do not use the legacy draft veto. Safe close still requires
+all retained writing to commit; stalled/recovery orchestration and informed exit are
+later slices, not claims established here.
+
+`SqliteWorkspaceTests` proves both scopes' durable creation/edit/archive/restore,
+Ongoing selection, inherited Team context, actual Person switches during a real
+SQLite writer lock, newer typing, failure/retry identity and scoped discard. Continued
+typing must produce multiple independently reopened committed values before idle,
+including a first ordinary small-fixture commit within one second.
+The existing invisible `--verify-profile-refresh` selection drives both compiled
+editors before a held commit and actual selection events, retaining exact newer
+writing and owner through late completion without showing/focusing a native window.
+The existing hosted `compatibility-settings` tail additionally exercises twenty
+distinct Team creations and one Person creation, continuous writing and immediate
+report/Manager switches. It requires p95 at most 100 ms from actual native interaction
+to a new writable, visible, keyboard-focused editor or usable selected Person, and
+one second from ordinary typing to independently reopened committed writing covering
+that request while typing continues. Its `*-sqlite-note-latency.json` records exact
+candidate/run/attempt/product hash, environment, samples, boundaries and nearest-rank
+percentiles; named editing/reopened captures retain actual desktop evidence.
+These ordinary two-Person observations are not #100's combined rich 10,000-Person
+and background-export proof. Required scenario selection, assertions and lane budgets
+are unchanged; no hosted interaction result is claimed by compiling this tail.
+
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
 an empty Workspace, seeds accepted Import evidence, and reopens profile text,

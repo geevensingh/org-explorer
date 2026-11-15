@@ -37,18 +37,24 @@ public sealed partial class ApplicationWorkflow
             scope == NoteScope.Team ? [.. properties, "confirmedContextRevision"] : properties, context);
         var metadata = document.RootElement.Deserialize<T>(JsonOptions)
             ?? throw new FormatException($"{context}: invalid metadata.");
+        ValidateNoteMetadata(metadata, scope, owners, context);
+        if (!Path.GetFileName(file).Equals(metadata.Id.ToString("D") + ".md", StringComparison.OrdinalIgnoreCase))
+            throw new FormatException($"{context}: filename must match its stable note identity.");
+        return (metadata, text[bodyStart..]);
+    }
+
+    private static void ValidateNoteMetadata(NoteMetadata metadata, NoteScope scope,
+        Dictionary<string, PersonProfile> owners, string context)
+    {
         var kind = scope == NoteScope.Person ? "person" : "team";
-        if (metadata.Kind != kind)
+        if (metadata.SchemaVersion != 1 || metadata.Kind != kind)
             throw new FormatException($"{context}: expected kind '{kind}'.");
-        Email(JsonSerializer.SerializeToElement(metadata.OwnerEmail), $"{family} ownerEmail");
+        Email(JsonSerializer.SerializeToElement(metadata.OwnerEmail), $"{scope} note ownerEmail");
         if (!owners.ContainsKey(metadata.OwnerEmail))
             throw new FormatException($"{context}: unknown owner {metadata.OwnerEmail}.");
         if (metadata.Id == Guid.Empty || string.IsNullOrWhiteSpace(metadata.Title) ||
             metadata.CreatedAt == default || metadata.UpdatedAt < metadata.CreatedAt ||
             metadata.CreatedAt.Offset != TimeSpan.Zero || metadata.UpdatedAt.Offset != TimeSpan.Zero)
             throw new FormatException($"{context}: invalid identity, title, or UTC timestamps.");
-        if (!Path.GetFileName(file).Equals(metadata.Id.ToString("D") + ".md", StringComparison.OrdinalIgnoreCase))
-            throw new FormatException($"{context}: filename must match its stable note identity.");
-        return (metadata, text[bodyStart..]);
     }
 }

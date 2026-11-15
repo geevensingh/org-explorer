@@ -31,7 +31,10 @@ public sealed partial class ApplicationWorkflow
             workspace, error is UnsupportedWorkspaceVersion unsupported ? unsupported.Version :
                 compatibility.State == WorkspaceCompatibilityState.RecoveryRequired ? compatibility.DataVersion : null,
             compatibility.RecoveryPath)
-        { SupportsOrdinaryEdits = !localSqlite, SupportedWorkspaceVersion = localSqlite ? 1 : 3 };
+        {
+            SupportsOrdinaryEdits = !localSqlite, SupportsNoteEdits = !localSqlite,
+            SupportsNonblockingNoteAutosave = localSqlite, SupportedWorkspaceVersion = localSqlite ? 2 : 3
+        };
     }
 
     private void EnsureWorkspaceWritable(bool allowSqliteImport = false)

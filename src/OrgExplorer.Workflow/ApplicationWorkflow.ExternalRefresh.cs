@@ -22,7 +22,7 @@ public sealed partial class ApplicationWorkflow
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true };
-    public bool CanNavigatePeople => !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
+    public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
     public bool CanEnterImport
     {
