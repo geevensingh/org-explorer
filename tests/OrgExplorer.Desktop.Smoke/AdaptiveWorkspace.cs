@@ -592,6 +592,30 @@ internal static partial class Program
         {
             QueryAndSelect(window, identityState.Email, identityState.Email,
                 identityState.Archived ? "Archived" : "Current", "Profile:");
+            if (identityState.Archived)
+            {
+                ResizeWindow(window, 1100, 900);
+                var archivedHost = Bounds("AdaptiveWorkspace");
+                var archivedPeoplePercent = RenderedPeoplePercent(window);
+                DragDivider(window, "PeopleDivider", archivedHost.Right - 20);
+                Await(() => Math.Abs(Bounds("ProfileScroll").Width / scale - 408) < 2);
+                var photo = Find(window, "Photo").Current.BoundingRectangle;
+                var marker = Find(window, "PersonArchivalStatus");
+                if (marker.Current.IsOffscreen || marker.Current.Name != "Archived Person" ||
+                    Bounds("ProfileScroll").Top - photo.Bottom > 17 * scale ||
+                    marker.Current.BoundingRectangle.Right > Bounds("ProfileScroll").Right + scale)
+                    throw new InvalidOperationException("Archived reading wraps or loses its visible marker at minimum Person allocation.");
+                foreach (var id in new[] { "EditPreferredName", "ToggleFavorite", "EditProfile", "PersonMore" })
+                {
+                    var action = Find(window, id);
+                    if (action.Current.IsOffscreen || !action.Current.IsEnabled || !action.Current.IsKeyboardFocusable ||
+                        action.Current.BoundingRectangle.Bottom > photo.Bottom + scale)
+                        throw new InvalidOperationException("Narrow archived reading displaced an identity action: " + id);
+                }
+                CaptureVisualEvidence(window, "profile-reading-narrow-" + identityState.Email.Split('@')[0]);
+                DragDivider(window, "PeopleDivider", archivedHost.Left + (archivedHost.Width - 8 * scale) * archivedPeoplePercent / 100);
+                ResizeWindow(window, 700, 500);
+            }
             BeginProfileEditing(window);
             Find(window, "OfficeNumber").SetFocus();
             Await(() => Find(window, "OfficeNumber").Current.HasKeyboardFocus);

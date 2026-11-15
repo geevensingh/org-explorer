@@ -619,6 +619,10 @@ check and hosted minimum-window keyboard journey retain full saved names, the
 visible Archived Person marker, existing actions and usable dirty editors.
 Edit-only whitespace is reclaimed rather than shrinking controls; this includes
 the taller Directory-name editor when its saved value contains a line break.
+Archived reading also covers the 408-DIP minimum Person allocation, retaining
+the full visible marker beside Email and all identity actions without increasing
+the photo-height header. The real compiled divider and hosted drag both exercise
+this reading state; Email retains its full Copy/tooltip value when ellipsized.
 Its inline profile check measures paired fields at wide widths and stacked fields
 at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
 content. It requires enabled, Tab-accessible, readable-width fields without

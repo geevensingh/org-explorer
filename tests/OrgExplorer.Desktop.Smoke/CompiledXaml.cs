@@ -935,11 +935,20 @@ internal static partial class Program
         var scroll = Control<ScrollViewer>("PersonScroll");
         var results = Control<ListBox>("SearchResults");
         var failures = new List<string>();
-        void Layout()
+        void Layout(double width = 684, double height = 461)
         {
-            root.Measure(new Size(684, 461));
-            root.Arrange(new Rect(0, 0, 684, 461));
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
+        }
+        void DragPeople(double delta)
+        {
+            var divider = Control<GridSplitter>("PeopleDivider");
+            divider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            divider.RaiseEvent(new DragDeltaEventArgs(delta, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Layout(1920, 1040);
+            divider.RaiseEvent(new DragCompletedEventArgs(delta, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Layout(1920, 1040);
         }
         Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
         foreach (var state in CompactIdentityStateCases)
@@ -963,6 +972,20 @@ internal static partial class Program
                 state.Archived && (marker.Text != "Archived Person" || marker.ToolTip is not string tip ||
                     !tip.Contains("retained", StringComparison.Ordinal) || !marker.IsDescendantOf(identity)))
                 failures.Add($"Archived identity lost its visible retained-data marker for {state.Email}.");
+            if (state.Archived)
+            {
+                Layout(1920, 1040);
+                var people = Control<GroupBox>("PeoplePanel");
+                var originalPeople = people.ActualWidth;
+                DragPeople(Control<Grid>("ExplorerPanel").ActualWidth - people.ActualWidth);
+                if (Math.Abs(scroll.ActualWidth - 408) > 2 ||
+                    identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1 ||
+                    marker.ActualWidth <= 0)
+                    failures.Add($"Narrow archived reading exceeds its photo-height header for {state.Email}: " +
+                        $"viewport={scroll.ActualWidth}, identity={identity.ActualHeight}, marker={marker.RenderSize}.");
+                DragPeople(originalPeople - people.ActualWidth);
+                Layout();
+            }
             Invoke("EditProfileButton");
             PumpUntil(() => Control<FrameworkElement>("ProfileSessionActions").Visibility == Visibility.Visible);
             try
