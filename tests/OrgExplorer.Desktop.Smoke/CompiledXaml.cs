@@ -57,6 +57,9 @@ internal static partial class Program
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
         AssertDisplayInterop();
+        var cursor = new CopyCursorInfo { Size = System.Runtime.InteropServices.Marshal.SizeOf<CopyCursorInfo>() };
+        ReadCopyCursor(ref cursor);
+        ReadCopyCursor(ref cursor);
         if (verifyProfileRefresh || verifyUpdateYield) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");

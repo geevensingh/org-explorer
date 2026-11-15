@@ -579,6 +579,10 @@ or printing header values.
 It needs no GitHub credentials, network or desktop.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
+It first samples the actual native cursor twice without moving it or sending input.
+Every read reinitializes `CURSORINFO.cbSize`: the API can clear it on return, so
+reusing the previous output makes subsequent observations fail with Win32 87.
+This repeated-read regression proves interop validity, not the hosted hand cursor.
 It constructs the actual compiled MainWindow BAML and event connectors on STA
 with isolated settings, requires the window to remain invisible with no native
 main-window handle, then closes it. It never calls Show or runs the application
@@ -659,8 +663,9 @@ Representative identity, ordinary-fact and Team-name gesture checks start with
 the previous confirmation expired, then require newly visible success. Exhaustive
 eligible-value payload checks remain; expiry is not added to every matrix gesture.
 Hosted Workspace-path primary-click nonmutation observes the subsequent physical
-Tab transition from the focused path to Open Workspace before reading the sentinel.
-That ordered input proves WPF processed the click, rather than sampling early.
+right-click opening its Copy path menu before reading the sentinel, without invoking
+Copy or reseeding the clipboard. That ordered input proves WPF processed the primary
+click, rather than sampling early.
 It also exercises labelled Manager and Office in the anchored header, joined
 building/room values and partial/missing Office data, with Department in a
 labelled facts slot. Header context fits the existing photo height at
