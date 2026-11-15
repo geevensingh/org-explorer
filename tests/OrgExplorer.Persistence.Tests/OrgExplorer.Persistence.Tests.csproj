@@ -12,6 +12,7 @@
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\LocalReleaseServer.cs" Link="LocalReleaseServer.cs" />
     <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\NoteCommitObservation.cs" Link="NoteCommitObservation.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

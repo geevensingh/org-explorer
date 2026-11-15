@@ -1,5 +1,6 @@
 using OrgExplorer.Workflow;
 using Microsoft.Data.Sqlite;
+using OrgExplorer.Desktop.Smoke;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -306,6 +307,68 @@ public sealed class SqliteWorkspaceTests : IDisposable
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
         Assert.Equal("Continuous writing 24", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Durable_note_observation_runs_during_typing_not_after_unrelated_navigation_observations(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+        const string prefix = "# Independently observed ongoing writing";
+        using var observation = NoteCommitObservation.Begin(
+            () => app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix),
+            () =>
+            {
+                using var reading = ApplicationWorkflow.CreateFileBacked();
+                Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                return reading.BeginNoteDraft(scope, "manager@example.com", draft.Id)?.Markdown
+                    .StartsWith(prefix, StringComparison.Ordinal) == true;
+            });
+        for (var index = 0; index < 6; index++)
+        {
+            await Task.Delay(60);
+            app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix + $"\nContinued entry {index}");
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        }
+        await Task.Delay(1100);
+        var commitMs = observation.Complete();
+        Assert.True(commitMs <= 1000,
+            $"Native/request-to-reopened-writing observation was delayed by unrelated checks: {commitMs:F1} ms.");
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(prefix + "\nContinued entry 5", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+    }
+
+    [Fact]
+    public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
+        connection.Open();
+        using var held = connection.BeginTransaction();
+        var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "manager@example.com"));
+        var observation = NoteCommitObservation.Begin(
+            () => app.UpdateNoteDraft(NoteScope.Team, draft.Id, "Pending context", "Not yet committed"),
+            () =>
+            {
+                using var reading = ApplicationWorkflow.CreateFileBacked();
+                Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                return reading.BeginNoteDraft(NoteScope.Team, "manager@example.com", draft.Id)?.Markdown == "Not yet committed";
+            });
+        try { await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true); }
+        finally { observation.Dispose(); }
+        Assert.Contains("cancelled", Assert.Throws<InvalidOperationException>(() => { observation.Complete(); }).Message);
+        Assert.False(app.CanSafelyClose);
+        held.Commit();
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
     }
 
     [Fact]

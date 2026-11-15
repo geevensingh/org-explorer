@@ -224,6 +224,33 @@ These ordinary two-Person observations are not #100's combined rich 10,000-Perso
 and background-export proof. Required scenario selection, assertions and lane budgets
 are unchanged; no hosted interaction result is claimed by compiling this tail.
 
+The #92 latency observer refreshes native UIA caches after each request: one
+note-subtree snapshot retains exact identity, enabled/writable Edit mode, title
+visibility and real keyboard focus; permanent native identity elements retain
+the selected email, heading and viewport check. It does not repeatedly search
+the whole window inside a timing sample, reuse pre-request property values, or
+focus/enable controls to make readiness pass. Native pattern discovery is
+preparation; every sample still starts before the actual Invoke/Select/Set request
+and includes dispatch, layout and observation until the required state is observed.
+No measured overhead is subtracted.
+
+`NoteCommitObservation` independently reopens the real Workspace through the
+workflow while native navigation and six continued edits proceed. It timestamps
+the first coherent committed writing covering the original request instead of
+waiting for unrelated UIA assertions before beginning observation. A real-storage
+regression delays collection by more than one second while both scopes keep
+typing/switching; that delay cannot move the observed commit time. Cancellation
+of a pending real-write observation is explicitly not a saved result.
+The latency JSON retains all original raw arrays, p95, budgets and boundaries
+(20 editor, 42 navigation and 21 commit samples), and adds native-request durations,
+observation poll/read counts, cumulative reopen-read time, typing-completion
+timestamps and observed-during-typing flags. All commits must be observed before
+the continued-typing sequence completes.
+The invisible compiled selection also records twenty actual note Add handlers,
+layout, Person selection and independently reopened commits under a clearly
+labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they
+remain distinct from native focus/pixels and hosted acceptance.
+
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
 an empty Workspace, seeds accepted Import evidence, and reopens profile text,
