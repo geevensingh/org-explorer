@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
 
@@ -389,6 +390,15 @@ internal static partial class Program
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
 
+    private static bool IsFirstScrollingTeamName(Rect row, Rect manager, Rect viewport, double scale)
+    {
+        // ProfileValues' border + padding + FactSlot's top margin.
+        const double labelInset = 1 + 8 + 4;
+        return !row.IsEmpty && !manager.IsEmpty && !viewport.IsEmpty && manager.Bottom <= viewport.Top + scale &&
+            Math.Abs(row.Left - viewport.Left) <= scale &&
+            Math.Abs(row.Top - viewport.Top - labelInset * scale) <= scale;
+    }
+
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
@@ -430,9 +440,7 @@ internal static partial class Program
         var row = label.Current.BoundingRectangle;
         var scale = DpiScale(window);
         var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
-        if (row.IsEmpty || manager.IsEmpty || manager.Bottom > viewport.Top + scale ||
-            Math.Abs(row.Left - viewport.Left) > scale ||
-            row.Top < viewport.Top - scale || row.Top > viewport.Top + 12 * scale)
+        if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
             throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
                 $"label={row}, Manager={manager}, viewport={viewport}.");
         foreach (var value in values.Concat(separators))

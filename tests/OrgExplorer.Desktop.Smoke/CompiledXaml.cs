@@ -2338,6 +2338,25 @@ internal static partial class Program
             root.UpdateLayout();
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Fact measurements must not show a window or create its native handle.");
+            Control<ScrollViewer>("PersonScroll").ScrollToTop();
+            root.UpdateLayout();
+            var teamLabel = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>()
+                .Single(value => System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
+            Rect RootBounds(FrameworkElement element) =>
+                element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+            var labelBounds = RootBounds(teamLabel);
+            var managerBounds = RootBounds(Control<Button>("Manager"));
+            var viewportBounds = RootBounds(Control<ScrollViewer>("PersonScroll"));
+            if (!IsFirstScrollingTeamName(labelBounds, managerBounds, viewportBounds, 1))
+                throw new InvalidOperationException($"First Team-name fact rejects its real layout inset: " +
+                    $"label={labelBounds}, Manager={managerBounds}, viewport={viewportBounds}.");
+            var laterRow = labelBounds;
+            laterRow.Offset(0, 54);
+            var laterColumn = labelBounds;
+            laterColumn.Offset(240, 0);
+            if (IsFirstScrollingTeamName(laterRow, managerBounds, viewportBounds, 1) ||
+                IsFirstScrollingTeamName(laterColumn, managerBounds, viewportBounds, 1))
+                throw new InvalidOperationException("Team-name placement accepted a later row or column.");
             var slots = facts.Children.Cast<StackPanel>().ToArray();
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));

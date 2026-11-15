@@ -112,6 +112,9 @@ actual writer/selector locks and retained independent note writing. The ordinary
 profile/archival and responsive reading journeys observe the always-present first
 scrolling fact below anchored Manager, owner attribution on hover/focus and owner-only editing. They remain
 hosted-only interaction evidence, distinct from invisible compiled checks.
+The first label's placement accounts for the existing one-DIP border, eight-DIP
+padding and four-DIP slot margin; actual compiled layout must pass that same
+predicate while a later row or column must fail.
 The existing invisible profile-refresh check also loads the compiled owned-name
 template, verifies its accessible text/owner and placement-target tooltip binding,
 and drives eligible Save plus ineligible `Not set` through real compiled controls.
