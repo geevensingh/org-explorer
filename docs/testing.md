@@ -1160,6 +1160,10 @@ deliberate missing-value checks retain their disabled automation peers.
 Copy/owner hovers send actual absolute mouse movement on the verified primary
 display, not position-only `SetCursorPos`, which left the hosted cursor suppressed
 despite hitting the correct value. The native visible-hand/non-hand assertion remains.
+Tooltip discovery checks native top-level popup children before the same descendant
+query, avoiding full reading-document traversal when the popup is top-level. Exact
+tooltip content, cursor, clipboard and rendered-feedback predicates are unchanged.
+Copy readiness failures retain the target's enabled/offscreen/focus state and bounds.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

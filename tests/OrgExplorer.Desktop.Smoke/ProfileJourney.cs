@@ -500,9 +500,7 @@ internal static partial class Program
             candidate => !candidate.Current.IsOffscreen && candidate.Current.HelpText == expected, Await);
         bool TooltipVisible()
         {
-            var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ToolTip),
-                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId)));
+            var tooltip = FindCopyTooltip(window);
             return tooltip is not null && !tooltip.Current.IsOffscreen &&
                 (tooltip.Current.Name == "Click to copy\n" + segment.Current.Name + "\n" + expected ||
                     tooltip.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty,
@@ -634,9 +632,26 @@ internal static partial class Program
     private static Point AwaitClickablePoint(AutomationElement value, bool requireEnabled = true)
     {
         var point = new Point();
-        ControlReadiness.AwaitControl(() => value,
-            candidate => (!requireEnabled || candidate.Current.IsEnabled) && !candidate.Current.IsOffscreen &&
-                candidate.TryGetClickablePoint(out point), Await);
+        try
+        {
+            ControlReadiness.AwaitControl(() => value,
+                candidate => (!requireEnabled || candidate.Current.IsEnabled) && !candidate.Current.IsOffscreen &&
+                    candidate.TryGetClickablePoint(out point), Await);
+        }
+        catch (TimeoutException error)
+        {
+            try
+            {
+                var state = value.Current;
+                throw new TimeoutException($"Copy target did not become ready before physical input: {state.AutomationId}; " +
+                    $"enabled={state.IsEnabled}; offscreen={state.IsOffscreen}; focus={state.HasKeyboardFocus}; " +
+                    $"bounds={state.BoundingRectangle}; lastPoint={point}; itemStatus='{state.ItemStatus}'.", error);
+            }
+            catch (ElementNotAvailableException unavailable)
+            {
+                throw new TimeoutException("Copy target became unavailable before physical input: " + unavailable.Message, error);
+            }
+        }
         return point;
     }
 
@@ -673,14 +688,21 @@ internal static partial class Program
         });
     }
 
+    private static AutomationElement? FindCopyTooltip(AutomationElement window)
+    {
+        var condition = new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ToolTip));
+        return AutomationElement.RootElement.FindFirst(TreeScope.Children, condition) ??
+            AutomationElement.RootElement.FindFirst(TreeScope.Descendants, condition);
+    }
+
     private static void AssertCopyHint(AutomationElement window, AutomationElement value, string expected)
     {
         HoverCopyValue(value);
         Await(() =>
         {
-            var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
-                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ToolTip)));
+            var tooltip = FindCopyTooltip(window);
             return tooltip is not null && !tooltip.Current.IsOffscreen &&
                 (tooltip.Current.Name == "Click to copy\n" + expected ||
                     tooltip.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty,
@@ -759,9 +781,7 @@ internal static partial class Program
         AssertCopyCursor(false);
         if (value.Current.ItemStatus.Contains("Click to copy", StringComparison.Ordinal))
             throw new InvalidOperationException("Missing profile values advertise an unavailable copy action.");
-        var tooltip = AutomationElement.RootElement.FindFirst(TreeScope.Descendants, new AndCondition(
-            new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
-            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ToolTip)));
+        var tooltip = FindCopyTooltip(window);
         if (tooltip is not null && !tooltip.Current.IsOffscreen &&
             (tooltip.Current.Name.Contains("Click to copy", StringComparison.Ordinal) ||
                 tooltip.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, "Click to copy")) is not null))
