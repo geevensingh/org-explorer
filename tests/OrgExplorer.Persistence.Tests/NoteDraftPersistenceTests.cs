@@ -1,5 +1,7 @@
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
+using System.Diagnostics;
+using System.Text.Json;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -9,6 +11,8 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
     private const string Owner = "avery@example.com";
+    private Task? deferredCleanup;
+    private const string EntryDiagnosticMarker = "NOTE-SAVE-ENTRY-REFUSAL ";
     private const string Population = """
         {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
         "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -94,9 +98,9 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             reopened.BeginNoteDraft(scope, Owner, id)!.Markdown);
     }
 
-    private WorkspaceViewModel Open(IWorkspaceFilePublisher? publisher = null)
+    private WorkspaceViewModel Open(IWorkspaceFilePublisher? publisher = null, IWorkspaceFileObserver? observer = null)
     {
-        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
+        var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer));
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
         return app;
@@ -191,27 +195,69 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     [InlineData(NoteScope.Team)]
     public async Task Retaining_newer_typing_does_not_wait_behind_in_flight_IO_and_uses_the_successful_base(NoteScope scope)
     {
-        using var publisher = new HeldNotePublisher();
-        using var app = Open(publisher);
-        var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Context", "Original")!;
-        app.RetainNoteDraft(original);
-        publisher.HoldNextNote = true;
-        var saving = Task.Run(() => app.SaveNoteDraft(original, "First edit", "First writing"));
+        var diagnostics = new SaveEntryDiagnostics();
+        var publisher = new HeldNotePublisher();
+        WorkspaceViewModel? app = null;
+        Task<NoteDraft?>? saving = null;
+        Guid? noteId = null;
         try
         {
-            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)), "The real note publication did not start.");
+            app = Open(publisher, diagnostics);
+            var original = app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Context", "Original")!;
+            noteId = original.Id;
+            app.RetainNoteDraft(original);
+            publisher.HoldNextNote = true;
+            diagnostics.Arm();
+            saving = Task.Run(() =>
+            {
+                diagnostics.Admitted();
+                try { return app.SaveNoteDraft(original, "First edit", "First writing"); }
+                finally { diagnostics.Exited(); }
+            });
+            var entered = publisher.Entered.Wait(TimeSpan.FromSeconds(5));
+            Assert.True(entered, "The real note publication did not start.\n" +
+                EntryDiagnosticMarker + diagnostics.Snapshot(scope, noteId, saving, app, publisher));
             await Task.Run(() => app.RetainNoteDraft(original)).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.False(app.CanSafelyClose);
+            publisher.Release.Set();
+            var accepted = Assert.IsType<NoteDraft>(await saving);
+            app.RetainNoteDraft(accepted);
+            Assert.False(app.CanSafelyClose);
+            Assert.NotNull(app.SaveNoteDraft(accepted, "Newer edit", "Typed while the first save was held"));
+            Assert.True(app.CanSafelyClose);
+            using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal("Typed while the first save was held", reopened.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
         }
-        finally { publisher.Release.Set(); }
-        var accepted = Assert.IsType<NoteDraft>(await saving);
-        app.RetainNoteDraft(accepted);
-        Assert.False(app.CanSafelyClose);
-        Assert.NotNull(app.SaveNoteDraft(accepted, "Newer edit", "Typed while the first save was held"));
-        Assert.True(app.CanSafelyClose);
-        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
-        Assert.Equal("Typed while the first save was held", reopened.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+        finally
+        {
+            publisher.Release.Set();
+            void Cleanup(Task<NoteDraft?>? completed)
+            {
+                if (completed is { IsFaulted: true } or { IsCanceled: true })
+                    Console.Error.WriteLine("NOTE-SAVE-TASK-OUTCOME " +
+                        diagnostics.Snapshot(scope, noteId, completed, app, publisher));
+                app?.Dispose();
+                publisher.Dispose();
+            }
+            if (saving is { IsCompleted: false })
+            {
+                // An entry refusal cannot wait indefinitely for an unknown write or dispose its live resources.
+                deferredCleanup = saving.ContinueWith(completed =>
+                {
+                    Cleanup(completed);
+                    DeleteFolder();
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                _ = deferredCleanup.ContinueWith(completed => Console.Error.WriteLine(
+                    "NOTE-SAVE-CLEANUP-FAULT " + JsonSerializer.Serialize(new
+                    {
+                        scope = scope.ToString(),
+                        faults = SaveEntryDiagnostics.Faults(completed)
+                    })), CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            else Cleanup(saving);
+        }
     }
 
     [Fact]
@@ -295,5 +341,99 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         finally { if (Directory.Exists(delivery)) Directory.Delete(delivery, true); }
     }
 
-    public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    private void DeleteFolder() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+
+    public void Dispose()
+    {
+        if (deferredCleanup is not { IsCompleted: false }) DeleteFolder();
+    }
+
+    private sealed class SaveEntryDiagnostics : IWorkspaceFileObserver
+    {
+        private const int PhaseLimit = 24;
+        private readonly object gate = new();
+        private readonly Queue<object> phases = new();
+        private long requestedAt;
+        private long admittedAt;
+        private long exitedAt;
+        private int saveThread;
+        private int droppedPhases;
+        private readonly long[] effects = new long[4];
+
+        public void Arm() => Volatile.Write(ref requestedAt, Stopwatch.GetTimestamp());
+        public void Admitted()
+        {
+            Volatile.Write(ref saveThread, Environment.CurrentManagedThreadId);
+            Volatile.Write(ref admittedAt, Stopwatch.GetTimestamp());
+        }
+        public void Exited() => Volatile.Write(ref exitedAt, Stopwatch.GetTimestamp());
+
+        public void Observe(WorkspaceFileEffect effect)
+        {
+            if (Volatile.Read(ref requestedAt) != 0) Interlocked.Increment(ref effects[(int)effect.Kind]);
+        }
+
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            var requested = Volatile.Read(ref requestedAt);
+            if (requested == 0) return;
+            var elapsed = Stopwatch.GetElapsedTime(requested).TotalMilliseconds;
+            lock (gate)
+            {
+                if (phases.Count == PhaseLimit) { phases.Dequeue(); droppedPhases++; }
+                phases.Enqueue(new
+                {
+                    id = phase.Id, name = phase.Name, kind = phase.Kind.ToString(),
+                    elapsedMs = elapsed, phaseMs = phase.Milliseconds, cpuMs = phase.CpuMilliseconds,
+                    threadId = Environment.CurrentManagedThreadId
+                });
+            }
+        }
+
+        public static object[]? Faults(Task task) => task.Exception?.Flatten().InnerExceptions
+            .Select(error => (object)new { type = error.GetType().FullName, hResult = error.HResult }).ToArray();
+
+        public string Snapshot(NoteScope scope, Guid? noteId, Task<NoteDraft?> task,
+            WorkspaceViewModel? app, HeldNotePublisher publisher)
+        {
+            ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
+            ThreadPool.GetMinThreads(out var minimumWorkers, out var minimumIo);
+            ThreadPool.GetMaxThreads(out var maximumWorkers, out var maximumIo);
+            var requested = Volatile.Read(ref requestedAt);
+            var admitted = Volatile.Read(ref admittedAt);
+            var exited = Volatile.Read(ref exitedAt);
+            var taskStatus = task.Status;
+            object[] observed;
+            int dropped;
+            lock (gate) { observed = phases.ToArray(); dropped = droppedPhases; }
+            return JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, scope = scope.ToString(), noteId, entryDeadlineMs = 5000,
+                elapsedMs = Stopwatch.GetElapsedTime(requested).TotalMilliseconds,
+                delegateAdmitted = admitted != 0,
+                admittedMs = admitted == 0 ? (double?)null : Stopwatch.GetElapsedTime(requested, admitted).TotalMilliseconds,
+                exitedMs = exited == 0 ? (double?)null : Stopwatch.GetElapsedTime(requested, exited).TotalMilliseconds,
+                saveThreadId = admitted == 0 ? (int?)null : Volatile.Read(ref saveThread),
+                publicationHookSetAtSnapshot = publisher.Entered.IsSet,
+                task = new
+                {
+                    status = taskStatus.ToString(),
+                    queued = taskStatus is TaskStatus.WaitingToRun or TaskStatus.WaitingForActivation,
+                    running = taskStatus == TaskStatus.Running, completed = task.IsCompleted,
+                    completedSuccessfully = task.IsCompletedSuccessfully, faulted = task.IsFaulted, cancelled = task.IsCanceled,
+                    returnedDraft = task.IsCompletedSuccessfully ? (bool?)(task.Result is not null) : null,
+                    faults = Faults(task)
+                },
+                workflow = new { status = app?.Status, operationError = app?.OperationError, localSaveError = app?.LocalSaveError },
+                workers = new { availableWorkers, minimumWorkers, maximumWorkers, availableIo, minimumIo, maximumIo,
+                    threadCount = ThreadPool.ThreadCount, pendingWorkItems = ThreadPool.PendingWorkItemCount },
+                progress = new { phaseLimit = PhaseLimit, droppedPhases = dropped, phases = observed,
+                    completedEffects = new { writes = Volatile.Read(ref effects[0]), flushes = Volatile.Read(ref effects[1]),
+                        publications = Volatile.Read(ref effects[2]), deletes = Volatile.Read(ref effects[3]) } },
+                snapshotLimit = "Non-atomic observations after the request, including concurrent workflow callbacks. " +
+                    "Absent phase/admission timestamps are not proof that a stage never ran. Progress contains no note body or file path; " +
+                    "workflow strings are unmodified operation snapshots."
+            });
+        }
+    }
 }

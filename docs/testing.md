@@ -80,6 +80,18 @@ returns the next base on success, retained again for newer typing. Real-file tes
 first save, absent → created and deleted documents, retained external bytes,
 discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
 behind that same seam; Team confirmation and record-version checks stay explicit.
+The existing two-scope held-note regression keeps its real `.md` publication hook
+and five-second entry deadline. An entry refusal appends
+`NOTE-SAVE-ENTRY-REFUSAL` JSON with monotonic request/admission/exit times,
+task outcome, workflow status/errors and available/min/max worker snapshots.
+Its existing file observer retains at most 24 storage phase callbacks plus
+completed-effect counts, without note bodies or progress file paths. These
+observations are non-atomic and can include concurrent workflow callbacks;
+missing phases are not proof that validation never started.
+A failed entry does not wait indefinitely or dispose an active writer: resource
+cleanup follows the existing save's completion, and late task/cancellation or
+cleanup faults remain visible under `NOTE-SAVE-TASK-OUTCOME` or
+`NOTE-SAVE-CLEANUP-FAULT`. Scheduling, assertions and storage behavior are unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
