@@ -199,10 +199,12 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Theory]
-    [InlineData("MCP server 'workiq': ")]
-    [InlineData("MCP error -32603: ")]
-    [InlineData("")]
-    public void Capture_uses_complete_inline_failure_json_when_the_display_result_is_host_capped(string prefix)
+    [InlineData("MCP server 'workiq': ", true)]
+    [InlineData("MCP error -32603: ", true)]
+    [InlineData("", true)]
+    [InlineData("MCP server 'workiq': ", false)]
+    [InlineData("MCP error -32603: ", false)]
+    public void Capture_uses_complete_inline_failure_json_in_native_display_and_error_envelopes(string prefix, bool capped)
     {
         var path = NewRun();
         using var session = ExportSession.Open(path);
@@ -223,7 +225,9 @@ public sealed class OrgExportTests : IDisposable
         File.WriteAllText(saved, "Replaced display file; never read as source evidence.");
         AppendEvent(events, "tool.execution_complete", new { toolCallId = "capped-failure", success = false,
             error = new { message = prefix + payload },
-            result = new { content = "Output too large to read at once (28.8 KB). Saved to: " + saved + "\nPreview only." } });
+            result = new { content = capped
+                ? "Output too large to read at once (28.8 KB). Saved to: " + saved + "\nPreview only."
+                : prefix + payload } });
 
         var capture = session.Capture(ticket);
 

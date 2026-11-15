@@ -163,13 +163,19 @@ public sealed partial class ExportSession
         if (HostSavedReference(text) && !outcome.GetProperty("success").GetBoolean()
             && FailurePayloadText(outcome) is { Length: > 0 } failure)
             text = failure;
+        if (!outcome.GetProperty("success").GetBoolean())
+            text = UnwrapFailurePrefix(text);
         return UnwrapPayload(text);
     }
 
     private static string? FailurePayloadText(JsonElement outcome)
     {
         var text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") : null;
-        if (text is null) return null;
+        return text is null ? null : UnwrapFailurePrefix(text);
+    }
+
+    private static string UnwrapFailurePrefix(string text)
+    {
         if (text.StartsWith("MCP error ", StringComparison.Ordinal))
         {
             var separator = text.IndexOf(": ", StringComparison.Ordinal);
