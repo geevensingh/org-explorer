@@ -101,13 +101,42 @@ available actions, and review warnings must still be understandable.
 
 ## Person identity and facts
 
-### Compact, anchored identity
+### Anchored identity
 
-Use a flat identity band with a compact circular photo or initials placeholder,
-the primary name and its Preferred-name pencil, role/department, email, and
+Use a flat identity band with a circular photo or initials placeholder,
+the primary name and its Preferred-name pencil, role, email, labelled content-sized Manager
+navigation and a compact labelled Office line, and
 right-side Favorite, Edit profile, and More actions. Do not retain oversized
 rectangular missing-photo furniture, repeated name rows, or an empty
 Preferred-name paragraph.
+
+The November 14, 2026 photo-size amendment (#81) supersedes only the earlier
+compact photo sizing. The native control implements this amendment; this is not
+a claim of hosted rendered verification or owner visual acceptance.
+Permanently display the selected Person's photo in a 144-by-144 logical-unit
+circle at every supported window size, following normal Windows display scaling.
+Retain centered, aspect-preserving fill and the circular crop, including
+enlargement of small sources; the whole source image need not remain visible.
+Do not introduce a separate preview, resolution cap, warning, or image enhancement.
+
+Use the same 144-unit circle when the photo is missing, with proportionally
+larger initials. Preserve the existing initials text, colors, accessible
+description, and selection behavior so choosing or clearing a photo does not
+change the photo area's footprint. Preserve explicit profile Save/Cancel and
+stored photo bytes, references, decoding, and accepted formats.
+The accessible Image must share the 144-unit viewport, not expose oversized
+pre-crop source bounds. During profile editing, keep the existing Choose/Clear
+commands in the inline edit bar so a dirty draft and its pending notice still
+leave usable scrolling editors at the minimum window size.
+Declare photo commands before Cancel/Save to match visual, keyboard and
+automation order, and retain normal Cancel/Save button heights when commands wrap.
+
+Keep the photo on the left with identity and actions beside it. Accept the
+larger anchored header's space cost without moving identity into the scroll,
+shrinking text, hiding actions, or increasing the 700-by-500 minimum window.
+Facts and notes continue scrolling underneath. Actual rendered coverage must
+prove circular sizing/cropping, matching initials, and usable existing
+minimum/compact/wide layouts; compilation alone is not that evidence.
 
 Preferred name and Directory name remain distinct; email remains the stable,
 non-editable identity. Do not infer employment or presence. Ordinary
@@ -117,6 +146,21 @@ identified and retain existing access/reactivation safeguards.
 Keep identity visible while reading farther down the Person. Long names,
 emails, Manager labels, and values must remain readable or accessible without
 shrinking type or requiring horizontal page scrolling.
+Bound embedded line breaks in Job title, Manager and Office display values;
+retained full tooltip, Copy and accessible values must not be rewritten merely
+to constrain the anchored band.
+At compact widths, keep the primary name to one displayed line even when its
+saved value contains line breaks, retaining full tooltip and accessible text.
+Keep the unchanged Archived Person marker in a non-wrapping row beside Email,
+with its full tooltip/accessible text and Email's full Copy/tooltip value retained.
+Do not wrap the marker behind the actions or add another anchored row. Reclaim edit-only spacing so dirty
+minimum-window profiles remain editable without shrinking the photo or controls.
+Office combines building and room with a middle dot only when both are present;
+one available part stands alone, and no Office data uses a neutral dash.
+Retain individual building/room Copy and search destinations, with visual,
+keyboard and automation reading order all following building then room. At narrow widths,
+single-line ellipsis keeps header context and actions within the existing photo
+height; full values remain available through accessibility, tooltips and Copy.
 
 ### All ordinary facts, predictable positions
 
@@ -128,11 +172,12 @@ neutral dash; they are not validation errors or opportunities to repack fields.
 Size each row to its own content with a compact, consistent gap. Long values
 must wrap without making unrelated rows taller.
 
-Role, department, and email already shown in identity need not repeat in the
-grid. Preserve the remaining ordinary facts: Manager, office building, office
-number, office state/province, office country, Directory name, Alias, and
-LinkedIn profile URL. Use consistent grouping/order across People. The
-consolidated wide reference illustrates these eight slots in two rows.
+Role, email, Manager and Office already shown in identity need not repeat in the
+grid. Team name is the first scrolling fact below anchored Manager; preserve
+the six other labelled facts: Department, office state/province, office
+country, Directory name, Alias, and LinkedIn profile URL. Use consistent
+grouping/order across People. This header-context amendment supersedes the
+earlier eight-slot grouping in the consolidated wide reference.
 
 Remove More details as a gate for ordinary facts. Keep full text and copy-value
 access; links remain explicit actions and are never fetched/opened automatically.

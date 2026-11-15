@@ -109,9 +109,12 @@ rechecking; dormant/reappearing labels; private Import rejection/preservation;
 and exclusion from Profile changes and frozen Team context. Real folders cover
 visible/dormant reopening, archival restoration, direct delivery, stale saves,
 actual writer/selector locks and retained independent note writing. The ordinary
-profile/archival and responsive reading journeys observe the always-present row
-near Manager, owner attribution on hover/focus and owner-only editing. They remain
+profile/archival and responsive reading journeys observe the always-present first
+scrolling fact below anchored Manager, owner attribution on hover/focus and owner-only editing. They remain
 hosted-only interaction evidence, distinct from invisible compiled checks.
+The first label's placement accounts for the existing one-DIP border, eight-DIP
+padding and four-DIP slot margin; actual compiled layout must pass that same
+predicate while a later row or column must fail.
 The existing invisible profile-refresh check also loads the compiled owned-name
 template, verifies its accessible text/owner and placement-target tooltip binding,
 and drives eligible Save plus ineligible `Not set` through real compiled controls.
@@ -658,9 +661,31 @@ handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
 The same invisible-control regression exercises all ordinary facts, labelled
-missing-value slots, long identity/facts, compact initials, full editing of an empty field and Cancel,
+missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+It also exercises labelled Manager and Office in the anchored header, joined
+building/room values and partial/missing Office data, with Department in a
+labelled facts slot. Header context fits the existing photo height at
+minimum/ordinary/wide sizes while saved-Manager navigation remains anchored
+during profile editing. Full building/room Copy and profile-search targets remain
+separate; Department follows the facts grid's stable missing-value policy.
+The same real-control check saves multiline header values, bounds their visible
+height while retaining full text/tooltips/automation names, and requires Office
+automation-peer traversal to follow building then room. Hosted adaptive reading
+also checks that Office traversal order.
+Compact-state fixtures also cover line breaks in saved Directory/Preferred names
+and populated archived profiles. Both the invisible native-client allocation
+check and hosted minimum-window keyboard journey retain full saved names, the
+visible Archived Person marker, existing actions and usable dirty editors.
+Edit-only whitespace is reclaimed rather than shrinking controls; this includes
+the taller Directory-name editor when its saved value contains a line break.
+These stored-relationship fixtures also require Manager's tooltip to retain the
+full caption and email, including `Last stored:` and an archived-manager qualifier.
+Archived reading also covers the 408-DIP minimum Person allocation, retaining
+the full visible marker beside Email and all identity actions without increasing
+the photo-height header. The real compiled divider and hosted drag both exercise
+this reading state; Email retains its full Copy/tooltip value when ellipsized.
 Its inline profile check measures paired fields at wide widths and stacked fields
 at the minimum Person allocation, then covers 700 x 500, 1100 x 900 and wide
 content. It requires enabled, Tab-accessible, readable-width fields without
@@ -669,6 +694,19 @@ anchored during scrolling. Logical entry/Cancel focus, routed field Enter and
 retained staged text are also checked without creating a native window handle.
 Physical focus, Tab scrolling, Enter delivery and appearance still require hosted
 WPF; these compiled observations cannot substitute for them.
+It also dirties the profile at 700 x 500 with the real pending notice visible and
+requires room for a complete labelled editor. The existing Choose/Clear buttons
+share the inline edit bar rather than growing the photo column. The hosted
+minimum-size profile journey repeats full keyboard traversal while that draft is
+dirty. Its invisible counterpart also measures the 684 x 461 client allocation
+observed inside the hosted 700 x 500 window and requires every focused editor
+to fit without clipping; nominal content sizing alone is not native-window proof.
+The edit bar's compiled automation-peer and hosted UIA order must follow
+Choose/Clear then Cancel/Save. Wrapped photo commands must not stretch the
+Cancel/Save buttons beyond their natural height.
+Square, landscape, portrait and small-source compiled photo layouts must
+keep the Image geometry at 144 x 144; hosted automation and pixels remain the
+accessibility and visible-crop evidence.
 It also measures/arranges the actual compiled content and drives its real
 People splitter DragStarted/DragDelta/DragCompleted events through minimum/maximum
 drags, 27% balance recovery and a narrower wide viewport. Facts and notes must
@@ -901,11 +939,28 @@ without changing its display. They cover:
   physical Enter, retained inline validation failure, Cancel/Escape/outside-click
   dismissal without mutation, popup discovery/focus and uniquely named normal,
   failure and dismissal captures,
-  quiet chrome and Settings keyboard entry/focus, compact photo/identity bounds,
+  quiet chrome and Settings keyboard entry/focus, anchored photo/identity bounds,
   all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
   representative partial change/clear, save/reopen, actual copied PNG
-  and JPEG pixels, photo clear/placeholder and Profile timeline. Import is opened
+  and JPEG pixels, photo clear/placeholder and Profile timeline. Its marked
+  300 x 300, 300 x 150, 150 x 300, 72 x 72 and 72 x 36 PNGs prove centered
+  reduction/enlargement, preserved square-marker proportions, independently
+  expected pre-mask fill sizes (144 x 144, 288 x 144, 144 x 288, 144 x 144,
+  288 x 144 DIP), axis-band positions and intentional circular exclusion.
+  UIA requires both the existing photo viewport and accessible Image to stay at
+  144 x 144 DIP. Centered fill happens inside a square drawing using the decoded
+  bitmap; the independent pre-mask expectations are checked through source-band
+  positions and square-marker proportions in actual pixels, not oversized
+  accessible bounds. Bounds and pixels use effective Windows scaling. Initials retain
+  their accessible text and blue/white colors; UIA text geometry and rendered ink
+  prove proportional enlargement, and pixel spans prove the matching 144-DIP
+  circle. Choosing/clearing stays staged until explicit Save; Cancel and
+  Person switching retain the correct saved photo/initials footprint.
+  Clear is invoked once and its visible staged-clear notice must appear before
+  asserting the unchanged saved photo or cancelling; pixels already present
+  before the click do not establish that the handler ran.
+  Import is opened
   explicitly, replaces the people view, and returns to reading with Import
   controls absent. Choosing/previewing retains the saved population; changing the
   path invalidates Apply until reviewed again.
@@ -980,6 +1035,10 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
   Segoe UI text, People 240 / Person allocation 420 minimums, 600-DIP prose cap,
   all-facts ordering and long/missing text, anchored main scrolling, overlay bounds/focus,
   mouse/keyboard People resizing, percentage resize/reopen and search/clear position.
+  At each reading size and the minimum Person allocation, the same real photo
+  and a Manager's initials retain their 144-DIP circle without a footprint
+  change on selection. Identity actions remain visible, focusable and beside
+  the photo; the photo stays anchored during the existing long-note scroll.
 - `responsive-draft-navigation`: the complete draft-protection journey plus
   actual compact overlay rejection retaining the exact owner/editor and feedback.
   Its inline form also traverses every ordinary field and Manager by Tab at
@@ -1072,7 +1131,10 @@ email/context. Explicit rejection paths invoke once, assert retained owner,
 selection/draft and actionable status, and never retry their way into success.
 Pending and in-progress messages must explain waiting; failures require
 retry/discard. Poll bounded eventual states; keep existing 20-second smoke and
-180-second scale limits. Remote content is never fetched just to render notes or
+180-second scale limits. Photo/initials visibility and geometry poll within that
+existing smoke bound; persistent mismatches report the last observed geometry.
+Missing desktop pixels or failed capture still fail explicitly rather than
+being retried as layout. Remote content is never fetched just to render notes or
 profiles; loopback listeners and actual pixels/text are evidence, not filenames
 or image dimensions alone.
 

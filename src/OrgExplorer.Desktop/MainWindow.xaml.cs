@@ -327,7 +327,7 @@ public partial class MainWindow : Window
         Manager.Content = (person.Archived ? "Last stored: " : "") +
             (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "—");
         Manager.ToolTip = context.Manager is { } known
-            ? $"{known.Heading} ({known.Email})"
+            ? $"{Manager.Content} ({known.Email})"
             : "No stored Manager relationship.";
         Manager.Tag = context.Manager?.Email;
         Manager.IsEnabled = context.Manager is not null;
