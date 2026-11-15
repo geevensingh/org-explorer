@@ -21,10 +21,17 @@ $command = $runner.Find({
 }, $true)
 if (!$command) { throw 'Missing budgeted CI command.' }
 . ([scriptblock]::Create($command.Extent.Text))
+$budgetAssignment = $runner.Find({
+    param($node)
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left.Extent.Text -eq '$ceilingSeconds'
+}, $true)
+if (!$budgetAssignment) { throw 'Missing CI lane budget selection.' }
 $results = Join-Path $root ('.ci-results\ci runner-' + [guid]::NewGuid().ToString('N'))
 $artifactBuild = Join-Path $results 'build output'
-$started = [DateTimeOffset]::UtcNow
-$ceilingSeconds = 120
+$Lane = 'high-resolution'
+. ([scriptblock]::Create($budgetAssignment.Extent.Text))
+$started = [DateTimeOffset]::UtcNow.AddSeconds(-661)
 $steps = [Collections.Generic.List[object]]::new()
 $index = 0
 $null = New-Item -ItemType Directory -Path $results
@@ -35,6 +42,21 @@ try {
         throw 'CI restore did not retain the complete artifacts path containing spaces.'
     }
     Write-Host 'PASS: the actual budgeted CI runner preserves arguments containing spaces.'
+    Write-Host 'PASS: high-resolution work can continue after eleven minutes within its fifteen-minute budget.'
+    foreach ($Lane in @('core', 'filesystem', 'desktop', 'high-resolution')) {
+        . ([scriptblock]::Create($budgetAssignment.Extent.Text))
+        $expiredSeconds = if ($Lane -eq 'core') { 301 } elseif ($Lane -eq 'high-resolution') { 901 } else { 661 }
+        $started = [DateTimeOffset]::UtcNow.AddSeconds(-$expiredSeconds)
+        $rejected = $false
+        try {
+            Invoke-BudgetedDotnet restore @('restore', (Join-Path $root 'tests\OrgExplorer.Core.Tests'), '--locked-mode')
+        } catch {
+            if ($_.Exception.Message -ne 'The lane budget (including setup) is exhausted.') { throw }
+            $rejected = $true
+        }
+        if (!$rejected -or $steps.Count -ne 1) { throw "Expired $Lane work was not rejected before launch." }
+    }
+    Write-Host 'PASS: high-resolution still rejects work after fifteen minutes; other lane deadlines remain unchanged.'
 } finally {
     Remove-Item -LiteralPath $results -Recurse -Force
 }

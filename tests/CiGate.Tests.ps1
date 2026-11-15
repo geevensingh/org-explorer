@@ -25,12 +25,12 @@ foreach ($lane in @('core', 'filesystem', 'desktop', 'high-resolution', 'ci')) {
     $minutes = [regex]::Match($job, 'timeout-minutes:\s*(\d+)').Groups[1].Value
     if (!$minutes) { throw "Missing execution deadline for $lane" }
     $budget += [int]$minutes
-    $expected = if ($lane -eq 'core') { 5 } elseif ($lane -eq 'ci') { 2 } else { 11 }
+    $expected = if ($lane -eq 'core') { 5 } elseif ($lane -eq 'ci') { 2 } elseif ($lane -eq 'high-resolution') { 15 } else { 11 }
     if ([int]$minutes -ne $expected) { throw "Required lane $lane changed its established execution deadline." }
     if ($lane -ne 'ci' -and $job -match '(?m)^\s+needs:') { throw "Required lane $lane was serialized" }
     if ($lane -ne 'ci' -and $job -notmatch "Run-CiLane.ps1 $lane") { throw "Required lane $lane skipped the meaningful runner" }
 }
-if ($budget -ne 40) { throw "The four-lane execution ceiling must total forty minutes: $budget" }
+if ($budget -ne 44) { throw "The four-lane execution ceiling must total forty-four minutes: $budget" }
 if (!$workflow.Contains('needs: [core, filesystem, desktop, high-resolution]') -or
     !$workflow.Contains('HIGH_RESOLUTION_RESULT: ${{ needs.high-resolution.result }}') -or
     !$workflow.Contains('$env:HIGH_RESOLUTION_RESULT')) {
