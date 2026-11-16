@@ -287,6 +287,10 @@ version, twenty native Save-to-independent-reopen samples (nearest-rank p95
 at most 1000 ms), and a native Person-selection sample while a real SQLite
 writer holds the profile (at most 100 ms). Named retained/committed/history/
 reopened captures carry actual desktop pixels and matching metadata.
+Each explicit Save pattern is prepared through the existing bounded
+`ControlReadiness` wait, tolerating transient missing/disabled providers without
+repeating the request. Preparation remains before the original native
+Save-to-reopen clock; no time is deducted from its samples or deadline.
 These focused two-Person checks do not establish rich-scale/background-export,
 stalled-save orchestration or hosted acceptance before the required lane runs.
 

@@ -664,7 +664,10 @@ internal static partial class Program
             BeginProfileEditing(window);
             var expected = sample == 19 ? "008C" : $"SQLite room {sample:D2}";
             Set(window, "OfficeNumber", expected);
-            var save = (InvokePattern)Find(window, "SaveProfile").GetCurrentPattern(InvokePattern.Pattern);
+            var save = ControlReadiness.AwaitPattern(() => Find(window, "SaveProfile"),
+                control => control.Current.IsEnabled,
+                control => control.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern)
+                    ? pattern as InvokePattern : null, Await);
             using var observation = NoteCommitObservation.Begin(save.Invoke, () =>
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
