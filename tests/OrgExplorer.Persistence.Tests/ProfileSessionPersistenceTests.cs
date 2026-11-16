@@ -22,6 +22,38 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
 
     [Fact]
+    public void Rejected_legacy_profile_save_reports_feedback_without_inventing_a_Workspace_change()
+    {
+        using var app = Open();
+        Assert.False(app.Compatibility.SupportsNonblockingNoteAutosave);
+        Assert.True(app.NavigatePerson(Email), app.Status);
+        Assert.True(app.BeginProfileEdit(Email), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retained legacy room"), app.Status);
+        var caller = Environment.CurrentManagedThreadId;
+        var synchronousChanges = 0;
+        var statusNotifications = 0;
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (Environment.CurrentManagedThreadId == caller) synchronousChanges++;
+        };
+        app.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(app.Status)) statusNotifications++;
+        };
+        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.False(app.SaveProfileEdit());
+        Assert.Contains("NOT saved", app.Status);
+        Assert.Equal(Email, app.ProfileEdit!.Basis.Email);
+        Assert.Equal("Retained legacy room", app.ProfileEdit.Draft.OfficeNumber);
+        Assert.True(app.CanEditLocalWorkspace);
+        Assert.Equal(LocalSavePhase.Ready, app.LocalSave.Phase);
+        Assert.False(app.CanNavigatePeople);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(statusNotifications > 0);
+        Assert.Equal(0, synchronousChanges);
+    }
+
+    [Fact]
     public void Inherited_names_reopen_with_duplicate_owners_dormant_ancestors_and_final_imported_relationships()
     {
         using var app = Open();

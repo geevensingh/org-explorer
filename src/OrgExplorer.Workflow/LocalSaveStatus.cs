@@ -215,6 +215,7 @@ public sealed partial class WorkspaceViewModel
 
     private T ObserveLocalSave<T>(Func<T> operation)
     {
+        if (!Compatibility.SupportsNonblockingNoteAutosave) return Observe(operation);
         var request = Compatibility.SupportsNonblockingNoteAutosave ? localSaveRequests.Begin() : (long?)null;
         Interlocked.Increment(ref explicitLocalSaves);
         try { return Observe(operation); }
