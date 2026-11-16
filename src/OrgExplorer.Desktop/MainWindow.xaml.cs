@@ -27,10 +27,14 @@ public partial class MainWindow : Window
         : this(application, chooseWorkspaceFolder, System.Windows.Clipboard.SetText) { }
 
     internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder, Action<string> writeClipboard)
+        : this(application, chooseWorkspaceFolder, writeClipboard, TimeProvider.System) { }
+
+    internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder,
+        Action<string> writeClipboard, TimeProvider synchronizationClock)
     {
         this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         this.writeClipboard = writeClipboard;
-        workflow = new(application, workspaceSettings);
+        workflow = new(application, workspaceSettings, synchronizationClock);
         InitializeComponent();
         CreateLocalSqliteWorkspaceButton.Visibility =
             Environment.GetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES") == "1"
@@ -469,6 +473,7 @@ public partial class MainWindow : Window
                 : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
         ShowPublicationConflicts();
+        ShowSynchronizationStatus();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."

@@ -15,6 +15,7 @@ public interface IProfileLinkOpener
 
 public partial interface IApplicationWorkflow
 {
+    void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
     PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
     void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field);
 }
@@ -22,6 +23,13 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     private readonly IProfileLinkOpener? profileLinkOpener;
+    private readonly Dictionary<(string Email, PersonTextField Field), string?> retainedPersonTextDrafts = [];
+    private bool HasRetainedPersonTextDrafts { get { lock (profileDraftGate) return retainedPersonTextDrafts.Count != 0; } }
+
+    public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+    {
+        lock (profileDraftGate) retainedPersonTextDrafts[(basis.Email.ToLowerInvariant(), field)] = value;
+    }
 
     public bool OpenLinkedInProfile(string email)
     { lock (workspaceGate) return OpenLinkedInProfileCore(email); }
@@ -77,7 +85,14 @@ public sealed partial class ApplicationWorkflow
                     "Discard the draft before editing the delivered value.");
                 return null;
             }
-            return EditPersonTextCore(basis.Email, field, value) ? people[basis.Email] : null;
+            if (!EditPersonTextCore(basis.Email, field, value)) return null;
+            lock (profileDraftGate)
+            {
+                var key = (basis.Email.ToLowerInvariant(), field);
+                if (retainedPersonTextDrafts.TryGetValue(key, out var latest) && latest == value)
+                    retainedPersonTextDrafts.Remove(key);
+            }
+            return people[basis.Email];
         }
     }
 
@@ -96,6 +111,7 @@ public sealed partial class ApplicationWorkflow
             return;
         }
         failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
+        lock (profileDraftGate) retainedPersonTextDrafts.Remove((basis.Email.ToLowerInvariant(), field));
         Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
     }
 

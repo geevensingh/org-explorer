@@ -57,21 +57,54 @@ internal static partial class Program
         Guid? pendingNote = null;
         var surface = Control<UserControl>("TeamNotes");
         T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
-        void Select(string email)
+        void Select(string email, PersonSelection.Mode mode = PersonSelection.Mode.Ordinary) =>
+            PersonSelection.Request(mode, () =>
+        {
+            if (workflow.LocalSave.EditsPaused)
+                throw new TimeoutException("The actual compiled local fault is not an idle prerequisite for browsing.");
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        }, () =>
         {
             var node = workflow.ReportingRoots.SelectMany(root => new[] { root }.Concat(root.Reports))
                 .Single(item => item.Person.Email == email);
             Control<TreeView>("PeopleList").RaiseEvent(
                 new RoutedPropertyChangedEventArgs<object>(null!, node, TreeView.SelectedItemChangedEvent));
+        }, () =>
+        {
             if (Control<TextBlock>("Email").Text != email)
                 throw new InvalidOperationException("Recovery blocked actual compiled Person selection.");
-        }
+            if (mode == PersonSelection.Mode.Recovery &&
+                (!workflow.LocalSave.EditsPaused || Note<Button>("NewButton").IsEnabled ||
+                    ((UserControl)window.FindName("PersonNotes")).FindName("NewButton") is not Button { IsEnabled: false }))
+                throw new InvalidOperationException("Compiled recovery browsing cleared the fault or resumed edits.");
+        });
         try
         {
             Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             ChooseCompiledWorkspace(window, path);
             PumpUntil(() => workflow.People.Count == 2 && Control<TextBlock>("WorkflowActivity").Text == "Ready");
             Select("morgan@example.com");
+            Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<TextBox>("TeamNameEditor").Text = "Compiled retained recovery label";
+            Control<TextBox>("Department").Text = "Compiled retained recovery department";
+            using (File.Open(Path.Combine(path, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Failed &&
+                    !Control<TextBox>("Department").IsEnabled);
+                Select("avery@example.com", PersonSelection.Mode.Recovery);
+                Select("morgan@example.com", PersonSelection.Mode.Recovery);
+                if (workflow.LocalSave.Phase != LocalSavePhase.Failed ||
+                    workflow.LocalSave.Outcome != LocalSaveOutcome.NotCommitted ||
+                    Control<TextBox>("TeamNameEditor").Text != "Compiled retained recovery label" ||
+                    Control<TextBox>("Department").Text != "Compiled retained recovery department")
+                    throw new InvalidOperationException("Compiled failed browsing lost its exact profile owner/draft or fault.");
+            }
+            PumpUntil(() => Control<Button>("NoticeRetryButton").IsEnabled);
+            Control<Button>("NoticeRetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Recovered &&
+                Control<TextBox>("Department").IsEnabled);
+            Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             hold = true;
             Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             pendingNote = workflow.TeamNotesView.SelectedNote!.Id;
@@ -87,8 +120,8 @@ internal static partial class Program
                 !Control<Button>("EditProfileButton").IsEnabled);
             if (workflow.ReconcileLocalSaves())
                 throw new InvalidOperationException("Compiled recovery accepted an unresolved admitted transaction.");
-            Select("avery@example.com");
-            Select("morgan@example.com");
+            Select("avery@example.com", PersonSelection.Mode.Recovery);
+            Select("morgan@example.com", PersonSelection.Mode.Recovery);
             if (workflow.TeamNotesView.SelectedNote?.Id != id ||
                 Note<TextBox>("MarkdownEditor").Text != "Compiled newer exact writing" ||
                 Note<TextBox>("MarkdownEditor").IsEnabled)
@@ -102,7 +135,7 @@ internal static partial class Program
                 reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", id)?.Markdown != "Compiled newer exact writing" ||
                 window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Compiled late completion lost durable writing or created a native window.");
-            Console.WriteLine("PASS: invisible compiled local recovery: explicit 3-second stall, disabled edits, actual Person selection, exact retained owner/newer writing, and independently reopened late commit. No pixels or native latency claimed.");
+            Console.WriteLine("PASS: invisible compiled local recovery: failed/stalled non-idle caller selection, retained profile fault/draft, explicit 3-second stall, disabled edits, exact retained note owner/newer writing, and independently reopened late commit. No pixels or native latency claimed.");
         }
         catch (Exception error)
         {
@@ -121,6 +154,17 @@ internal static partial class Program
             PumpUntil(() => pendingNote is not { } id || workflow.GetRetainedNoteDraft(NoteScope.Team, id)?.IsSaving != true);
             window.Close();
         }
+    }
+
+    private static void SelectRecoveryPerson(AutomationElement window, string email, string heading,
+        LocalSavePhase phase, LocalSaveOutcome outcome)
+    {
+        SelectTreePerson(window, email, PersonSelection.Mode.Recovery);
+        Await(() => CurrentPersonEmail(window) == email && !Find(window, "Email").Current.IsOffscreen &&
+            Find(window, "ProfileHeading").Current.Name == heading && !Find(window, "ProfileHeading").Current.IsOffscreen &&
+            Find(window, "OperationalNotice").Current.ItemStatus == $"Local save: {phase}; outcome: {outcome}" &&
+            !Find(window, "OperationalNotice").Current.IsOffscreen &&
+            !Find(window, "NewPersonNote").Current.IsEnabled && !Find(window, "NewTeamNote").Current.IsEnabled);
     }
 
     private static int RunLocalSaveRecoveryFixture(string[] args)
@@ -199,10 +243,8 @@ internal static partial class Program
                 if (!failed.Contains("NotCommitted", StringComparison.Ordinal))
                     throw new InvalidOperationException("The locked local database did not report confirmed noncommit.");
                 Await(() => !Find(window, "Department").Current.IsEnabled && !Find(window, "NewTeamNote").Current.IsEnabled);
-                SelectTreePerson(window, "avery@example.com");
-                Await(() => CurrentPersonEmail(window) == "avery@example.com");
-                SelectTreePerson(window, "morgan@example.com");
-                Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+                SelectRecoveryPerson(window, "avery@example.com", "Avery Example", LocalSavePhase.Failed, LocalSaveOutcome.NotCommitted);
+                SelectRecoveryPerson(window, "morgan@example.com", "Morgan Example", LocalSavePhase.Failed, LocalSaveOutcome.NotCommitted);
                 AssertValue(window, "TeamNameEditor", "Retained recovery label");
                 AssertValue(window, "Department", "Retained recovery department");
                 AssertValue(window, "PersonNoteMarkdown", "Independent exact recovery writing");
@@ -231,10 +273,8 @@ internal static partial class Program
                 throw new InvalidOperationException("The native stalled notice did not pause editing while retaining browsing.");
             var stalled = Find(window, "OperationalNotice").Current.ItemStatus;
             var stalledNotice = Find(window, "NoticeSummary").Current.Name;
-            SelectTreePerson(window, "avery@example.com");
-            Await(() => CurrentPersonEmail(window) == "avery@example.com");
-            SelectTreePerson(window, "morgan@example.com");
-            Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+            SelectRecoveryPerson(window, "avery@example.com", "Avery Example", LocalSavePhase.Stalled, LocalSaveOutcome.Unknown);
+            SelectRecoveryPerson(window, "morgan@example.com", "Morgan Example", LocalSavePhase.Stalled, LocalSaveOutcome.Unknown);
             AssertValue(window, "TeamNoteTitle", "Retained stalled Team title");
             AssertValue(window, "TeamNoteMarkdown", "Newer exact stalled Team writing");
             if (Find(window, "TeamNoteHeading").Current.HelpText != id.ToString() ||

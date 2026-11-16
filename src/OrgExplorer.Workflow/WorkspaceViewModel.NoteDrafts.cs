@@ -4,7 +4,7 @@ public sealed record RetainedNoteDraft(NoteDraft Basis, string Title, string Mar
 
 public sealed partial class WorkspaceViewModel
 {
-    private sealed class LocalNoteDraft(NoteDraft basis, string title, string markdown, long order)
+    private sealed class LocalNoteDraft(NoteDraft basis, string title, string markdown, long order, IDisposable adoptionDeferral)
     {
         public NoteDraft Basis = basis;
         public string Title = title;
@@ -13,6 +13,7 @@ public sealed partial class WorkspaceViewModel
         public long Order = order;
         public bool Saving;
         public string? Error;
+        public IDisposable AdoptionDeferral { get; } = adoptionDeferral;
         public readonly List<(long Generation, long Request)> Requests = [];
         public (long Generation, string Title, string Markdown)? Submitted;
         public bool UnknownOutcome;
@@ -22,6 +23,7 @@ public sealed partial class WorkspaceViewModel
     private Task? noteAutosaveTask;
     private SynchronizationContext? noteAutosaveContext;
     private long noteDraftOrder;
+    private long noteAutosaveEpoch;
     private volatile bool noteAutosaveStopped;
 
     private bool HasLocalNoteDrafts { get { lock (noteDraftGate) return localNoteDrafts.Count != 0; } }
@@ -38,7 +40,8 @@ public sealed partial class WorkspaceViewModel
         if (basis is null) return null;
         lock (noteDraftGate)
         {
-            var draft = new LocalNoteDraft(basis, $"New {scope} note", "", ++noteDraftOrder);
+            var draft = new LocalNoteDraft(basis, $"New {scope} note", "", ++noteDraftOrder,
+                workflow.DeferSnapshotAdoption());
             draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
             localNoteDrafts.Add((scope, basis.Id), draft);
             workflow.RetainNoteDraft(basis);
@@ -65,7 +68,8 @@ public sealed partial class WorkspaceViewModel
             {
                 var basis = owner is null ? null : workflow.BeginNoteDraft(scope, owner, id);
                 if (basis is null) throw new InvalidOperationException("Open the exact owned note before editing.");
-                localNoteDrafts.Add((scope, id), draft = new(basis, title, markdown, ++noteDraftOrder));
+                localNoteDrafts.Add((scope, id), draft = new(basis, title, markdown, ++noteDraftOrder,
+                    workflow.DeferSnapshotAdoption()));
             }
             draft.Title = title;
             draft.Markdown = markdown;
@@ -129,10 +133,11 @@ public sealed partial class WorkspaceViewModel
             !localNoteDrafts.Values.Any(d => d.Error is null)) return;
         foreach (var draft in localNoteDrafts.Values.Where(draft => draft.Error is null && draft.Requests.Count == 0))
             draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
-        noteAutosaveTask = Task.Run(SaveLocalNoteDraftsAsync);
+        var epoch = noteAutosaveEpoch;
+        noteAutosaveTask = Task.Run(() => SaveLocalNoteDraftsAsync(epoch));
     }
 
-    private async Task SaveLocalNoteDraftsAsync()
+    private async Task SaveLocalNoteDraftsAsync(long epoch)
     {
         // The cadence starts with the first edit; further typing cannot postpone it.
         await Task.Delay(250).ConfigureAwait(false);
@@ -144,6 +149,7 @@ public sealed partial class WorkspaceViewModel
             long generation;
             lock (noteDraftGate)
             {
+                if (epoch != noteAutosaveEpoch) return;
                 if (noteAutosaveStopped || localSaveReconciling || viewSaveFault is not null || workflow.LocalSave.EditsPaused)
                 { noteAutosaveTask = null; return; }
                 var next = localNoteDrafts.Values.Where(d => d.Error is null).OrderBy(d => d.Order).FirstOrDefault();
@@ -182,7 +188,11 @@ public sealed partial class WorkspaceViewModel
                     draft.Error = viewSaveFault?.Message ?? workflow.Status;
                     draft.UnknownOutcome |= workflow.LocalSave.HasUnresolvedOutcome;
                 }
-                else if (generation == draft.Generation) localNoteDrafts.Remove((basis.Scope, basis.Id));
+                else if (generation == draft.Generation)
+                {
+                    localNoteDrafts.Remove((basis.Scope, basis.Id));
+                    draft.AdoptionDeferral.Dispose();
+                }
                 else
                 {
                     draft.Basis = accepted;
@@ -219,7 +229,11 @@ public sealed partial class WorkspaceViewModel
                     workflow.DiscardUnsavedChanges(key.Id);
                     foreach (var request in draft.Requests) localSaveRequests.Complete(request.Request);
                     draft.Requests.Clear();
-                    if (draft.Generation == submitted.Generation) localNoteDrafts.Remove(key);
+                    if (draft.Generation == submitted.Generation)
+                    {
+                        localNoteDrafts.Remove(key);
+                        draft.AdoptionDeferral.Dispose();
+                    }
                     else
                     {
                         draft.Basis = current;
@@ -276,6 +290,7 @@ public sealed partial class WorkspaceViewModel
                         retainedNoteViews[remembered].Selected == key.Id).ToArray())
                         retainedNoteViews.Remove(remembered);
                 }
+                localNoteDrafts[key].AdoptionDeferral.Dispose();
                 foreach (var request in localNoteDrafts[key].Requests) localSaveRequests.Complete(request.Request);
                 localNoteDrafts.Remove(key);
             }

@@ -16,8 +16,10 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     {
         this.workflow = workflow;
         this.settings = settings;
+        synchronizationClock = timeProvider ?? TimeProvider.System;
         localSaveRequests = new(timeProvider ?? TimeProvider.System, NotifyLocalNoteDrafts);
         workflow.WorkspaceChanged += ForwardWorkspaceChange;
+        UpdateSynchronizationSchedule();
     }
     public event EventHandler? WorkspaceChanged;
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
@@ -53,10 +55,25 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
     public void Dispose()
     {
-        lock (noteDraftGate) noteAutosaveStopped = true;
+        var synchronizing = StopSynchronization();
+        lock (noteDraftGate)
+        {
+            noteAutosaveStopped = true;
+            foreach (var draft in localNoteDrafts.Values) draft.AdoptionDeferral.Dispose();
+        }
         localSaveRequests.Dispose();
         workflow.WorkspaceChanged -= ForwardWorkspaceChange;
-        workflow.Dispose();
+        void DisposeWorkflow()
+        {
+            lock (noteDraftGate)
+            {
+                unknownSaveAdoptionDeferral?.Dispose();
+                unknownSaveAdoptionDeferral = null;
+            }
+            workflow.Dispose();
+        }
+        if (synchronizing is null) DisposeWorkflow();
+        else _ = synchronizing.ContinueWith(_ => DisposeWorkflow(), TaskScheduler.Default);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;
@@ -146,6 +163,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             var key = (basis.Email.ToLowerInvariant(), field);
             if (value == basis.PreferredName && !personTextDrafts.ContainsKey(key)) return;
             personTextDrafts[key] = new(basis, field, value, personTextDrafts.GetValueOrDefault(key)?.Error);
+            workflow.RetainPersonTextDraft(basis, field, value);
         }
         Notify();
     }
@@ -193,6 +211,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
 
     private void Notify()
     {
+        if (noteAutosaveStopped) return;
+        UpdateSynchronizationSchedule();
         PropertyChanged?.Invoke(this, new(nameof(LocalSave)));
         PropertyChanged?.Invoke(this, new(nameof(CanEditLocalWorkspace)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(People)));
@@ -210,6 +230,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingStorageMaintenance)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Synchronization)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSynchronizing)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));

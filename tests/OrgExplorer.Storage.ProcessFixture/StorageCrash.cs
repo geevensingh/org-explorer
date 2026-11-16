@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using System.Text.Json;
 
 namespace OrgExplorer.Storage.ProcessFixture;
 
@@ -6,6 +7,7 @@ public sealed class StorageCrash : IWorkspaceFileObserver
 {
     private EventWaitHandle ready = null!;
     private WorkspaceStoragePhaseKind boundary;
+    private string workspace = "";
 
     private static int Main(string[] args)
     {
@@ -16,6 +18,7 @@ public sealed class StorageCrash : IWorkspaceFileObserver
         var observer = new StorageCrash
         {
             ready = EventWaitHandle.OpenExisting(args[1]),
+            workspace = path,
             boundary = args[2] == "before" ? WorkspaceStoragePhaseKind.Begin : WorkspaceStoragePhaseKind.End
         };
         using (observer.ready)
@@ -44,6 +47,24 @@ public sealed class StorageCrash : IWorkspaceFileObserver
     public void ObservePhase(WorkspaceStoragePhase phase)
     {
         if (phase.Name != "local-sqlite-commit" || phase.Kind != boundary) return;
+        var evidence = Directory.GetFiles(workspace, "local-write-*.json").Select(path =>
+        {
+            using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var document = JsonDocument.Parse(input);
+            var intent = document.RootElement;
+            return new
+            {
+                file = Path.GetFileName(path),
+                requestId = intent.GetProperty("id").GetGuid(),
+                baseRevision = intent.GetProperty("baseRevision").GetString(),
+                nextRevision = intent.GetProperty("nextRevision").GetString()
+            };
+        }).ToArray();
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            writerProcessId = Environment.ProcessId, phase = phase.Kind.ToString(), evidence
+        }));
+        Console.Out.Flush();
         ready.Set();
         // The parent terminates this owned process without Dispose at the observed boundary.
         Thread.Sleep(TimeSpan.FromSeconds(30));

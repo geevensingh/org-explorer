@@ -7,6 +7,17 @@ The shipping reader/writer uses [Workspace version 3](workspace-format.md),
 activated by #47. Older and future Workspace versions are rejected without
 mutation. There is no migration or legacy-folder cleanup.
 
+This protocol remains exclusive to the readable-file path. The opt-in SQLite
+path instead uses local transactions and the separately versioned
+[complete logical snapshot interchange](workspace-format.md#complete-logical-snapshots-interchange-1).
+That independent interchange now includes exact-review whole-version selection,
+separately retained conflict recovery and guarded current/previous rotation.
+It does not use this readable-file engine's selector/reclamation machinery.
+Its explicit Sync now never synchronizes an open database, reuses this protocol's
+selector as a second authority, or interprets a provider event as a commit.
+Publication and provider delivery are distinct; staged legacy compatibility is
+preserved until the replacement's final cutover.
+
 The development-opt-in SQLite path does not use this readable-file protocol.
 Its transaction/recovery contract is documented under
 [staged local SQLite formats](workspace-format.md#staged-local-sqlite-formats).

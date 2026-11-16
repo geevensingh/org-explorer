@@ -16,6 +16,8 @@
     <Compile Include="..\OrgExplorer.Desktop.Smoke\HostedDisplayPreparation.cs" Link="HostedDisplayPreparation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\TreeItemRealization.cs" Link="TreeItemRealization.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\ControlReadiness.cs" Link="ControlReadiness.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\AutomaticHostLifecycle.cs" Link="AutomaticHostLifecycle.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\SnapshotNativeUsability.cs" Link="SnapshotNativeUsability.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\LocalWorkObservation.cs" Link="LocalWorkObservation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\MainReadingNavigation.cs" Link="MainReadingNavigation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\WorkspaceRestoration.cs" Link="WorkspaceRestoration.cs" />

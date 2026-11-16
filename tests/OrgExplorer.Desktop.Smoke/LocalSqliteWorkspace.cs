@@ -394,6 +394,7 @@ internal static partial class Program
                             throw new InvalidOperationException("Hosted note reopening lost exact writing or its actual owner.");
                 }
                 Console.WriteLine("PASS: hosted SQLite Person/Team notes survive process close/reopen with exact identities, writing and original ownership; legacy Workspace bytes remain unchanged.");
+                HarnessRuntime.Run("native-sqlite-snapshots", () => RunSnapshotSynchronizationJourney(window, local, root, personJourney));
                 AssertWorkspaceBytes(oldWorkspace, originals);
                 Close(reopened);
             }
@@ -402,6 +403,8 @@ internal static partial class Program
                 () => RunLocalReviewedImportFlow(executable, root, local));
             HarnessRuntime.Run("native-sqlite-local-recovery",
                 () => RunHostedLocalSaveRecovery(executable, root));
+            HarnessRuntime.Run("native-sqlite-automatic-snapshots",
+                () => RunHostedAutomaticSnapshots(executable, root));
         }
         finally
         {
@@ -663,7 +666,10 @@ internal static partial class Program
             BeginProfileEditing(window);
             var expected = sample == 19 ? "008C" : $"SQLite room {sample:D2}";
             Set(window, "OfficeNumber", expected);
-            var save = (InvokePattern)Find(window, "SaveProfile").GetCurrentPattern(InvokePattern.Pattern);
+            var save = ControlReadiness.AwaitPattern(() => Find(window, "SaveProfile"),
+                control => control.Current.IsEnabled,
+                control => control.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern)
+                    ? pattern as InvokePattern : null, Await);
             using var observation = NoteCommitObservation.Begin(save.Invoke, () =>
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
