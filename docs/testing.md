@@ -482,6 +482,19 @@ observations; they do not manufacture native flags in invisible checks.
 The main JSON is still pre-close; the sidecar precedes final process cleanup.
 Normal close/process exit, terminal hosted PASS, successful phase completion and
 the complete scenario/lane results remain required.
+The automatic host owns a scoped output/cleanup lifecycle rather than the shared
+desktop StopApplication path. Sidecar output, held-work release and abnormal-exit
+diagnostics are attempted independently; diagnostic I/O cannot prevent the owned
+PID's termination/wait attempt. Secondary reporting follows termination, with
+explicit fallback reporting and structured stage/error attribution on the final
+exception. An original body failure is rethrown with its original identity/stack;
+without one, any output/cleanup failure still fails the scenario. The automatic
+terminal PASS is emitted only after that lifecycle returns successfully.
+`AutomaticHostLifecycleTests` uses the existing real non-UI deferred-process
+fixture and actual missing-directory writes: successful normal exit plus output
+failure cannot pass the scenario; primary plus sidecar/cleanup/reporting failures
+must preserve attribution and confirm actual owned-child termination before test
+safety cleanup. These are runner/process checks, not visible WPF reproduction.
 This controlled owned-host evidence is not normal-EXE latency, provider delivery
 or the rich 10,000-Person/background-export proof retained by #100. Both desktop
 900-second budgets, all previous assertions/size matrices and all p95 targets

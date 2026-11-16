@@ -3,7 +3,6 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
@@ -120,12 +119,12 @@ internal static partial class Program
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(executable, ".dll"))));
         var nativeEvidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
             Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-native-observation.json");
+        var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-snapshots.json");
         using var process = Process.Start(start)!;
-        Applications.Add(process);
         AutomaticSnapshotNativeObservation? native = null;
-        Exception? nativeFailure = null;
         string? hostExecutable = null, hostHash = null;
-        try
+        AutomaticHostLifecycle.Run(process, () =>
         {
             var window = Window(process);
             hostExecutable = process.MainModule!.FileName;
@@ -238,8 +237,6 @@ internal static partial class Program
             using var product = File.OpenRead(executable);
             using var assembly = File.OpenRead(Path.ChangeExtension(executable, ".dll"));
             using var host = File.OpenRead(process.MainModule!.FileName);
-            var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
-                Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-snapshots.json");
             if (File.Exists(evidence)) throw new InvalidOperationException("Automatic snapshot evidence already exists.");
             File.WriteAllText(evidence, SnapshotNativeUsability.SerializeDiagnostic(new
             {
@@ -273,43 +270,25 @@ internal static partial class Program
                 completion = "Pre-close observations only; require terminal hosted PASS after actual normal close and process exit."
             }));
             Close(process);
-            Console.WriteLine("PASS: hosted automatic snapshots preserve native continued writing/browsing during real export, truthful latest-publication status, automatic incoming refresh and local editing through folder failure; " + evidence);
-        }
-        catch (Exception error)
+        }, nativeFailure =>
         {
-            nativeFailure = error;
-            throw;
-        }
-        finally
-        {
-            try
+            if (File.Exists(nativeEvidence)) throw new IOException("Automatic native observation must not overwrite earlier evidence.");
+            File.WriteAllText(nativeEvidence, SnapshotNativeUsability.SerializeDiagnostic(new
             {
-                if (File.Exists(nativeEvidence)) throw new IOException("Automatic native observation must not overwrite earlier evidence.");
-                File.WriteAllText(nativeEvidence, SnapshotNativeUsability.SerializeDiagnostic(new
-                {
-                    schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
-                    runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
-                    runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"), processId = process.Id,
-                    productExecutable = Path.GetFullPath(executable), productExeSha256 = productHash,
-                    productAssemblySha256 = assemblyHash, hostExecutable, hostExecutableSha256 = hostHash,
-                    outcome = nativeFailure is null ? "Passed" : "Failed",
-                    errorType = nativeFailure?.GetType().Name, error = nativeFailure?.Message,
-                    nativeUsability = native?.Diagnostic,
-                    completion = "Written after normal close or original failure, before final process cleanup; require terminal phase/scenario/lane results."
-                }));
-            }
-            catch (Exception diagnosticError) when (diagnosticError is IOException or UnauthorizedAccessException or
-                JsonException or NotSupportedException)
-            {
-                Console.Error.WriteLine("AUTOMATIC-NATIVE-DIAGNOSTIC-FAILURE: " + diagnosticError);
-                if (nativeFailure is null) throw;
-            }
-            finally
-            {
-                hold.Reset();
-                release.Set();
-                StopApplication(process);
-            }
-        }
+                schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"), processId = process.Id,
+                productExecutable = Path.GetFullPath(executable), productExeSha256 = productHash,
+                productAssemblySha256 = assemblyHash, hostExecutable, hostExecutableSha256 = hostHash,
+                outcome = nativeFailure is null ? "Passed" : "Failed",
+                errorType = nativeFailure?.GetType().Name, error = nativeFailure?.Message,
+                nativeUsability = native?.Diagnostic,
+                completion = "Written after normal close or original failure, before final process cleanup; require terminal phase/scenario/lane results."
+            }));
+        }, () => { hold.Reset(); release.Set(); },
+            nativeFailure => File.AppendAllText(diagnostics,
+                $"Automatic snapshot host abnormal exit; pid={process.Id}; primary={nativeFailure}{Environment.NewLine}"),
+            Console.Error.WriteLine, Console.Out.WriteLine);
+        Console.WriteLine("PASS: hosted automatic snapshots preserve native continued writing/browsing during real export, truthful latest-publication status, automatic incoming refresh and local editing through folder failure; " + evidence);
     }
 }
