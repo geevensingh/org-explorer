@@ -22,6 +22,7 @@ try
             "source-recover" when args.Length == 2 => session.BeginSourceRecovery(),
             "source-recover-503" when args.Length == 3 => session.BeginSource503Recovery(args[2]),
             "source-defer-photo-503" when args.Length == 3 => session.Defer503PhotoMetadata(args[2]),
+            "source-recover-profile-open" when args.Length == 4 => session.BeginProfileOpenRecovery(args[2], args[3]),
             "source-interrupt" when args.Length == 4 => session.InterruptSource(Guid.Parse(args[2]), args[3]),
             "capture-start" when args.Length == 4 => session.BeginCapture(args[2], args[3]),
             "capture" when args.Length == 3 => session.Capture(args[2]),

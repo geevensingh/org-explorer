@@ -142,6 +142,7 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSourceRecovery());
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSource503Recovery("User-approved 503 continuation."));
         Assert.Throws<InvalidOperationException>(() => coordinator.Defer503PhotoMetadata("User requested the rest."));
+        Assert.Throws<InvalidOperationException>(() => coordinator.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
         Assert.Throws<InvalidOperationException>(() => coordinator.InterruptSource(deniedClaim, "Cannot undo a completed denial."));
         Assert.Contains("source", Assert.Throws<InvalidOperationException>(() => coordinator.Publish()).Message,
             StringComparison.OrdinalIgnoreCase);
@@ -283,6 +284,61 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Empty(session.SourceStatus().MetadataDeferrals);
         Assert.Null(session.ClaimSource("unread", "profile", [Identity(2)]).ClaimId);
         Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == target).Attempts.Count);
+    }
+
+    [Theory]
+    [InlineData(403, null, "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(404, null, "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(503, null, "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(null, null, "Another source failure.")]
+    public void Profile_open_recovery_cannot_reclassify_structured_or_unrelated_failures(int? status, string? code, string message)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        Finish(session, session.ClaimSource("initial", "profile", [Identity(1)]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("initial-retry", "profile", [Identity(1)]), Ok());
+        var response = new JsonObject { ["error"] = new JsonObject { ["message"] = message } };
+        if (status is not null) response["statusCode"] = status;
+        if (code is not null) response["error"]!["code"] = code;
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(2)]), response);
+
+        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
+
+        Assert.Empty(session.SourceStatus().ServiceRecoveries);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts);
+        Assert.Null(session.ClaimSource("blocked", "profile", [Identity(2)]).ClaimId);
+    }
+
+    [Fact]
+    public void Profile_open_recovery_requires_settled_calls_and_preserves_returned_delays()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using var session = ExportSession.Open(path, sourceClock: clock);
+        Finish(session, session.ClaimSource("initial", "profile", [Identity(1)]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("initial-retry", "profile", [Identity(1)]), Ok());
+        var profile = session.ClaimSource("profile", "profile", [Identity(2)]);
+        var other = session.ClaimSource("other", "profile", [Identity(3)]);
+        Finish(session, profile, new JsonObject
+        {
+            ["error"] = new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." },
+            ["retryAfterSeconds"] = 450
+        });
+        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
+        Finish(session, other, Ok());
+        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), ""));
+        session.BeginProfileOpenRecovery(Identity(2), "User approved one retry.");
+        var blocked = session.ClaimSource("retry", "profile", [Identity(2)]);
+        Assert.Null(blocked.ClaimId);
+        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
+        clock.Now = clock.Now.AddSeconds(450);
+        var retry = session.ClaimSource("retry", "profile", [Identity(2)]);
+        Assert.NotNull(retry.ClaimId);
+        Finish(session, retry, Ok());
+        Assert.All(session.SourceStatus().Reads, read => Assert.Equal("completed", read.State));
     }
 
     [Fact]

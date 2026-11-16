@@ -1268,6 +1268,49 @@ public sealed class OrgExportTests : IDisposable
         => ExportSession.Create("Example Person", RootId, account, root);
 
     [Fact]
+    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var initial = session.ClaimSource("initial", "profile", [AltId]);
+        FinishSource(session, initial, new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AltId]), Ok(new JsonObject()));
+        var failed = session.ClaimSource("profile", "profile", [RootId]);
+        JsonObject OpenFailure() => new()
+        {
+            ["error"] = new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." }
+        };
+        FinishSource(session, failed, OpenFailure());
+        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
+            ExportSession.Json);
+        Assert.Null(session.ClaimSource("unapproved", "profile", [RootId]).ClaimId);
+        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, "")).ExitCode);
+        const string reason = "User explicitly authorized one retry of this unresolved profile-open failure.";
+
+        var result = await RunCli("source-recover-profile-open", path, RootId, reason);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(original, JsonSerializer.Serialize(
+            session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts, ExportSession.Json));
+        var audit = JsonNode.Parse(result.Output)!["serviceRecoveries"]!.AsArray().Last()!;
+        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
+        var target = Assert.Single(audit["targets"]!.AsArray())!;
+        Assert.Equal("profile", target["kind"]!.GetValue<string>());
+        Assert.Equal(RootId, target["target"]!.GetValue<string>());
+        Assert.Equal(failed.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
+        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, reason)).ExitCode);
+        var retry = session.ClaimSource("approved", "profile", [RootId]);
+        Assert.NotNull(retry.ClaimId);
+        FinishSource(session, retry, OpenFailure());
+        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, reason)).ExitCode);
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts.Count);
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
+    [Fact]
     public async Task Explicit_metadata_deferral_allows_unread_entries_but_preserves_the_failed_lookup_and_publication_block()
     {
         var path = Seed();

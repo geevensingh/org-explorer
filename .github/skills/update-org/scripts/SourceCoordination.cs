@@ -172,6 +172,34 @@ public sealed partial class ExportSession
         });
     }
 
+    public SourceLedger BeginProfileOpenRecovery(string id, string reason)
+    {
+        id = SourceTarget("profile", id);
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to retry this profile-open failure.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before profile-open recovery.");
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id)
+                ?? throw new InvalidOperationException("The authorized profile lookup is not in this run.");
+            Require(read.State == "failed" && read.Attempts.Count == 1 && !read.RecoveryEligible,
+                "Only the authorized first-attempt profile-open failure can receive one retry.");
+            var resultFile = read.Attempts[^1].ResultFile
+                ?? throw new InvalidOperationException("Profile-open recovery requires retained original source results.");
+            var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
+            var objects = SourceObjects(result.Response).ToArray();
+            Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
+                && objects.All(obj => SourceText(obj["code"]).Length == 0)
+                && objects.Any(obj => SourceText(obj["message"]) == "Open '' Failure: Unable to open, Exception Caught."),
+                "Only the unclassified profile-open failure qualifies; structured failures and denials remain blockers.");
+            ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason,
+                [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
+            ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
+            return ledger;
+        });
+    }
+
     private static bool IsDeferredMetadata(SourceLedger ledger, SourceRead read)
         => read.State == "failed" && read.Attempts.Count == 2 && ledger.MetadataDeferrals.Any(deferral =>
             deferral.Targets.Any(target => target.Kind == read.Kind && target.Target == read.Target

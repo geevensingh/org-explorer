@@ -38,6 +38,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-recover RUN` | Coordinator only: consumes the single failed-read recovery pass after all active claims settle. |
 | `source-recover-503 RUN REASON` | Coordinator only, with explicit user authorization: records an additional recovery of currently failed, first-attempt HTTP 503 reads after the ordinary pass was consumed. |
 | `source-defer-photo-503 RUN REASON` | Coordinator only, when the user requests collecting unread entries despite exhausted HTTP 503 photo metadata: records that deferral without clearing the failure or enabling publication. |
+| `source-recover-profile-open RUN DIRECTORY-ID REASON` | Coordinator only, after explicit user approval for that one lookup: records one retry of the unclassified profile-open failure described below. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
@@ -261,6 +262,20 @@ still gate all calls. Later failures still require their normal recovery decisio
 Workers distinguish these explicitly deferred metadata failures from new blockers.
 The helper still requires every source read to be completed for `publish`, so a
 deferred failure remains an export blocker, never confirmed photo absence.
+
+### User-authorized profile-open retry
+
+A completed People retrieval can contain the per-identity diagnostic
+`Open '' Failure: Unable to open, Exception Caught.` without a source status or
+code. Preserve that as a failed profile read, not unknown geography or a service
+503. If the ordinary recovery pass is consumed, the coordinator may ask the user
+to authorize one retry of that exact unresolved identity. With that approval and
+all active claims settled, run `source-recover-profile-open RUN DIRECTORY-ID REASON`
+and use the returned eligibility through the usual claim/capture/finish sequence.
+Record the authorization in `serviceRecoveries`; preserve the original error,
+successful identities and returned delays. This exception covers only that
+first-attempt, code-less profile-open failure, not other failures or future
+identities. A failed second attempt still blocks publication.
 
 ### Denials and stopped-worker handoff
 
