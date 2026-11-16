@@ -703,14 +703,18 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
         const string prefix = "# Independently observed ongoing writing";
+        var readNumber = 0;
         using var observation = NoteCommitObservation.Begin(
             () => app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix),
             () =>
             {
+                if (Interlocked.Increment(ref readNumber) == 1) Thread.Sleep(1100);
                 using var reading = ApplicationWorkflow.CreateFileBacked();
                 Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
-                return reading.BeginNoteDraft(scope, "manager@example.com", draft.Id)?.Markdown
-                    .StartsWith(prefix, StringComparison.Ordinal) == true;
+                var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
+                return committed is not null && committed.Id == draft.Id && committed.Scope == scope &&
+                    committed.OwnerEmail == "manager@example.com" && committed.Title == "Observed context" &&
+                    committed.Markdown.StartsWith(prefix, StringComparison.Ordinal);
             });
         for (var index = 0; index < 6; index++)
         {
@@ -719,10 +723,20 @@ public sealed class SqliteWorkspaceTests : IDisposable
             Assert.True(app.NavigatePerson("report@example.com"), app.Status);
             Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         }
+        var observedMs = Assert.IsType<double>(await observation.Completion.WaitAsync(TimeSpan.FromSeconds(20)));
         await Task.Delay(1100);
+        var collectedMs = observation.ElapsedMs;
         var commitMs = observation.Complete();
-        Assert.True(commitMs <= 1000,
-            $"Native/request-to-reopened-writing observation was delayed by unrelated checks: {commitMs:F1} ms.");
+        Console.WriteLine("NOTE-OBSERVATION-TIMING " + System.Text.Json.JsonSerializer.Serialize(new
+        {
+            scope = scope.ToString(), firstReadDelayMs = 1100, observation.RequestMs, observation.WorkerAdmittedMs,
+            observation.FirstReadStartedMs, observation.SuccessfulReadStartedMs,
+            observation.ReadCount, observation.ReadMs, observedMs, collectedMs, returnedMs = commitMs,
+            safelyClose = app.CanSafelyClose, hasSaveError = app.LocalSaveError is not null
+        }));
+        Assert.Equal(observedMs, commitMs);
+        Assert.True(collectedMs - observedMs >= 1000,
+            "Collection must be deliberately delayed after the actual coherent read, not used as a local latency SLA.");
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);

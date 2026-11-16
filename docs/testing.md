@@ -298,14 +298,27 @@ deadlines, repeated actions or changes to profile Save/Cancel/read-only behavior
 workflow while native navigation and six continued edits proceed. It timestamps
 the first coherent committed writing covering the original request instead of
 waiting for unrelated UIA assertions before beginning observation. A real-storage
-regression delays collection by more than one second while both scopes keep
-typing/switching; that delay cannot move the observed commit time. Cancellation
+regression makes the first actual reader deliberately slow, continues both
+scopes' typing/switching, waits for the independently completed coherent
+observation, then delays collection by more than one second. Collection must
+return that exact immutable observed value, not a newly stamped collection
+time. This is a deterministic timestamp-independence oracle, not a hard
+per-case one-second SLA; separate healthy-storage progress checks and all
+native p95 budgets remain unchanged. Its bounded `NOTE-OBSERVATION-TIMING`
+records admission/read/observed/collection timing and status without note
+contents. Cancellation
 of a pending real-write observation is explicitly not a saved result.
 The latency JSON retains all original raw arrays, p95, budgets and boundaries
 (20 editor, 42 navigation and 21 commit samples), and adds native-request durations,
 observation poll/read counts, cumulative reopen-read time, typing-completion
 timestamps and observed-during-typing flags. All commits must be observed before
 the continued-typing sequence completes.
+Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
+`successfulReadStartedMs` retain actual worker/reader timing beside the original
+21 raw totals. Queueing and read/validation are included, never deducted; these
+are observation boundaries, not a database-only commit timestamp or proof of
+a slow-write root cause. Neither delayed collection nor instrumentation can
+satisfy the unchanged native p95-at-most-1000-ms/during-typing assertions.
 The invisible compiled selection also records twenty actual note Add handlers,
 layout, Person selection and independently reopened commits under a clearly
 labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they

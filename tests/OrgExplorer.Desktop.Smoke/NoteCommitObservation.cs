@@ -13,21 +13,34 @@ internal sealed class NoteCommitObservation : IDisposable
         // Collection must not postpone observation while the caller performs other native interactions.
         observed = Task.Run(() =>
         {
+            WorkerAdmittedMs = elapsed.Elapsed.TotalMilliseconds;
             while (!stopped.IsCancellationRequested && elapsed.Elapsed < TimeSpan.FromSeconds(20))
             {
+                var readStarted = elapsed.Elapsed.TotalMilliseconds;
+                FirstReadStartedMs ??= readStarted;
                 var read = Stopwatch.StartNew();
                 var saved = committed();
                 ReadMs += read.Elapsed.TotalMilliseconds;
                 ReadCount++;
-                if (saved) return (double?)elapsed.Elapsed.TotalMilliseconds;
+                if (saved)
+                {
+                    SuccessfulReadStartedMs = readStarted;
+                    return (double?)elapsed.Elapsed.TotalMilliseconds;
+                }
                 Thread.Sleep(5);
             }
             if (stopped.IsCancellationRequested) return null;
-            throw new TimeoutException("The requested note writing did not become observably durable within 20 seconds.");
+            throw new TimeoutException("The requested note writing did not become observably durable within 20 seconds. " +
+                $"Observer admitted at {WorkerAdmittedMs:F1} ms; first read at {FirstReadStartedMs:F1} ms; " +
+                $"reads={ReadCount}; cumulative read time={ReadMs:F1} ms.");
         });
     }
 
     internal double RequestMs { get; private set; }
+    internal double? WorkerAdmittedMs { get; private set; }
+    internal double? FirstReadStartedMs { get; private set; }
+    internal double? SuccessfulReadStartedMs { get; private set; }
+    internal Task<double?> Completion => observed;
     internal double ElapsedMs => elapsed.Elapsed.TotalMilliseconds;
     internal int ReadCount { get; private set; }
     internal double ReadMs { get; private set; }

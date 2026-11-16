@@ -671,6 +671,9 @@ internal static partial class Program
         var commitRequests = new List<double>();
         var commitReads = new List<int>();
         var commitReadMs = new List<double>();
+        var observerAdmittedMs = new List<double?>();
+        var firstReadStartedMs = new List<double?>();
+        var successfulReadStartedMs = new List<double?>();
         var typingCompletedMs = new List<double>();
         var identities = new HashSet<Guid>();
         var saved = new Dictionary<NoteScope, (Guid, string, string)>();
@@ -771,6 +774,9 @@ internal static partial class Program
                 commitRequests.Add(firstCommit.RequestMs);
                 commitReads.Add(firstCommit.ReadCount);
                 commitReadMs.Add(firstCommit.ReadMs);
+                observerAdmittedMs.Add(firstCommit.WorkerAdmittedMs);
+                firstReadStartedMs.Add(firstCommit.FirstReadStartedMs);
+                successfulReadStartedMs.Add(firstCommit.SuccessfulReadStartedMs);
                 typingCompletedMs.Add(completedTyping);
                 AssertNoteView(window, family, editing: true);
                 AssertValue(window, family + "NoteTitle", titleText);
@@ -839,6 +845,7 @@ internal static partial class Program
             localDurability = new { boundary = "First native Markdown edit through independently reopened committed writing covering that request while typing continues; includes dispatch, scheduling and queueing.",
                 samplesMs = durability, p95Ms = P95(durability), budgetMs = 1000,
                 nativeRequestMs = commitRequests, observationReads = commitReads, observationReadMs = commitReadMs,
+                observerAdmittedMs, firstReadStartedMs, successfulReadStartedMs,
                 typingCompletedMs, committedDuringTyping }
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (P95(editors) > 100 || P95(navigation) > 100 || P95(durability) > 1000 || committedDuringTyping.Any(value => !value))
