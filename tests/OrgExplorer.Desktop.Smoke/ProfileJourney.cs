@@ -427,7 +427,9 @@ internal static partial class Program
 
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
-        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+            control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
@@ -554,6 +556,15 @@ internal static partial class Program
         keybd_event(key, 0, 2, 0);
     }
 
+    private static void AwaitCopiedText(string expected)
+    {
+        try { PumpUntil(() => System.Windows.Clipboard.GetText() == expected); }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException("The actual clipboard did not receive the expected text within 20 seconds.", error);
+        }
+    }
+
     private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
         => AssertKeyboardCopy(window, Find(window, name), expected, copyAction);
 
@@ -573,7 +584,7 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.NameProperty, copyAction))) is not null);
         PressCopyKey(0x28);
         PressCopyKey(0x0D);
-        Await(() => System.Windows.Clipboard.GetText() == expected);
+        AwaitCopiedText(expected);
         if (profileFeedback)
             AssertCopyFeedback(window, value);
     }
@@ -597,7 +608,7 @@ internal static partial class Program
             throw new InvalidOperationException("The hosted desktop could not click Copy value.");
         mouse_event(2, 0, 0, 0, 0);
         mouse_event(4, 0, 0, 0, 0);
-        Await(() => System.Windows.Clipboard.GetText() == expected);
+        AwaitCopiedText(expected);
         AssertCopyFeedback(window, value);
     }
 
@@ -773,7 +784,7 @@ internal static partial class Program
         var seeded = phase.Elapsed.TotalSeconds;
         PrimaryClick(() => value);
         var clicked = phase.Elapsed.TotalSeconds;
-        Await(() => System.Windows.Clipboard.GetText() == expected);
+        AwaitCopiedText(expected);
         var copied = phase.Elapsed.TotalSeconds;
         AssertCopyFeedback(window, value);
         if (id is "Email" or "TeamNameSegment")
@@ -788,7 +799,7 @@ internal static partial class Program
         Await(() => value.Current.HasKeyboardFocus);
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
         PressCopyKey(key);
-        Await(() => System.Windows.Clipboard.GetText() == expected);
+        AwaitCopiedText(expected);
         AssertCopyFeedback(window, value);
     }
 

@@ -1176,6 +1176,9 @@ readback for every sample. This is neither offscreen rendering nor a reduced pre
 Feedback reads request name, offscreen state and bounds together in a fresh UIA cache
 snapshot per observation; no metadata is reused across gestures, and the same actual
 desktop-pixel check still proves rendering.
+Exact clipboard-copy observation uses the existing bounded STA dispatcher pump,
+servicing the harness's own OLE clipboard-owner messages while another process copies.
+The real clipboard equality and 20-second bound remain; no copied-text effect is faked.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the
