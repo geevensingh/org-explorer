@@ -16,26 +16,64 @@ public sealed class SnapshotNativeUsabilityTests
         Editor, new(20, 250, 200, 30), new(20, 300, 260, 28), new(10, 200, 900, 500));
     private static readonly SnapshotExportLifetime ActiveExport = new(true, false, false);
 
+    [Fact]
+    public void Recorded_post_input_owner_and_body_remain_usable_when_only_the_note_title_moves_above_the_viewport()
+    {
+        // Actual native sidecar: 43940045839/1, 7b3f574, host8412.
+        const string id = "a6706184-db27-4551-a045-dce8f2e3fd90", title = "Automatic publication owner";
+        var before = new SnapshotNativeNote(
+            new(new(new("morgan@example.com", false, 363, 18), new("Morgan Example", false, 184, 32)),
+                new(444, 156, 363, 18), new(444, 124, 184, 32), new(-8, -8, 1040, 736)),
+            new(title, false, 691, 27), id, new(true, false, 691, 200, true, false, "Before automatic export"),
+            new(284, 301, 691, 27), new(284, 483, 691, 200), new(284, 284, 720, 416));
+        Assert.True(SnapshotNativeUsability.NoteReady(before, ActiveExport,
+            "morgan@example.com", "Morgan Example", id, title, "Before automatic export"));
+        var after = before with
+        {
+            Note = before.Note with { Height = 26 }, NoteBounds = new(284, 231, 691, 26),
+            Editor = before.Editor with { Value = "Newer writing during automatic export" },
+            EditorBounds = new(284, 412, 691, 200)
+        };
+        Assert.True(SnapshotNativeUsability.OwnerReady(after.Owner, "morgan@example.com", "Morgan Example"));
+        Assert.True(SnapshotNativeUsability.DraftObserved(after.Owner.Person, after.Editor,
+            "morgan@example.com", "Morgan Example", "Newer writing during automatic export"));
+        Assert.True(SnapshotNativeUsability.Within(after.Viewport, after.EditorBounds));
+        Assert.False(SnapshotNativeUsability.Within(after.Viewport, after.NoteBounds));
+        Assert.False(SnapshotNativeUsability.NoteReady(after, ActiveExport,
+            "morgan@example.com", "Morgan Example", id, title, "Newer writing during automatic export"));
+        Assert.True(SnapshotNativeUsability.NoteWritingObserved(after, ActiveExport,
+            "morgan@example.com", "Morgan Example", id, title, "Newer writing during automatic export"));
+    }
+
     [Theory]
     [InlineData("hidden")]
+    [InlineData("hidden-body")]
+    [InlineData("disabled")]
     [InlineData("clipped")]
     [InlineData("zero")]
     [InlineData("nonfinite")]
+    [InlineData("nonfinite-note")]
     [InlineData("readonly")]
     [InlineData("unsupported")]
     [InlineData("wrong-owner")]
     [InlineData("clipped-owner")]
     [InlineData("wrong-note")]
+    [InlineData("wrong-title")]
     [InlineData("wrong-value")]
     [InlineData("ended")]
+    [InlineData("released")]
     public void Held_export_note_input_requires_the_same_exact_visible_owner_note_writable_value_and_live_invocation(string damage)
     {
         var note = damage switch
         {
-            "hidden" => OwnerNote with { Note = OwnerNote.Note with { IsOffscreen = true } },
+            "hidden" => OwnerNote with { Note = OwnerNote.Note with { IsOffscreen = true },
+                NoteBounds = OwnerNote.NoteBounds with { Y = 160 } },
+            "hidden-body" => OwnerNote with { Editor = Editor with { IsOffscreen = true } },
+            "disabled" => OwnerNote with { Editor = Editor with { IsEnabled = false } },
             "clipped" => OwnerNote with { EditorBounds = OwnerNote.EditorBounds with { Y = 690 } },
             "zero" => OwnerNote with { EditorBounds = OwnerNote.EditorBounds with { Width = 0 } },
             "nonfinite" => OwnerNote with { Viewport = OwnerNote.Viewport with { X = double.NaN } },
+            "nonfinite-note" => OwnerNote with { NoteBounds = OwnerNote.NoteBounds with { X = double.NaN } },
             "readonly" => OwnerNote with { Editor = Editor with { IsReadOnly = true } },
             "unsupported" => OwnerNote with { Editor = Editor with { SupportsValuePattern = false } },
             "wrong-owner" => OwnerNote with { Owner = OwnerNote.Owner with
@@ -43,14 +81,23 @@ public sealed class SnapshotNativeUsabilityTests
             "clipped-owner" => OwnerNote with { Owner = OwnerNote.Owner with
                 { Identity = OwnerNote.Owner.Identity with { X = 990 } } },
             "wrong-note" => OwnerNote with { NoteId = "different-note" },
+            "wrong-title" => OwnerNote with { Note = OwnerNote.Note with { Text = "Different note title" } },
             "wrong-value" => OwnerNote with { Editor = Editor with { Value = "Different writing" } },
             "ended" => OwnerNote,
+            "released" => OwnerNote,
             _ => throw new ArgumentOutOfRangeException(nameof(damage))
+        };
+        var lifetime = damage switch
+        {
+            "ended" => ActiveExport with { Ended = true },
+            "released" => ActiveExport with { ReleaseRequested = true },
+            _ => ActiveExport
         };
         Assert.True(SnapshotNativeUsability.NoteReady(OwnerNote, ActiveExport,
             "avery@example.com", "Avery reference", "exact-note", "Exact note", "Exact held writing"));
-        Assert.False(SnapshotNativeUsability.NoteReady(note,
-            damage == "ended" ? ActiveExport with { Ended = true } : ActiveExport,
+        Assert.False(SnapshotNativeUsability.NoteReady(note, lifetime,
+            "avery@example.com", "Avery reference", "exact-note", "Exact note", "Exact held writing"));
+        Assert.Equal(damage == "hidden", SnapshotNativeUsability.NoteWritingObserved(note, lifetime,
             "avery@example.com", "Avery reference", "exact-note", "Exact note", "Exact held writing"));
     }
 

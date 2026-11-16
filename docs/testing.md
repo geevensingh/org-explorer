@@ -449,8 +449,14 @@ held-export SetValue, fresh Morgan identity/heading, original Team-note ID/title
 finite-positive visible editor, supported ValuePattern and exactly-false
 IsReadOnly must agree. The pattern used for that one input comes from the same
 updated-cache element as its accepted frame. Immediate fresh post-input owner,
-note, geometry and exact value must agree too. Avery and Morgan destinations
-require fresh usable identities/headings; returning to Morgan intentionally
+note GUID/title metadata with valid finite geometry, fully viewport-contained
+enabled/nonoffscreen supported explicitly nonreadonly editor and exact value
+must agree too. `NoteWritingObserved` permits only the note title to move outside
+the scrolling viewport after input; it does not relax owner/editor/lifetime
+checks or turn metadata into rendered-reading evidence. Strict `NoteReady`
+still requires the full title and body before input and for returned captures.
+Avery and Morgan destinations require fresh usable identities/headings; returning
+to Morgan intentionally
 reveals the same note before fresh value/usability checks and capture.
 References and initial reveal setup precede the hold where possible. Each reveal
 uses ordinary actual-geometry navigation, at most one centering scroll, followed
@@ -459,6 +465,20 @@ No pre-request geometry/value/readiness is reused. Publishing feedback and the
 disabled Sync now button must both fit the visible Settings viewport when
 observed and captured. Returned note heading/editor must both fit the profile
 viewport. Captures bracket fresh accepted frames, not offscreen property reads.
+
+The recorded post-input frame from native run `43940045839/1` is replayed through
+both predicates: exact owner/note/new writing and the complete writable body fit
+the viewport, while only the title is above it. It must pass AfterInput and fail
+strict capture-context readiness. The invisible compiled provider replay uses
+actual BAML, SQLite, `IValueProvider.SetValue` and a deliberately planned public
+`BringIntoView` during pending feedback. At the matched 416-DIP viewport, feedback
+temporarily leaves 328.38 DIPs for a 381.7-DIP title/body group; ordinary editor
+visibility settlement moves content about 70.47 DIPs and the offset persists
+after durable save. This quantitatively reproduces the captured geometry without
+changing product layout or manufacturing native focus/visibility. It does not
+identify the unlogged historical native focus/caret event. The correction is
+phase-specific harness acceptance, not a storage fix or a new latency target;
+native post-input observation never scrolls/focuses to repair failed readiness.
 
 The actual held publisher callback signals entry and signals completion in its
 own finally, including timeout/failure. Completion is never reset, so a later

@@ -6,6 +6,7 @@ namespace OrgExplorer.Desktop.Smoke;
 internal sealed class AutomaticSnapshotNativeObservation(AutomationElement window, Guid noteId,
     Func<SnapshotExportLifetime> lifetime)
 {
+    private enum NoteObservationPurpose { BeforeInput, AfterInput, ReturnedReading }
     private const string Owner = "morgan@example.com", Heading = "Morgan Example", Title = "Automatic publication owner";
     private readonly CacheRequest textState = TextState();
     private readonly CacheRequest editorState = EditorState();
@@ -38,6 +39,7 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
         Publishing, BeforeInput, AfterInput, Avery, Morgan, Returned, LastPublication, LastNote, LastOwner, LastLifetime,
         LastRejectedPublication, LastRejectedNote, LastRejectedOwner, LastReveal, InputRequests, SelectionRequests,
         timestampFrequency = Stopwatch.Frequency, boundaries,
+        noteReadiness = "BeforeInput/ReturnedReading require visible title and body. AfterInput retains exact note metadata and fully visible writable body; ordinary title scrolling is not loss of editing usability.",
         boundary = "Driver observations of the first actual held publisher invocation. Entered is set inside its callback; Ended is set in that same callback's finally, including timeout/failure. Ended is never reset. Not product latency."
     };
 
@@ -84,13 +86,13 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
 
     internal void EnterWriting(string before, string value)
     {
-        var binding = AwaitNote(before);
+        var binding = AwaitNote(before, NoteObservationPurpose.BeforeInput);
         BeforeInput = binding.Frame;
         Record("before-input-accepted");
         RequireHeld("input");
         InputRequests++;
         using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeSetValue)) binding.Pattern.SetValue(value);
-        AfterInput = AwaitNote(value).Frame;
+        AfterInput = AwaitNote(value, NoteObservationPurpose.AfterInput).Frame;
         Record("after-input-accepted");
     }
 
@@ -115,7 +117,7 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
 
     internal void ObserveReturned(string value)
     {
-        Returned = AwaitNote(value).Frame;
+        Returned = AwaitNote(value, NoteObservationPurpose.ReturnedReading).Frame;
         Record("returned-note-accepted");
     }
 
@@ -130,7 +132,7 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
         Record(stage + "-capture-completed");
     }
 
-    private (SnapshotNativeNote Frame, ValuePattern Pattern) AwaitNote(string value)
+    private (SnapshotNativeNote Frame, ValuePattern Pattern) AwaitNote(string value, NoteObservationPurpose purpose)
     {
         ValuePattern? writing = null;
         Program.Await(() =>
@@ -147,9 +149,13 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
                     editor.GetCachedPropertyValue(ValuePattern.ValueProperty, true) as string),
                 Bounds(note), Bounds(editor), CurrentBounds(profileViewport));
             RequireHeld("note-read-completed");
-            if (!SnapshotNativeUsability.NoteReady(LastNote, LastLifetime!, Owner, Heading, noteId.ToString("D"), Title, value))
+            var ready = purpose == NoteObservationPurpose.AfterInput
+                ? SnapshotNativeUsability.NoteWritingObserved(LastNote, LastLifetime!, Owner, Heading, noteId.ToString("D"), Title, value)
+                : SnapshotNativeUsability.NoteReady(LastNote, LastLifetime!, Owner, Heading, noteId.ToString("D"), Title, value);
+            if (!ready)
             {
-                LastRejectedNote = new { frame = LastNote, lifetime = LastLifetime, timestamp = Stopwatch.GetTimestamp() };
+                LastRejectedNote = new { purpose = purpose.ToString(), frame = LastNote,
+                    lifetime = LastLifetime, timestamp = Stopwatch.GetTimestamp() };
                 return false;
             }
             writing = (ValuePattern)pattern!;
