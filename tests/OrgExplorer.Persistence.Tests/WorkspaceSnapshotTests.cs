@@ -421,6 +421,348 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Fact]
+    public void Deliberate_complete_version_selection_retains_the_other_version_for_recovery_after_restart()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        Guid localVersion, incomingVersion;
+        var image = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        File.WriteAllBytes(Local("conflict-photo.png"), image);
+        HistoricalTeamContext localCapture;
+        using (var second = Create("second"))
+        {
+            Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+            Assert.True(second.SyncNow(), second.Synchronization.Error);
+            Assert.True(second.EditPreferredName("report@example.com", "Second complete version"), second.Status);
+            Assert.NotNull(second.CreatePersonNote("report@example.com", "Local only", "Preserve all local writing"));
+            Assert.True(second.EditPhoto("manager@example.com", Local("conflict-photo.png")), second.Status);
+            Assert.NotNull(second.CreateTeamNote("manager@example.com", "Local history", "Frozen unchosen writing"));
+            Assert.True(second.EditPersonManager("report@example.com", null), second.Status);
+            localCapture = Assert.Single(second.GetHistoricalTeamContexts("report@example.com"));
+            localVersion = second.Synchronization.LocalRevision!.Value;
+            Assert.True(first.EditPreferredName("report@example.com", "First complete version"), first.Status);
+            Assert.NotNull(first.CreateTeamNote("manager@example.com", "Incoming only", "Preserve all incoming writing"));
+            incomingVersion = first.Synchronization.LocalRevision!.Value;
+            Assert.True(first.SyncNow(), first.Synchronization.Error);
+            Deliver("outgoing", "incoming");
+            Assert.False(second.SyncNow());
+            var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+            Assert.Equal(2, review.Versions.Count);
+            Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
+            var navigation = second.PeopleNavigation;
+            Assert.True(second.ChooseWorkspaceVersion(review.Id, incomingVersion), second.Synchronization.Error);
+            Assert.Equal(navigation, second.PeopleNavigation);
+            Assert.False(second.Synchronization.Diverged);
+            Assert.True(second.CanEditLocalWorkspace);
+            Assert.Equal("First complete version", second.GetRelationships("report@example.com")!.Person.PreferredName);
+            Assert.Empty(second.GetPersonNotes("report@example.com"));
+            Assert.Null(second.GetPhoto("manager@example.com"));
+            Assert.Empty(second.GetHistoricalTeamContexts("report@example.com"));
+            Assert.Equal("Preserve all incoming writing", Assert.Single(second.GetTeamNotes("manager@example.com")).Markdown);
+            Assert.True(second.SyncNow(), second.Synchronization.Error);
+            for (var index = 0; index < 3; index++)
+            {
+                Assert.True(second.EditPersonText("report@example.com", PersonTextField.OfficeNumber, "Routine after resolution " + index), second.Status);
+                Assert.True(second.SyncNow(), second.Synchronization.Error);
+            }
+        }
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        var recovery = Assert.IsType<WorkspaceVersionReview>(reopened.GetWorkspaceVersionReview());
+        Assert.Contains(recovery.Versions, item => item.Revision == localVersion && item.Retained);
+        Assert.Contains(recovery.Versions, item => item.Revision == incomingVersion && item.Retained);
+        Assert.True(reopened.ChooseWorkspaceVersion(recovery.Id, localVersion), reopened.Synchronization.Error);
+        Assert.Equal("Second complete version", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal("Preserve all local writing", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
+        Assert.Equal("Frozen unchosen writing", Assert.Single(reopened.GetTeamNotes("manager@example.com")).Markdown);
+        Assert.Equal(image, reopened.GetPhoto("manager@example.com")!.Bytes.ToArray());
+        var restoredCapture = Assert.Single(reopened.GetHistoricalTeamContexts("report@example.com"));
+        Assert.Equal(localCapture.Id, restoredCapture.Id);
+        Assert.Equal(localCapture.TeamNotes, restoredCapture.TeamNotes);
+        Assert.Equal(localCapture.DisplayProvenance, restoredCapture.DisplayProvenance);
+        Assert.True(reopened.SyncNow(), reopened.Synchronization.Error);
+        Deliver("incoming", "outgoing");
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Assert.Equal("Second complete version", first.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal("Preserve all local writing", Assert.Single(first.GetPersonNotes("report@example.com")).Markdown);
+        Assert.Equal(image, first.GetPhoto("manager@example.com")!.Bytes.ToArray());
+        Assert.Equal(localCapture.TeamNotes, Assert.Single(first.GetHistoricalTeamContexts("report@example.com")).TeamNotes);
+    }
+
+    [Fact]
+    public void Arrival_during_the_real_selection_commit_is_retained_and_requires_another_deliberate_choice()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var observer = new SelectionArrivalObserver();
+        using var second = Create("second", observer);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.EditPreferredName("report@example.com", "Chosen local complete version"), second.Status);
+        var local = second.Synchronization.LocalRevision!.Value;
+        Assert.True(first.EditPreferredName("report@example.com", "Initially shown incoming version"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        Assert.False(second.SyncNow());
+        var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.True(first.EditPreferredName("report@example.com", "Unseen later writing"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var arriving = first.Synchronization.LocalRevision!.Value;
+        observer.Arrive = () => Deliver("outgoing", "incoming");
+        Assert.False(second.ChooseWorkspaceVersion(review.Id, local));
+        Assert.True(observer.ObservedCommit);
+        Assert.True(second.Synchronization.Diverged);
+        Assert.False(second.CanEditLocalWorkspace);
+        Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
+        var refreshed = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.Contains(refreshed.Versions, item => item.Revision == arriving && item.Retained);
+        Assert.False(second.ChooseWorkspaceVersion(review.Id, local));
+        Assert.True(second.ChooseWorkspaceVersion(refreshed.Id, arriving), second.Synchronization.Error);
+        Assert.Equal("Unseen later writing", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+    }
+
+    private sealed class SelectionArrivalObserver : IWorkspaceFileObserver
+    {
+        public Action? Arrive;
+        public Action? AfterCommit;
+        public bool ObservedCommit;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name == "snapshot.adopt-commit" && phase.Kind == WorkspaceStoragePhaseKind.End)
+            {
+                var action = AfterCommit;
+                AfterCommit = null;
+                action?.Invoke();
+            }
+            if (phase.Name != "snapshot.adopt-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin || Arrive is not { } arrive)
+                return;
+            Arrive = null;
+            ObservedCommit = true;
+            arrive();
+        }
+    }
+
+    [Fact]
+    public void Selection_remains_read_only_across_restart_when_postcommit_arrival_validation_is_unavailable()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var observer = new SelectionArrivalObserver();
+        using var second = Create("second", observer);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.EditPreferredName("report@example.com", "Selected local version"), second.Status);
+        var local = second.Synchronization.LocalRevision!.Value;
+        Assert.True(first.EditPreferredName("report@example.com", "Other complete version"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        Assert.False(second.SyncNow());
+        var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        FileStream? held = null;
+        observer.AfterCommit = () => held = new FileStream(
+            Directory.GetFiles(Local("incoming"), "*.oesnapshot").Single(path =>
+                path.Contains(first.Synchronization.LocalRevision!.Value.ToString("D"))),
+            FileMode.Open, FileAccess.Read, FileShare.None);
+        try
+        {
+            Assert.False(second.ChooseWorkspaceVersion(review.Id, local));
+            Assert.NotNull(held);
+            Assert.True(second.Synchronization.Diverged);
+            Assert.False(second.CanEditLocalWorkspace);
+            Assert.Equal("Selected local version", second.GetRelationships("report@example.com")!.Person.PreferredName);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.True(reopened.Synchronization.Diverged);
+            Assert.False(reopened.CanEditLocalWorkspace);
+            Assert.Equal("Selected local version", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+        }
+        finally { held?.Dispose(); }
+        var current = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.True(second.ChooseWorkspaceVersion(current.Id, second.Synchronization.LocalRevision!.Value), second.Synchronization.Error);
+        Assert.True(second.CanEditLocalWorkspace);
+    }
+
+    [Fact]
+    public void Routine_retention_keeps_two_complete_versions_without_pruning_resources_history_or_provider_files()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var image = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        File.WriteAllBytes(Local("retained.png"), image);
+        Assert.True(first.EditPhoto("manager@example.com", Local("retained.png")), first.Status);
+        var note = first.CreateTeamNote("manager@example.com", "Captured", "# Original frozen writing")!;
+        Assert.True(first.EditPersonManager("report@example.com", null), first.Status);
+        var capture = Assert.Single(first.GetHistoricalTeamContexts("report@example.com"));
+        Assert.True(first.EditTeamNote(note.Id, "Current", "Current writing"), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var original = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        var providerCopy = Path.Combine(Local("outgoing"), "provider conflict copy.oesnapshot");
+        File.Copy(original, providerCopy);
+        var providerBytes = File.ReadAllBytes(providerCopy);
+        File.WriteAllText(Path.Combine(Local("outgoing"), "provider notes.txt"), "Do not remove unknown data");
+        File.WriteAllText(Path.Combine(Local("outgoing"), ".unknown.pending"), "Unknown interrupted provider bytes");
+        Guid? previous = null;
+        for (var index = 0; index < 5; index++)
+        {
+            previous = first.Synchronization.LocalRevision;
+            Assert.True(first.EditPreferredName("report@example.com", "Routine " + index), first.Status);
+            Assert.True(first.SyncNow(), first.Synchronization.Error);
+        }
+        var owned = Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Where(file => file != providerCopy).ToArray();
+        Assert.Equal(2, owned.Length);
+        Assert.Contains(owned, file => file.Contains(previous!.Value.ToString("D")));
+        Assert.Contains(owned, file => file.Contains(first.Synchronization.LocalRevision!.Value.ToString("D")));
+        Assert.Equal(providerBytes, File.ReadAllBytes(providerCopy));
+        Assert.Equal("Do not remove unknown data", File.ReadAllText(Path.Combine(Local("outgoing"), "provider notes.txt")));
+        Assert.Equal("Unknown interrupted provider bytes", File.ReadAllText(Path.Combine(Local("outgoing"), ".unknown.pending")));
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Routine 4", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal(image, reopened.GetPhoto("manager@example.com")!.Bytes.ToArray());
+        var actual = Assert.Single(reopened.GetHistoricalTeamContexts("report@example.com"));
+        Assert.Equal(capture.Id, actual.Id);
+        Assert.Equal(capture.TeamNotes, actual.TeamNotes);
+        Assert.Equal(capture.DisplayProvenance, actual.DisplayProvenance);
+        Assert.Equal(first.GetProfileTimeline("report@example.com")!.DisplayChanges,
+            reopened.GetProfileTimeline("report@example.com")!.DisplayChanges);
+        Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(Initial).Changes));
+    }
+
+    [Fact]
+    public void Only_an_explicit_fresh_deletion_removes_retained_recovery_not_current_data_or_provider_copies()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.EditPreferredName("report@example.com", "Kept local writing"), second.Status);
+        var local = second.Synchronization.LocalRevision!.Value;
+        Assert.True(first.EditPreferredName("report@example.com", "Explicitly deleted recovery"), first.Status);
+        var incoming = first.Synchronization.LocalRevision!.Value;
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        Assert.False(second.SyncNow());
+        var conflict = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.False(second.DeleteRetainedWorkspaceVersion(conflict.Id, incoming));
+        Assert.True(second.ChooseWorkspaceVersion(conflict.Id, local), second.Synchronization.Error);
+        Assert.False(second.DeleteRetainedWorkspaceVersion(conflict.Id, incoming));
+        var recovery = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        var current = second.Synchronization.LocalRevision;
+        Assert.False(second.DeleteRetainedWorkspaceVersion(recovery.Id, current!.Value));
+        Assert.True(second.DeleteRetainedWorkspaceVersion(recovery.Id, incoming), second.Synchronization.Error);
+        var after = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.DoesNotContain(after.Versions, item => item.Revision == incoming && item.Retained);
+        Assert.Contains(after.Versions, item => item.Revision == local && item.Retained);
+        Assert.Equal(current, second.Synchronization.LocalRevision);
+        Assert.Equal("Kept local writing", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    public async Task Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(
+        NoteScope scope, bool loseAcknowledgment)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var owner = scope == NoteScope.Team ? "manager@example.com" : "report@example.com";
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(scope, owner)!, "Exact owner", "Original note")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var second = new WorkspaceViewModel(proxy);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.NavigatePerson(owner), second.Status);
+        Assert.True(second.OpenOwnedNote(scope, note.Id, editing: true), second.Status);
+        using var committed = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        boundary.AfterSave = () =>
+        {
+            committed.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled selection handoff expired.");
+            if (loseAcknowledgment) throw new IOException("Controlled loss of actual committed note acknowledgment.");
+        };
+        second.UpdateNoteDraft(scope, note.Id, note.Title, "Actual committed note before acknowledgment");
+        try
+        {
+            Assert.True(committed.Wait(TimeSpan.FromSeconds(5)));
+            second.UpdateNoteDraft(scope, note.Id, note.Title, "Newer exact owner writing");
+            Assert.True(first.EditPreferredName("report@example.com", "Divergent other computer"), first.Status);
+            Assert.True(first.SyncNow(), first.Synchronization.Error);
+            Deliver("outgoing", "incoming");
+            Assert.False(second.SyncNow());
+            var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+            Assert.False(second.ChooseWorkspaceVersion(review.Id, first.Synchronization.LocalRevision!.Value));
+            var draft = Assert.IsType<RetainedNoteDraft>(second.GetRetainedNoteDraft(scope, note.Id));
+            Assert.True(draft.IsSaving);
+            Assert.Equal(owner, draft.Basis.OwnerEmail);
+            Assert.Equal("Newer exact owner writing", draft.Markdown);
+            Assert.True(second.NavigatePerson(scope == NoteScope.Team ? "report@example.com" : "manager@example.com"), second.Status);
+        }
+        finally { release.Set(); }
+        Assert.False(await second.FlushNoteDraftsAsync());
+        var currentReview = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.False(second.ChooseWorkspaceVersion(currentReview.Id, first.Synchronization.LocalRevision!.Value));
+        Assert.Equal("Newer exact owner writing", second.GetRetainedNoteDraft(scope, note.Id)!.Markdown);
+        Assert.False(second.CanSafelyClose);
+    }
+
+    [Fact]
+    public void Adoption_preserves_the_previous_known_good_complete_version_even_if_the_provider_removed_its_export()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        var previous = second.Synchronization.LocalRevision!.Value;
+        Assert.True(first.EditPreferredName("report@example.com", "Only delivered continuation"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        foreach (var file in Directory.GetFiles(Local("incoming"), "*.oesnapshot")) File.Delete(file);
+        var latest = Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Single(file =>
+            file.Contains(first.Synchronization.LocalRevision!.Value.ToString("D")));
+        File.Copy(latest, Path.Combine(Local("incoming"), Path.GetFileName(latest)));
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        var retained = Directory.GetFiles(Local("incoming"), "*.oesnapshot");
+        Assert.Equal(2, retained.Length);
+        Assert.Contains(retained, file => file.Contains(previous.ToString("D")));
+        Assert.Equal("Only delivered continuation", second.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
+    [Fact]
     public void Fresh_join_intent_does_not_authorize_overwriting_a_later_commit_from_another_local_client()
     {
         using var first = Create("first");

@@ -178,6 +178,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         localSqlite = false;
         synchronization = new(false);
         localAncestry = [];
+        localResolvedRevisions = [];
         joiningWorkspace = false;
         compatibility = new(WorkspaceCompatibilityState.NotOpened,
             "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
