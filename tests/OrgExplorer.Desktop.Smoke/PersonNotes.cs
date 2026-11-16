@@ -245,15 +245,17 @@ internal static partial class Program
     }
 
     private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
+        => SelectTreePerson(window, email, expectNavigation ? PersonSelection.Mode.Ordinary : PersonSelection.Mode.ExpectedRejection);
+
+    private static void SelectTreePerson(AutomationElement window, string email, PersonSelection.Mode mode) =>
+        PersonSelection.Request(mode, () => AwaitLocalWorkIdle(window), () =>
     {
-        if (expectNavigation) AwaitLocalWorkIdle(window);
         EnsurePeopleBrowsing(window);
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        if (expectNavigation) Await(() => Find(window, "Email").Current.Name == email);
-    }
+    }, () => Await(() => Find(window, "Email").Current.Name == email));
 
     private static void AssertBlockedNoteNavigation(AutomationElement window, string draft)
     {
