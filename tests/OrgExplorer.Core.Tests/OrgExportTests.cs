@@ -1268,6 +1268,59 @@ public sealed class OrgExportTests : IDisposable
         => ExportSession.Create("Example Person", RootId, account, root);
 
     [Fact]
+    public async Task Explicit_metadata_deferral_allows_unread_entries_but_preserves_the_failed_lookup_and_publication_block()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        JsonObject Unavailable() => new()
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
+        };
+        var initial = session.ClaimSource("initial", "profile", [RootId]);
+        FinishSource(session, initial, Unavailable());
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("initial-retry", "profile", [RootId]), Ok(new JsonObject()));
+        var metadata = session.ClaimSource("metadata", "structured", [ExportSession.PhotoPath(RootId)]);
+        FinishSource(session, metadata, Unavailable());
+        session.BeginSource503Recovery("User authorized delayed HTTP 503 retries.");
+        var retry = session.ClaimSource("metadata-retry", "structured", [ExportSession.PhotoPath(RootId)]);
+        FinishSource(session, retry, Unavailable());
+        var failed = session.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId));
+        var retainedAttempts = JsonSerializer.Serialize(failed.Attempts, ExportSession.Json);
+        Assert.Null(session.ClaimSource("unread", "structured", [ExportSession.PhotoPath(ChildId)]).ClaimId);
+        Assert.Empty(JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!["jobFiles"]!.AsArray());
+        const string reason = "User requested fetching unread entries while this twice-failed metadata lookup remains unresolved.";
+
+        var deferred = await RunCli("source-defer-photo-503", path, reason);
+
+        Assert.Equal(0, deferred.ExitCode);
+        Assert.Empty(deferred.Error);
+        var ledger = JsonNode.Parse(deferred.Output)!;
+        var audit = Assert.Single(ledger["metadataDeferrals"]!.AsArray())!;
+        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
+        var target = Assert.Single(audit["targets"]!.AsArray())!;
+        Assert.Equal(ExportSession.PhotoPath(RootId), target["target"]!.GetValue<string>());
+        Assert.Equal(retry.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
+        Assert.Equal(1, (await RunCli("source-defer-photo-503", path, reason)).ExitCode);
+        Assert.Null(session.ClaimSource("third-attempt", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
+        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
+        Assert.Single(jobs["jobFiles"]!.AsArray());
+        Assert.Single(jobs["photoMetadataPaths"]!.AsArray());
+        var unread = session.ClaimSource("unread", "structured", [ExportSession.PhotoPath(ChildId)]);
+        Assert.NotNull(unread.ClaimId);
+        FinishSource(session, unread, Ok(new JsonObject()));
+        var later = session.ClaimSource("later", "structured", [ExportSession.PhotoPath(AltId)]);
+        FinishSource(session, later, Unavailable());
+        session.BeginSource503Recovery("User also authorized future first-attempt 503 recovery.");
+        FinishSource(session, session.ClaimSource("later-retry", "structured", [ExportSession.PhotoPath(AltId)]), Ok(new JsonObject()));
+        failed = session.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId));
+        Assert.Equal("failed", failed.State);
+        Assert.Equal(retainedAttempts, JsonSerializer.Serialize(failed.Attempts, ExportSession.Json));
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
+    }
+
+    [Fact]
     public async Task Explicit_503_recovery_records_later_failures_without_resetting_successes_or_retry_limits()
     {
         var path = Seed();

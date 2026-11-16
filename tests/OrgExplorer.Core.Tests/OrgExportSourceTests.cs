@@ -141,6 +141,7 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Null(coordinator.ClaimSource("different-phase", "structured", [ExportSession.UserPath(RootId)]).ClaimId);
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSourceRecovery());
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSource503Recovery("User-approved 503 continuation."));
+        Assert.Throws<InvalidOperationException>(() => coordinator.Defer503PhotoMetadata("User requested the rest."));
         Assert.Throws<InvalidOperationException>(() => coordinator.InterruptSource(deniedClaim, "Cannot undo a completed denial."));
         Assert.Contains("source", Assert.Throws<InvalidOperationException>(() => coordinator.Publish()).Message,
             StringComparison.OrdinalIgnoreCase);
@@ -219,6 +220,69 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts);
         Assert.Null(session.ClaimSource("blocked-retry", "profile", [Identity(2)]).ClaimId);
         Assert.True(session.SourceStatus().RecoveryConsumed);
+    }
+
+    [Fact]
+    public void Metadata_deferral_preserves_returned_delays_and_requires_explicit_reason_and_settled_calls()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using (var session = ExportSession.Open(path, sourceClock: clock))
+        {
+            var first = session.ClaimSource("first", "structured", [ExportSession.PhotoPath(RootId)]);
+            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
+            Finish(session, first, new JsonObject { ["statusCode"] = 503 });
+            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
+            session.BeginSourceRecovery();
+            var retry = session.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
+            Finish(session, retry, new JsonObject
+            {
+                ["statusCode"] = 503, ["headers"] = new JsonObject { ["Retry-After"] = "450" }
+            });
+            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata(" "));
+            var ledger = session.Defer503PhotoMetadata("User requested unread entries.");
+            Assert.Equal(clock.Now, Assert.Single(ledger.MetadataDeferrals).RecordedAt);
+        }
+        using var resumed = ExportSession.Open(path, sourceClock: clock);
+        var blocked = resumed.ClaimSource("unread", "structured", [ExportSession.PhotoPath(Identity(2))]);
+        Assert.Null(blocked.ClaimId);
+        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
+        clock.Now = clock.Now.AddSeconds(450);
+        Assert.Null(resumed.ClaimSource("third-attempt", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
+        var unread = resumed.ClaimSource("unread", "structured", [ExportSession.PhotoPath(Identity(2))]);
+        Assert.NotNull(unread.ClaimId);
+        Finish(resumed, unread, Ok());
+        Assert.Equal("failed", resumed.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId)).State);
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => resumed.Publish()).Message);
+    }
+
+    [Theory]
+    [InlineData("profile", 503)]
+    [InlineData("photo", 503)]
+    [InlineData("directory", 503)]
+    [InlineData("metadata", 500)]
+    [InlineData("metadata", 403)]
+    public void Metadata_deferral_cannot_skip_other_source_types_or_non503_failures(string kind, int status)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var target = kind switch
+        {
+            "profile" => Identity(1),
+            "photo" => $"/users/{RootId}/photo/$value",
+            "directory" => ExportSession.ReportsPath(RootId),
+            _ => ExportSession.PhotoPath(RootId)
+        };
+        var sourceKind = kind is "profile" or "photo" ? kind : "structured";
+        Finish(session, session.ClaimSource("first", sourceKind, [target]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("retry", sourceKind, [target]), new JsonObject { ["statusCode"] = status });
+
+        Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
+
+        Assert.Empty(session.SourceStatus().MetadataDeferrals);
+        Assert.Null(session.ClaimSource("unread", "profile", [Identity(2)]).ClaimId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == target).Attempts.Count);
     }
 
     [Fact]

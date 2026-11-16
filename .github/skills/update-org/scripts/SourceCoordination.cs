@@ -16,9 +16,11 @@ public sealed partial class ExportSession
         public bool RecoveryConsumed { get; set; }
         public string? StopReason { get; set; }
         public List<ServiceRecoveryAuthorization> ServiceRecoveries { get; set; } = [];
+        public List<MetadataDeferral> MetadataDeferrals { get; set; } = [];
     }
     public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
     public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
+    public sealed record MetadataDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
@@ -56,10 +58,13 @@ public sealed partial class ExportSession
                 reason, retryAt > now ? retryAt : null);
             if (ledger.StopReason is not null) return Blocked(ledger.StopReason);
             if (pending.Length == 0) return Blocked("These source reads are already completed.");
+            if (pending.Any(read => IsDeferredMetadata(ledger, read)))
+                return Blocked("Deferred photo metadata remains unresolved; its retry limit cannot reset.");
             var active = ledger.Reads.Where(read => read.State == "active").ToArray();
             if (active.Any(read => read.Attempts[^1].Worker == worker) || pending.Any(read => read.State == "active"))
                 return Blocked("A requested read or this worker already has an active claim.");
-            if (ledger.Reads.Any(read => read.State == "failed" || read.RecoveryEligible && read.State != "completed"))
+            if (ledger.Reads.Any(read => !IsDeferredMetadata(ledger, read)
+                && (read.State == "failed" || read.RecoveryEligible && read.State != "completed")))
             {
                 if (!ledger.RecoveryConsumed)
                     return Blocked("Source reads are paused for the coordinator's invocation-wide recovery decision.");
@@ -135,26 +140,52 @@ public sealed partial class ExportSession
             Require(ledger.StopReason is null, ledger.StopReason ?? "");
             Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
             Require(ledger.Reads.All(read => read.State != "active"), "Stop dispatch and settle or interrupt all active workers first.");
-            var failures = ledger.Reads.Where(read => read.State == "failed").ToArray();
+            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredMetadata(ledger, read)).ToArray();
             Require(failures.Length > 0 && failures.All(read => read.Attempts.Count == 1
                 && read.Attempts[^1].Retryable && !read.RecoveryEligible),
                 "Only first-attempt failures can receive additional HTTP 503 recovery; existing recovery cannot reset.");
-            foreach (var read in failures)
-            {
-                var resultFile = read.Attempts[^1].ResultFile
-                    ?? throw new InvalidOperationException("HTTP 503 recovery requires retained original source results.");
-                var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
-                var statuses = SourceObjects(result.Response).SelectMany(SourceStatuses)
-                    .Where(status => status is < 200 or >= 300).ToArray();
-                Require(statuses.Length > 0 && statuses.All(status => status == 503),
-                    "Additional recovery is limited to HTTP 503; other source failures remain blockers.");
-            }
+            foreach (var read in failures) Require503SourceResult(read);
             ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason, failures.Select(read =>
                 new ServiceRecoveryTarget(read.Kind, read.Target, read.Attempts[^1].ClaimId)).ToArray()));
             foreach (var read in failures)
                 ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
             return ledger;
         });
+    }
+
+    public SourceLedger Defer503PhotoMetadata(string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit request to continue unread entries with failed metadata unresolved.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before deferring metadata.");
+            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredMetadata(ledger, read)).ToArray();
+            Require(failures.Length > 0 && failures.All(read => read.Kind == "structured"
+                && read.Target.Split('?')[0].EndsWith("/photo", StringComparison.Ordinal)
+                && read.Attempts.Count == 2 && read.Attempts[^1].Retryable),
+                "Only twice-failed HTTP 503 photo metadata can be deferred; other failures remain blockers.");
+            foreach (var read in failures) Require503SourceResult(read);
+            ledger.MetadataDeferrals.Add(new(sourceClock.GetUtcNow(), reason, failures.Select(read =>
+                new ServiceRecoveryTarget(read.Kind, read.Target, read.Attempts[^1].ClaimId)).ToArray()));
+            return ledger;
+        });
+    }
+
+    private static bool IsDeferredMetadata(SourceLedger ledger, SourceRead read)
+        => read.State == "failed" && read.Attempts.Count == 2 && ledger.MetadataDeferrals.Any(deferral =>
+            deferral.Targets.Any(target => target.Kind == read.Kind && target.Target == read.Target
+                && target.FailedClaimId == read.Attempts[^1].ClaimId));
+
+    private void Require503SourceResult(SourceRead read)
+    {
+        var resultFile = read.Attempts[^1].ResultFile
+            ?? throw new InvalidOperationException("HTTP 503 handling requires retained original source results.");
+        var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
+        var statuses = SourceObjects(result.Response).SelectMany(SourceStatuses)
+            .Where(status => status is < 200 or >= 300).ToArray();
+        Require(statuses.Length > 0 && statuses.All(status => status == 503),
+            "Additional handling is limited to HTTP 503; other source failures remain blockers.");
     }
 
     public SourceLedger InterruptSource(Guid claimId, string reason)

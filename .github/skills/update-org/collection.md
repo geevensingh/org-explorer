@@ -37,6 +37,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-finish RUN CLAIM-ID RESULTS.json` | Records and returns only this claim's outcomes plus invocation recovery/stop flags; retains the result file for handoff. Use `source-status` for the full ledger. |
 | `source-recover RUN` | Coordinator only: consumes the single failed-read recovery pass after all active claims settle. |
 | `source-recover-503 RUN REASON` | Coordinator only, with explicit user authorization: records an additional recovery of currently failed, first-attempt HTTP 503 reads after the ordinary pass was consumed. |
+| `source-defer-photo-503 RUN REASON` | Coordinator only, when the user requests collecting unread entries despite exhausted HTTP 503 photo metadata: records that deferral without clearing the failure or enabling publication. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
@@ -244,6 +245,22 @@ queued first reads. Each failed lookup still has only one retry: a failed second
 attempt, another status, invalid delay or missing original evidence blocks this
 exception. Workers pause and report; only the coordinator authorizes recovery.
 Access/authentication/policy denials remain unconditional stops.
+
+### Collecting unread entries despite exhausted photo metadata
+
+When the user explicitly requests fetching the rest after a photo-metadata lookup
+fails its one retry with HTTP 503, settle all active claims, then the coordinator
+may run `source-defer-photo-503 RUN REASON`. This records the user's request, time,
+targets and failed-claim identities in `metadataDeferrals`. Only twice-failed
+photo metadata with retained original HTTP 503 results qualifies. Directory,
+profile, binary, non-503 and denied reads cannot use this exception.
+
+The failed entry and both attempts remain unchanged. The gate permits other reads
+while preventing another attempt of the deferred target; returned retry delays
+still gate all calls. Later failures still require their normal recovery decision.
+Workers distinguish these explicitly deferred metadata failures from new blockers.
+The helper still requires every source read to be completed for `publish`, so a
+deferred failure remains an export blocker, never confirmed photo absence.
 
 ### Denials and stopped-worker handoff
 

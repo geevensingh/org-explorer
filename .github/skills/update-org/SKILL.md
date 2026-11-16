@@ -83,6 +83,9 @@ the explicit stopped-worker handoff in the collection protocol.
 Explicit user authorization can permit additional first-attempt HTTP 503 recovery
 through the protocol's `source-recover-503` gate; returned delays, one retry per
 lookup and denial stops still apply.
+If the user requests fetching unread entries despite exhausted HTTP 503 photo
+metadata, follow the protocol's recorded deferral gate. Collection may continue;
+the failed lookup still blocks publication.
 For mixed profile batches, correct and resubmit only failed inputs according to
 the collection protocol; retained successes need no repeated lookup or resubmission.
 Authentication/access/policy denial stops this invocation without alternate
