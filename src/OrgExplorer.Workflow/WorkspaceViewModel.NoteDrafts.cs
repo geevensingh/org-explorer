@@ -60,7 +60,8 @@ public sealed partial class WorkspaceViewModel
             draft.Markdown = markdown;
             draft.Generation++;
             draft.Error = null;
-            workflow.RetainNoteDraft(draft.Basis);
+            // The admitted writer owns retention until its accepted successor base is installed.
+            if (!draft.Saving) workflow.RetainNoteDraft(draft.Basis);
             ScheduleNoteAutosave();
         }
         Notify();

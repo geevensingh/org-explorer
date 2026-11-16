@@ -221,6 +221,17 @@ Ongoing selection, inherited Team context, actual Person switches during a real
 SQLite writer lock, newer typing, failure/retry identity and scoped discard. Continued
 typing must produce multiple independently reopened committed values before idle,
 including a first ordinary small-fixture commit within one second.
+Public workflow wrappers also hold an actual successful SQLite SaveNoteDraft
+return after commit in both scopes. Typing in that gap must not reinstall the
+old base; the coordinator installs its accepted successor before retaining newer
+writing, which must then commit/reopen under the same owner/identity. While a
+save is admitted, typing updates its generation without reclaiming workflow-base
+retention from the writer. These cases keep safe close unavailable and browsing
+usable through the gap. Separate admitted-call gates allow a real second local
+workflow to commit/deliver a different base: that save must still be rejected,
+retaining both the other committed writing and recoverable local draft. No
+private-table assertions, production-only hooks, unconditional base replacement
+or storage-I/O locks around UI draft updates are used.
 The existing invisible `--verify-profile-refresh` selection drives both compiled
 editors before a held commit and actual selection events, retaining exact newer
 writing and owner through late completion without showing/focusing a native window.

@@ -1,6 +1,8 @@
 using OrgExplorer.Workflow;
 using Microsoft.Data.Sqlite;
 using OrgExplorer.Desktop.Smoke;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -503,6 +505,126 @@ public sealed class SqliteWorkspaceTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public async Task Typing_during_a_successful_save_return_uses_the_accepted_base_for_the_next_commit(NoteScope scope)
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)proxy;
+        var inner = boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var committed = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var paused = 0;
+        boundary.AfterSuccessfulSave = _ =>
+        {
+            if (Interlocked.Exchange(ref paused, 1) != 0) return;
+            committed.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The successful note save return was not released.");
+        };
+        try
+        {
+            var creation = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+            app.UpdateNoteDraft(scope, creation.Id, "Initial context", "First committed writing");
+            Assert.True(committed.Wait(TimeSpan.FromSeconds(10)), "The actual SQLite commit did not reach its return boundary.");
+            Assert.False(inner.HasUnsavedNoteDraft(scope, creation.Id));
+            Assert.False(app.CanSafelyClose);
+            using (var reading = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                var first = Assert.IsType<NoteDraft>(reading.BeginNoteDraft(scope, "manager@example.com", creation.Id));
+                Assert.Equal("First committed writing", first.Markdown);
+                Assert.Null(reading.BeginNoteDraft(scope, "report@example.com", creation.Id));
+            }
+            app.UpdateNoteDraft(scope, creation.Id, "Latest context", "Newer writing during the successful return");
+            var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, creation.Id));
+            Assert.Same(creation, retained.Basis);
+            Assert.True(retained.IsSaving);
+            Assert.Equal("Newer writing during the successful return", retained.Markdown);
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+            Assert.Equal(creation.Id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+            Assert.Equal("Newer writing during the successful return", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            Assert.False(app.CanSafelyClose);
+            release.Set();
+            Assert.True(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+            Assert.Null(app.GetRetainedNoteDraft(scope, creation.Id));
+            Assert.Null(app.LocalSaveError);
+            Assert.True(app.CanSafelyClose, app.Status);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            var latest = Assert.IsType<NoteDraft>(reopened.BeginNoteDraft(scope, "manager@example.com", creation.Id));
+            Assert.Equal("Latest context", latest.Title);
+            Assert.Equal("Newer writing during the successful return", latest.Markdown);
+            Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", creation.Id));
+        }
+        finally
+        {
+            release.Set();
+            await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task A_genuine_different_base_rejects_an_admitted_autosave_without_losing_either_writing(NoteScope scope)
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var admitted = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(
+            app.BeginNoteDraft(scope, "manager@example.com")!, "Original context", "Original committed writing"));
+        Assert.True(app.OpenOwnedNotes(scope, original.OwnerEmail), app.Status);
+        Assert.True(app.OpenOwnedNote(scope, original.Id, editing: true), app.Status);
+        boundary.BeforeSave = () =>
+        {
+            admitted.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The admitted note save was not released.");
+        };
+        try
+        {
+            app.UpdateNoteDraft(scope, original.Id, "Local context", "Retained local writing");
+            Assert.True(admitted.Wait(TimeSpan.FromSeconds(10)), "The autosave did not reach its actual public workflow boundary.");
+            using (var other = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(other.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), other.Status);
+                var basis = Assert.IsType<NoteDraft>(other.BeginNoteDraft(scope, original.OwnerEmail, original.Id));
+                Assert.NotNull(other.SaveNoteDraft(basis, "Other context", "Other committed writing"));
+            }
+            Assert.True(app.RefreshWorkspace(), app.Status);
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson(original.OwnerEmail), app.Status);
+            Assert.Equal("Retained local writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            release.Set();
+            Assert.False(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Contains("changed externally", app.LocalSaveError);
+            var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, original.Id));
+            Assert.Equal("Retained local writing", retained.Markdown);
+            Assert.NotNull(retained.Error);
+            Assert.False(app.CanSafelyClose);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal("Other committed writing", reopened.BeginNoteDraft(scope, original.OwnerEmail, original.Id)!.Markdown);
+            Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", original.Id));
+        }
+        finally
+        {
+            release.Set();
+            await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public void Local_notes_preserve_identity_writing_archival_ongoing_choice_and_scope_on_reopen(NoteScope scope)
     {
         var preferences = Path.Combine(root, "settings", "notes.json");
@@ -945,5 +1067,28 @@ public sealed class SqliteWorkspaceTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(root)) Directory.Delete(root, true);
+    }
+
+    public class NoteSaveBoundary : DispatchProxy
+    {
+        public IApplicationWorkflow Inner { get; set; } = null!;
+        public Action? BeforeSave { get; set; }
+        public Action<NoteDraft>? AfterSuccessfulSave { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod is null) throw new InvalidOperationException("A workflow method is required.");
+            if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft)) BeforeSave?.Invoke();
+            object? result;
+            try { result = targetMethod.Invoke(Inner, args); }
+            catch (TargetInvocationException error) when (error.InnerException is not null)
+            {
+                ExceptionDispatchInfo.Capture(error.InnerException).Throw();
+                throw;
+            }
+            if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft) && result is NoteDraft accepted)
+                AfterSuccessfulSave?.Invoke(accepted);
+            return result;
+        }
     }
 }
