@@ -225,7 +225,7 @@ internal static partial class Program
             heldAdmissionAt = DateTimeOffset.UtcNow;
             SetSettingsVisible(window, false);
             Set(window, "JobTitle", "Private draft admitted after snapshot seal");
-            SelectTreePerson(window, "morgan@example.com");
+            SelectTreePerson(window, "morgan@example.com", expectNavigation: false);
             Await(() => CurrentPersonEmail(window) == "morgan@example.com");
             if (heldReader.Connection != connection || !File.Exists(Path.Combine(target, "workspace.sqlite-journal")))
                 throw new InvalidOperationException("Native browsing/draft admission outlasted the actual held adoption transaction.");
@@ -240,7 +240,7 @@ internal static partial class Program
             Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.") &&
             !Find(window, "SynchronizationStatus").Current.Name.Contains("Synchronization failed"));
         SetSettingsVisible(window, false);
-        SelectTreePerson(window, "avery@example.com");
+        SelectTreePerson(window, "avery@example.com", expectNavigation: false);
         Await(() => CurrentPersonEmail(window) == "avery@example.com");
         AssertValue(window, "JobTitle", "Private draft admitted after snapshot seal");
         CancelProfileEditing(window);
