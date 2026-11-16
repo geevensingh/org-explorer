@@ -5,6 +5,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private bool workPending;
+    private bool localImportPending;
     private bool externalRefreshPending;
     private TaskCompletionSource? workCompleted;
 
@@ -14,17 +15,18 @@ public partial class MainWindow
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        System.Windows.Controls.UserControl? noteDraft = null)
+        System.Windows.Controls.UserControl? noteDraft = null, bool isImport = false)
     {
         workPending = true;
+        localImportPending = isImport && RetainsPersonDrafts;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = false;
         CreateLocalSqliteWorkspaceButton.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
-        PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
-        TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
+        PersonNotes.IsEnabled = localImportPending || ReferenceEquals(noteDraft, PersonNotes);
+        TeamNotes.IsEnabled = localImportPending || ReferenceEquals(noteDraft, TeamNotes);
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
@@ -33,6 +35,7 @@ public partial class MainWindow
         finally
         {
             workPending = false;
+            localImportPending = false;
             if (pendingPreferredNameCancellation is { } cancelledName)
             {
                 pendingPreferredNameCancellation = null;
