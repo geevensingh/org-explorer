@@ -31,6 +31,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `init LABEL ROOT-ID ACCOUNT-ID` | Returns a new private staging path below local `OrgExplorer\Imports`. |
 | `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
 | `capture RUN TICKET.json` | Returns original response/request file references, tool-call identity, source-result counts and outer tool outcome. Incomplete/ambiguous capture fails explicitly. |
+| `capture-reconcile RUN TICKET.json CLAIM-ID TOOL-CALL-ID REASON` | Coordinator only, after explicit user approval: creates an audited ticket for one duplicated `Private` employer qualifier, preserving the original ticket and source call. |
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
 | `source-status RUN` | Returns the persistent invocation-wide source record, including active claims, failures, deferred first reads, saved result paths and recovery consumption. |
 | `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
@@ -132,6 +133,28 @@ source statuses are available (otherwise null). Neither proves authorization
 or publication readiness. Ingest mixed batches even after an outer failure so
 successes remain available; inspect failures and follow the centralized recovery
 and authorization rules before further source reads.
+
+### Explicit duplicate-word reconciliation
+
+Ordinary capture still requires exact recorded arguments. If a worker accidentally
+duplicates the `Private` employer qualifier in a People query, stop further reads and retain the
+original ticket and diagnostic. The coordinator must verify the exact original
+runtime call ID, caller scope, claimed identities and outcome, then obtain explicit
+user approval before `capture-reconcile`. This is not an automatic fallback.
+
+The helper permits only that one `Private Private` duplication in a People-only
+grounded profile query. Every other argument must match, every queried directory
+ID must equal a still-active claim target, and the unchanged bookmarked event
+stream must contain exactly one scoped start and completion for the supplied call.
+Other edits, sources, identities, missing/ambiguous events and denials remain
+blockers. The returned ticket records the claim, call, reason and time, and retains
+the original ticket bytes beside the actual invoked arguments.
+
+Run ordinary `capture` with the returned ticket, inspect all original source
+outcomes and `source-finish` the original claim. Preserve both tickets and the
+initial mismatch diagnostic. No query is repeated, response bytes reconstructed,
+history rewritten or recovery allowance reset. The original source result still
+needs the normal identity, uncertainty and authorization checks.
 
 ### Profile batch outcomes
 

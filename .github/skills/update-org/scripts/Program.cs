@@ -25,6 +25,7 @@ try
             "source-recover-profile-open" when args.Length == 4 => session.BeginProfileOpenRecovery(args[2], args[3]),
             "source-interrupt" when args.Length == 4 => session.InterruptSource(Guid.Parse(args[2]), args[3]),
             "capture-start" when args.Length == 4 => session.BeginCapture(args[2], args[3]),
+            "capture-reconcile" when args.Length == 6 => session.ReconcileCapture(args[2], Guid.Parse(args[3]), args[4], args[5]),
             "capture" when args.Length == 3 => session.Capture(args[2]),
             "ingest" when args.Length == 4 => session.Ingest(args[2], args[3]),
             "plan" when args.Length == 2 => session.Jobs(),

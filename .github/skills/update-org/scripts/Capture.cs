@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace OrgExplorer.OrgExport;
 
@@ -10,7 +11,9 @@ public sealed partial class ExportSession
     public sealed record CaptureRequest(string ToolName, JsonObject Arguments,
         string? AgentId = null, string? ParentToolCallId = null);
     private sealed record CaptureTicket(Guid BatchId, string EventsFile, long Offset, string PrefixSha256,
-        CaptureRequest Request);
+        CaptureRequest Request, CaptureReconciliation? Reconciliation = null);
+    private sealed record CaptureReconciliation(Guid SourceClaimId, string ToolCallId, string Reason,
+        DateTimeOffset RecordedAt);
     public sealed record CapturedResult(string ToolCallId, bool ToolSucceeded, int ResultCount, int? NonSuccessResults,
         string ResponseFile, string? RequestsFile, string StartFile, string CompletionFile, string[] SavedFiles);
 
@@ -35,6 +38,74 @@ public sealed partial class ExportSession
         Save(ticketFile, ticket);
         File.WriteAllBytes(System.IO.Path.Combine(directory, ".lock"), []);
         return ticketFile;
+    }
+
+    public string ReconcileCapture(string ticketFile, Guid sourceClaimId, string toolCallId, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason) && !string.IsNullOrWhiteSpace(toolCallId),
+            "Record explicit approval and the original runtime tool-call identity.");
+        ticketFile = System.IO.Path.GetFullPath(ticketFile);
+        Require(ticketFile.StartsWith(path + "\\captures\\", StringComparison.OrdinalIgnoreCase),
+            "Use this run's original capture ticket.");
+        var originalBytes = File.ReadAllBytes(ticketFile);
+        var ticket = Read<CaptureTicket>(ticketFile);
+        Require(ticket.BatchId == run.BatchId && ticket.Reconciliation is null,
+            "Use an original, unreconciled ticket from this run.");
+        var request = ticket.Request;
+        Require(request.ToolName == "workiq-retrieve"
+            && request.Arguments["strategy"]?.GetValue<string>() == "grounding"
+            && request.Arguments["capabilities"] is JsonArray { Count: 1 } capabilities
+            && capabilities[0]?["name"]?.GetValue<string>() == "People",
+            "Reconciliation is limited to the original People-only grounded profile lookup.");
+        var ledger = SourceStatus();
+        Require(ledger.StopReason is null, ledger.StopReason ?? "");
+        var reads = ledger.Reads.Where(read => read.State == "active" && read.Attempts[^1].ClaimId == sourceClaimId).ToArray();
+        Require(reads.Length is > 0 and <= 4 && reads.All(read => read.Kind == "profile"),
+            "Use the still-active profile source claim for this invocation.");
+        using var events = OpenEvents(ticket.EventsFile);
+        Require(events.Length >= ticket.Offset && PrefixHash(events, ticket.Offset) == ticket.PrefixSha256,
+            "The original session event stream changed; reconciliation cannot establish provenance.");
+        events.Position = ticket.Offset;
+        using var reader = new StreamReader(events, new UTF8Encoding(false, true));
+        var starts = new List<JsonObject>();
+        var completions = 0;
+        while (reader.ReadLine() is { } line)
+        {
+            using var document = JsonDocument.Parse(line);
+            var entry = document.RootElement;
+            if (!entry.TryGetProperty("type", out var type) || !entry.TryGetProperty("data", out var data)
+                || !CaptureScope(entry, data, request) || OptionalString(data, "toolCallId") != toolCallId) continue;
+            if (type.GetString() == "tool.execution_start" && OptionalString(data, "toolName") == request.ToolName)
+                starts.Add(JsonNode.Parse(data.GetProperty("arguments").GetRawText())!.AsObject());
+            if (type.GetString() == "tool.execution_complete") completions++;
+        }
+        Require(starts.Count == 1 && completions == 1, "The exact scoped original invocation must have one start and completion.");
+        var actual = starts[0];
+        var expectedQuery = request.Arguments["query"]?.GetValue<string>()
+            ?? throw new InvalidOperationException("The original profile query is missing.");
+        var actualQuery = actual["query"]?.GetValue<string>()
+            ?? throw new InvalidOperationException("The invoked profile query is missing.");
+        var otherArguments = actual.DeepClone().AsObject();
+        otherArguments["query"] = expectedQuery;
+        Require(JsonNode.DeepEquals(otherArguments, request.Arguments),
+            "Reconciliation cannot change source capabilities, strategy or other arguments.");
+        var duplicatedWord = Regex.Matches(actualQuery, @"(?<!\S)(Private)[ \t]+\1(?=\s|$)", RegexOptions.CultureInvariant)
+            .Any(match => actualQuery.Remove(match.Index + match.Groups[1].Length, match.Length - match.Groups[1].Length)
+                == expectedQuery);
+        Require(duplicatedWord, "Only one duplicated Private employer qualifier can be reconciled; other edits remain blockers.");
+        var identities = Regex.Matches(actualQuery,
+            @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+            .Select(match => Guid.Parse(match.Value).ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Require(identities.SetEquals(reads.Select(read => read.Target)),
+            "The original invocation must name exactly the claimed directory identities.");
+        var audit = new CaptureReconciliation(sourceClaimId, toolCallId, reason, DateTimeOffset.UtcNow);
+        var directory = Within("captures\\" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        Immutable(System.IO.Path.Combine(directory, "original-ticket.json"), originalBytes);
+        var reconciledFile = System.IO.Path.Combine(directory, "ticket.json");
+        Save(reconciledFile, ticket with { Request = request with { Arguments = actual }, Reconciliation = audit });
+        File.WriteAllBytes(System.IO.Path.Combine(directory, ".lock"), []);
+        return reconciledFile;
     }
 
     public CapturedResult Capture(string ticketFile)
@@ -65,6 +136,7 @@ public sealed partial class ExportSession
             if (!CaptureScope(entry, data, ticket.Request)) continue;
             if (type.GetString() == "tool.execution_start"
                 && data.GetProperty("toolName").GetString() == ticket.Request.ToolName
+                && (ticket.Reconciliation is null || OptionalString(data, "toolCallId") == ticket.Reconciliation.ToolCallId)
                 && JsonNode.DeepEquals(JsonNode.Parse(data.GetProperty("arguments").GetRawText()), ticket.Request.Arguments))
             {
                 Require(entry.TryGetProperty("timestamp", out var timestamp) && timestamp.TryGetDateTimeOffset(out var observed)

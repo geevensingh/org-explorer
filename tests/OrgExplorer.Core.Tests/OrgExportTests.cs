@@ -437,6 +437,128 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Fact]
+    public async Task Reconciliation_binds_the_original_call_without_editing_history_or_consuming_another_source_attempt()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "reconciliation.jsonl");
+        AppendEvent(events, "session.start", new { marker = "original" });
+        var claim = session.ClaimSource("worker", "profile", [RootId]);
+        var expected = new JsonObject
+        {
+            ["query"] = $"Find the current work profile for {RootId}, person1@example.test, Example Private Ltd.",
+            ["strategy"] = "grounding",
+            ["capabilities"] = new JsonArray(new JsonObject { ["name"] = "People" })
+        };
+        var request = Path.Combine(root, "reconciliation-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments = expected, agentId = "worker-a" });
+        var originalTicket = session.BeginCapture(events, request);
+        var ticketBytes = File.ReadAllBytes(originalTicket);
+        var actual = expected.DeepClone().AsObject();
+        actual["query"] = expected["query"]!.GetValue<string>().Replace("Private", "Private Private", StringComparison.Ordinal);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "actual", toolName = "workiq-retrieve",
+            arguments = actual }, "worker-a");
+        const string payload = "{ \"markdown\": \"Fictitious work profile\", \"resultCount\": 1 }";
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "actual", success = true,
+            result = new { content = payload } }, "worker-a");
+        var history = File.ReadAllBytes(events);
+        Assert.Throws<InvalidOperationException>(() => session.Capture(originalTicket));
+        const string reason = "User approved reconciling one duplicated employer word against this original call.";
+
+        var reconciled = await RunCli("capture-reconcile", path, originalTicket, claim.ClaimId!.Value.ToString(), "actual", reason);
+
+        Assert.Equal(0, reconciled.ExitCode);
+        Assert.Empty(reconciled.Error);
+        var ticket = JsonSerializer.Deserialize<string>(reconciled.Output)!;
+        var audit = JsonNode.Parse(File.ReadAllText(ticket))!["reconciliation"]!;
+        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
+        Assert.Equal(claim.ClaimId.Value, audit["sourceClaimId"]!.GetValue<Guid>());
+        Assert.Equal("actual", audit["toolCallId"]!.GetValue<string>());
+        Assert.Equal(ticketBytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(ticket)!, "original-ticket.json")));
+        var capture = session.Capture(ticket);
+        Assert.Equal("actual", capture.ToolCallId);
+        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
+        Assert.Equal(actual.ToJsonString(), JsonNode.Parse(File.ReadAllText(capture.StartFile))!["data"]!["arguments"]!.ToJsonString());
+        Assert.Equal(ticketBytes, File.ReadAllBytes(originalTicket));
+        Assert.Equal(history, File.ReadAllBytes(events));
+        Assert.Throws<InvalidOperationException>(() => session.Capture(originalTicket));
+        var outcomes = Path.Combine(root, "reconciled-outcomes.json");
+        Save(outcomes, new[] { new ExportSession.SourceResult(RootId, new JsonObject
+        {
+            ["statusCode"] = 200, ["data"] = JsonNode.Parse(File.ReadAllText(capture.ResponseFile))
+        }) });
+        session.FinishSource(claim.ClaimId.Value, outcomes);
+        var read = Assert.Single(session.SourceStatus().Reads);
+        Assert.Equal("completed", read.State);
+        Assert.Single(read.Attempts);
+        Assert.False(session.SourceStatus().RecoveryConsumed);
+    }
+
+    [Theory]
+    [InlineData("identity")]
+    [InlineData("scope")]
+    [InlineData("strategy")]
+    [InlineData("query-edit")]
+    [InlineData("duplicate-start")]
+    [InlineData("changed-history")]
+    [InlineData("missing-completion")]
+    [InlineData("not-profile")]
+    [InlineData("blank-reason")]
+    [InlineData("claim-identity")]
+    [InlineData("non-qualifier-word")]
+    [InlineData("denial")]
+    public async Task Reconciliation_rejects_changed_identity_scope_arguments_history_or_unsupported_edits(string fault)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "reconciliation-blocked.jsonl");
+        AppendEvent(events, "session.start", new { marker = "original" });
+        var claim = fault == "not-profile"
+            ? session.ClaimSource("worker", "structured", [ExportSession.UserPath(RootId)])
+            : session.ClaimSource("worker", "profile", [fault == "claim-identity" ? ChildId : RootId]);
+        var expected = new JsonObject
+        {
+            ["query"] = $"Find the current work profile for {RootId}, person1@example.test, Example Private Ltd.",
+            ["strategy"] = "grounding",
+            ["capabilities"] = new JsonArray(new JsonObject { ["name"] = "People" })
+        };
+        var request = Path.Combine(root, "reconciliation-blocked-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments = expected, agentId = "worker-a" });
+        var ticket = session.BeginCapture(events, request);
+        var actual = expected.DeepClone().AsObject();
+        actual["query"] = expected["query"]!.GetValue<string>().Replace("Private", "Private Private", StringComparison.Ordinal);
+        if (fault == "identity") actual["query"] = actual["query"]!.GetValue<string>().Replace(RootId, ChildId, StringComparison.Ordinal);
+        if (fault == "query-edit") actual["query"] = actual["query"]!.GetValue<string>().Replace("Find", "Find richer", StringComparison.Ordinal);
+        if (fault == "non-qualifier-word") actual["query"] = expected["query"]!.GetValue<string>().Replace("Find", "Find Find", StringComparison.Ordinal);
+        if (fault == "strategy") actual["strategy"] = "copilot";
+        var start = new { toolCallId = "actual", toolName = "workiq-retrieve", arguments = actual };
+        AppendEvent(events, "tool.execution_start", start, fault == "scope" ? "another-worker" : "worker-a");
+        if (fault == "duplicate-start") AppendEvent(events, "tool.execution_start", start, "worker-a");
+        if (fault != "missing-completion")
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "actual", success = true,
+                result = new { content = "{\"markdown\":\"Fictitious evidence\"}" } }, "worker-a");
+        if (fault == "changed-history")
+            File.WriteAllText(events, File.ReadAllText(events).Replace("original", "modified", StringComparison.Ordinal));
+        if (fault == "denial")
+            FinishSource(session, session.ClaimSource("denied", "profile", [ChildId]),
+                new JsonObject { ["statusCode"] = 403 });
+        var history = File.ReadAllBytes(events);
+        var originalTicket = File.ReadAllBytes(ticket);
+
+        var result = await RunCli("capture-reconcile", path, ticket, claim.ClaimId!.Value.ToString(), "actual",
+            fault == "blank-reason" ? "" : "Explicit reconciliation approval.");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(originalTicket, File.ReadAllBytes(ticket));
+        Assert.Equal(history, File.ReadAllBytes(events));
+        var read = session.SourceStatus().Reads.Single(read => read.Attempts.Any(attempt => attempt.ClaimId == claim.ClaimId));
+        Assert.Equal("active", read.State);
+        Assert.Single(read.Attempts);
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "captures"), "original-ticket.json", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public void Reports_require_every_page_and_leaf_and_keep_distinct_same_named_people()
     {
         var path = NewRun();
