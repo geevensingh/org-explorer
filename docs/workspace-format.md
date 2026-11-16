@@ -45,7 +45,7 @@ Photos are decoded JPEG/PNG bytes in the database, keyed by their SHA-256 conten
 reference and decoded extension. Current profiles, complete Profile-change
 evidence and frozen former-chain profiles keep every required resource
 recoverable after replacement/clear or removal of the original selected file.
-No photo reclamation or snapshot packaging is introduced here. Reopen validates
+No photo reclamation is introduced here. Reopen validates
 required associations, hashes, decoded content, historical capture versions and
 accepted Import provenance before exposing the coherent state.
 
@@ -63,8 +63,66 @@ replay. It still explicitly rejects photo-bearing initial Imports, subsequent
 new Imports and legacy recovery export. An unconfirmed Import remains an error requiring
 reopening/reconciliation, not a saved state. Later replacement slices extend
 these capabilities; no missing family is silently written through the legacy
-engine. Publication, cross-computer snapshots and redesigned exit are not
-implemented by these slices. Never synchronize a live database or journal.
+engine. Redesigned exit is not implemented by these slices. Never synchronize a
+live database or journal.
+
+### Complete logical snapshots (interchange 1)
+
+The #96 slice adds explicit folder configuration, fresh joining and **Sync now**
+to the opt-in local path. SQLite remains the sole local authority; the provider
+folder must be separate and non-nested. Each immutable
+`<workspace-id>-<revision>.oesnapshot` is self-contained, not a database copy or a
+journal. Its strict JSON envelope has `format: "OrgExplorer complete logical Workspace"`,
+`version: 1`, uppercase `sha256` of the decoded `content` bytes, and base64
+`content`. SHA-256 supplies completeness/integrity, not authentication.
+
+Decoded content has `workspaceFormat: 3`, explicit `workspaceId`, `revision`,
+and ordered root-through-current `ancestry` GUIDs. `people`, `history`,
+`acceptedImports`, `teamContexts` and `historicalContexts` contain complete
+`{key,value}` records; values retain the existing logical record JSON (context
+values are revision strings). `notes` retain scope, ID, owner, metadata and full
+Markdown. `photos` retain immutable reference and base64 decoded resource bytes.
+No live SQLite files, local preferences, failed-write receipts or editing buffers
+are portable data. Every current/dormant private label, accepted Import,
+Profile-change observation, frozen capture/transition, note version/review value
+and current or retained photo is included. Each artifact owns its resource bytes;
+there are no mutable or cross-artifact resource dependencies.
+
+Optional local `synchronization` and `revision_ancestry` metadata retain the
+configured folder, last verified published revision, join intent, divergence
+marker and complete local revision lineage. Existing staged 1/2 stores acquire
+the format-3 tables on explicit configuration without discarding existing data.
+Every subsequent note/profile/Import commit appends its new revision in that same
+transaction; hashing/export is not performed per edit. A revision/lineage mismatch
+is an explicit open error, never permission to reset the lineage. Use only
+revision-aware writers after configuration. The metadata is not another population
+authority. Comparing committed and published revisions discovers unpublished work
+after restart without replaying a mutation.
+
+Export reads a coherent committed transaction, validates the complete logical
+version and resources, durably writes a unique `.pending` artifact, then uses
+create-only publication. Complete existing identical artifacts permit idempotent
+retry, including interruption after publication but before its receipt. A receipt
+for an older exported revision never acknowledges newer local commits. Provider
+delivery elsewhere remains unknown.
+
+Receiving validates the envelope, strict logical schema, identity, ordered ancestry,
+whole graph/evidence/history, image decoding and every resource through isolated
+local staging before a single atomic installation. A fresh explicit join may
+replace only a pristine empty seed identity. A continuation requires a clean,
+published local base and no retained writing; draft admission is rechecked at the
+commit boundary and local revision changes cannot be overwritten. Existing
+selected Person/note navigation is retained where possible. Invalid, partial,
+incompatible or unrelated delivery reports a synchronization error without making
+the valid local Workspace stale or pausing ordinary local edits. Duplicates and
+stale/reordered delivery cannot roll back a newer revision.
+
+Divergence is refused, durably marked and preserved as complete local artifacts
+under `snapshot-conflicts`; browsing remains available and new edits are paused.
+No version is silently selected or deleted. Interactive choice, bounded routine
+retention, periodic scheduling and redesigned exit belong to later slices. Unknown
+files and provider copies are not removed. Local `snapshot-*` validation directories
+are disposable staging, not accepted recovery or another Workspace authority.
 
 ## Readable-file version 3
 

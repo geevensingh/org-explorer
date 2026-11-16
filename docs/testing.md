@@ -290,6 +290,37 @@ reopened captures carry actual desktop pixels and matching metadata.
 These focused two-Person checks do not establish rich-scale/background-export,
 stalled-save orchestration or hosted acceptance before the required lane runs.
 
+`WorkspaceSnapshotTests` covers #96 through two independent real SQLite
+workflow/view-model stores and controlled copying of actual `.oesnapshot`
+artifacts. It observes complete logical publication/fresh identity join, selected
+Person/query preservation, private dormant Team labels and derived owner paths,
+current/retained decoded photos, accepted Import replay and complete frozen
+capture provenance/note versions/review. Hash-valid missing-resource delivery,
+truncation, incompatible envelopes, bad schema/ancestry/identity and missing
+accepted evidence retain the last valid local state with explicit errors.
+Actual local writer locks and filesystem staging observations admit Preferred-name,
+profile and note drafts during validation; adoption must refuse them without
+losing writing. An actual publication-boundary hold allows another local commit
+and proves that publication of the older snapshot cannot acknowledge it.
+Interruption before/after real immutable publication reopens and retries without
+replaying edits; duplicates/reordering cannot roll back; divergence preserves
+complete versions and pauses editing across restart. No private-table assertions
+or fake hosted provider are used.
+
+The existing invisible `--verify-profile-refresh` selection also drives compiled
+Settings folder/Join/Sync now against those actual artifacts and observes a clean
+incoming continuation while preserving the selected Person. It never shows a
+window or creates its native handle. The existing hosted `compatibility-settings`
+tail adds native folder configuration, truthful publication/provider status,
+fresh second-local-store joining and visible incoming adoption, without a new
+scenario or a deadline/assertion change. `*-sqlite-snapshots.json` binds source
+revision/run/attempt/product hash, process, independent stores, Workspace/version
+IDs, actual artifact hashes and exact photo/Team/history evidence. Captures are
+`sqlite-sync-folder-published`, `sqlite-sync-joined-person-history` and
+`sqlite-sync-incoming-continuation`, with the shared actual-pixel metadata.
+These are not periodic synchronization, conflict-resolution/retention, redesigned
+exit, native latency or 10,000-Person background-export proof.
+
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
 note identity, title, Markdown and Edit tab, not unrelated reading/list controls.

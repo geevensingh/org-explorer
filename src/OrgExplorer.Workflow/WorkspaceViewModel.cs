@@ -134,6 +134,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             var key = (basis.Email.ToLowerInvariant(), field);
             if (value == basis.PreferredName && !personTextDrafts.ContainsKey(key)) return;
             personTextDrafts[key] = new(basis, field, value, personTextDrafts.GetValueOrDefault(key)?.Error);
+            workflow.RetainPersonTextDraft(basis, field, value);
         }
         Notify();
     }
@@ -195,6 +196,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingStorageMaintenance)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Synchronization)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));

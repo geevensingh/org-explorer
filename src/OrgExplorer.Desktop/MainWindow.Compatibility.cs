@@ -97,6 +97,7 @@ public partial class MainWindow
             !(error is not null && feedback == retainedWritingNavigationFeedback))
             messages.Add(feedbackLine);
         if (profileCopyError is not null) messages.Add(profileCopyError);
+        if (workflow.Synchronization.Error is { } synchronizationError) messages.Add(synchronizationError);
         NoticeSummary.Text = string.Join("\n", messages.Distinct());
         LocalWritingDetails.Text = workflow.LocalSaveError ?? "";
         OperationalNotice.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;

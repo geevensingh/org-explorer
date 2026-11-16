@@ -191,6 +191,7 @@ internal static partial class Program
                 finally { noteFailureWindow.Close(); }
                 VerifySettingsFocus(window);
                 VerifySqliteCreationNavigation(type, settings, chooseFolder);
+                VerifySnapshotSynchronization(type, settings, chooseFolder);
                 // The empty 44-Person probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;

@@ -235,6 +235,7 @@ public sealed partial class ApplicationWorkflow
                 if (!loadedPhotos.ContainsKey(reference))
                     throw new FormatException("Required current or retained Profile photo is unavailable.");
             }
+            LoadLocalSynchronization(connection, identity, commit);
 
             void RequireAcceptedEvidence(FieldEvidence evidence)
             {
@@ -257,10 +258,10 @@ public sealed partial class ApplicationWorkflow
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
             $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and initial People-only Import are available. " +
-            "Synchronization is not implemented on this staged path. Settings remain available.",
+            "Explicit complete-snapshot synchronization is available in Settings. Provider delivery remains independent.",
             workspace, version)
         {
-            SupportsOrdinaryEdits = true, SupportsNoteEdits = true,
+            SupportsOrdinaryEdits = !synchronization.Diverged, SupportsNoteEdits = !synchronization.Diverged,
             SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
     }
@@ -297,6 +298,7 @@ public sealed partial class ApplicationWorkflow
 
     private void SaveLocalSqliteNote(NoteScope scope, NoteMetadata metadata, string markdown)
     {
+        if (Synchronization.Diverged) throw new IOException("Edits are paused for preserved divergent Workspace versions.");
         using var connection = OpenLocalConnection();
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
@@ -325,14 +327,9 @@ public sealed partial class ApplicationWorkflow
         command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize(metadata, metadata.GetType(), JsonOptions));
         command.Parameters.AddWithValue("$markdown", markdown);
         command.ExecuteNonQuery();
-        var next = Guid.NewGuid().ToString("D");
-        command.CommandText = "UPDATE workspace SET format_version=$version, revision=$revision WHERE singleton=1;";
-        command.Parameters.Clear();
-        command.Parameters.AddWithValue("$revision", next);
-        command.Parameters.AddWithValue("$version", Math.Max(version, 2));
-        command.ExecuteNonQuery();
+        var next = AdvanceLocalRevision(command, Math.Max(version, 2));
         transaction.Commit();
-        revision = next;
+        AcceptLocalRevision(next);
     }
 
     private bool SaveLocalSqlite(Dictionary<string, PersonProfile> proposed,
@@ -343,6 +340,7 @@ public sealed partial class ApplicationWorkflow
     {
         try
         {
+            if (Synchronization.Diverged) throw new IOException("Edits are paused for preserved divergent Workspace versions.");
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
@@ -427,13 +425,9 @@ public sealed partial class ApplicationWorkflow
             }
             if (resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Required photo changed while saving. Nothing saved; retain the draft and choose the intended image again.");
-            var next = Guid.NewGuid().ToString("D");
-            command.CommandText = "UPDATE workspace SET format_version=3, revision=$revision WHERE singleton=1;";
-            command.Parameters.Clear();
-            command.Parameters.AddWithValue("$revision", next);
-            command.ExecuteNonQuery();
+            var next = AdvanceLocalRevision(command, 3);
             transaction.Commit();
-            revision = next;
+            AcceptLocalRevision(next);
             teamContextRevisions = nextContexts;
             historicalTeamContexts = nextHistorical;
             failedSaves.Remove(operation);

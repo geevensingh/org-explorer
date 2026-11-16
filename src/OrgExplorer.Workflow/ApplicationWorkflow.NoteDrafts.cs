@@ -44,7 +44,10 @@ public sealed partial class ApplicationWorkflow
     private readonly ConcurrentDictionary<(NoteScope Scope, Guid Id), NoteDraft> unsavedNoteBases = new();
 
     // Typing must not wait behind the workspace lock held by an in-flight save.
-    public void RetainNoteDraft(NoteDraft draft) => unsavedNoteBases.TryAdd((draft.Scope, draft.Id), draft);
+    public void RetainNoteDraft(NoteDraft draft)
+    {
+        lock (profileDraftGate) unsavedNoteBases.TryAdd((draft.Scope, draft.Id), draft);
+    }
     public bool HasUnsavedNoteDraft(NoteScope scope, Guid noteId) => unsavedNoteBases.ContainsKey((scope, noteId));
 
     public NoteDraft? BeginNoteDraft(NoteScope scope, string ownerEmail, Guid? noteId = null)

@@ -21,7 +21,7 @@ public sealed partial class ApplicationWorkflow
     private readonly IDictionary<string, string> failedSaves = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
-        !HasUnsavedProfiles;
+        !HasUnsavedProfiles && !HasRetainedPersonTextDrafts;
     public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
     public bool CanEnterImport

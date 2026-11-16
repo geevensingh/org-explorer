@@ -175,6 +175,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         pending = null;
         workspace = null;
         localSqlite = false;
+        synchronization = new(false);
+        localAncestry = [];
+        joiningWorkspace = false;
         compatibility = new(WorkspaceCompatibilityState.NotOpened,
             "Choose a Workspace. Settings and upgrade guidance are available without opening one.");
         try

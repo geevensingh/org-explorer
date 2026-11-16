@@ -50,9 +50,17 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
-Subsequent Imports, synchronization, stall orchestration and the new exit
+Subsequent Imports, stall orchestration and the new exit
 interaction are not available yet; unsupported actions are rejected, never sent
 to the legacy writer. Exact Import replay remains a no-op.
+For explicit cross-computer use, open **Settings -> Synchronization**, configure
+a separate provider-carried folder and choose **Sync now**. On a second computer,
+create an empty local Workspace, choose **Join folder**, then **Sync now**.
+The app validates complete logical snapshots before adopting a clean continuation;
+unpublished local writing and drafts are never overwritten. Invalid delivery
+leaves the last validated state usable with an explicit error. Divergent versions
+are preserved and edits paused; interactive resolution, routine retention,
+periodic synchronization and redesigned exit remain later slices.
 Do not synchronize the live database or its journal, and do not treat local
 commit as publication or provider delivery. See the
 [staged format](docs/workspace-format.md#staged-local-sqlite-formats).

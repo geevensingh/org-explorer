@@ -386,6 +386,7 @@ internal static partial class Program
                             throw new InvalidOperationException("Hosted note reopening lost exact writing or its actual owner.");
                 }
                 Console.WriteLine("PASS: hosted SQLite Person/Team notes survive process close/reopen with exact identities, writing and original ownership; legacy Workspace bytes remain unchanged.");
+                RunSnapshotSynchronizationJourney(window, local, root, personJourney);
                 AssertWorkspaceBytes(oldWorkspace, originals);
                 Close(reopened);
             }
