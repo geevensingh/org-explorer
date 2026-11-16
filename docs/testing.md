@@ -1472,6 +1472,26 @@ Later records carry `diagnosticsComplete=false` and `outputFailures`; action
 outcome is separate from evidence completeness. Missing boundaries or any output
 failure make investigation evidence incomplete, even when actions passed.
 Unexpected diagnostic programming errors are not silently caught.
+The experimental `run_uia_observation_probe=true` manual `ci.yml` input adds a
+separate disposable Windows job; all required CI jobs still run unchanged.
+Its `--diagnose-uia-observation` command refuses local/unbound execution, launches
+the normal product with isolated fictitious legacy storage and startup updates
+disabled, and has a 180-second execution bound inside a five-minute job.
+Eight owner/scope/value states each run ABBA/BAAB observations (64 total), comparing
+six actual full-window `FindFirst` queries/live property reads with one newly
+filtered `FindAll` request caching the same properties and patterns. Neither arm
+retains elements/properties between observations or receives a private warmup.
+Both require the exact current owner/profile/note identity/title/body and actual
+enabled, positive-size visible, writable, keyboard-focused Edit controls/patterns.
+Owner switches, Read/Edit changes and distinct writing precede each block.
+The diagnostic artifact retains each raw duration, explicit client API counts,
+value-free correctness predicates, candidate/run/attempt/job and executable hashes,
+plus actual state captures. API counts are not provider callback counts; elapsed
+query time includes provider work and is not product latency. Mismatch fails the
+probe and retains evidence; interruption/missing terminal evidence is incomplete.
+This experiment does not alter ordinary helper selection, actions, latency clocks,
+sample counts, required scenarios, budgets or the CI aggregate, and cannot establish
+full smoke or feature acceptance.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

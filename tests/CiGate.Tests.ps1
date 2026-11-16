@@ -39,3 +39,12 @@ if (!$workflow.Contains('needs: [core, filesystem, desktop, high-resolution]') -
 }
 if ($workflow -match '(?m)^\s+paths(?:-ignore)?:') { throw 'Required CI cannot disappear on docs/test-only changes' }
 Write-Host "PASS: four independent required lanes share a total $budget-minute ceiling including setup and validation."
+$probe = [regex]::Match($workflow, '(?ms)^  uia-observation-probe:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
+if (!$workflow.Contains("if: `${{ github.event_name == 'workflow_dispatch' && inputs.run_uia_observation_probe }}") -or
+    $workflow -notmatch '(?s)run_uia_observation_probe:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean' -or
+    !$probe.Contains('runs-on: windows-latest') -or !$probe.Contains('timeout-minutes: 5') -or
+    !$probe.Contains('--diagnose-uia-observation') -or $probe -match '(?m)^\s+needs:' -or
+    $workflow.Contains('needs: [core, filesystem, desktop, high-resolution, uia-observation-probe]')) {
+    throw 'The native observation probe must remain opt-in, bounded, isolated and outside the required acceptance gate.'
+}
+Write-Host 'PASS: the optional native query probe does not replace or gate required CI.'

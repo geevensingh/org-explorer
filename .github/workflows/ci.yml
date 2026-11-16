@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_uia_observation_probe:
+        description: Diagnostic-only native query comparison; not smoke acceptance
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -137,6 +142,36 @@ jobs:
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}
+
+  uia-observation-probe:
+    name: Optional diagnostic native observation probe
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_uia_observation_probe }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    env:
+      DESKTOP_RESULTS_DIRECTORY: ${{ github.workspace }}\.ci-results\uia-observation-probe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: dotnet restore src\OrgExplorer.Desktop --locked-mode
+      - run: dotnet restore tests\OrgExplorer.Desktop.Smoke --locked-mode
+      - run: dotnet build src\OrgExplorer.Desktop -c Release --no-restore
+      - run: dotnet build tests\OrgExplorer.Desktop.Smoke -c Release --no-restore
+      - name: Compare fresh native observations on isolated fictitious state
+        run: |
+          New-Item -ItemType Directory -Force $env:DESKTOP_RESULTS_DIRECTORY | Out-Null
+          dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --diagnose-uia-observation *> "$env:DESKTOP_RESULTS_DIRECTORY\probe.log"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: diagnostic-uia-observation
+          path: .ci-results/uia-observation-probe/*
+          if-no-files-found: error
 
   release-verification:
     name: Optional product release rehearsal
