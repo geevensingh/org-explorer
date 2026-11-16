@@ -257,7 +257,7 @@ public sealed partial class ApplicationWorkflow
         InvalidateProjections();
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and initial People-only Import are available. " +
+            $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and reviewed Imports are available. " +
             "Explicit complete-snapshot synchronization is available in Settings. Provider delivery remains independent.",
             workspace, version)
         {

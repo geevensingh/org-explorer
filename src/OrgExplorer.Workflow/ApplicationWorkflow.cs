@@ -258,8 +258,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             var observed = root.GetProperty("observedAt").GetString()!;
             root.TryGetProperty("producer", out var producer);
             var previouslyAccepted = batches.ContainsKey(batchId);
-            if (localSqlite && batches.Count != 0 && !previouslyAccepted)
-                throw new FormatException("This staged SQLite Workspace supports only the initial People-only Import. Subsequent Imports are not implemented.");
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var canonical = new List<string>();
@@ -289,8 +287,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
                 string? photoHash = null;
                 if (record.TryGetProperty("photoPath", out var photo))
                 {
-                    if (localSqlite && photo.ValueKind != JsonValueKind.Null)
-                        throw new FormatException("Photos are not implemented in the initial People-only Import for this staged SQLite Workspace.");
                     if (photo.ValueKind == JsonValueKind.Null) photoPath = null;
                     else
                     {

@@ -339,6 +339,38 @@ no busy-time extension or new latency claim is used.
 These are not periodic synchronization, conflict-resolution/retention, redesigned
 exit, native latency or 10,000-Person background-export proof.
 
+The #94 reviewed-Import path uses that same SQLite commit boundary for partial
+multi-Person updates, photos, accepted evidence, Profile changes, reporting
+transitions, Team-note review and frozen context. `SqliteWorkspaceTests` compares
+complete public reading state across original/later replay and reopen, checks
+older observations/confirmations, stale reviews and changed source resources,
+and proves rollback after a real SQLite trigger refuses the final revision write.
+The trigger controls only storage refusal; retained data is asserted through the
+public workflow, never by inspecting private tables. Reopening the failed batch
+must still offer a non-no-op review before retry. Private Team-name set/null/operation
+rejections, duplicate owner paths, unnamed gaps, dormant archival/restoration and
+absence from frozen profiles/evidence remain covered. Both note scopes retain
+newer owner writing and an unsubmitted profile during a real held bulk Apply;
+changed profile bases still reject explicit Save rather than silently merging.
+
+The invisible `--verify-profile-refresh` contract additionally exercises compiled
+Back to People, search, Person switches and writable retained Team-note controls
+while the same actual SQLite writer holds Apply, then independently reopens the
+coherent update/photo/history and exact owner writing. The `compatibility-settings`
+hosted tail adds representative reviewed update/photo Apply, held-transaction
+native browsing/writing, original/later no-op replay and separate-process reopen.
+Its `*-sqlite-reviewed-import.json` records candidate/run/attempt/product hash,
+distinct editing/reopened process IDs, exact batch/capture/note/version/resource
+identities and complete reopened-state digest. It retains raw native Back/Person
+navigation samples (100-ms Person budget) and a separately labelled bulk duration
+with no ordinary-edit one-second budget. Named `sqlite-reviewed-import-preview`,
+`sqlite-reviewed-import-retained-owner`, `sqlite-reviewed-import-history` and
+`sqlite-reviewed-import-reopened` captures carry actual desktop pixels/metadata.
+Compiling this tail or running invisible controls is not hosted interaction
+acceptance. All existing note workloads, native sample counts/targets, required
+scenario manifests and deadlines remain unchanged; combined rich 10,000-Person
+and background-publication proof remains #100.
+
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
 note identity, title, Markdown and Edit tab, not unrelated reading/list controls.

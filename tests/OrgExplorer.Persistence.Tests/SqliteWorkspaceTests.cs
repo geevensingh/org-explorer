@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using OrgExplorer.Desktop.Smoke;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -90,6 +91,398 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.Contains("no-op", Assert.Single(replay.Changes));
         Assert.True(reopened.ApplyImport(replay.Id), reopened.Status);
         Assert.Equal(expected, reopened.GetRelationships(expected.Email)!.Person);
+    }
+
+    [Fact]
+    public void Reviewed_partial_Imports_commit_resources_evidence_and_frozen_history_and_replay_without_duplication()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        const string manager = "manager@example.com";
+        const string report = "report@example.com";
+        Assert.True(app.BeginProfileEdit(manager), app.Status);
+        Assert.True(app.StageProfileTeamName("Private platform"), app.Status);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+        var note = app.CreateTeamNote(manager, "Original context", "# Locally known before Import")!;
+        var image = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        var source = Path.Combine(root, "reviewed.json");
+        var photo = Path.Combine(root, "portrait.png");
+        File.WriteAllBytes(photo, image);
+        const string update = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-03T17:00:00Z","producer":"Reviewed update","people":[
+             {"email":"report@example.com","preferredName":null,"alias":null,"jobTitle":"Senior engineer",
+              "officeNumber":"009D","managerEmail":"new@example.com","isFavorite":false,"photoPath":"portrait.png"},
+             {"email":"manager@example.com","jobTitle":"Director","photoPath":"portrait.png"},
+             {"email":"new@example.com","displayName":"New Manager","managerEmail":null}]}
+            """;
+        File.WriteAllText(source, update);
+        var review = app.PreviewImportFile(source);
+        Assert.True(review.CanApply, app.Status);
+        Assert.Contains(review.Changes, change => change.Contains("needs review"));
+        Assert.Equal("Reference", app.GetRelationships(report)!.Person.PreferredName);
+        Assert.Equal(2, app.People.Count);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        var expected = new PersonProfile(report, "Report", null, "new@example.com")
+        {
+            Alias = null, JobTitle = "Senior engineer", Department = "Research", OfficeBuilding = "Building A",
+            OfficeNumber = "009D", OfficeState = "Washington", OfficeCountry = "United States",
+            LinkedInProfileUrl = "https://www.linkedin.com/in/report", IsFavorite = false,
+            PhotoPath = app.GetRelationships(report)!.Person.PhotoPath
+        };
+        Assert.NotNull(expected.PhotoPath);
+        Assert.Equal(expected, app.GetRelationships(report)!.Person);
+        Assert.Equal(image, app.GetPhoto(report)!.Bytes.ToArray());
+        Assert.Equal(image, app.GetPhoto(manager)!.Bytes.ToArray());
+        Assert.Empty(app.GetTeamNames(manager));
+        Assert.Equal("Private platform", app.GetRelationships(manager)!.Person.TeamName);
+        Assert.True(Assert.Single(app.GetTeamNotes(manager)).NeedsReview);
+        var capture = Assert.Single(app.GetHistoricalTeamContexts(report));
+        Assert.Equal(manager, Assert.Single(capture.ReportingChain).Email);
+        Assert.Null(Assert.Single(capture.ReportingChain).TeamName);
+        Assert.Equal(note.Id, Assert.Single(capture.TeamNotes).Id);
+        Assert.Equal("# Locally known before Import", Assert.Single(capture.TeamNotes).Markdown);
+        var transition = Assert.Single(capture.Transitions);
+        Assert.Equal(report, transition.PersonEmail);
+        Assert.Equal(manager, transition.Change.OldValue.GetString());
+        Assert.Equal("new@example.com", transition.Change.NewValue.GetString());
+        Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"), transition.Change.ReportingInterval!.After);
+        Assert.Equal(DateTimeOffset.Parse("2026-11-03T17:00:00Z"), transition.Change.ReportingInterval.By);
+        var timeline = app.GetProfileTimeline(report)!;
+        Assert.Equal(new[] { "alias", "isFavorite", "jobTitle", "managerEmail", "officeNumber", "photoPath", "preferredName" },
+            timeline.Changes.Select(change => change.Field).Order());
+        Assert.Equal(20, timeline.Observations.Count);
+        Assert.All(timeline.Observations.Skip(13), evidence =>
+        {
+            Assert.Equal(ProfileChangeSource.Import, evidence.Source);
+            Assert.Equal(Guid.Parse("94000000-0000-4000-8000-000000000001"), evidence.BatchId);
+            Assert.Equal("Reviewed update", evidence.Producer);
+            Assert.Equal(DateTimeOffset.Parse("2026-11-03T17:00:00Z"), evidence.ObservedAt);
+        });
+        Assert.True(app.EditTeamNote(note.Id, "Later context", "# Later current-only writing"), app.Status);
+        Assert.True(app.EditPreferredName(report, "Later private name"), app.Status);
+        string State(IApplicationWorkflow workflow) => JsonSerializer.Serialize(new
+        {
+            workflow.People,
+            Timelines = workflow.People.Select(person => workflow.GetProfileTimeline(person.Email)).ToArray(),
+            Captures = workflow.GetHistoricalTeamContexts(report),
+            Notes = workflow.GetTeamNotes(manager)
+        });
+        var saved = State(app);
+        var originalReplay = app.PreviewImport(Initial);
+        Assert.True(originalReplay.CanApply, app.Status);
+        Assert.Contains("no-op", Assert.Single(originalReplay.Changes));
+        Assert.True(app.ApplyImport(originalReplay.Id), app.Status);
+        var updateReplay = app.PreviewImportFile(source);
+        Assert.True(updateReplay.CanApply, app.Status);
+        Assert.Contains("no-op", Assert.Single(updateReplay.Changes));
+        Assert.True(app.ApplyImport(updateReplay.Id), app.Status);
+        Assert.Equal(saved, State(app));
+        File.WriteAllText(source, update.Replace("Senior engineer", "Conflicting replay"));
+        Assert.False(app.PreviewImportFile(source).CanApply);
+        Assert.Contains("already accepted with different logical data", app.Status);
+        Assert.Equal(saved, State(app));
+        File.Delete(photo);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(saved, State(reopened));
+        Assert.Equal(expected with { PreferredName = "Later private name" }, reopened.GetRelationships(report)!.Person);
+        Assert.Equal(image, reopened.GetPhoto(report)!.Bytes.ToArray());
+        Assert.Equal(capture.TeamNotes, Assert.Single(reopened.GetHistoricalTeamContexts(report)).TeamNotes);
+        Assert.DoesNotContain(reopened.GetProfileTimeline(manager)!.Observations, item => item.Field == "teamName");
+    }
+
+    [Fact]
+    public void Rejected_local_Import_transaction_rolls_back_People_resources_evidence_and_captures_before_retry()
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var note = app.CreateTeamNote("manager@example.com", "Known before failure", "# Frozen writing")!;
+        var photo = Path.Combine(root, "rollback.png");
+        var image = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        File.WriteAllBytes(photo, image);
+        var import = Path.Combine(root, "rollback.json");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-04T17:00:00Z","people":[
+             {"email":"report@example.com","managerEmail":"new@example.com","photoPath":"rollback.png","department":null},
+             {"email":"manager@example.com","jobTitle":"Changed role"},
+             {"email":"new@example.com","displayName":"New Manager","managerEmail":null,"photoPath":"rollback.png"}]}
+            """);
+        var before = app.People.ToArray();
+        var histories = JsonSerializer.Serialize(before.Select(person => app.GetProfileTimeline(person.Email)));
+        var preview = app.PreviewImportFile(import);
+        Assert.True(preview.CanApply, app.Status);
+        using var refusing = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
+        refusing.Open();
+        using var refusal = refusing.CreateCommand();
+        // Refuse the final revision write, after the real transaction has written every logical family.
+        refusal.CommandText = """
+            CREATE TRIGGER reject_import_commit BEFORE UPDATE ON workspace
+            BEGIN SELECT RAISE(ABORT, 'Controlled final local commit refusal'); END;
+            """;
+        refusal.ExecuteNonQuery();
+        Assert.False(app.ApplyImport(preview.Id));
+        Assert.Contains("Controlled final local commit refusal", app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal(before, app.People);
+        using (var unchanged = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(unchanged.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), unchanged.Status);
+            Assert.Equal(before, unchanged.People);
+            Assert.Equal(histories, JsonSerializer.Serialize(before.Select(person => unchanged.GetProfileTimeline(person.Email))));
+            Assert.Empty(unchanged.GetHistoricalTeamContexts("report@example.com"));
+            Assert.Null(unchanged.GetPhoto("report@example.com"));
+            Assert.Equal(note, Assert.Single(unchanged.GetTeamNotes("manager@example.com")));
+            var unaccepted = unchanged.PreviewImportFile(import);
+            Assert.True(unaccepted.CanApply, unchanged.Status);
+            Assert.DoesNotContain(unaccepted.Changes, change => change.Contains("no-op"));
+        }
+        refusal.CommandText = "DROP TRIGGER reject_import_commit;";
+        refusal.ExecuteNonQuery();
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
+        Assert.True(app.CanSafelyClose, app.Status);
+        File.Delete(photo);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(3, reopened.People.Count);
+        Assert.Null(reopened.GetRelationships("report@example.com")!.Person.Department);
+        Assert.Equal("new@example.com", reopened.GetRelationships("report@example.com")!.Manager!.Email);
+        Assert.Equal(image, reopened.GetPhoto("report@example.com")!.Bytes.ToArray());
+        Assert.Equal(image, reopened.GetPhoto("new@example.com")!.Bytes.ToArray());
+        Assert.Single(reopened.GetHistoricalTeamContexts("report@example.com"));
+        Assert.Single(reopened.GetProfileTimeline("manager@example.com")!.Changes);
+        Assert.Equal(3, reopened.GetProfileTimeline("report@example.com")!.Changes.Count);
+    }
+
+    [Theory]
+    [InlineData("\"teamName\":\"Imported label\"")]
+    [InlineData("\"teamName\":null")]
+    [InlineData("\"teamName\":{\"operation\":\"clear\"}")]
+    public void Import_never_sets_or_clears_private_labels_and_reporting_updates_retain_dormant_duplicate_owners(string field)
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        const string initial = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000003",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"report@example.com","displayName":"Report","managerEmail":"manager@example.com"},
+             {"email":"manager@example.com","displayName":"Manager","managerEmail":"gap@example.com"},
+             {"email":"gap@example.com","displayName":"Gap","managerEmail":"ancestor@example.com"},
+             {"email":"ancestor@example.com","displayName":"Ancestor","managerEmail":null}]}
+            """;
+        Assert.True(app.ApplyImport(app.PreviewImport(initial).Id), app.Status);
+        foreach (var owner in new[] { "manager@example.com", "ancestor@example.com" })
+        {
+            Assert.True(app.BeginProfileEdit(owner), app.Status);
+            Assert.True(app.StageProfileTeamName("Platform"), app.Status);
+            Assert.True(app.SaveProfileEdit(), app.Status);
+        }
+        var rejected = app.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000004",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"report@example.com","jobTitle":"Must not commit"},
+             {"email":"manager@example.com",{{field}}}]}
+            """);
+        Assert.False(rejected.CanApply);
+        Assert.Contains("teamName", string.Join("\n", rejected.Errors));
+        Assert.Null(app.GetRelationships("report@example.com")!.Person.JobTitle);
+        const string archived = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000004",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"report@example.com","managerEmail":"gap@example.com"},
+             {"email":"manager@example.com","archived":true}]}
+            """;
+        Assert.True(app.ApplyImport(app.PreviewImport(archived).Id), app.Status);
+        Assert.Equal("Platform", app.GetRelationships("manager@example.com")!.Person.TeamName);
+        Assert.Empty(app.GetTeamNames("manager@example.com"));
+        Assert.Equal("ancestor@example.com", Assert.Single(app.GetTeamNames("report@example.com")).Owner.Email);
+        var capture = Assert.Single(app.GetHistoricalTeamContexts("report@example.com"));
+        Assert.All(capture.ReportingChain, person => Assert.Null(person.TeamName));
+        Assert.Empty(capture.TeamNotes);
+        const string restored = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000005",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"report@example.com","managerEmail":"manager@example.com"},
+             {"email":"manager@example.com","archived":false}]}
+            """;
+        Assert.True(app.ApplyImport(app.PreviewImport(restored).Id), app.Status);
+        var state = JsonSerializer.Serialize(app.GetHistoricalTeamContexts("report@example.com"));
+        foreach (var replay in new[] { initial, archived, restored })
+            Assert.True(app.ApplyImport(app.PreviewImport(replay).Id), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(new[] { ("Platform", "manager@example.com"), ("Platform", "ancestor@example.com") },
+            reopened.GetTeamNames("report@example.com").Select(segment => (segment.Name, segment.Owner.Email)));
+        Assert.Equal(state, JsonSerializer.Serialize(reopened.GetHistoricalTeamContexts("report@example.com")));
+        Assert.All(reopened.People, person =>
+        {
+            Assert.DoesNotContain(reopened.GetProfileTimeline(person.Email)!.Observations, item => item.Field == "teamName");
+            Assert.All(reopened.GetHistoricalTeamContexts(person.Email), item =>
+                Assert.All(item.ReportingChain, former => Assert.Null(former.TeamName)));
+        });
+    }
+
+    [Fact]
+    public void Stale_review_and_changed_import_resources_reject_the_whole_partial_batch()
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var import = Path.Combine(root, "stale.json");
+        const string update = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000006",
+             "observedAt":"2026-11-04T17:00:00Z","people":[
+             {"email":"report@example.com","department":"Unaccepted department","managerEmail":null},
+             {"email":"manager@example.com","officeNumber":"Unaccepted room"}]}
+            """;
+        File.WriteAllText(import, update);
+        var preview = app.PreviewImportFile(import);
+        Assert.True(preview.CanApply, app.Status);
+        using (var other = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(other.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), other.Status);
+            Assert.True(other.EditPersonText("manager@example.com", PersonTextField.OfficeNumber, "Other saved room"), other.Status);
+        }
+        Assert.False(app.ApplyImport(preview.Id));
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        preview = app.PreviewImportFile(import);
+        File.WriteAllText(import, update.Replace("Unaccepted department", "Changed after review"));
+        Assert.False(app.ApplyImport(preview.Id));
+        var photo = Path.Combine(root, "stale.png");
+        File.WriteAllBytes(photo, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC"));
+        File.WriteAllText(import, update.Replace("\"department\":\"Unaccepted department\"", "\"photoPath\":\"stale.png\""));
+        preview = app.PreviewImportFile(import);
+        Assert.True(preview.CanApply, app.Status);
+        File.Delete(photo);
+        Assert.False(app.ApplyImport(preview.Id));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Research", reopened.GetRelationships("report@example.com")!.Person.Department);
+        Assert.Equal("manager@example.com", reopened.GetRelationships("report@example.com")!.Manager!.Email);
+        Assert.Equal("Other saved room", reopened.GetRelationships("manager@example.com")!.Person.OfficeNumber);
+        Assert.Null(reopened.GetPhoto("report@example.com"));
+        Assert.Empty(reopened.GetHistoricalTeamContexts("report@example.com"));
+        Assert.Empty(reopened.GetProfileTimeline("report@example.com")!.Changes);
+        Assert.Single(reopened.GetProfileTimeline("manager@example.com")!.Changes);
+        var unaccepted = reopened.PreviewImport(update);
+        Assert.True(unaccepted.CanApply, reopened.Status);
+        Assert.DoesNotContain(unaccepted.Changes, change => change.Contains("no-op"));
+    }
+
+    [Fact]
+    public void Older_partial_observations_warn_without_backdating_changes_or_duplicating_confirmations_on_replay()
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        const string later = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000007",
+             "observedAt":"2026-11-06T17:00:00Z","people":[{"email":"report@example.com","officeNumber":"010E"}]}
+            """;
+        const string earlier = """
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000008",
+             "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"report@example.com","officeNumber":"010E"}]}
+            """;
+        Assert.True(app.ApplyImport(app.PreviewImport(later).Id), app.Status);
+        var review = app.PreviewImport(earlier);
+        Assert.True(review.CanApply, app.Status);
+        Assert.Contains(review.Warnings, warning => warning.Contains("older evidence"));
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        var timeline = app.GetProfileTimeline("report@example.com")!;
+        Assert.Single(timeline.Changes);
+        Assert.Equal(15, timeline.Observations.Count);
+        Assert.Equal(DateTimeOffset.Parse("2026-11-06T17:00:00Z"),
+            timeline.Confirmations.Single(item => item.Field == "officeNumber").ObservedAt);
+        var staleChange = earlier.Replace("000000000008", "000000000009").Replace("010E", "Older intentional value");
+        review = app.PreviewImport(staleChange);
+        Assert.Contains(review.Warnings, warning => warning.Contains("older evidence"));
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        timeline = app.GetProfileTimeline("report@example.com")!;
+        var change = timeline.Changes.Last();
+        Assert.True(change.IsStaleEvidence);
+        Assert.Equal("010E", change.OldValue.GetString());
+        Assert.Equal("Older intentional value", change.NewValue.GetString());
+        Assert.True(change.Evidence.RecordedAt >= change.PreviousEvidence!.RecordedAt);
+        var saved = JsonSerializer.Serialize(timeline);
+        foreach (var replay in new[] { Initial, later, earlier, staleChange })
+            Assert.True(app.ApplyImport(app.PreviewImport(replay).Id), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(saved, JsonSerializer.Serialize(reopened.GetProfileTimeline("report@example.com")));
+        Assert.Equal("Older intentional value", reopened.GetRelationships("report@example.com")!.Person.OfficeNumber);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Held_bulk_Import_keeps_browsing_and_newer_owner_drafts_independent_of_its_commit(NoteScope scope)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        const string owner = "manager@example.com";
+        var id = scope == NoteScope.Person
+            ? app.CreatePersonNote(owner, "Existing note", "Before bulk Import")!.Id
+            : app.CreateTeamNote(owner, "Existing note", "Before bulk Import")!.Id;
+        var review = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000010",
+             "observedAt":"2026-11-05T17:00:00Z","people":[
+             {"email":"report@example.com","officeNumber":"Imported room"},
+             {"email":"manager@example.com","department":"Imported department"}]}
+            """);
+        Assert.True(review.CanApply, app.Status);
+        Assert.True(app.NavigatePerson(owner), app.Status);
+        Assert.True(app.OpenOwnedNote(scope, id, editing: true), app.Status);
+        Assert.True(app.BeginProfileEdit(owner), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.OfficeBuilding, "Unsubmitted owner draft"), app.Status);
+        using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
+        connection.Open();
+        using var held = connection.BeginTransaction();
+        using var admitted = new ManualResetEventSlim();
+        var applying = Task.Run(() => { admitted.Set(); return app.ApplyImport(review.Id); });
+        Assert.True(admitted.Wait(TimeSpan.FromSeconds(5)));
+        try
+        {
+            app.UpdateNoteDraft(scope, id, "Retained note", "Newer writing during bulk Import");
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson(owner), app.Status);
+            Assert.False(applying.IsCompleted, "Browsing only returned after the held Import finished.");
+            Assert.Equal(owner, app.PeopleNavigation.SelectedEmail);
+            Assert.Equal(id, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+            Assert.Equal("Newer writing during bulk Import", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            Assert.Equal("Unsubmitted owner draft", app.ProfileEdit!.Draft.OfficeBuilding);
+            Assert.False(app.CanSafelyClose);
+            using var uncommitted = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(uncommitted.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), uncommitted.Status);
+            Assert.Equal("007B", uncommitted.GetRelationships("report@example.com")!.Person.OfficeNumber);
+            Assert.Null(uncommitted.GetRelationships(owner)!.Person.Department);
+        }
+        finally { held.Commit(); }
+        Assert.True(await applying.WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        Assert.Equal("Unsubmitted owner draft", app.ProfileEdit!.Draft.OfficeBuilding);
+        Assert.False(app.CanSafelyClose);
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal("Imported room", reopened.GetRelationships("report@example.com")!.Person.OfficeNumber);
+            Assert.Equal("Imported department", reopened.GetRelationships(owner)!.Person.Department);
+            Assert.Null(reopened.GetRelationships(owner)!.Person.OfficeBuilding);
+            Assert.Equal("Newer writing during bulk Import", reopened.BeginNoteDraft(scope, owner, id)!.Markdown);
+            Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", id));
+        }
+        Assert.False(app.SaveProfileEdit());
+        Assert.Contains("Profile changed", app.LocalSaveError);
+        Assert.Equal("Unsubmitted owner draft", app.ProfileEdit!.Draft.OfficeBuilding);
+        app.CancelProfileEdit();
+        Assert.True(app.CanSafelyClose, app.Status);
     }
 
     [Fact]
@@ -486,9 +879,8 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var before = app.GetRelationships("report@example.com")!.Person;
-        var update = app.PreviewImport(Initial.Replace("000000000001", "000000000002"));
-        Assert.False(update.CanApply);
-        Assert.Contains("initial People-only Import", app.Status);
+        Assert.False(app.RecoverWorkspace(Path.Combine(root, "unsupported-recovery")));
+        Assert.Contains("not implemented", app.Status);
         Assert.True(app.CanNavigatePeople);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -1043,7 +1435,7 @@ public sealed class SqliteWorkspaceTests : IDisposable
     [Theory]
     [InlineData("\"managerEmail\":null", "\"managerEmail\":\"report@example.com\"", "cycle")]
     [InlineData("\"alias\":\"report\"", "\"alias\":\"report\",\"teamName\":\"Private label\"", "teamName")]
-    [InlineData("\"alias\":\"report\"", "\"alias\":\"report\",\"photoPath\":\"local.png\"", "Photos")]
+    [InlineData("\"alias\":\"report\"", "\"alias\":\"report\",\"photoPath\":\"local.png\"", "containing directory")]
     public void Rejected_initial_Import_preserves_domain_validation_and_never_discards_unsupported_fields(
         string before, string after, string error)
     {

@@ -42,7 +42,7 @@ dotnet run --project src\OrgExplorer.Desktop
 **Settings → Create local Workspace (preview)** creates a new app-managed
 Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
 It preserves the previous Workspace. The staged path supports a reviewed
-initial People-only Import, browsing and startup reopening, with all supplied
+partial Imports including photos, browsing and startup reopening, with all supplied
 Person attributes, relationships and accepted evidence committed together.
 Successful creation returns to the browsing start view, like Open Workspace;
 open **Settings → Import...** to review the initial population.
@@ -50,9 +50,9 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
-Subsequent Imports, stall orchestration and the new exit
-interaction are not available yet; unsupported actions are rejected, never sent
-to the legacy writer. Exact Import replay remains a no-op.
+Stall orchestration and the new exit interaction are not available yet;
+unsupported actions are rejected, never sent to the legacy writer. Original and
+later exact Import replay remain no-ops after subsequent changes.
 For explicit cross-computer use, open **Settings -> Synchronization**, configure
 a separate provider-carried folder and choose **Sync now**. On a second computer,
 create an empty local Workspace, choose **Join folder**, then **Sync now**.

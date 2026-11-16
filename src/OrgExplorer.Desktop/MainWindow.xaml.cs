@@ -96,7 +96,7 @@ public partial class MainWindow : Window
     }
     private void ShowPeopleView(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(browsing: true)) return;
         workflow.ShowPeople();
         ClearImportPreview();
         RefreshPeople();
@@ -204,7 +204,7 @@ public partial class MainWindow : Window
         try
         {
             var path = ImportPath.Text;
-            var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…");
+            var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…", isImport: true);
             var messages = result.Errors.Concat(result.Warnings).Concat(result.Changes).ToArray();
             PreviewText.ItemsSource = messages;
             System.Windows.Automation.AutomationProperties.SetName(PreviewText, string.Join("\n", messages));
@@ -220,7 +220,7 @@ public partial class MainWindow : Window
     private async void ApplyImport(object sender, RoutedEventArgs e)
     {
         if (!TryLeaveLocalEdits()) return;
-        if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…");
+        if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…", isImport: true);
         ApplyButton.IsEnabled = false;
         preview = null;
         RefreshPeople();

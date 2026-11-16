@@ -26,11 +26,12 @@ identity and committed revision. A missing discriminator/database, incompatible
 version, corrupt data or mixed SQLite/legacy selector is an explicit open error;
 there is no empty-state, migration or legacy fallback.
 
-Creation and the reviewed initial People-only Import use SQLite transactions
+Creation and reviewed initial/update Imports use SQLite transactions
 with `synchronous=EXTRA` and the rollback journal. Success is reported only
 after `Commit` returns. Person profiles, complete reporting relationships,
-Profile baseline evidence and the original accepted Import envelope/fingerprint
-commit atomically. Reopening validates SQLite integrity and the same Person,
+Profile evidence/changes, reporting transitions, frozen Historical team context,
+Team-note review revisions, photos and the original accepted Import envelope/fingerprint
+commit atomically with the Workspace revision. Reopening validates SQLite integrity and the same Person,
 graph and evidence rules as the existing workflow before exposing any population.
 Durability remains bounded by the OS and storage device's actual guarantees.
 
@@ -58,13 +59,28 @@ and older completions do not overwrite newer writing. A rejected complete
 profile, including an unavailable required photo, leaves committed values and
 history unchanged.
 
-The staged path supports browsing, startup restoration and exact accepted-batch
-replay. It still explicitly rejects photo-bearing initial Imports, subsequent
-new Imports and legacy recovery export. An unconfirmed Import remains an error requiring
-reopening/reconciliation, not a saved state. Later replacement slices extend
-these capabilities; no missing family is silently written through the legacy
-engine. Redesigned exit is not implemented by these slices. Never synchronize a
-live database or journal.
+Imports retain the ordinary version-1 partial-update contract: omission preserves
+values, explicit null clears supported nullable fields, and false is not omission.
+Private Team names cannot be supplied or cleared. Reporting/archival changes
+recompute their current applicability without deleting dormant labels or adding
+them to Profile evidence or former-chain captures. Original and later exact
+accepted batches are no-ops, even after newer changes; reusing an accepted identity
+with different logical data is rejected. Changed reviews, source JSON or photo
+bytes must be reviewed again. All accepted data and resources commit together;
+a rejected transaction cannot leave an accepted-looking batch or partial graph.
+
+Local Import preview/Apply runs away from the dispatcher. Back to People, search,
+Person navigation and owner-bound note writing remain usable during bulk work,
+using the last coherent committed reading view until commit. Retained profile
+drafts are not implicitly applied or discarded; ordinary stale-base protection
+still applies after an Import changes their Person. Bulk Apply does not use the
+ordinary-edit one-second completion target.
+
+The staged path supports browsing, startup restoration and accepted-batch replay.
+It still explicitly rejects legacy recovery export. An unconfirmed Import remains
+an error requiring reopening/reconciliation, not a saved state. No missing family
+is silently written through the legacy engine. Redesigned exit is not implemented
+by these slices. Never synchronize a live database or journal.
 
 ### Complete logical snapshots (interchange 1)
 

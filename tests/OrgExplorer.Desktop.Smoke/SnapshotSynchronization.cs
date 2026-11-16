@@ -296,5 +296,13 @@ internal static partial class Program
             scope = "Normal native Settings folder, Sync now, fresh join and automatic clean continuation; real independent logical stores/resources/history. Not periodic scheduling, conflict resolution, retention, exit or 10,000-Person export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: hosted SQLite snapshots: native Settings folder/Sync now/status, independent-store fresh join and selected-Person incoming adoption preserve actual photos/private Team names/frozen history; candidate-bound evidence: " + evidence);
+        SetSettingsVisible(window, true);
+        PrepareAction("OpenWorkspace");
+        PickWorkspaceFolder(window, source);
+        Await(() => Activity(window) == "Ready" &&
+            new WorkspaceSettings(Path.Combine(root, "sqlite-app-settings", "workspace-settings.json")).LastWorkspacePath == source);
+        EnsurePeopleBrowsing(window);
+        SelectTreePerson(window, "morgan@example.com");
+        Await(() => CurrentPersonEmail(window) == "morgan@example.com");
     }
 }
