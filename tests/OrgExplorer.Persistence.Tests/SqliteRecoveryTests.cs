@@ -240,7 +240,7 @@ public sealed partial class SqliteWorkspaceTests
         var readyName = @"Local\OrgExplorer-storage-crash-" + Guid.NewGuid().ToString("N");
         using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
         var start = new ProcessStartInfo("dotnet")
-        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
         foreach (var argument in new[] { "exec", "--runtimeconfig",
             Path.ChangeExtension(typeof(SqliteWorkspaceTests).Assembly.Location, ".runtimeconfig.json"),
             typeof(StorageCrash).Assembly.Location, Workspace, readyName, boundary, mutation })
@@ -250,6 +250,14 @@ public sealed partial class SqliteWorkspaceTests
         {
             Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
                 process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
+            var admission = await process.StandardOutput.ReadLineAsync();
+            Console.WriteLine($"SQLITE-CRASH-ADMISSION launcherProcessId={process.Id}; observed={admission}");
+            using (var observed = System.Text.Json.JsonDocument.Parse(admission
+                ?? throw new IOException("The admitted writer did not identify its actual process.")))
+            {
+                Assert.Equal(process.Id, observed.RootElement.GetProperty("writerProcessId").GetInt32());
+                Assert.Equal(boundary == "before" ? "Begin" : "End", observed.RootElement.GetProperty("phase").GetString());
+            }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             string? evidence = null;
@@ -261,6 +269,15 @@ public sealed partial class SqliteWorkspaceTests
             }
             using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
             Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            if (!unresolvedEvidence && reopened.LocalSave.Phase != LocalSavePhase.Recovered)
+                Console.WriteLine("SQLITE-CRASH-UNRESOLVED " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    boundary, mutation, testProcessId = Environment.ProcessId, launcherProcessId = process.Id,
+                    launcherExited = process.HasExited, launcherExitCode = process.ExitCode, admission,
+                    observedAt = DateTimeOffset.UtcNow,
+                    state = reopened.LocalSave, receipts = Directory.GetFiles(Workspace, "local-write-*.json")
+                        .Select(path => new { file = Path.GetFileName(path), users = LeaseOwners.Read([path]) }).ToArray()
+                }));
             if (evidence is not null)
             {
                 Assert.Equal(LocalSavePhase.Indeterminate, reopened.LocalSave.Phase);
@@ -297,6 +314,15 @@ public sealed partial class SqliteWorkspaceTests
                 process.Kill(entireProcessTree: true);
                 await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
+            var receipts = Directory.GetFiles(Workspace, "local-write-*.json");
+            if (receipts.Length != 0)
+                Console.WriteLine("SQLITE-CRASH-REMAINING " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    boundary, mutation, unresolvedEvidence, testProcessId = Environment.ProcessId,
+                    launcherProcessId = process.Id, launcherExited = process.HasExited,
+                    observedAt = DateTimeOffset.UtcNow,
+                    receipts = receipts.Select(path => new { file = Path.GetFileName(path), users = LeaseOwners.Read([path]) }).ToArray()
+                }));
         }
     }
 

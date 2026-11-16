@@ -25,6 +25,8 @@ internal static partial class Program
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
+            if (args.Length == 2 && args[1] == "--verify-legacy-save-feedback")
+                return VerifyCompiledXaml(executable, verifyLegacySaveFeedback: true);
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
                 return HarnessRuntime.Run("compiled-profile-refresh",
                     () => VerifyCompiledXaml(executable, verifyProfileRefresh: true));
