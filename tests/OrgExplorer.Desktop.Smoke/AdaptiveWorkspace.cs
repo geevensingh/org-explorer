@@ -351,6 +351,7 @@ internal static partial class Program
 
     private static double ScreenContrast(Rect bounds)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Pixels);
         if (bounds.Width <= 0 || bounds.Height <= 0)
             throw new InvalidOperationException("The rendered backdrop sample is empty.");
         var left = (int)Math.Floor(bounds.Left);
