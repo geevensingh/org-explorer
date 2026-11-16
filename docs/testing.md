@@ -716,15 +716,16 @@ Every PR and `main` commit, including docs/test-only changes, retains four
 independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
 The stable aggregate `CI` requires all four successes. Failure, required skip,
-cancellation, missing result and timeout cannot pass. Preserve the existing
-5-minute core and 11-minute filesystem deadlines, 15-minute ordinary desktop
-and high-resolution lanes, and 2-minute aggregate deadline: 48 minutes summed, at most
-17 minutes on the parallel critical path, excluding queues and later CD.
-The owner approved temporary 900-second runner/job limits for high-resolution
-and ordinary desktop on 2026-11-15. Both full scenario/size/assertion matrices
-remain required; the core/filesystem deadlines, explicit scale budgets and
-save-latency targets are unchanged. If fifteen minutes is insufficient, investigate rather than
-automatically extending it again.
+cancellation, missing result and timeout cannot pass. Preserve the 5-minute
+workflow/view-model, 11-minute filesystem, 15-minute ordinary desktop,
+15-minute high-resolution desktop and 2-minute aggregate deadlines: 48 minutes
+summed, at most 17 minutes on the parallel critical path, excluding queues and
+later CD. The two desktop runners enforce matching 900-second whole-execution
+budgets, including setup, temporarily raised with owner approval on 2026-11-15.
+Both full scenario/size/assertion matrices, including profile-copy and SQLite
+save coverage, remain required. Core/filesystem deadlines, separate scale-suite
+budgets and save-latency targets are unchanged. If fifteen minutes is insufficient,
+investigate rather than automatically extending it again.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
 
@@ -784,7 +785,9 @@ dispatcher; startup restore/update Loaded handlers and an external UI Automation
 client are not run.
 This catches XAML connection failures that compilation alone misses. It does not
 prove rendered controls, navigation, dialog discovery or any smoke/scale result.
-It also checks that all ten profile Copy targets accept focus and Tab navigation.
+It also checks that the ten fixed profile Copy targets accept focus and Tab
+navigation and expose an accessible copy action. Absent values disable their
+Copy value action and expose neither the hand cursor nor a copy hint.
 The actual compiled Person-note surface and secondary title list must expose
 distinct automation identities, so collapsed/empty-list discovery cannot select
 the visible surrounding surface instead.
@@ -841,6 +844,23 @@ The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing
 and delivered bytes. It is not rendered-layout or actual keyboard evidence.
+Its profile-copy fixture substitutes only the Windows clipboard write boundary.
+Actual compiled primary/key/menu connections retain exact multiline text and
+leading zeroes, segment-only duplicate Team names and owner/full-value hints.
+Missing/cleared values leave a sentinel untouched, while a real dash value still
+copies. The transient, non-hit-testable accessible confirmation expires without
+clearing independent errors. A rejected clipboard write shows no success and
+retains the selected Person, profile/Person-note drafts and exact Workspace bytes.
+No native window, tooltip or real local clipboard is opened/written by this
+fixture. These are compiled-control observations, not physical input or rendered
+confirmation acceptance.
+Representative identity, ordinary-fact and Team-name gesture checks start with
+the previous confirmation expired, then require newly visible success. Exhaustive
+eligible-value payload checks remain; expiry is not added to every matrix gesture.
+Hosted Workspace-path primary-click nonmutation observes the subsequent physical
+right-click opening its Copy path menu before reading the sentinel, without invoking
+Copy or reseeding the clipboard. That ordered input proves WPF processed the primary
+click, rather than sampling early.
 It also exercises labelled Manager and Office in the anchored header, joined
 building/room values and partial/missing Office data, with Department in a
 labelled facts slot. Header context fits the existing photo height at
@@ -1119,6 +1139,15 @@ without changing its display. They cover:
   quiet chrome and Settings keyboard entry/focus, anchored photo/identity bounds,
   all ordinary facts with stable labelled missing-value slots and no More details gate,
   readable ordinary values and idle state after profile Cancel,
+  primary copying of every eligible value, representative Enter/Space and the
+  retained mouse/keyboard Copy value menus, exact multiline/leading-zero payloads,
+  actual hand cursors/full-value/owner hints and rendered transient confirmations.
+  Clipboard-sentinel checks protect absent values, Heading/Manager navigation,
+  editor Enter and Workspace-path primary clicks. A genuinely held OS clipboard
+  rejects copying without success or loss of staged profile writing; explicit
+  retry returns to quiet reading. The responsive journey repeats the eligible
+  property set, long/truncated/wrapped values and duplicate Team-name activation
+  throughout its unchanged size matrix. Both remain hosted-only evidence,
   representative partial change/clear, save/reopen, actual copied PNG
   and JPEG pixels, photo clear/placeholder and Profile timeline. Its marked
   300 x 300, 300 x 150, 150 x 300, 72 x 72 and 72 x 36 PNGs prove centered
@@ -1320,6 +1349,35 @@ handler. Click and value helpers acquire an enabled control and its required
 pattern within the existing bounded observation wait, then invoke or set once
 without a second control lookup. Only preparation is retried, never the action.
 Raw Click/Set and idle/startup observations never open or close Settings.
+Physical copy click/hover preparation likewise captures a visible usable point
+within that wait, then sends input once. Eligible targets must be enabled;
+deliberate missing-value checks retain their disabled automation peers.
+Copy/owner hovers send actual absolute mouse movement on the verified primary
+display, not position-only `SetCursorPos`, which left the hosted cursor suppressed
+despite hitting the correct value. The native visible-hand/non-hand assertion remains.
+Hosted cursor observation samples twice to retain its repeated-read regression.
+Every read reinitializes `CURSORINFO.cbSize`, which the API can clear on return;
+reusing that output made later reads fail with Win32 87. Invisible local contracts
+never query the interactive cursor, which can be inaccessible on a locked desktop.
+Tooltip discovery checks native top-level popup children before the same descendant
+query, avoiding full reading-document traversal when the popup is top-level. Exact
+tooltip content, cursor, clipboard and rendered-feedback predicates are unchanged.
+Copy readiness failures retain the target's enabled/offscreen/focus state and bounds.
+Named physical-click targets are located inside that same readiness wait, so queued
+input cannot race an unguarded control lookup before preparation begins.
+The ordinary copy fixture scrolls its reading surface to the top once after profile
+Save, before acquiring any fact target, as the responsive copy fixture already does.
+UIA's offscreen flag alone can be false even when retained edit scrolling clips the
+fact above that viewport; acquiring an actual clickable point remains required.
+Rendered contrast uses one actual desktop bitmap capture, then the original six-pixel
+sample grid and luminance threshold against its pixels, rather than repeating desktop
+readback for every sample. This is neither offscreen rendering nor a reduced predicate.
+Feedback reads request name, offscreen state and bounds together in a fresh UIA cache
+snapshot per observation; no metadata is reused across gestures, and the same actual
+desktop-pixel check still proves rendering.
+Exact clipboard-copy observation uses the existing bounded STA dispatcher pump,
+servicing the harness's own OLE clipboard-owner messages while another process copies.
+The real clipboard equality and 20-second bound remain; no copied-text effect is faked.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the
