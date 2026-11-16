@@ -302,6 +302,10 @@ Actual local writer locks and filesystem staging observations admit Preferred-na
 profile and note drafts during validation; adoption must refuse them without
 losing writing. An actual publication-boundary hold allows another local commit
 and proves that publication of the older snapshot cannot acknowledge it.
+Reviewed partial/photo Imports use that same ancestry/commit proof, including
+accepted later replay after current photo clearing and full two-store frozen
+history/resources. An Import accepted during held export must remain separately
+unpublished until its own complete revision is exported.
 Both note scopes also hold the actual successful SaveNoteDraft return, retain a
 newer generation, independently publish that committed revision and deliver its
 real child. The non-base admission lease must prevent adoption through that VM

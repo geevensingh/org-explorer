@@ -53,8 +53,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Contains("no-op", Assert.Single(replay.Changes));
     }
 
-    [Fact]
-    public void Clean_continuation_preserves_private_dormant_names_current_paths_photos_and_complete_frozen_history()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Clean_continuation_preserves_private_dormant_names_current_paths_photos_and_complete_frozen_history(bool reviewedPhotoImport)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
@@ -79,7 +81,21 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var team = first.CreateTeamNote(manager, "Former context", "# Frozen manager writing")!;
         Assert.True(first.EditPersonText(manager, PersonTextField.JobTitle, "Changed context"), first.Status);
         Assert.True(Assert.Single(first.GetTeamNotes(manager)).NeedsReview);
-        Assert.True(first.EditPersonManager(report, null), first.Status);
+        string? importPath = null;
+        if (reviewedPhotoImport)
+        {
+            importPath = Local("reviewed-continuation.json");
+            File.WriteAllText(importPath, """
+                {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000004",
+                 "observedAt":"2026-11-02T17:00:00Z","producer":"Snapshot reviewed photo continuation","people":[
+                 {"email":"manager@example.com","department":"Imported observation","photoPath":"portrait.png"},
+                 {"email":"report@example.com","managerEmail":null}]}
+                """);
+            var preview = first.PreviewImportFile(importPath);
+            Assert.True(preview.CanApply, first.Status);
+            Assert.True(first.ApplyImport(preview.Id), first.Status);
+        }
+        else Assert.True(first.EditPersonManager(report, null), first.Status);
         var expected = Assert.Single(first.GetHistoricalTeamContexts(report));
         Assert.True(Assert.Single(expected.TeamNotes).NeedsReview);
         Assert.True(first.EditTeamNote(team.Id, "Current writing", "New current Markdown"), first.Status);
@@ -104,6 +120,16 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Empty(second.GetTeamNames(manager));
         Assert.Null(second.GetPhoto(manager));
         Assert.Null(second.GetPhoto(report));
+        if (importPath is not null)
+        {
+            var revision = second.Synchronization.LocalRevision;
+            var replay = second.PreviewImportFile(importPath);
+            Assert.True(replay.CanApply, second.Status);
+            Assert.Contains("no-op", Assert.Single(replay.Changes));
+            Assert.True(second.ApplyImport(replay.Id), second.Status);
+            Assert.Equal(revision, second.Synchronization.LocalRevision);
+            Assert.Null(second.GetPhoto(manager));
+        }
         Assert.True(first.EditPhoto(report, portrait), first.Status);
         File.Delete(portrait);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
@@ -291,8 +317,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         else Assert.True(second.HasUnsavedNoteDraft(NoteScope.Person, note!.Id));
     }
 
-    [Fact]
-    public async Task A_new_local_commit_during_export_stays_unpublished_and_does_not_change_the_exported_version()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_new_local_commit_during_export_stays_unpublished_and_does_not_change_the_exported_version(bool reviewedImport)
     {
         var publisher = new SnapshotPublisher { Hold = true };
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
@@ -305,7 +333,17 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         try
         {
             Assert.True(app.NavigatePerson("report@example.com"), app.Status);
-            Assert.True(app.EditPreferredName("report@example.com", "Committed during export"), app.Status);
+            if (reviewedImport)
+            {
+                var preview = app.PreviewImport("""
+                    {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000003",
+                     "observedAt":"2026-11-02T17:00:00Z","people":[
+                     {"email":"report@example.com","preferredName":"Committed during export"}]}
+                    """);
+                Assert.True(preview.CanApply, app.Status);
+                Assert.True(app.ApplyImport(preview.Id), app.Status);
+            }
+            else Assert.True(app.EditPreferredName("report@example.com", "Committed during export"), app.Status);
             Assert.NotEqual(exporting, app.Synchronization.LocalRevision);
         }
         finally { publisher.Release.Set(); }
