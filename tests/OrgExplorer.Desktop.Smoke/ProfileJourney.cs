@@ -832,6 +832,11 @@ internal static partial class Program
         Set(window, "OfficeState", "Ontario");
         Set(window, "LinkedInProfileUrl", link);
         SaveProfileEditing(window);
+        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+            control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         var bytes = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
         var fields = new[] { ("JobTitleValue", role), ("Email", "avery@example.com"),
             ("OfficeBuildingValue", building), ("OfficeNumberValue", "007B"),
@@ -891,6 +896,8 @@ internal static partial class Program
         Set(window, "OfficeState", "");
         Set(window, "LinkedInProfileUrl", "");
         SaveProfileEditing(window);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         AssertMissingCopy(window, Find(window, "OfficeStateValue"));
         AssertMissingCopy(window, Find(window, "LinkedInProfileUrlValue"));
     }

@@ -1164,6 +1164,10 @@ Tooltip discovery checks native top-level popup children before the same descend
 query, avoiding full reading-document traversal when the popup is top-level. Exact
 tooltip content, cursor, clipboard and rendered-feedback predicates are unchanged.
 Copy readiness failures retain the target's enabled/offscreen/focus state and bounds.
+The ordinary copy fixture scrolls its reading surface to the top once after profile
+Save, before acquiring any fact target, as the responsive copy fixture already does.
+UIA's offscreen flag alone can be false even when retained edit scrolling clips the
+fact above that viewport; acquiring an actual clickable point remains required.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the
