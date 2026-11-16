@@ -7,6 +7,14 @@ The shipping reader/writer uses [Workspace version 3](workspace-format.md),
 activated by #47. Older and future Workspace versions are rejected without
 mutation. There is no migration or legacy-folder cleanup.
 
+The development-opt-in SQLite path does not use this readable-file protocol.
+Its transaction/recovery contract is documented under
+[staged local SQLite formats](workspace-format.md#staged-local-sqlite-formats).
+Durable revision-only local-write evidence and validated SQLite state distinguish
+commit, noncommit and unresolved outcomes; elapsed time alone never authorizes
+replay. Browsing remains available while unsafe edits are paused. The legacy
+publication-conflict rules below remain unchanged until the final cutover.
+
 ## Approved publication-conflict contract
 
 The owner explicitly approved durable postpublication conflict handling with

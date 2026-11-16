@@ -58,6 +58,26 @@ and older completions do not overwrite newer writing. A rejected complete
 profile, including an unavailable required photo, leaves committed values and
 history unchanged.
 
+Ordinary saves expose Pending, Stalled, Failed, Indeterminate and Recovered
+states separately. The three-second stalled deadline starts with the oldest
+outstanding request, including autosave cadence and queueing; captured generations
+are acknowledged only by the actual accepted commit. Storage faults pause new
+edits while preserving Person/exact-note browsing and complete owner drafts.
+Domain validation rejection does not masquerade as an unavailable local store.
+
+Each local transaction writes and durably flushes a small
+`local-write-<id>.json` intent before changing payloads. Version-1 evidence binds
+the operation ID, base revision and intended next revision, with no note contents.
+The writer holds an open lease through commit acknowledgment. This is recovery
+evidence, never an alternate state authority or a synchronized artifact.
+A reader can validate the last committed SQLite state while the original writer
+is unresolved, but cannot adopt another state or start a replacement write.
+On restart/reconciliation, an exclusively accessible intent is retired only when
+the fully validated revision proves that exact commit or its rollback. Active,
+malformed or unmatched evidence is retained and keeps editing paused. A known
+commit with failed evidence cleanup is reported as committed maintenance, not
+permission to replay the mutation. OS/device durability limits still apply.
+
 The staged path supports browsing, startup restoration and exact accepted-batch
 replay. It still explicitly rejects photo-bearing initial Imports, subsequent
 new Imports and legacy recovery export. An unconfirmed Import remains an error requiring

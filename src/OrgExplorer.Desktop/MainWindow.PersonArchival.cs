@@ -90,7 +90,7 @@ public partial class MainWindow
             return;
         }
         if (!TryLeaveLocalEdits()) return;
-        if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived, confirmed: true), "Saving Person archival state…"))
+        if (await RunWorkflowAsync(() => workflow.EditPersonArchived(email, archived, confirmed: true), "Saving Person archival state…", ordinarySave: true))
         {
             unsavedArchivals.Remove(email);
             RefreshPeople();
@@ -158,10 +158,10 @@ public partial class MainWindow
     {
         if (selectedEmail is not { } owner) return;
         if (unsavedArchivals.TryGetValue(owner, out var archived) &&
-            await RunWorkflowAsync(() => workflow.EditPersonArchived(owner, archived), "Retrying archival save…"))
+            await RunWorkflowAsync(() => workflow.EditPersonArchived(owner, archived), "Retrying archival save…", ordinarySave: true))
             unsavedArchivals.Remove(owner);
         if (unsavedFavorites.TryGetValue(owner, out var favorite) &&
-            await RunWorkflowAsync(() => workflow.EditFavorite(owner, favorite), "Retrying favorite save…"))
+            await RunWorkflowAsync(() => workflow.EditFavorite(owner, favorite), "Retrying favorite save…", ordinarySave: true))
             unsavedFavorites.Remove(owner);
     }
 }

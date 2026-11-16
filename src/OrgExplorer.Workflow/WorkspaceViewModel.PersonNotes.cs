@@ -6,13 +6,13 @@ public sealed partial class WorkspaceViewModel
         workflow.GetPersonNotes(email, includeArchived);
 
     public PersonNote? CreatePersonNote(string email, string title, string markdown) =>
-        Observe(() => workflow.CreatePersonNote(email, title, markdown));
+        CanSubmitLocalSave() ? ObserveLocalSave(() => workflow.CreatePersonNote(email, title, markdown)) : null;
 
     public bool EditPersonNote(Guid noteId, string title, string markdown) =>
-        Observe(() => workflow.EditPersonNote(noteId, title, markdown));
+        CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPersonNote(noteId, title, markdown));
 
     public bool ArchivePersonNote(Guid noteId, bool archived = true) =>
-        Observe(() => workflow.ArchivePersonNote(noteId, archived));
+        CanSubmitLocalSave() && ObserveLocalSave(() => workflow.ArchivePersonNote(noteId, archived));
 
     public bool RefreshPersonNotes() => Observe(workflow.RefreshPersonNotes);
 }

@@ -44,7 +44,7 @@ public partial class MainWindow
     {
         if (workPending) return false;
         if (workflow.ProfileEdit is not { } submitted) return false;
-        var saved = await RunWorkflowAsync(() => workflow.SaveProfileEdit(submitted), "Saving complete profile…");
+        var saved = await RunWorkflowAsync(() => workflow.SaveProfileEdit(submitted), "Saving complete profile…", ordinarySave: true);
         RefreshExternalWorkspace();
         if (saved && selectedEmail == submitted.Basis.Email) FocusProfileControl(editing: workflow.ProfileEdit is not null);
         return saved;

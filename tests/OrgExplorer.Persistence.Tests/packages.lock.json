@@ -151,6 +151,12 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "orgexplorer.storage.processfixture": {
+        "type": "Project",
+        "dependencies": {
+          "OrgExplorer.Workflow": "[1.0.0, )"
+        }
+      },
       "orgexplorer.workflow": {
         "type": "Project",
         "dependencies": {

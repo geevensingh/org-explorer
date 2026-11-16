@@ -50,7 +50,17 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
-Subsequent Imports, synchronization, stall orchestration and the new exit
+Failed local saves retain exact owner drafts and pause editing, not Person
+browsing. An ordinary save outstanding for three seconds (including its queue)
+shows **stalled / not confirmed saved**; further typing cannot postpone that
+deadline. A timeout does not establish rollback. Wait for the original outcome
+or use the notice's **Retry** recovery action once available; recovery validates
+committed local state before enabling edits or a safe draft retry. Profile
+Cancel remains owner-scoped and does not clear a storage fault or independent
+note writing. Restart recovers validated committed data, not unsaved edit buffers;
+unresolved transaction evidence keeps that data read-only. An invalid database
+reports an explicit failure, never an empty replacement.
+Subsequent Imports, synchronization and the new exit
 interaction are not available yet; unsupported actions are rejected, never sent
 to the legacy writer. Exact Import replay remains a no-op.
 Do not synchronize the live database or its journal, and do not treat local

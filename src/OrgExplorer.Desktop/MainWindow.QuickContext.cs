@@ -91,7 +91,7 @@ public partial class MainWindow
         {
             accepted = await RunWorkflowAsync(
                 () => workflow.SavePersonTextDraft(basis, PersonTextField.PreferredName, text.Length == 0 ? null : text),
-                "Saving Preferred name…");
+                "Saving Preferred name…", ordinarySave: true);
         }
         finally { preferredNameSavePending = false; }
         var returnFocus = entry == preferredNameEntryVersion && accepted is not null && PreferredName.Text == text;

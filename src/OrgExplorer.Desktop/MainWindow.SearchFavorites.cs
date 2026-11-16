@@ -307,7 +307,7 @@ public partial class MainWindow
         if (selectedEmail is null || workPending) return;
         var person = workflow.GetRelationships(selectedEmail)!.Person;
         var favorite = !person.IsFavorite;
-        if (await RunWorkflowAsync(() => workflow.EditFavorite(person.Email, favorite), "Saving local favorite…"))
+        if (await RunWorkflowAsync(() => workflow.EditFavorite(person.Email, favorite), "Saving local favorite…", ordinarySave: true))
         {
             unsavedFavorites.Remove(person.Email);
             RefreshPeople();

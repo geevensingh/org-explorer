@@ -18,6 +18,9 @@ public sealed partial class ApplicationWorkflow
 
     public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
         ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonArchivedCore(email, archived, confirmed, profileDecision));
+
+    private bool EditPersonArchivedCore(string email, bool archived, bool confirmed, ProfileLeaveDecision profileDecision)
     {
         lock (workspaceGate)
         {
@@ -32,6 +35,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPersonManager(string email, string? managerEmail)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonManagerCore(email, managerEmail));
+
+    private bool EditPersonManagerCore(string email, string? managerEmail)
     {
         lock (workspaceGate)
         {

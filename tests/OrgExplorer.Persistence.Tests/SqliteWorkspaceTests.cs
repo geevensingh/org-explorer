@@ -7,7 +7,7 @@ using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
 
-public sealed class SqliteWorkspaceTests : IDisposable
+public sealed partial class SqliteWorkspaceTests : IDisposable
 {
     private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", "sqlite-" + Guid.NewGuid().ToString("N")));
@@ -196,6 +196,7 @@ public sealed class SqliteWorkspaceTests : IDisposable
         }
         Assert.False(app.SaveProfileEdit());
         Assert.Contains("current direct report", app.LocalSaveError);
+        Assert.True(app.CanEditLocalWorkspace, "Eligibility rejection must not be reported as a local storage fault.");
         Assert.Equal("Uncommitted label", app.ProfileEdit!.Draft.TeamName);
         Assert.Equal("Uncommitted department", app.ProfileEdit.Draft.Department);
         using (var unchanged = ApplicationWorkflow.CreateFileBacked())
@@ -212,6 +213,7 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Not committed"), app.Status);
         Assert.False(app.SaveProfileEdit());
         Assert.Contains("photo", app.LocalSaveError);
+        Assert.True(app.CanEditLocalWorkspace, "An unavailable selected photo is a rejected draft, not failed Workspace storage.");
         Assert.True(app.ProfileEdit!.PhotoChanged);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
