@@ -23,6 +23,7 @@ public sealed partial class WorkspaceViewModel
     private Task? noteAutosaveTask;
     private SynchronizationContext? noteAutosaveContext;
     private long noteDraftOrder;
+    private long noteAutosaveEpoch;
     private volatile bool noteAutosaveStopped;
 
     private bool HasLocalNoteDrafts { get { lock (noteDraftGate) return localNoteDrafts.Count != 0; } }
@@ -132,10 +133,11 @@ public sealed partial class WorkspaceViewModel
             !localNoteDrafts.Values.Any(d => d.Error is null)) return;
         foreach (var draft in localNoteDrafts.Values.Where(draft => draft.Error is null && draft.Requests.Count == 0))
             draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
-        noteAutosaveTask = Task.Run(SaveLocalNoteDraftsAsync);
+        var epoch = noteAutosaveEpoch;
+        noteAutosaveTask = Task.Run(() => SaveLocalNoteDraftsAsync(epoch));
     }
 
-    private async Task SaveLocalNoteDraftsAsync()
+    private async Task SaveLocalNoteDraftsAsync(long epoch)
     {
         // The cadence starts with the first edit; further typing cannot postpone it.
         await Task.Delay(250).ConfigureAwait(false);
@@ -147,6 +149,7 @@ public sealed partial class WorkspaceViewModel
             long generation;
             lock (noteDraftGate)
             {
+                if (epoch != noteAutosaveEpoch) return;
                 if (noteAutosaveStopped || localSaveReconciling || viewSaveFault is not null || workflow.LocalSave.EditsPaused)
                 { noteAutosaveTask = null; return; }
                 var next = localNoteDrafts.Values.Where(d => d.Error is null).OrderBy(d => d.Order).FirstOrDefault();
@@ -226,7 +229,11 @@ public sealed partial class WorkspaceViewModel
                     workflow.DiscardUnsavedChanges(key.Id);
                     foreach (var request in draft.Requests) localSaveRequests.Complete(request.Request);
                     draft.Requests.Clear();
-                    if (draft.Generation == submitted.Generation) localNoteDrafts.Remove(key);
+                    if (draft.Generation == submitted.Generation)
+                    {
+                        localNoteDrafts.Remove(key);
+                        draft.AdoptionDeferral.Dispose();
+                    }
                     else
                     {
                         draft.Basis = current;

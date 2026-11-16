@@ -48,6 +48,7 @@ public sealed partial class ApplicationWorkflow
         SnapshotRow[] TeamContexts, SnapshotRow[] HistoricalContexts, SnapshotPhoto[] Photos);
     private sealed record SnapshotEnvelope(string Format, int Version, string Sha256, byte[] Content);
     private sealed record DeliveredSnapshot(LogicalSnapshot Data, string Hash, byte[] Bytes);
+    private sealed class SnapshotAdoptionDeferred(string message) : IOException(message);
 
     public WorkspaceSynchronization Synchronization => Volatile.Read(ref synchronization);
 
@@ -240,7 +241,7 @@ public sealed partial class ApplicationWorkflow
                     {
                         if (workspace != path) throw new IOException("Workspace changed while synchronization was running. Retry for the current Workspace.");
                         // A second local process may have committed while folder validation ran.
-                        OpenLocalSqlite(false);
+                        ObserveStoragePhase("snapshot.local-read", () => OpenLocalSqlite(false));
                         if (!joiningWorkspace && !IsPrefix(localAncestry, newest.Data.Ancestry) &&
                             !IsPrefix(newest.Data.Ancestry, localAncestry))
                         {
@@ -508,55 +509,66 @@ public sealed partial class ApplicationWorkflow
 
     private void AdoptSnapshot(ValidatedSnapshot candidate, DeliveredSnapshot incoming)
     {
-        if (!CanSafelyClose || pending is not null || Volatile.Read(ref snapshotAdoptionDeferrals) != 0 ||
+        if (LocalSave.HasUnresolvedOutcome || !CanSafelyClose || pending is not null ||
+            Volatile.Read(ref snapshotAdoptionDeferrals) != 0 ||
             (joiningWorkspace
                 ? people.Count != 0 || batches.Count != 0 || localAncestry.Length != 1 || Synchronization.PublishedRevision is not null
                 : Synchronization.HasUnpublishedChanges))
             throw new IOException("Incoming version is waiting: unpublished local changes or unsaved drafts must be preserved.");
-        var expected = revision;
-        using var connection = OpenLocalConnection();
-        using var transaction = connection.BeginTransaction();
-        if (LocalSqliteRevision() != expected) throw new IOException("A new local commit arrived during adoption. Retry without overwriting it.");
-        WriteLogicalSnapshot(connection, transaction, incoming.Data);
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "UPDATE synchronization SET published_revision=$revision, joining=0 WHERE singleton=1;";
-        command.Parameters.AddWithValue("$revision", incoming.Data.Revision.ToString("D"));
-        command.ExecuteNonQuery();
-        // Seal clean adoption before commit, without holding the draft/navigation gate
-        // over storage I/O. Drafts admitted after this point retain their immutable bases.
-        lock (profileDraftGate)
+        try
         {
-            if (!CanSafelyClose || pending is not null || snapshotAdoptionDeferrals != 0)
-                throw new IOException("A new draft arrived during adoption. Incoming data was not installed.");
-        }
-        SetSynchronizationPhase(WorkspaceSynchronizationPhase.Adopting);
-        ObserveStoragePhase("snapshot.adopt-commit", transaction.Commit);
-        lock (profileDraftGate)
-        {
-            var accepted = candidate.Workflow;
-            people = accepted.people;
-            batches = accepted.batches;
-            profileHistory = accepted.profileHistory;
-            historicalTeamContexts = accepted.historicalTeamContexts;
-            personNotes = accepted.personNotes;
-            teamNotes = accepted.teamNotes;
-            teamNoteConfirmations = accepted.teamNoteConfirmations;
-            teamContextRevisions = accepted.teamContextRevisions;
-            photos = accepted.photos;
-            revision = incoming.Data.Revision.ToString("D");
-            localAncestry = incoming.Data.Ancestry;
-            joiningWorkspace = false;
-            synchronization = Synchronization with
+            var expected = revision;
+            using var connection = OpenLocalConnection();
+            using var transaction = connection.BeginTransaction();
+            if (LocalSqliteRevision() != expected)
+                throw new SnapshotAdoptionDeferred("A new local commit arrived during adoption. Retry without overwriting it.");
+            using var evidence = BeginLocalWrite(incoming.Data.Revision.ToString("D"));
+            WriteLogicalSnapshot(connection, transaction, incoming.Data);
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE synchronization SET published_revision=$revision, joining=0 WHERE singleton=1;";
+            command.Parameters.AddWithValue("$revision", incoming.Data.Revision.ToString("D"));
+            command.ExecuteNonQuery();
+            // Seal clean adoption before commit, without holding the draft/navigation gate
+            // over storage I/O. Drafts admitted after this point retain their immutable bases.
+            lock (profileDraftGate)
             {
-                WorkspaceId = incoming.Data.WorkspaceId, LocalRevision = incoming.Data.Revision,
-                PublishedRevision = incoming.Data.Revision, Error = null
-            };
-            compatibility = accepted.compatibility with { WorkspacePath = workspace };
-            foreach (var owner in localProfileEdits.Where(item => !item.Value.IsDirty).Select(item => item.Key).ToArray())
-                localProfileEdits.Remove(owner);
-            if (profileEdit is not { IsDirty: true }) profileEdit = null;
-            queryView = accepted.queryView;
+                if (LocalSave.HasUnresolvedOutcome || !CanSafelyClose || pending is not null || snapshotAdoptionDeferrals != 0)
+                    throw new SnapshotAdoptionDeferred("A new draft arrived during adoption. Incoming data was not installed.");
+            }
+            SetSynchronizationPhase(WorkspaceSynchronizationPhase.Adopting);
+            ObserveStoragePhase("snapshot.adopt-commit", () => CommitLocalWrite(transaction, evidence));
+            lock (profileDraftGate)
+            {
+                var accepted = candidate.Workflow;
+                people = accepted.people;
+                batches = accepted.batches;
+                profileHistory = accepted.profileHistory;
+                historicalTeamContexts = accepted.historicalTeamContexts;
+                personNotes = accepted.personNotes;
+                teamNotes = accepted.teamNotes;
+                teamNoteConfirmations = accepted.teamNoteConfirmations;
+                teamContextRevisions = accepted.teamContextRevisions;
+                photos = accepted.photos;
+                revision = incoming.Data.Revision.ToString("D");
+                localAncestry = incoming.Data.Ancestry;
+                joiningWorkspace = false;
+                synchronization = Synchronization with
+                {
+                    WorkspaceId = incoming.Data.WorkspaceId, LocalRevision = incoming.Data.Revision,
+                    PublishedRevision = incoming.Data.Revision, Error = null
+                };
+                compatibility = accepted.compatibility with { WorkspacePath = workspace };
+                foreach (var owner in localProfileEdits.Where(item => !item.Value.IsDirty).Select(item => item.Key).ToArray())
+                    localProfileEdits.Remove(owner);
+                if (profileEdit is not { IsDirty: true }) profileEdit = null;
+                queryView = accepted.queryView;
+            }
+        }
+        catch (Exception error) when (StorageError(error) && error is not SnapshotAdoptionDeferred)
+        {
+            LocalStorageFailed(error);
+            throw;
         }
     }
 
@@ -595,6 +607,10 @@ public sealed partial class WorkspaceViewModel
     public WorkspaceSynchronization Synchronization => workflow.Synchronization;
     public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false) =>
         Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace));
-    public bool SyncNow() => Observe(workflow.SyncNow);
+    public bool SyncNow()
+    {
+        using var unresolvedAdoption = LocalSave.HasUnresolvedOutcome ? workflow.DeferSnapshotAdoption() : null;
+        return Observe(workflow.SyncNow);
+    }
     public IDisposable DeferSnapshotAdoption() => workflow.DeferSnapshotAdoption();
 }

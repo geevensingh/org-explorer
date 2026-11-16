@@ -317,6 +317,24 @@ must preserve that later draft. Both note scopes additionally retain their exact
 owner/writing/immutable base after that seal, then commit/reopen and publish a
 valid child which the first store must accept. A failed/timed-out commit cannot
 satisfy this structural nonblocking proof.
+The joint #95 cases create a real committed-but-lost note return in both scopes,
+with and without newer generations. Actual SQLite exclusive locking holds
+`snapshot.local-read` while reconciliation reaches its real core draft
+acknowledgment. Browsing must return before that same observed read ends; a read
+failure or merely pending task is not sufficient. Committed-ack removal must
+release adoption admission, whereas newer writing must survive, retry/reopen and
+refuse a truly divergent child. Explicit buffer discard cannot erase an unknown
+outcome or authorize adoption. A published Person save held at its real return
+uses an unadvanced injected request clock to isolate the pre-timeout lifetime,
+not manufacture a timeout or claim latency. A real rejected SQLite adoption
+Commit must retain the old root and enter actual local recovery before safe retry.
+Recovery also invalidates only an already-ended save worker's epoch before
+clearing its paused state. The queued-request regression holds that exact worker's
+public completion notification (not a timer callback), then requires the explicit
+recovered retry to enter while the old notification is still held. A stale worker
+cannot veto the new worker or silently resume queued writing after reconciliation.
+The first-edit cadence, actual active transaction and oldest-request clocks are
+unchanged.
 Interruption before/after real immutable publication reopens and retries without
 replaying edits; duplicates/reordering cannot roll back; divergence preserves
 complete versions and pauses editing across restart. No private-table assertions

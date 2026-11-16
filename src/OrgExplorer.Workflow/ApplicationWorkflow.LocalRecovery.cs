@@ -13,11 +13,13 @@ public sealed partial class ApplicationWorkflow
         public void Dispose() => lease.Dispose();
     }
 
-    private LocalWriteEvidence BeginLocalWrite()
+    private LocalWriteEvidence BeginLocalWrite(string? nextRevision = null)
     {
         if (!ReconcileLocalWriteEvidence())
             throw new IOException("An original local transaction remains unresolved. No replacement write was started.");
-        var intent = new LocalWriteIntent(1, Guid.NewGuid(), revision!, Guid.NewGuid().ToString("D"));
+        var next = nextRevision ?? Guid.NewGuid().ToString("D");
+        if (next == revision) throw new FormatException("A local transaction requires a distinct next revision.");
+        var intent = new LocalWriteIntent(1, Guid.NewGuid(), revision!, next);
         var path = Path.Combine(workspace!, $"local-write-{intent.Id:N}.json");
         var lease = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
         try

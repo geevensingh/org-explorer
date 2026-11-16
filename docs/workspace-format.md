@@ -134,6 +134,13 @@ is an explicit open error, never permission to reset the lineage. Use only
 revision-aware writers after configuration. The metadata is not another population
 authority. Comparing committed and published revisions discovers unpublished work
 after restart without replaying a mutation.
+The local recovery intent's preselected next revision is the same value written
+to both the Workspace and ancestry. Incoming installation also uses that existing
+revision-only recovery protocol, with the validated remote revision as its next
+revision, not a second allocated GUID. Actual adoption I/O failure enters local
+save recovery; a clean adoption deferred for a new draft is not a storage fault.
+Validated reopening loads complete state and synchronization metadata before
+classifying an original transaction's outcome.
 
 Export reads a coherent committed transaction, validates the complete logical
 version and resources, durably writes a unique `.pending` artifact, then uses
@@ -162,6 +169,13 @@ stale/reordered delivery cannot roll back a newer revision.
 The observable synchronization phase distinguishes checking, sealed adoption
 and complete-version publication. It is transient activity, not a local-save
 receipt or provider-delivery acknowledgement.
+Ordinary Person save returns and explicit reconciliation also retain admission
+leases through their full view-model lifetime. Reconciled committed notes release
+their own lease only after the latest generation is accepted; newer or uncertain
+writing keeps it. Note-only acknowledgment is short bookkeeping, not I/O behind
+the view-model draft gate. Actual core or view-model unresolved outcomes refuse
+adoption even after an explicit editor-buffer discard; releasing a lease never
+clears saving/recovery state.
 
 Divergence is refused, durably marked and preserved as complete local artifacts
 under `snapshot-conflicts`; browsing remains available and new edits are paused.
