@@ -1173,6 +1173,9 @@ fact above that viewport; acquiring an actual clickable point remains required.
 Rendered contrast uses one actual desktop bitmap capture, then the original six-pixel
 sample grid and luminance threshold against its pixels, rather than repeating desktop
 readback for every sample. This is neither offscreen rendering nor a reduced predicate.
+Feedback reads request name, offscreen state and bounds together in a fresh UIA cache
+snapshot per observation; no metadata is reused across gestures, and the same actual
+desktop-pixel check still proves rendering.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

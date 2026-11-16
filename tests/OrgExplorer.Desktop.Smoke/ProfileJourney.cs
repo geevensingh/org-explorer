@@ -732,11 +732,17 @@ internal static partial class Program
             "TeamNameSegment" => "Team name copied.",
             _ => throw new InvalidOperationException("Unexpected profile-copy target: " + value.Current.AutomationId)
         };
+        var request = new CacheRequest { TreeScope = TreeScope.Element };
+        request.Add(AutomationElement.NameProperty);
+        request.Add(AutomationElement.IsOffscreenProperty);
+        request.Add(AutomationElement.BoundingRectangleProperty);
         Await(() =>
         {
-            var feedback = Find(window, "ProfileCopyFeedback");
-            var bounds = feedback.Current.BoundingRectangle;
-            return !feedback.Current.IsOffscreen && feedback.Current.Name == expected && !bounds.IsEmpty &&
+            AutomationElement feedback;
+            using (request.Activate()) feedback = Find(window, "ProfileCopyFeedback");
+            var state = feedback.Cached;
+            var bounds = state.BoundingRectangle;
+            return !state.IsOffscreen && state.Name == expected && !bounds.IsEmpty &&
                 bounds.Width > 0 && bounds.Height > 0 && ScreenContrast(bounds) > 20;
         });
     }
@@ -751,8 +757,10 @@ internal static partial class Program
 
     private static void AssertPrimaryCopy(AutomationElement window, AutomationElement value, string expected, bool freshFeedback = false)
     {
+        var phase = Stopwatch.StartNew();
+        var id = value.Current.AutomationId;
         if (freshFeedback) AwaitCopyFeedbackGone(window);
-        if (value.Current.AutomationId == "TeamNameSegment")
+        if (id == "TeamNameSegment")
         {
             var email = Find(window, "Email");
             email.SetFocus();
@@ -760,10 +768,17 @@ internal static partial class Program
             if (!SetCursorPos((int)away.X, (int)away.Y))
                 throw new InvalidOperationException("The hosted desktop could not dismiss the previous owner tooltip.");
         }
+        var prepared = phase.Elapsed.TotalSeconds;
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
+        var seeded = phase.Elapsed.TotalSeconds;
         PrimaryClick(() => value);
+        var clicked = phase.Elapsed.TotalSeconds;
         Await(() => System.Windows.Clipboard.GetText() == expected);
+        var copied = phase.Elapsed.TotalSeconds;
         AssertCopyFeedback(window, value);
+        if (id is "Email" or "TeamNameSegment")
+            Console.WriteLine($"[DEBUG-profile-copy-timing] primary {id}; prepare={prepared:F2}; seed={seeded - prepared:F2}; " +
+                $"click={clicked - seeded:F2}; clipboard={copied - clicked:F2}; feedback={phase.Elapsed.TotalSeconds - copied:F2}");
     }
 
     private static void AssertFocusedCopy(AutomationElement window, AutomationElement value, string expected, byte key)
