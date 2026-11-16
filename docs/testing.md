@@ -362,6 +362,41 @@ Person selection and capture, then is deliberately released. The exact owner
 draft must survive success before its explicit Cancel exposes the new committed
 reading. `heldAdoption` records the real phase/action timestamps and boundaries;
 no busy-time extension or new latency claim is used.
+The native driver prepares only actual control/pattern references before starting
+Sync now. It does not cache ready values: post-request adoption phase and disabled
+Sync now are observed first. Before the one input, fresh exact Avery identity and
+heading must both be visible with finite positive bounds; JobTitle must be enabled,
+onscreen, finite positive size and expose a supported writable ValuePattern with
+actual `IsReadOnly=false`. Fresh post-input owner/heading/editor/value observations
+must agree before the one selection. The destination then requires fresh exact
+Morgan identity/heading with visible positive bounds, not visibility of Avery's
+now-hidden editor. These are bounded element-cache observations. The same shared driver holds the real
+SQLite reader through actions/capture and retains the live-journal verdict.
+`--verify-snapshot-adoption` is a narrow invisible compiled replay of this driver;
+its fixed 1.2-second control-preparation delay must precede reader acquisition,
+not consume or extend the real commit's busy timeout. Public real-store cases also
+delay the actual action by 1.2 seconds and require the unchanged held verdict to
+fail, so late success or failure cannot satisfy the proof.
+`*-sqlite-held-adoption-observation.json` is written on success or failure, even
+when the later main snapshot marker is absent. It binds candidate/run/attempt,
+executable hash/process, raw Stopwatch timestamps/frequency, bounded preparation/
+request/observation/capture/release milestones, real reader connection and journal
+state, attempted input/selection counts, and non-atomic window feedback observed
+before reader disposal. Preparation time is not subtracted from any acceptance
+clock. An observation `Passed` proves only this held interval; the existing later
+commit, immutable draft/base, data/revision, original-Workspace restoration, close
+and complete scenario results remain independently required.
+`nativeUsability` retains accepted before-input, after-input and destination
+readbacks plus the last actual person/editor frames when a predicate rejects.
+Unavailable/nonfinite bounds remain invalid (named floating values are serialized
+as diagnostic strings rather than normalized into usable rectangles).
+`SnapshotNativeUsabilityTests` rejects recorded enabled/correct-text observations
+which are offscreen, zero-sized, read-only or lack a ValuePattern, and incorrect/
+hidden/zero-sized identities or headings. These helper cases are not native UI
+evidence. The actual artifact serializer is also exercised with NaN, Infinity and
+negative Infinity frames, retaining those invalid named values and the original
+failure type/message in valid JSON. The invisible compiled replay keeps its real control/draft/base checks
+without manufacturing native IsOffscreen, focus or provider geometry.
 These are not periodic synchronization, conflict-resolution/retention, redesigned
 exit, native latency or 10,000-Person background-export proof.
 
