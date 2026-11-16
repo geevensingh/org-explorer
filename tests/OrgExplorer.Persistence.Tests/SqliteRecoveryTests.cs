@@ -322,6 +322,8 @@ public sealed partial class SqliteWorkspaceTests
             if (evidence is not null)
             {
                 Assert.Equal(LocalSavePhase.Indeterminate, reopened.LocalSave.Phase);
+                Assert.Contains("receipt-stage=read", reopened.LocalSave.Error);
+                Assert.Contains("managed-receipt-handle=closed", reopened.LocalSave.Error);
                 Assert.False(reopened.CanEditLocalWorkspace);
                 Assert.True(reopened.NavigatePerson("report@example.com"), reopened.Status);
                 Assert.True(reopened.NavigatePerson("manager@example.com"), reopened.Status);
@@ -365,6 +367,51 @@ public sealed partial class SqliteWorkspaceTests
                     receipts = receipts.Select(path => new { file = Path.GetFileName(path), users = LeaseOwners.Read([path]) }).ToArray()
                 }));
         }
+    }
+
+    [Fact]
+    public async Task Committed_Team_writing_stays_read_only_until_its_actual_owned_receipt_lease_is_released()
+    {
+        using var boundary = new CommitBoundary { Boundary = WorkspaceStoragePhaseKind.End };
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        boundary.Hold = true;
+        var saving = Task.Run(() => app.CreateTeamNote("manager@example.com", "Committed but unacknowledged",
+            "Exact committed Team writing under the owned receipt lease"));
+        try
+        {
+            Assert.True(boundary.Entered.Wait(TimeSpan.FromSeconds(5)));
+            using var reading = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+            Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal(LocalSavePhase.Indeterminate, reading.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, reading.LocalSave.Outcome);
+            Assert.False(reading.CanEditLocalWorkspace);
+            var committed = Assert.Single(reading.GetTeamNotes("manager@example.com"));
+            Assert.Equal("Exact committed Team writing under the owned receipt lease", committed.Markdown);
+            var revision = reading.LocalSave.CommittedRevision;
+            var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+            Assert.Throws<IOException>(() =>
+            {
+                using var unavailable = new FileStream(receipt, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            });
+            Assert.Contains("receipt-stage=acquire", reading.LocalSave.Error);
+            Assert.Contains("managed-receipt-handle=not-acquired", reading.LocalSave.Error);
+            Assert.Contains("hresult=0x80070020", reading.LocalSave.Error);
+            Assert.True(reading.NavigatePerson("report@example.com"), reading.Status);
+            Assert.True(reading.NavigatePerson("manager@example.com"), reading.Status);
+            Assert.False(reading.ReconcileLocalSaves());
+            boundary.Release.Set();
+            var acknowledged = await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotNull(acknowledged);
+            Assert.Equal(committed.Id, acknowledged.Id);
+            Assert.True(reading.ReconcileLocalSaves(), reading.Status);
+            Assert.Equal(LocalSavePhase.Recovered, reading.LocalSave.Phase);
+            Assert.True(reading.CanEditLocalWorkspace);
+            Assert.Equal(revision, reading.LocalSave.CommittedRevision);
+            Assert.Equal(committed.Markdown, Assert.Single(reading.GetTeamNotes("manager@example.com")).Markdown);
+        }
+        finally { boundary.Release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
     }
 
     [Fact]
@@ -490,6 +537,7 @@ public sealed partial class SqliteWorkspaceTests
     private sealed class CommitBoundary : IWorkspaceFileObserver, IDisposable
     {
         public bool Hold;
+        public WorkspaceStoragePhaseKind Boundary = WorkspaceStoragePhaseKind.Begin;
         public int CommitAttempts;
         public readonly ManualResetEventSlim Entered = new();
         public readonly ManualResetEventSlim Release = new();
@@ -498,7 +546,7 @@ public sealed partial class SqliteWorkspaceTests
         {
             if (phase.Name == "local-sqlite-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
                 Interlocked.Increment(ref CommitAttempts);
-            if (!Hold || phase.Name != "local-sqlite-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            if (!Hold || phase.Name != "local-sqlite-commit" || phase.Kind != Boundary) return;
             Entered.Set();
             if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Commit fixture was not released.");
         }
