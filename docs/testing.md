@@ -498,7 +498,15 @@ Lost acknowledgment cannot create another note. `OrgExplorer.Storage.ProcessFixt
 is an owned, non-UI child killed at the existing storage observer's actual
 SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
 Reopening uses the normal validating reader; neither Dispose nor private-table
-inspection supplies crash evidence. Active unresolved real writers yield
+inspection supplies crash evidence. The child identifies its actual PID, observed
+commit boundary and whitelisted request/base/next-revision metadata before signaling
+admission; the parent verifies it is terminating that exact process. Unexpected
+recovery and remaining-evidence diagnostics include the exited launcher, validated
+revision/error and read-only Windows Restart Manager owner snapshots for only those
+owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
+force-delete evidence, inventory unrelated processes or log note contents. Missing
+owners at observation do not establish that no earlier holder existed.
+Active unresolved real writers yield
 validated read-only browsing rather than an empty success.
 Reviewed-Import rollback requires explicit local-save reconciliation before retry;
 an outstanding bulk Apply alone does not acquire the ordinary-save stall deadline.
@@ -520,6 +528,15 @@ close and the existing ten-second process-exit check.
 The separate ordinary executable lifecycle and original native latency samples
 remain unchanged. Compiling or invisibly replaying this tail does not establish
 hosted pixels or a new latency claim; all lane budgets and matrices remain.
+
+The focused invisible `--verify-legacy-save-feedback` replay uses the real legacy
+profile save and existing leave-feedback continuation without opening a native
+modal dialog. After the queued dispatcher refreshes settle, it requires the
+original navigation rejection, enabled Save, exact owner/complete draft, and
+unchanged legacy navigation/safe-close guards. It is also included in the existing
+compiled profile-refresh selection. The matching public real-storage case verifies
+that a rejected legacy mutation still notifies status observers but does not emit
+the SQLite coordinator's synthetic Workspace-change event.
 
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
@@ -1566,6 +1583,18 @@ Later records carry `diagnosticsComplete=false` and `outputFailures`; action
 outcome is separate from evidence completeness. Missing boundaries or any output
 failure make investigation evidence incomplete, even when actions passed.
 Unexpected diagnostic programming errors are not silently caught.
+`AwaitLocalWorkIdle` preserves its original exact `Ready` activity and ordinal
+non-`Pending` status guards before requesting one fresh, four-ID filtered native
+snapshot per eligible poll. The snapshot contains only Email, WorkspaceStart and
+the two note surfaces, never elements/properties retained across polls or owners.
+Absent Email still requires the actual visible starting view; empty Email retains
+its original optional-note behavior. A selected Person still requires Person then
+Team feedback without `Pending`, including offscreen note reading. Required-control
+absence and provider failures are not readiness, and no local-save phase/status is
+normalized. The existing twenty-second observer/catches remain unchanged.
+Runner regressions pin short-circuit order, startup/required-control failures,
+per-poll query count, changed owners/feedback and unavailable providers. These are
+observation contracts, not rendered usability, local durability or latency claims.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

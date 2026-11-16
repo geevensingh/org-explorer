@@ -223,6 +223,7 @@ public sealed partial class WorkspaceViewModel
 
     private T ObserveLocalSave<T>(Func<T> operation)
     {
+        if (!Compatibility.SupportsNonblockingNoteAutosave) return Observe(operation);
         var request = Compatibility.SupportsNonblockingNoteAutosave ? localSaveRequests.Begin() : (long?)null;
         using var adoptionDeferral = request is not null ? workflow.DeferSnapshotAdoption() : null;
         Interlocked.Increment(ref explicitLocalSaves);
