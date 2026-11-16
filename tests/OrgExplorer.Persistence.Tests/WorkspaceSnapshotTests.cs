@@ -407,6 +407,40 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Equal("New independent local commit", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
     }
 
+    [Fact]
+    public void Actual_folder_unavailability_does_not_pause_local_writing_and_latest_publication_resumes()
+    {
+        using var app = Create("first");
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.ConfigureSynchronizationFolder(Local("outgoing")), app.Synchronization.Error);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        Directory.Move(Local("outgoing"), Local("provider-unavailable"));
+        Assert.False(app.SyncNow());
+        Assert.NotNull(app.Synchronization.Error);
+        Assert.Equal(WorkspaceSynchronizationPhase.Idle, app.Synchronization.Phase);
+        var basis = app.GetRelationships("report@example.com")!.Person;
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Durable while provider is unavailable");
+        Assert.NotNull(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Durable while provider is unavailable"));
+        var note = app.CreatePersonNote("report@example.com", "Independent local note", "Writing does not require the provider")!;
+        Assert.NotNull(app.Synchronization.Error);
+        Assert.Null(app.LocalSaveError);
+        Assert.True(app.IsWorkspaceCurrent);
+        Assert.True(app.Synchronization.HasUnpublishedChanges);
+        var committed = app.Synchronization.LocalRevision;
+        using (var reading = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal("Durable while provider is unavailable", reading.GetRelationships("report@example.com")!.Person.PreferredName);
+            Assert.Equal(note, Assert.Single(reading.GetPersonNotes("report@example.com")));
+            Assert.True(reading.Synchronization.HasUnpublishedChanges);
+        }
+        Directory.Move(Local("provider-unavailable"), Local("outgoing"));
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        Assert.Null(app.Synchronization.Error);
+        Assert.Equal(committed, app.Synchronization.PublishedRevision);
+        Assert.False(app.Synchronization.HasUnpublishedChanges);
+    }
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
