@@ -119,20 +119,64 @@ internal static partial class Program
                 Note<TextBox>("MarkdownEditor").Text = $"Original {scope} writing";
                 PumpUntil(() => workflow.GetRetainedNoteDraft(scope, id)?.IsSaving == true);
                 Note<TextBox>("MarkdownEditor").Text = $"Newer {scope} writing during the admitted save";
-                var switching = Stopwatch.StartNew();
-                Select("avery@example.com");
-                ArrangeContent();
-                if (switching.Elapsed.TotalMilliseconds > 100)
-                    throw new InvalidOperationException($"Compiled report navigation waited behind local note I/O: {switching.Elapsed.TotalMilliseconds:F1} ms.");
-                switching.Restart();
-                Select("morgan@example.com");
-                ArrangeContent();
-                if (switching.Elapsed.TotalMilliseconds > 100)
-                    throw new InvalidOperationException($"Compiled owner navigation waited behind local note I/O: {switching.Elapsed.TotalMilliseconds:F1} ms.");
+                RetainedNoteDraft RequirePendingWrite(string phase)
+                {
+                    var retained = workflow.GetRetainedNoteDraft(scope, id);
+                    if (held.Connection != connection || retained is not { IsSaving: true, Error: null } ||
+                        workflow.LocalSaveError is not null || workflow.CanSafelyClose ||
+                        retained.Basis.OwnerEmail != "morgan@example.com" || retained.Basis.Id != id ||
+                        retained.Markdown != $"Newer {scope} writing during the admitted save")
+                        throw new InvalidOperationException($"Compiled held-note navigation lost its admitted pending write {phase}: " +
+                            $"scope={scope}; writerHeld={held.Connection == connection}; " +
+                            $"saving={retained?.IsSaving}; draftError={retained?.Error is not null}; " +
+                            $"saveError={workflow.LocalSaveError is not null}; safelyClose={workflow.CanSafelyClose}. " +
+                            "A completed or failed write cannot prove navigation independence.");
+                    return retained;
+                }
+                void NavigateWhileWriteRemainsHeld(string destination, int injectedDispatchDelayMs)
+                {
+                    var before = RequirePendingWrite("before selection");
+                    var switching = Stopwatch.StartNew();
+                    Select(destination);
+                    var dispatchMs = switching.Elapsed.TotalMilliseconds;
+                    ArrangeContent();
+                    var throughLayoutMs = switching.Elapsed.TotalMilliseconds;
+                    var after = RequirePendingWrite("after selection and layout");
+                    if (!ReferenceEquals(before.Basis, after.Basis) ||
+                        workflow.PeopleNavigation.SelectedEmail != destination)
+                        throw new InvalidOperationException("Compiled selection changed the admitted save base or navigated owner.");
+                    Console.WriteLine("DIAGNOSTIC: compiled held-note navigation " + JsonSerializer.Serialize(new
+                    {
+                        scope = scope.ToString(), destination, injectedDispatchDelayMs, dispatchMs, throughLayoutMs,
+                        writerHeld = held.Connection == connection, savingBefore = before.IsSaving, savingAfter = after.IsSaving,
+                        sameSaveBase = ReferenceEquals(before.Basis, after.Basis), safelyClose = workflow.CanSafelyClose,
+                        hasSaveError = workflow.LocalSaveError is not null,
+                        boundary = "Actual invisible compiled selection and layout returned while the same admitted note write and real SQLite transaction remain held; not a native latency sample."
+                    }));
+                }
+                NavigateWhileWriteRemainsHeld("avery@example.com", 0);
+                var dispatchDelayed = false;
+                RoutedPropertyChangedEventHandler<object> slowSelection = (_, e) =>
+                {
+                    if (dispatchDelayed || e.NewValue is not ReportingNode { Person.Email: "morgan@example.com" }) return;
+                    dispatchDelayed = true;
+                    Thread.Sleep(150);
+                };
+                tree.SelectedItemChanged += slowSelection;
+                try { NavigateWhileWriteRemainsHeld("morgan@example.com", 150); }
+                finally { tree.SelectedItemChanged -= slowSelection; }
+                if (!dispatchDelayed)
+                    throw new InvalidOperationException("The compiled no-write-wait regression did not exercise its controlled selection dispatch delay.");
                 if (Note<TextBox>("MarkdownEditor").Text != $"Newer {scope} writing during the admitted save" ||
                     !Note<TextBox>("MarkdownEditor").IsEnabled || workflow.CanSafelyClose ||
+                    Note<TabControl>("Views").SelectedItem != Note<TabItem>("EditTab") ||
                     workflow.GetOwnedNotesView(scope).SelectedNote?.Id != id)
                     throw new InvalidOperationException("Compiled Person switching lost, disabled, redirected or falsely saved its retained note.");
+                using (var uncommitted = ApplicationWorkflow.CreateFileBacked())
+                    if (!uncommitted.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
+                        uncommitted.BeginNoteDraft(scope, "morgan@example.com", id) is not null)
+                        throw new InvalidOperationException("Compiled navigation proof did not retain the actual uncommitted note boundary.");
+                RequirePendingWrite("before deliberate writer release");
                 held.Commit();
                 PumpUntil(() => workflow.CanSafelyClose);
                 if (Note<TextBox>("MarkdownEditor").Text != $"Newer {scope} writing during the admitted save")
@@ -211,6 +255,7 @@ internal static partial class Program
                 throw new InvalidOperationException("SQLite navigation verification must not show a window or create its native handle.");
             Console.WriteLine("PASS: compiled SQLite Create returns to the ordinary start view and normal Settings Import reaches a real reviewed preview without a visible window/native handle.");
             Console.WriteLine("PASS: compiled SQLite Person/Team editors open before commit, retain newer writing across actual selection events and durably save the original owner without a visible window/native handle.");
+            Console.WriteLine("PASS: compiled SQLite Person/Team selection and layout return before the same held note write completes; slow dispatch is diagnostic, not native latency acceptance.");
             Console.WriteLine("PASS: compiled SQLite note observation selects only live current-editor controls and preserves exact identity, writable text and Edit mode across Add and Person switches; native visibility/focus remains hosted evidence.");
         }
         finally

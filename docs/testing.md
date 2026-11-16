@@ -224,6 +224,17 @@ including a first ordinary small-fixture commit within one second.
 The existing invisible `--verify-profile-refresh` selection drives both compiled
 editors before a held commit and actual selection events, retaining exact newer
 writing and owner through late completion without showing/focusing a native window.
+Its held-note navigation oracle requires the same admitted save/base to remain
+saving without error before and after each real selection/layout, with the
+actual SQLite writer still held and safe close still unavailable. Independent
+reopen must find that creation uncommitted before deliberate release; afterwards
+the exact newer owner writing must commit and reopen. A once-only 150-ms
+selection-handler pause makes unrelated slow dispatch explicit. Bounded
+`DIAGNOSTIC: compiled held-note navigation` records unadjusted dispatch/layout
+time and real pending/error/transaction state, not a single-sample latency SLA.
+Waiting until the held write fails cannot satisfy this structural proof.
+The actual native navigation p95 and held-Person-save sample retain their
+100-ms criteria; this invisible oracle neither replaces nor changes them.
 The existing hosted `compatibility-settings` tail additionally exercises twenty
 distinct Team creations and one Person creation, continuous writing and immediate
 report/Manager switches. It requires p95 at most 100 ms from actual native interaction
