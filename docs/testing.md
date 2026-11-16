@@ -529,6 +529,17 @@ The separate ordinary executable lifecycle and original native latency samples
 remain unchanged. Compiling or invisibly replaying this tail does not establish
 hosted pixels or a new latency claim; all lane budgets and matrices remain.
 
+Recovery browsing uses an explicit Person-selection mode that skips the local-idle
+prerequisite, not destination observation. Failed/stalled/indeterminate work remains
+non-idle under the unchanged idle predicate. Every native recovery switch requires
+the actual visible email/heading, exact retained fault phase/outcome and paused
+mutation controls; owner drafts and late committed writing are checked separately.
+Ordinary selections still await idle; expected legacy rejections retain their
+original selection-only behavior. Runner cases exercise this shared caller
+coordinator, including wrong-destination rejection, and the invisible compiled
+replay drives real Failed and Stalled owner switches through it. Neither replaces
+the hosted native recovery journey.
+
 The focused invisible `--verify-legacy-save-feedback` replay uses the real legacy
 profile save and existing leave-feedback continuation without opening a native
 modal dialog. After the queued dispatcher refreshes settle, it requires the
