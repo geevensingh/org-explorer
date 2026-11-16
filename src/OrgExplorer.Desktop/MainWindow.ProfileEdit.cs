@@ -12,6 +12,20 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
+    private readonly DispatcherTimer profileCopyTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private string? profileCopyError;
+
+    private void InitializeProfileCopyFeedback()
+    {
+        profileCopyTimer.Tick += (_, _) =>
+        {
+            profileCopyTimer.Stop();
+            ProfileCopyFeedback.Visibility = Visibility.Collapsed;
+            ProfileCopyFeedback.Text = "";
+        };
+        Closed += (_, _) => profileCopyTimer.Stop();
+    }
+
     private void BeginProfileEdit(object sender, RoutedEventArgs e)
     {
         if (workPending || selectedEmail is null) return;
@@ -132,6 +146,9 @@ public partial class MainWindow
         ShowProfileValue(OfficeCountryValueRow, OfficeCountryValue, person?.OfficeCountry);
         ShowProfileValue(LinkedInProfileUrlValueRow, LinkedInProfileUrlValue, person?.LinkedInProfileUrl);
         DirectoryName.Text = person?.DirectoryName ?? "—";
+        DirectoryName.CopyText = person?.DirectoryName;
+        Email.Text = person?.Email ?? "";
+        Email.CopyText = person?.Email;
         OpenLinkedInButton.Visibility = person?.LinkedInProfileUrl is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -170,17 +187,39 @@ public partial class MainWindow
         if (sender is TextBlock { ToolTip: ToolTip tooltip }) tooltip.IsOpen = false;
     }
 
-    private static void ShowProfileValue(FrameworkElement row, TextBlock value, string? text, bool reserveSlot = true)
+    private static void ShowProfileValue(FrameworkElement row, ProfileCopyText value, string? text, bool reserveSlot = true)
     {
         value.Text = text ?? "—";
-        value.ToolTip = text;
+        value.CopyText = text;
         row.Visibility = reserveSlot || text is not null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CopyProfileValue(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string value }) return;
-        try { Clipboard.SetText(value); }
+        if (sender is ProfileCopyText target)
+        {
+            if (!target.IsEnabled || target.CopyText is not { Length: > 0 } value) return;
+            profileCopyTimer.Stop();
+            ProfileCopyFeedback.Visibility = Visibility.Collapsed;
+            ProfileCopyFeedback.Text = "";
+            try { writeClipboard(value); }
+            catch (System.Runtime.InteropServices.ExternalException error)
+            {
+                profileCopyError = "Copy failed. Retry when the clipboard is available: " + error.Message;
+                ShowOperationalNotice();
+                return;
+            }
+            profileCopyError = null;
+            ShowOperationalNotice();
+            ProfileCopyFeedback.Text = target.CopyLabel + " copied.";
+            ProfileCopyFeedback.Visibility = Visibility.Visible;
+            profileCopyTimer.Start();
+            UIElementAutomationPeer.CreatePeerForElement(ProfileCopyFeedback)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            e.Handled = true;
+            return;
+        }
+        if (sender is not MenuItem { Tag: string legacyValue }) return;
+        try { writeClipboard(legacyValue); }
         catch (System.Runtime.InteropServices.ExternalException error)
         { StatusText.Text = "Copy failed. Retry when the clipboard is available: " + error.Message; }
     }

@@ -179,6 +179,30 @@ country, Directory name, Alias, and LinkedIn profile URL. Use consistent
 grouping/order across People. This header-context amendment supersedes the
 earlier eight-slot grouping in the consolidated wide reference.
 
+Populated, read-only profile values with a Copy value context-menu action and no
+existing primary-click action also copy on primary click. This covers job title,
+email, office building/number, individual Team-name segments, Department, office
+state/province, office country, Directory name, Alias, and LinkedIn profile URL
+text. Preserve the context menu and its full, untruncated copy payload; a Team-name
+segment copies only that segment, not the whole path.
+
+Keep these values' text-only appearance, without added copy icons. A hand cursor
+and Click to copy tooltip disclose the action while retaining existing full-value
+and Team-name owner tooltip information. Focused values also copy with Enter or
+Space; expose the copy action and value to screen readers.
+
+For these fields, missing or empty values are not copyable by any gesture.
+Retain their neutral-dash display placeholders where applicable, but disable
+Copy value and show neither a hand cursor nor a copy hint for absent values.
+Primary-click, keyboard, and context-menu copying give the same brief,
+non-blocking success confirmation, such as Email copied, without repeating the
+copied value. Clipboard failures report failure and never claim success.
+
+This does not add copying to the profile heading, other controls, editors,
+notes/history, or the Workspace path. Manager primary-click navigation, report
+navigation, explicit Open LinkedIn, and existing Workspace-path copying remain
+unchanged.
+
 Remove More details as a gate for ordinary facts. Keep full text and copy-value
 access; links remain explicit actions and are never fetched/opened automatically.
 Keep Manager and Imported-report navigation, including the distinction between
