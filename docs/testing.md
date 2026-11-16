@@ -1164,10 +1164,15 @@ Tooltip discovery checks native top-level popup children before the same descend
 query, avoiding full reading-document traversal when the popup is top-level. Exact
 tooltip content, cursor, clipboard and rendered-feedback predicates are unchanged.
 Copy readiness failures retain the target's enabled/offscreen/focus state and bounds.
+Named physical-click targets are located inside that same readiness wait, so queued
+input cannot race an unguarded control lookup before preparation begins.
 The ordinary copy fixture scrolls its reading surface to the top once after profile
 Save, before acquiring any fact target, as the responsive copy fixture already does.
 UIA's offscreen flag alone can be false even when retained edit scrolling clips the
 fact above that viewport; acquiring an actual clickable point remains required.
+Rendered contrast uses one actual desktop bitmap capture, then the original six-pixel
+sample grid and luminance threshold against its pixels, rather than repeating desktop
+readback for every sample. This is neither offscreen rendering nor a reduced predicate.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

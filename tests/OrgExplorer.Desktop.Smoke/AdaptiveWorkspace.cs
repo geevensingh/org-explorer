@@ -353,16 +353,31 @@ internal static partial class Program
     {
         if (bounds.Width <= 0 || bounds.Height <= 0)
             throw new InvalidOperationException("The rendered backdrop sample is empty.");
+        var left = (int)Math.Floor(bounds.Left);
+        var top = (int)Math.Floor(bounds.Top);
+        var width = (int)Math.Ceiling(bounds.Right) - left;
+        var height = (int)Math.Ceiling(bounds.Bottom) - top;
         var dc = GetDC(IntPtr.Zero);
         if (dc == IntPtr.Zero) throw new InvalidOperationException("Actual desktop pixels are unavailable.");
+        var memory = IntPtr.Zero;
+        var bitmap = IntPtr.Zero;
+        var previous = IntPtr.Zero;
         try
         {
+            memory = CreateCompatibleDC(dc);
+            bitmap = CreateCompatibleBitmap(dc, width, height);
+            if (memory == IntPtr.Zero || bitmap == IntPtr.Zero)
+                throw new InvalidOperationException("Actual contrast capture could not allocate its pixel buffer.");
+            previous = SelectObject(memory, bitmap);
+            if (previous == IntPtr.Zero || previous == new IntPtr(-1) ||
+                !BitBlt(memory, 0, 0, width, height, dc, left, top, 0x40CC0020))
+                throw new InvalidOperationException("Actual desktop contrast capture failed.");
             var minimum = 255d;
             var maximum = 0d;
             for (var y = (int)Math.Ceiling(bounds.Top); y < bounds.Bottom; y += 6)
                 for (var x = (int)Math.Ceiling(bounds.Left); x < bounds.Right; x += 6)
                 {
-                    var color = GetPixel(dc, x, y);
+                    var color = GetPixel(memory, x - left, y - top);
                     if (color == uint.MaxValue)
                         throw new InvalidOperationException("Actual backdrop pixels are unavailable on this desktop.");
                     var luminance = ((color & 255) + ((color >> 8) & 255) + ((color >> 16) & 255)) / 3d;
@@ -371,7 +386,13 @@ internal static partial class Program
                 }
             return maximum - minimum;
         }
-        finally { ReleaseDC(IntPtr.Zero, dc); }
+        finally
+        {
+            if (previous != IntPtr.Zero && previous != new IntPtr(-1)) SelectObject(memory, previous);
+            if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
+            if (memory != IntPtr.Zero) DeleteDC(memory);
+            ReleaseDC(IntPtr.Zero, dc);
+        }
     }
 
     private static void AssertLongAndMissingFacts(AutomationElement window, string workspace)
