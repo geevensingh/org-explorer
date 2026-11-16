@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using OrgExplorer.Desktop.Smoke;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -21,6 +22,235 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"report@example.com","displayName":"Report","managerEmail":"manager@example.com"},
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
+
+    [Fact]
+    public async Task Automatic_cadence_publishes_continuous_edits_without_waiting_for_idle()
+    {
+        var clock = new SnapshotClock();
+        using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        for (var edit = 1; edit <= 5; edit++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            Assert.True(first.EditPreferredName("report@example.com", $"Continuous writing {edit}"), first.Status);
+        }
+        clock.Advance(TimeSpan.FromSeconds(9));
+        Assert.Empty(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        Assert.True(first.EditPreferredName("report@example.com", "Writing at second 59"), first.Status);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await AwaitSnapshot(() => !first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.Equal("Writing at second 59", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        for (var edit = 1; edit <= 6; edit++)
+        {
+            Assert.True(first.EditPreferredName("report@example.com", $"Next minute {edit}"), first.Status);
+            clock.Advance(TimeSpan.FromSeconds(10));
+        }
+        await AwaitSnapshot(() => !first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.Equal("Next minute 6", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Contains("delivery elsewhere is unknown", first.Synchronization.Summary);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Periodic_and_manual_requests_share_export_while_newer_owner_writing_commits_independently(NoteScope scope)
+    {
+        var clock = new SnapshotClock();
+        using var secondExport = new ManualResetEventSlim();
+        using var releaseSecond = new ManualResetEventSlim();
+        var publications = 0;
+        var publisher = new SnapshotPublisher
+        {
+            Hold = true,
+            BeforeSnapshot = () =>
+            {
+                if (Interlocked.Increment(ref publications) != 2) return;
+                secondExport.Set();
+                if (!releaseSecond.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Second export was not released.");
+            }
+        };
+        using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher), timeProvider: clock);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        var original = first.Synchronization.LocalRevision;
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)));
+        Task<bool>? manual = null;
+        try
+        {
+            Assert.True(first.IsSynchronizing);
+            Assert.Equal(WorkspaceSynchronizationPhase.Publishing, first.Synchronization.Phase);
+            var owner = scope == NoteScope.Person ? "report@example.com" : "manager@example.com";
+            var note = first.CreateOwnedNoteDraft(scope, owner)!;
+            first.UpdateNoteDraft(scope, note.Id, "Writing during real export", "First owner generation");
+            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(1)), first.Status);
+            first.UpdateNoteDraft(scope, note.Id, "Writing during real export", "Latest owner generation");
+            Assert.True(first.NavigatePerson(owner == "report@example.com" ? "manager@example.com" : "report@example.com"), first.Status);
+            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(1)), first.Status);
+            using (var reading = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+                Assert.Equal("Latest owner generation", reading.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+            }
+            clock.Advance(TimeSpan.FromSeconds(120));
+            manual = first.SynchronizeAsync();
+            Assert.False(manual.IsCompleted);
+            publisher.Release.Set();
+            Assert.True(secondExport.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal(original, first.Synchronization.PublishedRevision);
+            Assert.True(first.Synchronization.HasUnpublishedChanges);
+            Assert.True(first.CanEditLocalWorkspace);
+            Deliver("outgoing", "incoming");
+            using var second = Create("second");
+            Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+            Assert.True(second.SyncNow(), second.Synchronization.Error);
+            Assert.Null(second.BeginNoteDraft(scope, owner, note.Id));
+            releaseSecond.Set();
+            Assert.True(await manual.WaitAsync(TimeSpan.FromSeconds(10)), first.Synchronization.Error);
+            Assert.False(first.IsSynchronizing);
+            Assert.False(first.Synchronization.HasUnpublishedChanges);
+            Deliver("outgoing", "incoming");
+            Assert.True(second.SyncNow(), second.Synchronization.Error);
+            Assert.Equal("Latest owner generation", second.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+            Assert.False(first.Synchronization.Diverged);
+        }
+        finally
+        {
+            publisher.Release.Set();
+            releaseSecond.Set();
+            if (manual is not null) await manual.WaitAsync(TimeSpan.FromSeconds(10));
+            await AwaitSnapshot(() => !first.IsSynchronizing);
+        }
+    }
+
+    [Fact]
+    public async Task Automatic_incoming_checks_keep_the_last_valid_root_and_retry_without_pausing_local_edits()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var clock = new SnapshotClock();
+        using var second = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.NavigatePerson("report@example.com"), second.Status);
+        second.ChangePeopleQuery("Report");
+        var browsing = second.PeopleNavigation;
+        Assert.True(first.EditPreferredName("report@example.com", "Automatically delivered"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var newest = Directory.GetFiles(Local("incoming"), "*.oesnapshot").Single(path =>
+            Path.GetFileName(path).Contains(first.Synchronization.LocalRevision!.Value.ToString("D")));
+        var valid = File.ReadAllBytes(newest);
+        File.WriteAllBytes(newest, valid[..(valid.Length / 2)]);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => second.Synchronization.Error is not null && !second.IsSynchronizing);
+        Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.CanEditLocalWorkspace);
+        Assert.Null(second.LocalSaveError);
+        File.WriteAllBytes(newest, valid);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => second.GetRelationships("report@example.com")!.Person.PreferredName == "Automatically delivered" &&
+            !second.IsSynchronizing);
+        Assert.Null(second.Synchronization.Error);
+        Assert.Equal(browsing, second.PeopleNavigation);
+        Directory.Move(Local("incoming"), Local("provider-unavailable"));
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => second.Synchronization.Error is not null && !second.IsSynchronizing);
+        Assert.True(second.EditPreferredName("report@example.com", "Local writing during outage"), second.Status);
+        Assert.True(second.CanEditLocalWorkspace);
+        Assert.Null(second.LocalSaveError);
+        Directory.Move(Local("provider-unavailable"), Local("incoming"));
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => !second.Synchronization.HasUnpublishedChanges && !second.IsSynchronizing);
+        Assert.Null(second.Synchronization.Error);
+        Deliver("incoming", "outgoing");
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Assert.Equal("Local writing during outage", first.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reopening_unpublished_work_resumes_on_the_cadence_without_replaying_mutations(bool alreadyOpen)
+    {
+        Guid? revision;
+        using (var first = Create("first"))
+        {
+            Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+            Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+            Assert.True(first.EditPreferredName("report@example.com", "Committed before reopen"), first.Status);
+            revision = first.Synchronization.LocalRevision;
+        }
+        var clock = new SnapshotClock();
+        var core = ApplicationWorkflow.CreateFileBacked();
+        if (alreadyOpen) Assert.True(core.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), core.Status);
+        using var reopened = new WorkspaceViewModel(core, timeProvider: clock);
+        if (!alreadyOpen) Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => !reopened.Synchronization.HasUnpublishedChanges && !reopened.IsSynchronizing);
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.Equal("Committed before reopen", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Single(second.GetProfileTimeline("report@example.com")!.Changes);
+        reopened.Dispose();
+        Assert.True(second.EditFavorite("report@example.com", true), second.Status);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Deliver("incoming", "outgoing");
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.False(reopened.IsSynchronizing);
+        using var reading = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+        Assert.False(reading.GetRelationships("report@example.com")!.Person.IsFavorite);
+    }
+
+    [Fact]
+    public async Task A_lost_automatic_sync_return_is_visible_and_retry_does_not_replay_committed_writing()
+    {
+        var clock = new SnapshotClock();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var first = new WorkspaceViewModel(proxy, timeProvider: clock);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.EditPreferredName("report@example.com", "One committed edit"), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        var revision = first.Synchronization.LocalRevision;
+        boundary.AfterSync = () => throw new IOException("Actual complete publication return was lost.");
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => !first.IsSynchronizing);
+        Assert.Contains("return was lost", first.Synchronization.Error);
+        Assert.True(first.CanEditLocalWorkspace);
+        Assert.Null(first.LocalSaveError);
+        boundary.AfterSync = null;
+        clock.Advance(TimeSpan.FromSeconds(60));
+        await AwaitSnapshot(() => !first.IsSynchronizing);
+        Assert.Null(first.Synchronization.Error);
+        Assert.Equal(revision, first.Synchronization.LocalRevision);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.Equal("One committed edit", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Single(second.GetProfileTimeline("report@example.com")!.Changes);
+    }
 
     [Fact]
     public void Explicit_publication_and_fresh_join_transfer_one_identity_and_complete_local_writing()
@@ -481,9 +711,11 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Theory]
-    [InlineData(NoteScope.Person)]
-    [InlineData(NoteScope.Team)]
-    public async Task Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(NoteScope scope)
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    public async Task Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(NoteScope scope, bool automatic)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
@@ -495,7 +727,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
-        using var second = new WorkspaceViewModel(proxy);
+        var clock = new UnadvancedSaveClock();
+        using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
         Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
@@ -523,7 +756,12 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.NotNull(first.SaveNoteDraft(first.BeginNoteDraft(scope, owner, note.Id)!, note.Title, "Incoming subsequent version"));
             Assert.True(first.SyncNow(), first.Synchronization.Error);
             Deliver("outgoing", "incoming");
-            Assert.False(second.SyncNow());
+            if (automatic)
+            {
+                clock.Advance(TimeSpan.FromSeconds(60));
+                await AwaitSnapshot(() => second.Synchronization.Error is not null && !second.IsSynchronizing);
+            }
+            else Assert.False(second.SyncNow());
             Assert.Equal("Submitted committed writing", second.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
             Assert.Equal("Newer retained writing before acknowledgment",
                 second.GetRetainedNoteDraft(scope, note.Id)!.Markdown);
@@ -742,8 +980,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Discarding_a_note_buffer_does_not_authorize_adoption_while_its_actual_acknowledgment_is_unknown()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Discarding_a_note_buffer_does_not_authorize_adoption_while_its_actual_acknowledgment_is_unknown(bool automatic)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
@@ -754,7 +994,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
-        using var second = new WorkspaceViewModel(proxy);
+        var clock = new SnapshotClock();
+        using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
         Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
@@ -782,12 +1023,115 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.EditPreferredName("report@example.com", "Incoming after unknown return"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        Assert.False(second.SyncNow());
+        if (automatic)
+        {
+            clock.Advance(TimeSpan.FromSeconds(60));
+            await AwaitSnapshot(() => second.Synchronization.Error is not null && !second.IsSynchronizing);
+        }
+        else Assert.False(second.SyncNow());
         Assert.True(second.LocalSave.HasUnresolvedOutcome);
         Assert.True(second.ReconcileLocalSaves(), second.Status);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal("Incoming after unknown return", second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.Equal("Committed unknown writing", second.BeginNoteDraft(NoteScope.Person, "report@example.com", note.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_already_admitted_sync_cannot_adopt_after_a_later_lost_note_return_and_buffer_discard(bool automatic)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(NoteScope.Person, "report@example.com")!, "Exact owner", "Original")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        var clock = new UnadvancedSaveClock();
+        using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.NavigatePerson("report@example.com"), second.Status);
+        Assert.True(second.OpenOwnedNote(NoteScope.Person, note.Id, editing: true), second.Status);
+        using var admitted = new ManualResetEventSlim();
+        using var continueSync = new ManualResetEventSlim();
+        using var favoriteCommitted = new ManualResetEventSlim();
+        using var releaseFavorite = new ManualResetEventSlim();
+        boundary.BeforeSync = () =>
+        {
+            admitted.Set();
+            if (!continueSync.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Admitted synchronization was not released.");
+        };
+        Task<bool>? sync = null;
+        Task<bool>? favorite = null;
+        if (automatic) clock.Advance(TimeSpan.FromSeconds(60));
+        else sync = second.SynchronizeAsync();
+        try
+        {
+            Assert.True(admitted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(second.BeginProfileEdit("manager@example.com"), second.Status);
+            Assert.True(second.StageProfileText(PersonTextField.JobTitle, "Independent profile draft"), second.Status);
+            var fieldBasis = second.GetRelationships("report@example.com")!.Person;
+            second.RetainPersonTextDraft(fieldBasis, PersonTextField.PreferredName, "Independent field draft");
+            boundary.AfterFavorite = () =>
+            {
+                favoriteCommitted.Set();
+                if (!releaseFavorite.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Independent successful return was not released.");
+            };
+            favorite = second.RunLocalSaveAsync(() => second.EditFavorite("report@example.com", true));
+            Assert.True(favoriteCommitted.Wait(TimeSpan.FromSeconds(5)));
+            boundary.AfterSave = () => throw new IOException("The later actual committed note return was lost.");
+            second.UpdateNoteDraft(NoteScope.Person, note.Id, note.Title, "Committed after synchronization admission");
+            await AwaitSnapshot(() => second.GetRetainedNoteDraft(NoteScope.Person, note.Id) is { IsSaving: false } &&
+                second.LocalSave.Phase == LocalSavePhase.Indeterminate);
+            Assert.False(second.ReconcileLocalSaves());
+            second.CancelProfileEdit();
+            second.DiscardPersonTextDraft(fieldBasis, PersonTextField.PreferredName);
+            releaseFavorite.Set();
+            Assert.True(await favorite.WaitAsync(TimeSpan.FromSeconds(5)), second.Status);
+            Assert.Equal(LocalSavePhase.Indeterminate, second.LocalSave.Phase);
+            using (var independent = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(independent.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), independent.Status);
+                Assert.True(independent.SyncNow(), independent.Synchronization.Error);
+            }
+            Deliver("incoming", "outgoing");
+            Assert.True(first.SyncNow(), first.Synchronization.Error);
+            Assert.Equal(second.Synchronization.LocalRevision, first.Synchronization.LocalRevision);
+            Assert.True(first.EditPreferredName("report@example.com", "Incoming after later unknown outcome"), first.Status);
+            Assert.True(first.SyncNow(), first.Synchronization.Error);
+            Deliver("outgoing", "incoming");
+            second.DiscardUnsavedChanges(note.Id);
+            Assert.Null(second.GetRetainedNoteDraft(NoteScope.Person, note.Id));
+            Assert.True(second.LocalSave.HasUnresolvedOutcome);
+        }
+        finally
+        {
+            boundary.BeforeSync = null;
+            boundary.AfterSave = null;
+            boundary.AfterFavorite = null;
+            releaseFavorite.Set();
+            continueSync.Set();
+            if (favorite is not null) await favorite.WaitAsync(TimeSpan.FromSeconds(10));
+            if (sync is not null) await sync.WaitAsync(TimeSpan.FromSeconds(10));
+            await AwaitSnapshot(() => !second.IsSynchronizing);
+        }
+        if (sync is not null) Assert.False(await sync.WaitAsync(TimeSpan.FromSeconds(10)));
+        await AwaitSnapshot(() => !second.IsSynchronizing);
+        Assert.False(second.Synchronization.Diverged, second.Synchronization.Summary);
+        Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.NotNull(second.Synchronization.Error);
+        Assert.True(second.LocalSave.HasUnresolvedOutcome);
+        Assert.True(second.ReconcileLocalSaves(), second.Status);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.Equal("Incoming after later unknown outcome", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.GetRelationships("report@example.com")!.Person.IsFavorite);
+        Assert.Equal("Committed after synchronization admission",
+            second.BeginNoteDraft(NoteScope.Person, "report@example.com", note.Id)!.Markdown);
     }
 
     [Fact]
@@ -896,7 +1240,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Equal("Incoming after Person commit", second.GetRelationships("report@example.com")!.Person.PreferredName);
     }
 
-    private sealed class UnadvancedSaveClock : TimeProvider
+    private sealed class UnadvancedSaveClock : SnapshotClock
     {
         public override long GetTimestamp() => 0;
     }
@@ -997,6 +1341,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         public Action? BeforeDiscard { get; set; }
         public Action? AfterFavorite { get; set; }
         public Action? BeforeSync { get; set; }
+        public Action? AfterSync { get; set; }
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod!.Name == nameof(IApplicationWorkflow.DiscardUnsavedChanges)) BeforeDiscard?.Invoke();
@@ -1014,6 +1359,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                 AfterReconcile?.Invoke();
             if (targetMethod.Name == nameof(IApplicationWorkflow.EditFavorite) && result is true)
                 AfterFavorite?.Invoke();
+            if (targetMethod.Name == nameof(IApplicationWorkflow.SyncNow) && result is true)
+                AfterSync?.Invoke();
             return result;
         }
     }
@@ -1021,6 +1368,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     private sealed class SnapshotPublisher : IWorkspaceFilePublisher
     {
         public bool Interrupt, AfterPublish, Hold;
+        public Action? BeforeSnapshot;
         public ManualResetEventSlim Entered { get; } = new();
         public ManualResetEventSlim Release { get; } = new();
         public void Publish(string staged, string destination, string? backup,
@@ -1028,6 +1376,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         {
             if (destination.EndsWith(".oesnapshot", StringComparison.Ordinal))
             {
+                BeforeSnapshot?.Invoke();
                 Entered.Set();
                 if (Hold && !Release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled publication wait expired.");
                 if (Interrupt && !AfterPublish) throw new IOException("Interrupted before publication.");
@@ -1036,6 +1385,12 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             if (Interrupt && destination.EndsWith(".oesnapshot", StringComparison.Ordinal))
                 throw new IOException("Interrupted after publication; outcome not acknowledged.");
         }
+    }
+
+    private static async Task AwaitSnapshot(Func<bool> ready)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!ready()) await Task.Delay(10, timeout.Token);
     }
 
     private static void RewriteSnapshot(string path, Action<JsonObject> change)

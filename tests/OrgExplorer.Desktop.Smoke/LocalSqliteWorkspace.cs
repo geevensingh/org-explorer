@@ -403,6 +403,8 @@ internal static partial class Program
                 () => RunLocalReviewedImportFlow(executable, root, local));
             HarnessRuntime.Run("native-sqlite-local-recovery",
                 () => RunHostedLocalSaveRecovery(executable, root));
+            HarnessRuntime.Run("native-sqlite-automatic-snapshots",
+                () => RunHostedAutomaticSnapshots(executable, root));
         }
         finally
         {

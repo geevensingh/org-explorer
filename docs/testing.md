@@ -400,6 +400,43 @@ without manufacturing native IsOffscreen, focus or provider geometry.
 These are not periodic synchronization, conflict-resolution/retention, redesigned
 exit, native latency or 10,000-Person background-export proof.
 
+The #98 cases extend the same public real-storage/view-model seam with a
+controlled `TimeProvider`: fixed 60-second checks during repeated edits, shared
+manual/periodic export, both owner-note scopes committing/reopening within one
+second while actual immutable publication is held, older-export/latest-revision
+truth, corrupt delivery, unavailable folders, lost synchronization returns and
+reopening pending publication without replay. Periodic delivery also refuses
+unacknowledged newer note generations and actual unknown outcomes after buffer
+discard. The held accepted-return case advances only the scheduling clock while
+its request timestamp stays unadvanced, preserving its pre-timeout lifetime.
+An already-admitted timer/manual cycle also encounters an actual later lost
+committed note return: refused recovery, independent profile/field Cancel and a
+held unrelated successful return cannot release the unknown-outcome lease, even
+after the note buffer is discarded. Actual successful reconciliation then permits
+the delivered child; neither path replays the note.
+The invisible compiled snapshot selection additionally observes automatic
+publication/status, writable exact owner notes and Person switches during a real
+export, later publication and selected-Person incoming refresh. It never shows a
+window or creates its native handle.
+
+The existing `compatibility-settings` journey adds an owned hosted process running
+the actual compiled MainWindow with real SQLite and `.oesnapshot` artifacts.
+Only its public clock and external publication boundary are controlled. No Sync
+now action triggers its periodic cycles. Native controls must show actual export
+status and remain writable/navigable while that same export is held; independent
+reopen proves newer owner writing before release. Older completion must leave it
+unpublished until a later tick. Actual delivered continuations update visible
+reading without changing the selected owner, and an unavailable folder reports
+an error while native writing still commits and later publishes.
+`*-sqlite-automatic-snapshots.json` binds candidate/run/attempt, host/product hashes,
+process, independent stores, exact revisions/owner/note/writing, raw monotonic
+request/continued-editing timestamps, actual artifact hashes and named actual-pixel
+captures. Normal close/process exit and terminal PASS remain required.
+This controlled owned-host evidence is not normal-EXE latency, provider delivery
+or the rich 10,000-Person/background-export proof retained by #100. Both desktop
+900-second budgets, all previous assertions/size matrices and all p95 targets
+remain unchanged; compiling the tail is not hosted acceptance.
+
 The #94 reviewed-Import path uses that same SQLite commit boundary for partial
 multi-Person updates, photos, accepted evidence, Profile changes, reporting
 transitions, Team-note review and frozen context. `SqliteWorkspaceTests` compares

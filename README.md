@@ -53,14 +53,19 @@ unsaved owner-specific profile and Preferred-name drafts without applying them.
 The new exit interaction is not available yet; unsupported actions are rejected,
 never sent to the legacy writer. Original and later exact Import replay remain
 no-ops after subsequent changes.
-For explicit cross-computer use, open **Settings -> Synchronization**, configure
+For cross-computer use, open **Settings -> Synchronization**, configure
 a separate provider-carried folder and choose **Sync now**. On a second computer,
 create an empty local Workspace, choose **Join folder**, then **Sync now**.
 The app validates complete logical snapshots before adopting a clean continuation;
 unpublished local writing and drafts are never overwritten. Invalid delivery
 leaves the last validated state usable with an explicit error. Divergent versions
-are preserved and edits paused; interactive resolution, routine retention,
-periodic synchronization and redesigned exit remain later slices.
+are preserved and edits paused; interactive resolution, routine retention and
+redesigned exit remain later slices.
+While open, publication and incoming checks run approximately every 60 seconds,
+without waiting for typing to stop. **Sync now** requests the same lifecycle
+immediately. Local saves and browsing continue during export or a folder outage;
+status distinguishes local durability, latest publication and unknown provider
+delivery. Committed but unpublished work resumes on the cadence after reopening.
 
 Failed local saves retain exact owner drafts and pause editing, not Person
 browsing. An ordinary save outstanding for three seconds (including its queue)

@@ -601,16 +601,3 @@ public sealed partial class ApplicationWorkflow
         }
     }
 }
-
-public sealed partial class WorkspaceViewModel
-{
-    public WorkspaceSynchronization Synchronization => workflow.Synchronization;
-    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false) =>
-        Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace));
-    public bool SyncNow()
-    {
-        using var unresolvedAdoption = LocalSave.HasUnresolvedOutcome ? workflow.DeferSnapshotAdoption() : null;
-        return Observe(workflow.SyncNow);
-    }
-    public IDisposable DeferSnapshotAdoption() => workflow.DeferSnapshotAdoption();
-}

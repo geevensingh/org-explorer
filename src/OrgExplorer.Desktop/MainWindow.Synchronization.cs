@@ -9,14 +9,15 @@ public partial class MainWindow
     private void ShowSynchronizationStatus()
     {
         var state = workflow.Synchronization;
+        var pending = synchronizationPending || workflow.IsSynchronizing;
         SynchronizationPanel.Visibility = state.Supported ? Visibility.Visible : Visibility.Collapsed;
         SynchronizationFolder.Text = state.Folder ?? "No synchronization folder configured";
-        SynchronizationStatus.Text = (synchronizationPending ? "Synchronization in progress. Browsing and local saves remain independent.\n" : "") +
+        SynchronizationStatus.Text = (pending ? "Synchronization in progress. Browsing and local saves remain independent.\n" : "") +
             state.Summary;
-        ConfigureSynchronizationFolderButton.IsEnabled = !synchronizationPending && !updateHandoffPending;
-        JoinSynchronizationFolderButton.IsEnabled = !synchronizationPending && !updateHandoffPending &&
+        ConfigureSynchronizationFolderButton.IsEnabled = !pending && !updateHandoffPending;
+        JoinSynchronizationFolderButton.IsEnabled = !pending && !updateHandoffPending &&
             workflow.People.Count == 0 && workflow.CanSafelyClose;
-        SyncNowButton.IsEnabled = !synchronizationPending && !updateHandoffPending && state.Folder is not null;
+        SyncNowButton.IsEnabled = !pending && !updateHandoffPending && state.Folder is not null;
     }
 
     private void ConfigureSynchronizationFolder(object sender, RoutedEventArgs e) => ConfigureSynchronization(join: false);
@@ -24,7 +25,7 @@ public partial class MainWindow
 
     private async void ConfigureSynchronization(bool join)
     {
-        if (synchronizationPending || updateHandoffPending || !workflow.Synchronization.Supported ||
+        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending || !workflow.Synchronization.Supported ||
             chooseWorkspaceFolder(this) is not { } folder) return;
         synchronizationPending = true;
         ShowSynchronizationStatus();
@@ -41,7 +42,7 @@ public partial class MainWindow
         if (synchronizationPending || updateHandoffPending) return;
         synchronizationPending = true;
         ShowSynchronizationStatus();
-        try { await Task.Run(workflow.SyncNow); }
+        try { await workflow.SynchronizeAsync(); }
         finally
         {
             synchronizationPending = false;
