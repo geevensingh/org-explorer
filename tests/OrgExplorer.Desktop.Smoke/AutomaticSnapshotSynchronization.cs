@@ -154,6 +154,8 @@ internal static partial class Program
             native.Record("preparation-started");
             native.RevealNote();
             SetSettingsVisible(window, true);
+            var settingsEntry = Find(window, "OpenWorkspace");
+            Await(() => settingsEntry.Current.HasKeyboardFocus);
             native.RevealPublication();
             native.Record("preparation-completed");
             hold.Set();
