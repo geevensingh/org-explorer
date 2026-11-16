@@ -70,7 +70,7 @@ jobs:
   desktop:
     name: Actual Windows desktop smoke
     runs-on: windows-latest
-    timeout-minutes: 11
+    timeout-minutes: 15
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -93,7 +93,7 @@ jobs:
   high-resolution:
     name: High-resolution Windows smoke
     runs-on: windows-latest
-    timeout-minutes: 11
+    timeout-minutes: 15
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'

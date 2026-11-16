@@ -523,10 +523,14 @@ Every PR and `main` commit, including docs/test-only changes, retains four
 independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
 The stable aggregate `CI` requires all four successes. Failure, required skip,
-cancellation, missing result and timeout cannot pass. Preserve the existing
-5/11/11-minute original lane deadlines, an 11-minute high-resolution lane and
-2-minute aggregate deadline: 40 minutes summed, at most
-13 minutes on the parallel critical path, excluding queues and later CD.
+cancellation, missing result and timeout cannot pass. Preserve the 5-minute
+workflow/view-model, 11-minute filesystem, 15-minute ordinary desktop,
+15-minute high-resolution desktop and 2-minute aggregate deadlines: 48 minutes
+summed, at most 17 minutes on the parallel critical path, excluding queues and
+later CD. The two desktop runners enforce matching 900-second whole-execution
+budgets, including setup; their deadlines were raised with owner approval for
+the complete profile-copy coverage. Required scenarios and size matrices remain
+unchanged. Separate scale-suite budgets are unchanged.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
 
