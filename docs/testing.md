@@ -507,7 +507,18 @@ version. Recovery after ordinary rotation preserves independently decoded photos
 accepted Import replay, complete frozen note versions/provenance and Profile
 changes. Both note scopes hold a real successful save return, with newer writing
 and optionally a lost acknowledgment: choosing a whole Workspace must not bypass
-that VM-owned admission lifetime or unknown outcome. A real incoming-file lock
+that VM-owned admission lifetime or unknown outcome. This structural handoff
+uses the existing unadvanced public request clock, not a new wall-clock save SLA.
+The first normal save return is observed asynchronously within the unchanged
+five-second entry bound, including a refused/null return rather than signalling
+only success. Failure context records monotonic public call/return observations
+and actual workflow/view-model status. Newer writing must be observable immediately
+with its same immutable base before synchronization/choice I/O; the exact writing,
+owner and accepted-or-unknown base remain asserted after the released handoff.
+Separate both-scope real-store cases advance that clock to exactly three seconds
+at the same held successful return and require truthful paused-input refusal,
+not admission or silent loss of writing. The ten-second held-return bound,
+production stall policy and ordinary latency gates are unchanged. A real incoming-file lock
 after the actual selection Commit proves failed arrival validation leaves the
 committed state browseable but read-only across reopen. Routine current/previous
 rotation preserves unknown files and provider-named snapshot copies; explicit

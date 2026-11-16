@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using OrgExplorer.Desktop.Smoke;
 using OrgExplorer.TestFixtures;
+using System.Diagnostics;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -918,6 +919,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     public async Task Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(
         NoteScope scope, bool loseAcknowledgment)
     {
+        var clock = new UnadvancedSaveClock();
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         var owner = scope == NoteScope.Team ? "manager@example.com" : "report@example.com";
@@ -928,25 +930,57 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
-        using var second = new WorkspaceViewModel(proxy);
+        using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
         Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
         Assert.True(second.OpenOwnedNote(scope, note.Id, editing: true), second.Status);
-        using var committed = new ManualResetEventSlim();
+        var returned = new TaskCompletionSource<NoteDraft?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handedOff = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        boundary.AfterSave = () =>
+        long requestedAt = 0;
+        long calledAt = 0, returnedAt = 0;
+        boundary.BeforeNoteSave = () => Interlocked.CompareExchange(ref calledAt, Stopwatch.GetTimestamp(), 0);
+        boundary.AfterNoteSave = accepted =>
         {
-            committed.Set();
+            if (Interlocked.CompareExchange(ref returnedAt, Stopwatch.GetTimestamp(), 0) != 0) return;
+            returned.SetResult(accepted);
+            if (accepted is null) return;
             if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled selection handoff expired.");
             if (loseAcknowledgment) throw new IOException("Controlled loss of actual committed note acknowledgment.");
         };
+        second.WorkspaceChanged += (_, _) =>
+        {
+            if (returned.Task.IsCompleted && second.GetRetainedNoteDraft(scope, note.Id) is not { IsSaving: true })
+                handedOff.TrySetResult();
+        };
+        string Observation() => "HANDOFF-OBSERVATION " + JsonSerializer.Serialize(new
+        {
+            scope, loseAcknowledgment, requestedAt, calledAt = Interlocked.Read(ref calledAt),
+            returnedAt = Interlocked.Read(ref returnedAt), timestampFrequency = Stopwatch.Frequency,
+            elapsedMs = Stopwatch.GetElapsedTime(requestedAt).TotalMilliseconds,
+            save = second.LocalSave, coreSave = boundary.Inner.LocalSave,
+            second.Status, coreStatus = boundary.Inner.Status,
+            saving = second.GetRetainedNoteDraft(scope, note.Id)?.IsSaving
+        });
+        requestedAt = Stopwatch.GetTimestamp();
         second.UpdateNoteDraft(scope, note.Id, note.Title, "Actual committed note before acknowledgment");
+        var initial = Assert.IsType<RetainedNoteDraft>(second.GetRetainedNoteDraft(scope, note.Id));
+        Assert.Equal("Actual committed note before acknowledgment", initial.Markdown);
+        NoteDraft? accepted = null;
         try
         {
-            Assert.True(committed.Wait(TimeSpan.FromSeconds(5)));
+            try { accepted = await returned.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { Assert.Fail("The public save did not return within the existing five-second entry bound. " + Observation()); }
+            Assert.True(accepted is not null, "The public save returned a refusal, not an accepted note. " + Observation());
+            Assert.Equal(LocalSavePhase.Pending, second.LocalSave.Phase);
+            Assert.Equal("Actual committed note before acknowledgment", accepted!.Markdown);
             second.UpdateNoteDraft(scope, note.Id, note.Title, "Newer exact owner writing");
+            var admitted = Assert.IsType<RetainedNoteDraft>(second.GetRetainedNoteDraft(scope, note.Id));
+            Assert.Equal("Newer exact owner writing", admitted.Markdown);
+            Assert.Same(initial.Basis, admitted.Basis);
+            Assert.True(admitted.IsSaving, Observation());
             Assert.True(first.EditPreferredName("report@example.com", "Divergent other computer"), first.Status);
             Assert.True(first.SyncNow(), first.Synchronization.Error);
             Deliver("outgoing", "incoming");
@@ -959,12 +993,89 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.Equal("Newer exact owner writing", draft.Markdown);
             Assert.True(second.NavigatePerson(scope == NoteScope.Team ? "report@example.com" : "manager@example.com"), second.Status);
         }
-        finally { release.Set(); }
+        finally
+        {
+            release.Set();
+            try { await handedOff.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { Assert.Fail("The released public save did not finish its view-model handoff. " + Observation()); }
+            boundary.BeforeNoteSave = null;
+            boundary.AfterNoteSave = null;
+        }
         Assert.False(await second.FlushNoteDraftsAsync());
+        var retained = Assert.IsType<RetainedNoteDraft>(second.GetRetainedNoteDraft(scope, note.Id));
+        Assert.Same(loseAcknowledgment ? initial.Basis : accepted, retained.Basis);
+        Assert.Equal(note.Id, retained.Basis.Id);
+        Assert.Equal(owner, retained.Basis.OwnerEmail);
+        if (loseAcknowledgment)
+        {
+            Assert.Equal(LocalSavePhase.Indeterminate, second.LocalSave.Phase);
+            Assert.True(second.LocalSave.HasUnresolvedOutcome);
+        }
         var currentReview = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
         Assert.False(second.ChooseWorkspaceVersion(currentReview.Id, first.Synchronization.LocalRevision!.Value));
         Assert.Equal("Newer exact owner writing", second.GetRetainedNoteDraft(scope, note.Id)!.Markdown);
         Assert.False(second.CanSafelyClose);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Actual committed note before acknowledgment", reopened.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Stalled_accepted_note_return_refuses_later_input_without_misreporting_it_as_retained_writing(NoteScope scope)
+    {
+        var clock = new SnapshotClock();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
+        Assert.True(app.OpenWorkspace(Local("stalled-input"), WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var owner = scope == NoteScope.Team ? "manager@example.com" : "report@example.com";
+        var note = app.SaveNoteDraft(app.BeginNoteDraft(scope, owner)!, "Exact stalled owner", "Original note")!;
+        Assert.True(app.NavigatePerson(owner), app.Status);
+        Assert.True(app.OpenOwnedNote(scope, note.Id, editing: true), app.Status);
+        var returned = new TaskCompletionSource<NoteDraft?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handedOff = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        boundary.AfterNoteSave = accepted =>
+        {
+            returned.SetResult(accepted);
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled stalled-return handoff expired.");
+        };
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (returned.Task.IsCompleted && app.GetRetainedNoteDraft(scope, note.Id) is not { IsSaving: true })
+                handedOff.TrySetResult();
+        };
+        app.UpdateNoteDraft(scope, note.Id, note.Title, "Committed before the request stalled");
+        try
+        {
+            Assert.NotNull(await returned.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            var basis = app.GetRetainedNoteDraft(scope, note.Id)!.Basis;
+            clock.Advance(TimeSpan.FromSeconds(3));
+            Assert.Equal(LocalSavePhase.Stalled, app.LocalSave.Phase);
+            app.UpdateNoteDraft(scope, note.Id, note.Title, "Input attempted only after editing paused");
+            var refused = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, note.Id));
+            Assert.Same(basis, refused.Basis);
+            Assert.Equal(note.Id, refused.Basis.Id);
+            Assert.Equal(owner, refused.Basis.OwnerEmail);
+            Assert.Equal("Committed before the request stalled", refused.Markdown);
+            Assert.Contains("Editing paused", app.Status);
+            Assert.True(refused.IsSaving);
+            Assert.False(app.CanSafelyClose);
+        }
+        finally
+        {
+            release.Set();
+            await handedOff.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            boundary.AfterNoteSave = null;
+        }
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("stalled-input"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Committed before the request stalled", reopened.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
     }
 
     [Theory]
@@ -1812,6 +1923,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     public class SnapshotSaveBoundary : DispatchProxy
     {
         public IApplicationWorkflow Inner { get; set; } = null!;
+        public Action? BeforeNoteSave { get; set; }
+        public Action<NoteDraft?>? AfterNoteSave { get; set; }
         public Action? AfterSave { get; set; }
         public Action? AfterReconcile { get; set; }
         public Action? BeforeDiscard { get; set; }
@@ -1821,6 +1934,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod!.Name == nameof(IApplicationWorkflow.DiscardUnsavedChanges)) BeforeDiscard?.Invoke();
+            if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft)) BeforeNoteSave?.Invoke();
             if (targetMethod.Name == nameof(IApplicationWorkflow.SyncNow)) BeforeSync?.Invoke();
             object? result;
             try { result = targetMethod!.Invoke(Inner, args); }
@@ -1831,6 +1945,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             }
             if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft) && result is NoteDraft)
                 AfterSave?.Invoke();
+            if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft))
+                AfterNoteSave?.Invoke(result as NoteDraft);
             if (targetMethod.Name == nameof(IApplicationWorkflow.ReconcileLocalSaves) && result is true)
                 AfterReconcile?.Invoke();
             if (targetMethod.Name == nameof(IApplicationWorkflow.EditFavorite) && result is true)
