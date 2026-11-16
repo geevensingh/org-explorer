@@ -3,7 +3,6 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
@@ -13,24 +12,31 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
-    private sealed class AutomaticSnapshotPublicationGate(Func<bool> hold, Action entered, Func<bool> released)
+    private sealed class AutomaticSnapshotPublicationGate(Func<bool> hold, Action entered, Func<bool> released,
+        Action? ended = null)
         : IWorkspaceFilePublisher
     {
         public void Publish(string staged, string destination, string? backup,
             WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
-            if (destination.EndsWith(".oesnapshot", StringComparison.Ordinal) && hold())
+            if (!destination.EndsWith(".oesnapshot", StringComparison.Ordinal) || !hold())
             {
-                entered();
-                if (!released()) throw new IOException("Owned automatic snapshot publication was not released.");
+                new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+                return;
             }
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+            entered();
+            try
+            {
+                if (!released()) throw new IOException("Owned automatic snapshot publication was not released.");
+                new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+            }
+            finally { ended?.Invoke(); }
         }
     }
 
     private static int RunAutomaticSnapshotFixture(string[] args)
     {
-        if (args.Length != 7 || !Path.GetFullPath(args[2]).Contains(
+        if (args.Length != 8 || !Path.GetFullPath(args[2]).Contains(
             Path.DirectorySeparatorChar + ".test-workspaces" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ArgumentException("The automatic snapshot host requires its owned isolated test Workspace.");
         Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
@@ -38,6 +44,7 @@ internal static partial class Program
         using var hold = EventWaitHandle.OpenExisting(args[4]);
         using var entered = EventWaitHandle.OpenExisting(args[5]);
         using var release = EventWaitHandle.OpenExisting(args[6]);
+        using var ended = EventWaitHandle.OpenExisting(args[7]);
         var clock = new SnapshotClock();
         var registration = ThreadPool.RegisterWaitForSingleObject(advance,
             (_, _) => clock.Advance(TimeSpan.FromSeconds(60)), null, Timeout.Infinite, false);
@@ -51,7 +58,7 @@ internal static partial class Program
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
-                () => release.WaitOne(TimeSpan.FromSeconds(30)));
+                () => release.WaitOne(TimeSpan.FromSeconds(30)), () => ended.Set());
             var window = (Window)Activator.CreateInstance(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
                 BindingFlags.Instance | BindingFlags.NonPublic, null,
                 [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher),
@@ -96,27 +103,39 @@ internal static partial class Program
                 throw new InvalidOperationException(seed.Status);
         var token = Guid.NewGuid().ToString("N");
         var names = new[] { @"Local\OrgExplorer-auto-tick-" + token, @"Local\OrgExplorer-auto-hold-" + token,
-            @"Local\OrgExplorer-auto-entered-" + token, @"Local\OrgExplorer-auto-release-" + token };
+            @"Local\OrgExplorer-auto-entered-" + token, @"Local\OrgExplorer-auto-release-" + token,
+            @"Local\OrgExplorer-auto-ended-" + token };
         using var advance = new EventWaitHandle(false, EventResetMode.AutoReset, names[0]);
         using var hold = new EventWaitHandle(false, EventResetMode.ManualReset, names[1]);
         using var entered = new EventWaitHandle(false, EventResetMode.ManualReset, names[2]);
         using var release = new EventWaitHandle(false, EventResetMode.ManualReset, names[3]);
+        using var ended = new EventWaitHandle(false, EventResetMode.ManualReset, names[4]);
         var start = new ProcessStartInfo("dotnet")
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
         start.Environment["ORG_EXPLORER_SETTINGS_DIRECTORY"] = settings;
         foreach (var argument in new[] { typeof(Program).Assembly.Location, "--automatic-snapshot-fixture",
             Path.GetFullPath(executable), target }.Concat(names)) start.ArgumentList.Add(argument);
+        var productHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable)));
+        var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(executable, ".dll"))));
+        var nativeEvidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-native-observation.json");
+        var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-snapshots.json");
         using var process = Process.Start(start)!;
-        Applications.Add(process);
-        try
+        AutomaticSnapshotNativeObservation? native = null;
+        string? hostExecutable = null, hostHash = null;
+        AutomaticHostLifecycle.Run(process, () =>
         {
             var window = Window(process);
+            hostExecutable = process.MainModule!.FileName;
+            hostHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hostExecutable)));
             AwaitRestoredWorkspace(window, target, "morgan@example.com");
             EnsurePeopleBrowsing(window);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Automatic publication owner");
             Set(window, "TeamNoteMarkdown", "Before automatic export");
             var note = Guid.Parse(Find(window, "TeamNoteHeading").Current.HelpText);
+            native = new(window, note, () => new(entered.WaitOne(0), ended.WaitOne(0), release.WaitOne(0)));
             bool ReopenedWriting(string text, bool published = false)
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
@@ -131,31 +150,44 @@ internal static partial class Program
                 if (!reading.OpenWorkspace(target, WorkspaceOpenMode.ExistingOnly)) throw new InvalidOperationException(reading.Status);
                 exported = reading.Synchronization.LocalRevision;
             }
+            native.Record("preparation-started");
+            native.RevealNote();
+            SetSettingsVisible(window, true);
+            var settingsEntry = Find(window, "OpenWorkspace");
+            Await(() => settingsEntry.Current.HasKeyboardFocus);
+            native.RevealPublication();
+            native.Record("preparation-completed");
             hold.Set();
             var tickRequestedAt = Stopwatch.GetTimestamp();
+            native.Record("tick-requested");
             advance.Set();
             if (!entered.WaitOne(TimeSpan.FromSeconds(5)))
                 throw new InvalidOperationException("The real periodic lifecycle did not reach actual snapshot publication.");
-            SetSettingsVisible(window, true);
-            Await(() => Find(window, "SynchronizationStatus").Current.Name.Contains("Publishing a complete local version.") &&
-                !Find(window, "SyncNow").Current.IsEnabled);
-            var exportingStatus = Find(window, "SynchronizationStatus").Current.Name;
-            CaptureVisualEvidence(window, "sqlite-automatic-publishing");
+            native.Record("publisher-entered-observed");
+            native.ObservePublishing();
+            var exportingStatus = native.Publishing!.Status.Text;
+            native.Capture("publishing", () => CaptureVisualEvidence(window, "sqlite-automatic-publishing"),
+                native.ObservePublishing);
             SetSettingsVisible(window, false);
             EnsurePeopleBrowsing(window);
-            if (!Find(window, "TeamNoteMarkdown").Current.IsEnabled || Find(window, "TeamNoteMarkdown").Current.IsOffscreen)
-                throw new InvalidOperationException("Automatic export made the native owner editor unusable.");
-            Set(window, "TeamNoteMarkdown", "Newer writing during automatic export");
-            SelectTreePerson(window, "avery@example.com");
-            Await(() => CurrentPersonEmail(window) == "avery@example.com");
-            SelectTreePerson(window, "morgan@example.com");
+            native.RequireHeld("before-note-reveal");
+            native.RevealNote();
+            native.EnterWriting("Before automatic export", "Newer writing during automatic export");
+            native.Select("avery@example.com", "Avery Example", () => SelectTreePerson(window, "avery@example.com"));
+            native.Select("morgan@example.com", "Morgan Example", () => SelectTreePerson(window, "morgan@example.com"));
             Await(() => CurrentPersonEmail(window) == "morgan@example.com" &&
                 ReopenedWriting("Newer writing during automatic export"));
-            AssertValue(window, "TeamNoteMarkdown", "Newer writing during automatic export");
+            native.RequireHeld("before-returned-note-reveal");
+            native.RevealNote();
+            native.ObserveReturned("Newer writing during automatic export");
             if (release.WaitOne(0) || !hold.WaitOne(0))
                 throw new InvalidOperationException("The same actual export was not held through native writing and browsing.");
             var continuedEditingAt = Stopwatch.GetTimestamp();
-            CaptureVisualEvidence(window, "sqlite-automatic-export-continued-editing");
+            native.Capture("continued-editing", () => CaptureVisualEvidence(window, "sqlite-automatic-export-continued-editing"),
+                () => native.ObserveReturned("Newer writing during automatic export"));
+            if (native.InputRequests != 1 || native.SelectionRequests != 2)
+                throw new InvalidOperationException("Held export requires exactly one input and two Person selections.");
+            native.Record("release-requested");
             hold.Reset();
             release.Set();
             SetSettingsVisible(window, true);
@@ -165,6 +197,8 @@ internal static partial class Program
                 if (!reading.OpenWorkspace(target, WorkspaceOpenMode.ExistingOnly) ||
                     reading.Synchronization.PublishedRevision != exported || !reading.Synchronization.HasUnpublishedChanges)
                     throw new InvalidOperationException("An older automatic export falsely acknowledged newer writing.");
+            if (!ended.WaitOne(0)) throw new InvalidOperationException("The actual publisher callback did not end after publication.");
+            native.Record("publisher-ended-observed");
             advance.Set();
             Await(() => ReopenedWriting("Newer writing during automatic export", published: true) &&
                 Find(window, "SyncNow").Current.IsEnabled &&
@@ -203,18 +237,18 @@ internal static partial class Program
             using var product = File.OpenRead(executable);
             using var assembly = File.OpenRead(Path.ChangeExtension(executable, ".dll"));
             using var host = File.OpenRead(process.MainModule!.FileName);
-            var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
-                Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-snapshots.json");
             if (File.Exists(evidence)) throw new InvalidOperationException("Automatic snapshot evidence already exists.");
-            File.WriteAllText(evidence, JsonSerializer.Serialize(new
+            File.WriteAllText(evidence, SnapshotNativeUsability.SerializeDiagnostic(new
             {
-                schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                schemaVersion = 2, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                 runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                 runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"), processId = process.Id,
                 productExecutable = Path.GetFullPath(executable),
                 productExeSha256 = Convert.ToHexString(SHA256.HashData(product)),
                 productAssemblySha256 = Convert.ToHexString(SHA256.HashData(assembly)),
                 hostExecutableSha256 = Convert.ToHexString(SHA256.HashData(host)),
+                nativeObservationFile = Path.GetFileName(nativeEvidence),
+                nativeUsability = native.Diagnostic,
                 scope = "Owned hosted process runs actual compiled MainWindow, real SQLite and real snapshot artifacts. Only the public TimeProvider cadence and external publication boundary are controlled. Not normal-EXE latency, provider delivery or rich 10,000-Person/background-export acceptance.",
                 workload = new { people = 2, ownerNotesCreated = 1, richScale = false },
                 cadence = "Each explicit clock advance is 60 seconds; no Sync now action requests these cycles.",
@@ -234,15 +268,27 @@ internal static partial class Program
                 captures = new[] { "sqlite-automatic-publishing", "sqlite-automatic-export-continued-editing",
                     "sqlite-automatic-incoming-refresh", "sqlite-automatic-folder-unavailable" },
                 completion = "Pre-close observations only; require terminal hosted PASS after actual normal close and process exit."
-            }, new JsonSerializerOptions { WriteIndented = true }));
+            }));
             Close(process);
-            Console.WriteLine("PASS: hosted automatic snapshots preserve native continued writing/browsing during real export, truthful latest-publication status, automatic incoming refresh and local editing through folder failure; " + evidence);
-        }
-        finally
+        }, nativeFailure =>
         {
-            hold.Reset();
-            release.Set();
-            StopApplication(process);
-        }
+            if (File.Exists(nativeEvidence)) throw new IOException("Automatic native observation must not overwrite earlier evidence.");
+            File.WriteAllText(nativeEvidence, SnapshotNativeUsability.SerializeDiagnostic(new
+            {
+                schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"), processId = process.Id,
+                productExecutable = Path.GetFullPath(executable), productExeSha256 = productHash,
+                productAssemblySha256 = assemblyHash, hostExecutable, hostExecutableSha256 = hostHash,
+                outcome = nativeFailure is null ? "Passed" : "Failed",
+                errorType = nativeFailure?.GetType().Name, error = nativeFailure?.Message,
+                nativeUsability = native?.Diagnostic,
+                completion = "Written after normal close or original failure, before final process cleanup; require terminal phase/scenario/lane results."
+            }));
+        }, () => { hold.Reset(); release.Set(); },
+            nativeFailure => File.AppendAllText(diagnostics,
+                $"Automatic snapshot host abnormal exit; pid={process.Id}; primary={nativeFailure}{Environment.NewLine}"),
+            Console.Error.WriteLine, Console.Out.WriteLine);
+        Console.WriteLine("PASS: hosted automatic snapshots preserve native continued writing/browsing during real export, truthful latest-publication status, automatic incoming refresh and local editing through folder failure; " + evidence);
     }
 }

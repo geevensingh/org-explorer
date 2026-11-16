@@ -443,10 +443,58 @@ reopen proves newer owner writing before release. Older completion must leave it
 unpublished until a later tick. Actual delivered continuations update visible
 reading without changing the selected owner, and an unavailable folder reports
 an error while native writing still commits and later publishes.
-`*-sqlite-automatic-snapshots.json` binds candidate/run/attempt, host/product hashes,
+The native automatic tail uses the shared snapshot usability predicate, extended
+with complete clipping to the actual scroll viewport and window. Before its one
+held-export SetValue, fresh Morgan identity/heading, original Team-note ID/title,
+finite-positive visible editor, supported ValuePattern and exactly-false
+IsReadOnly must agree. The pattern used for that one input comes from the same
+updated-cache element as its accepted frame. Immediate fresh post-input owner,
+note, geometry and exact value must agree too. Avery and Morgan destinations
+require fresh usable identities/headings; returning to Morgan intentionally
+reveals the same note before fresh value/usability checks and capture.
+References and initial reveal setup precede the hold where possible. Each reveal
+uses ordinary actual-geometry navigation, at most one centering scroll, followed
+by read-only observation; failed readiness never retries input or selection.
+No pre-request geometry/value/readiness is reused. Publishing feedback and the
+disabled Sync now button must both fit the visible Settings viewport when
+observed and captured. Returned note heading/editor must both fit the profile
+viewport. Captures bracket fresh accepted frames, not offscreen property reads.
+
+The actual held publisher callback signals entry and signals completion in its
+own finally, including timeout/failure. Completion is never reset, so a later
+invocation cannot impersonate the first. Input, post-input, destinations, returned
+note and both held captures require that same invocation to remain in flight and
+unreleased. The existing 30-second hold, 20-second observation and 900-second lane
+budgets are unchanged; no UI time is subtracted. One held input, two selections,
+independent durable reopen, old-versus-new publication, outage/local-writing/
+retry and actual close checks remain required.
+`*-sqlite-automatic-snapshots.json` schema 2 binds candidate/run/attempt, host/product hashes,
 process, independent stores, exact revisions/owner/note/writing, raw monotonic
 request/continued-editing timestamps, actual artifact hashes and named actual-pixel
-captures. Normal close/process exit and terminal PASS remain required.
+captures. It also names `*-sqlite-automatic-native-observation.json` (schema 1),
+written on success or failure with accepted/last-rejected native frames, last
+actual reveal geometry, bounded action/capture/lifetime observations and the
+original failure. Both use the shared diagnostic serializer, preserving NaN and
+infinities as named invalid values rather than masking failure or normalizing
+geometry into usability. Focused shared-predicate cases reject hidden/clipped/
+zero/nonfinite, readonly/unsupported, wrong owner/note/value and ended-operation
+observations; they do not manufacture native flags in invisible checks.
+The main JSON is still pre-close; the sidecar precedes final process cleanup.
+Normal close/process exit, terminal hosted PASS, successful phase completion and
+the complete scenario/lane results remain required.
+The automatic host owns a scoped output/cleanup lifecycle rather than the shared
+desktop StopApplication path. Sidecar output, held-work release and abnormal-exit
+diagnostics are attempted independently; diagnostic I/O cannot prevent the owned
+PID's termination/wait attempt. Secondary reporting follows termination, with
+explicit fallback reporting and structured stage/error attribution on the final
+exception. An original body failure is rethrown with its original identity/stack;
+without one, any output/cleanup failure still fails the scenario. The automatic
+terminal PASS is emitted only after that lifecycle returns successfully.
+`AutomaticHostLifecycleTests` uses the existing real non-UI deferred-process
+fixture and actual missing-directory writes: successful normal exit plus output
+failure cannot pass the scenario; primary plus sidecar/cleanup/reporting failures
+must preserve attribution and confirm actual owned-child termination before test
+safety cleanup. These are runner/process checks, not visible WPF reproduction.
 This controlled owned-host evidence is not normal-EXE latency, provider delivery
 or the rich 10,000-Person/background-export proof retained by #100. Both desktop
 900-second budgets, all previous assertions/size matrices and all p95 targets
