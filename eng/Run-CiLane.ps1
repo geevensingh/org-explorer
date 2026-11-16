@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Path $results -Force | Out-Null
 $steps = [System.Collections.Generic.List[object]]::new()
 $index = 0
 $artifactBuild = Join-Path $results 'build'
-$ceilingSeconds = if ($Lane -eq 'core') { 300 } elseif ($Lane -eq 'high-resolution') { 900 } else { 660 }
+$ceilingSeconds = if ($Lane -eq 'core') { 300 } elseif ($Lane -in @('desktop', 'high-resolution')) { 900 } else { 660 }
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
 $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE

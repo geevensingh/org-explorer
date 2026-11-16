@@ -678,13 +678,13 @@ independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
 The stable aggregate `CI` requires all four successes. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the existing
-5/11/11-minute original lane deadlines, a 15-minute high-resolution lane and
-2-minute aggregate deadline: 44 minutes summed, at most
+5-minute core and 11-minute filesystem deadlines, 15-minute ordinary desktop
+and high-resolution lanes, and 2-minute aggregate deadline: 48 minutes summed, at most
 17 minutes on the parallel critical path, excluding queues and later CD.
-The owner approved the high-resolution lane's temporary 900-second runner/job
-limit on 2026-11-15. Its full scenario/size/assertion matrix remains required;
-the ordinary desktop deadline, explicit scale budgets and save-latency targets
-are unchanged. If fifteen minutes is insufficient, investigate rather than
+The owner approved temporary 900-second runner/job limits for high-resolution
+and ordinary desktop on 2026-11-15. Both full scenario/size/assertion matrices
+remain required; the core/filesystem deadlines, explicit scale budgets and
+save-latency targets are unchanged. If fifteen minutes is insufficient, investigate rather than
 automatically extending it again.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
