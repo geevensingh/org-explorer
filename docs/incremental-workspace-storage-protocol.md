@@ -10,6 +10,9 @@ mutation. There is no migration or legacy-folder cleanup.
 This protocol remains exclusive to the readable-file path. The opt-in SQLite
 path instead uses local transactions and the separately versioned
 [complete logical snapshot interchange](workspace-format.md#complete-logical-snapshots-interchange-1).
+That independent interchange now includes exact-review whole-version selection,
+separately retained conflict recovery and guarded current/previous rotation.
+It does not use this readable-file engine's selector/reclamation machinery.
 Its explicit Sync now never synchronizes an open database, reuses this protocol's
 selector as a second authority, or interprets a provider event as a commit.
 Publication and provider delivery are distinct; staged legacy compatibility is

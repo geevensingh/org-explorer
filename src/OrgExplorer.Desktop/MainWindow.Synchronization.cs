@@ -18,6 +18,7 @@ public partial class MainWindow
         JoinSynchronizationFolderButton.IsEnabled = !pending && !updateHandoffPending &&
             workflow.People.Count == 0 && workflow.CanSafelyClose;
         SyncNowButton.IsEnabled = !pending && !updateHandoffPending && state.Folder is not null;
+        ShowWorkspaceVersionStatus();
     }
 
     private void ConfigureSynchronizationFolder(object sender, RoutedEventArgs e) => ConfigureSynchronization(join: false);

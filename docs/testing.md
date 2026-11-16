@@ -437,6 +437,35 @@ or the rich 10,000-Person/background-export proof retained by #100. Both desktop
 900-second budgets, all previous assertions/size matrices and all p95 targets
 remain unchanged; compiling the tail is not hosted acceptance.
 
+The #97 cases extend the same two-store public workflow/view-model seam with
+deliberate complete-version selection, exact review/new-arrival refusal,
+publication of a new resolution revision and later recovery of either retained
+version. Recovery after ordinary rotation preserves independently decoded photos,
+accepted Import replay, complete frozen note versions/provenance and Profile
+changes. Both note scopes hold a real successful save return, with newer writing
+and optionally a lost acknowledgment: choosing a whole Workspace must not bypass
+that VM-owned admission lifetime or unknown outcome. A real incoming-file lock
+after the actual selection Commit proves failed arrival validation leaves the
+committed state browseable but read-only across reopen. Routine current/previous
+rotation preserves unknown files and provider-named snapshot copies; explicit
+fresh recovery deletion cannot erase the current version or unresolved conflicts.
+
+The existing invisible compiled snapshot selection additionally drives the actual
+Settings review/list/Continue controls with no default choice, requiring edit
+pause, usable Person selection and retained unchosen data without showing or
+creating a native window. The existing hosted `compatibility-settings` journey
+keeps every prior assertion/capture and appends native conflict visibility,
+disabled edit actions, continued Person browsing and deliberate exact-version
+selection, followed by independent full-resource/history reopening.
+`*-sqlite-workspace-conflicts.json` binds candidate/run/attempt/product hash,
+process, independent stores, presented local/incoming versions, resulting revision
+and retained recovery IDs to `sqlite-conflict-visible`,
+`sqlite-conflict-browsing-paused`, `sqlite-conflict-deliberate-choice` and
+`sqlite-conflict-selected-complete` actual-pixel captures. Compiling or invisibly
+replaying that tail is not hosted interaction acceptance, redesigned exit or
+rich 10,000-Person/background-export latency evidence. All existing lane budgets,
+latency targets, scenario manifests and size/assertion matrices remain unchanged.
+
 The #94 reviewed-Import path uses that same SQLite commit boundary for partial
 multi-Person updates, photos, accepted evidence, Profile changes, reporting
 transitions, Team-note review and frozen context. `SqliteWorkspaceTests` compares

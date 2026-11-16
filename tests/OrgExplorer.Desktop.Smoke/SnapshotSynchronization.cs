@@ -164,6 +164,7 @@ internal static partial class Program
                 Note<TextBox>("MarkdownEditor").Text != "Exact writing during automatic export" ||
                 !Control<TextBlock>("SynchronizationStatus").Text.Contains("delivery elsewhere is unknown"))
                 throw new InvalidOperationException("Compiled automatic incoming refresh lost selection/writing or invented provider delivery.");
+            VerifyCompiledWorkspaceVersions(window, workflow, first, Deliver, Select);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Snapshot compiled verification must not show or create a native window.");
             Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now and controlled automatic cadence validate real artifacts, preserve identity/selected Person and post-seal owner drafts, allow exact durable writing/navigation during real export, retain newer unpublished revisions and refresh incoming reading; provider delivery remains unknown. No visible window/native handle.");
@@ -437,6 +438,7 @@ internal static partial class Program
             scope = "Normal native Settings folder, Sync now, fresh join and automatic clean continuation; real independent logical stores/resources/history. Not periodic scheduling, conflict resolution, retention, exit or 10,000-Person export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: hosted SQLite snapshots: native Settings folder/Sync now/status, independent-store fresh join and selected-Person incoming adoption preserve actual photos/private Team names/frozen history; candidate-bound evidence: " + evidence);
+        RunWorkspaceConflictJourney(window, source, target, outgoing, incoming, expected);
         SetSettingsVisible(window, true);
         PrepareAction("OpenWorkspace");
         PickWorkspaceFolder(window, source);
