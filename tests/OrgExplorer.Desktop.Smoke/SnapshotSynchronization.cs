@@ -25,7 +25,8 @@ internal static partial class Program
             !first.ApplyImport(first.PreviewImport("""
                 {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
-                 {"email":"avery@example.com","displayName":"Avery Snapshot","managerEmail":null}]}
+                 {"email":"avery@example.com","displayName":"Avery Snapshot","managerEmail":"morgan@example.com"},
+                 {"email":"morgan@example.com","displayName":"Morgan Snapshot","managerEmail":null}]}
                 """).Id) || !first.ConfigureSynchronizationFolder(outgoing) || !first.SyncNow())
             throw new InvalidOperationException("Could not prepare the real compiled synchronization source: " + first.Status);
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -58,31 +59,64 @@ internal static partial class Program
             PumpUntil(() => workflow.Synchronization.Folder == incoming &&
                 Control<Button>("SyncNowButton").IsEnabled);
             Invoke("SyncNowButton");
-            PumpUntil(() => workflow.People.Count == 1 && Control<Button>("SyncNowButton").IsEnabled);
+            PumpUntil(() => workflow.People.Count == 2 && Control<Button>("SyncNowButton").IsEnabled);
             if (workflow.Synchronization.WorkspaceId != first.Synchronization.WorkspaceId ||
                 !Control<TextBlock>("SynchronizationStatus").Text.Contains("delivery elsewhere is unknown"))
                 throw new InvalidOperationException("Compiled Sync now lost Workspace identity or falsely acknowledged provider delivery.");
             Invoke("OpenSettingsButton");
-            var node = workflow.ReportingRoots.Single();
-            Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, node,
-                TreeView.SelectedItemChangedEvent));
+            void Select(string email)
+            {
+                var node = workflow.ReportingRoots.SelectMany(root => new[] { root }.Concat(root.Reports))
+                    .Single(item => item.Person.Email == email);
+                Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, node,
+                    TreeView.SelectedItemChangedEvent));
+            }
+            Select("avery@example.com");
             if (Control<TextBlock>("Email").Text != "avery@example.com")
                 throw new InvalidOperationException("Joined SQLite data did not become browsable through actual compiled selection.");
             if (!first.EditPreferredName("avery@example.com", "Incoming continuation") || !first.SyncNow())
                 throw new InvalidOperationException(first.Status);
             Deliver();
+            Invoke("EditProfileButton");
+            var displayedBasis = workflow.ProfileEdit!.Basis;
             Invoke("OpenSettingsButton");
-            Invoke("SyncNowButton");
+            using (var connection = new SqliteConnection($"Data Source={Path.Combine(target, "workspace.sqlite")};Pooling=False"))
+            {
+                connection.Open();
+                using var held = connection.BeginTransaction(deferred: true);
+                using (var read = connection.CreateCommand())
+                {
+                    read.Transaction = held;
+                    read.CommandText = "PRAGMA schema_version;";
+                    read.ExecuteScalar();
+                }
+                Invoke("SyncNowButton");
+                PumpUntil(() => workflow.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
+                    File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
+                Invoke("OpenSettingsButton");
+                Control<TextBox>("JobTitle").Text = "Compiled later owner draft";
+                Select("morgan@example.com");
+                Select("avery@example.com");
+                if (workflow.Synchronization.Phase != WorkspaceSynchronizationPhase.Adopting ||
+                    held.Connection != connection || workflow.CanSafelyClose ||
+                    Control<TextBox>("JobTitle").Text != "Compiled later owner draft" ||
+                    !Control<TextBox>("JobTitle").IsEnabled)
+                    throw new InvalidOperationException("Actual compiled draft/browsing waited for held adoption or lost its owner writing.");
+                held.Rollback();
+            }
             PumpUntil(() => workflow.GetRelationships("avery@example.com")!.Person.PreferredName == "Incoming continuation" &&
                 Control<Button>("SyncNowButton").IsEnabled);
-            Invoke("OpenSettingsButton");
+            if (Control<TextBox>("JobTitle").Text != "Compiled later owner draft" ||
+                !ReferenceEquals(displayedBasis, workflow.ProfileEdit?.Basis))
+                throw new InvalidOperationException("Compiled adoption cleared or silently rebased post-seal owner writing.");
+            Invoke("CancelProfileButton");
             if (Control<TextBlock>("ProfileHeading").Text != "Incoming continuation" ||
                 Control<TextBlock>("Email").Text != "avery@example.com" ||
                 workflow.PeopleNavigation.SelectedEmail != "avery@example.com")
                 throw new InvalidOperationException("Compiled incoming adoption lost the selected Person or left stale reading.");
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Snapshot compiled verification must not show or create a native window.");
-            Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now validates real artifacts, preserves identity and selected Person, and reports publication separately from unknown provider delivery without a visible window/native handle.");
+            Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now validates real artifacts, preserves identity/selected Person and exact post-seal owner drafts while the same real adoption commit remains held, and reports publication separately from unknown provider delivery without a visible window/native handle.");
         }
         finally
         {
