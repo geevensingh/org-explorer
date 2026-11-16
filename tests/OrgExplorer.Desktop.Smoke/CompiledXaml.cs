@@ -176,7 +176,10 @@ internal static partial class Program
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
             if (verifySnapshotAdoption)
+            {
+                HarnessRuntime.Run("compiled-automatic-input-scroll", () => VerifyCompiledAutomaticInputScroll(type, settings, chooseFolder));
                 HarnessRuntime.Run("compiled-snapshots", () => VerifySnapshotSynchronization(type, settings, chooseFolder));
+            }
             if (verifyProfileRefresh || verifyLegacySaveFeedback)
                 HarnessRuntime.Run("compiled-legacy-save-feedback", () => VerifyLegacySaveFeedback(type, settings, chooseFolder));
             if (verifyProfileRefresh)

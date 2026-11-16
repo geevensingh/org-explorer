@@ -47,12 +47,18 @@ internal static class SnapshotNativeUsability
 
     internal static bool NoteReady(SnapshotNativeNote note, SnapshotExportLifetime lifetime,
         string email, string heading, string noteId, string title, string value) =>
+        NoteWritingObserved(note, lifetime, email, heading, noteId, title, value) &&
+        Visible(note.Note.IsOffscreen, note.Note.Width, note.Note.Height) &&
+        Within(note.Viewport, note.NoteBounds);
+
+    internal static bool NoteWritingObserved(SnapshotNativeNote note, SnapshotExportLifetime lifetime,
+        string email, string heading, string noteId, string title, string value) =>
         ExportHeld(lifetime) && OwnerReady(note.Owner, email, heading) &&
         DraftObserved(note.Owner.Person, note.Editor, email, heading, value) &&
         note.NoteId == noteId && note.Note.Text == title &&
-        Visible(note.Note.IsOffscreen, note.Note.Width, note.Note.Height) &&
-        Within(note.Viewport, note.NoteBounds) && Within(note.Viewport, note.EditorBounds) &&
-        Within(note.Owner.Window, note.NoteBounds) && Within(note.Owner.Window, note.EditorBounds);
+        Visible(false, note.Note.Width, note.Note.Height) && BoundsValid(note.NoteBounds) &&
+        Within(note.Owner.Window, note.NoteBounds) &&
+        Within(note.Viewport, note.EditorBounds) && Within(note.Owner.Window, note.EditorBounds);
 
     internal static bool PublicationReady(SnapshotNativePublication publication, SnapshotExportLifetime lifetime) =>
         ExportHeld(lifetime) &&
