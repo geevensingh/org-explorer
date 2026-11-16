@@ -212,9 +212,18 @@ internal static partial class Program
         var personState = new CacheRequest { TreeScope = TreeScope.Element };
         personState.Add(AutomationElement.NameProperty);
         personState.Add(AutomationElement.IsOffscreenProperty);
+        personState.Add(AutomationElement.BoundingRectangleProperty);
         var inputState = new CacheRequest { TreeScope = TreeScope.Element };
         inputState.Add(AutomationElement.IsEnabledProperty);
+        inputState.Add(AutomationElement.IsOffscreenProperty);
+        inputState.Add(AutomationElement.BoundingRectangleProperty);
+        inputState.Add(ValuePattern.Pattern);
+        inputState.Add(ValuePattern.IsReadOnlyProperty);
         inputState.Add(ValuePattern.ValueProperty);
+        SnapshotVisiblePerson? lastPerson = null, beforeInputPerson = null, afterInputPerson = null, destinationPerson = null;
+        SnapshotWritableEditor? lastEditor = null, beforeInputEditor = null, afterInputEditor = null;
+        object NativeUsability() => new
+        { beforeInputPerson, beforeInputEditor, afterInputPerson, afterInputEditor, destinationPerson, lastPerson, lastEditor };
         var heldObservation = HeldSnapshotAdoption.Run(target,
             () =>
             {
@@ -227,22 +236,60 @@ internal static partial class Program
                     ?? throw new InvalidOperationException("Snapshot preparation could not find the real Manager.");
                 var selection = (SelectionItemPattern)manager.GetCurrentPattern(SelectionItemPattern.Pattern);
                 var email = Find(window, "Email");
+                var heading = Find(window, "ProfileHeading");
+                SnapshotVisibleText Reading(AutomationElement element)
+                {
+                    var observed = element.GetUpdatedCache(personState).Cached;
+                    return new(observed.Name, observed.IsOffscreen, observed.BoundingRectangle.Width, observed.BoundingRectangle.Height);
+                }
+                SnapshotVisiblePerson Person() => lastPerson = new(Reading(email), Reading(heading));
+                SnapshotWritableEditor Editor()
+                {
+                    var observed = editor.GetUpdatedCache(inputState);
+                    var bounds = observed.Cached.BoundingRectangle;
+                    var supportsValue = observed.TryGetCachedPattern(ValuePattern.Pattern, out var pattern) && pattern is ValuePattern;
+                    return lastEditor = new(observed.Cached.IsEnabled, observed.Cached.IsOffscreen,
+                        bounds.Width, bounds.Height, supportsValue,
+                        !Equals(observed.GetCachedPropertyValue(ValuePattern.IsReadOnlyProperty, true), false),
+                        observed.GetCachedPropertyValue(ValuePattern.ValueProperty, true) as string);
+                }
                 return new(
                     () =>
                     {
                         using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke)) settingsAction.Invoke();
-                        Await(() => email.GetUpdatedCache(personState).Cached is { Name: "avery@example.com", IsOffscreen: false } &&
-                            editor.GetUpdatedCache(inputState).Cached.IsEnabled);
+                        Await(() =>
+                        {
+                            var person = Person();
+                            var input = Editor();
+                            if (!SnapshotNativeUsability.EditorReady(person, input, "avery@example.com", "Avery reference")) return false;
+                            beforeInputPerson = person;
+                            beforeInputEditor = input;
+                            return true;
+                        });
                     },
                     () =>
                     {
                         using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeSetValue))
                             writing.SetValue("Private draft admitted after snapshot seal");
-                        Await(() => (string)editor.GetUpdatedCache(inputState).GetCachedPropertyValue(ValuePattern.ValueProperty) ==
-                            "Private draft admitted after snapshot seal");
+                        Await(() =>
+                        {
+                            var person = Person();
+                            var input = Editor();
+                            if (!SnapshotNativeUsability.DraftObserved(person, input, "avery@example.com", "Avery reference",
+                                "Private draft admitted after snapshot seal")) return false;
+                            afterInputPerson = person;
+                            afterInputEditor = input;
+                            return true;
+                        });
                     },
                     () => { using var action = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke); selection.Select(); },
-                    () => Await(() => email.GetUpdatedCache(personState).Cached is { Name: "morgan@example.com", IsOffscreen: false }));
+                    () => Await(() =>
+                    {
+                        var person = Person();
+                        if (!SnapshotNativeUsability.PersonReady(person, "morgan@example.com", "Morgan Example")) return false;
+                        destinationPerson = person;
+                        return true;
+                    }));
             },
             () =>
             {
@@ -267,7 +314,7 @@ internal static partial class Program
                 CaptureVisualEvidence(window, "sqlite-sync-held-adoption-draft");
                 heldActionsCompletedAt = DateTimeOffset.UtcNow;
             },
-            observation => WriteHeldSnapshotObservation(window, observation));
+            observation => WriteHeldSnapshotObservation(window, observation, NativeUsability()));
         SetSettingsVisible(window, true);
         Await(() => Find(window, "SyncNow").Current.IsEnabled &&
             Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.") &&
@@ -321,6 +368,7 @@ internal static partial class Program
                 timestampFrequency = heldObservation.TimestampFrequency,
                 inputRequests = heldObservation.Milestones.Count(value => value.Stage == "enter-draft-started"),
                 selectionRequests = heldObservation.Milestones.Count(value => value.Stage == "select-person-started"),
+                nativeUsability = NativeUsability(),
                 boundary = "Normal Sync now reports sealed validated adoption with a live SQLite journal; native draft input and actual Person selection complete and are captured while the same real reader still prevents commit. Only then is the reader deliberately released.",
                 ownerEmail = "avery@example.com", selectedWhileHeld = "morgan@example.com",
                 retainedJobTitle = "Private draft admitted after snapshot seal",
@@ -344,7 +392,7 @@ internal static partial class Program
         Await(() => CurrentPersonEmail(window) == "morgan@example.com");
     }
 
-    private static void WriteHeldSnapshotObservation(AutomationElement window, SnapshotAdoptionObservation observation)
+    private static void WriteHeldSnapshotObservation(AutomationElement window, SnapshotAdoptionObservation observation, object nativeUsability)
     {
         using var process = Process.GetProcessById(window.Current.ProcessId);
         using var executable = File.OpenRead(process.MainModule!.FileName);
@@ -355,7 +403,7 @@ internal static partial class Program
         var path = Path.Combine(Path.GetDirectoryName(diagnostics)!,
             Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-held-adoption-observation.json");
         if (File.Exists(path)) throw new InvalidOperationException("Held-adoption observations must not overwrite earlier evidence.");
-        File.WriteAllText(path, JsonSerializer.Serialize(new
+        File.WriteAllText(path, SnapshotNativeUsability.SerializeDiagnostic(new
         {
             schemaVersion = 1,
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
@@ -365,6 +413,7 @@ internal static partial class Program
             processId = window.Current.ProcessId,
             observedAt = DateTimeOffset.UtcNow,
             observation,
+            nativeUsability,
             inputRequests = observation.Milestones.Count(value => value.Stage == "enter-draft-started"),
             selectionRequests = observation.Milestones.Count(value => value.Stage == "select-person-started"),
             outcomeObservedBeforeReaderDisposal = new
@@ -373,7 +422,7 @@ internal static partial class Program
                 helpText = current.Cached.HelpText
             },
             boundary = "Harness monotonic actual preparation/request/observation milestones and real reader/journal state. No database commit timestamp or latency subtraction. UI outcome is observed before disposing the reader; a passing proof has already deliberately released it. Feedback remains non-atomic."
-        }, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        }));
         Console.WriteLine("DIAGNOSTIC: sqlite-held-adoption outcome=" + observation.Outcome + " evidence=" + path);
     }
 }
