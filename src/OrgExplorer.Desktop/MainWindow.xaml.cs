@@ -11,6 +11,7 @@ public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
     private readonly Func<Window, string?> chooseWorkspaceFolder;
+    private readonly Action<string> writeClipboard;
     private Guid? preview;
     private string? selectedEmail;
     private bool loading;
@@ -22,10 +23,15 @@ public partial class MainWindow : Window
     internal MainWindow(IApplicationWorkflow application) : this(application, ChooseWorkspaceFolder) { }
 
     internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder)
+        : this(application, chooseWorkspaceFolder, System.Windows.Clipboard.SetText) { }
+
+    internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder, Action<string> writeClipboard)
     {
         this.chooseWorkspaceFolder = chooseWorkspaceFolder;
+        this.writeClipboard = writeClipboard;
         workflow = new(application, workspaceSettings);
         InitializeComponent();
+        InitializeProfileCopyFeedback();
         InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
         PreviewKeyDown += EscapePeople;

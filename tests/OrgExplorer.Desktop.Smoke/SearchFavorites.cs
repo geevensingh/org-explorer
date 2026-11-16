@@ -40,7 +40,7 @@ internal static partial class Program
             AssertMouseSearchActivation(window);
             if (responsive)
             {
-                AssertLongAndMissingFacts(window);
+                AssertLongAndMissingFacts(window, workspace);
                 AssertResponsiveOwnedTeamName(window, import);
             }
             Click(window, "NewPersonNote");

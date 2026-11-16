@@ -220,6 +220,10 @@
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
       <Setter Property="Margin" Value="0,0,0,4"/>
     </Style>
+    <Style TargetType="local:ProfileCopyText">
+      <EventSetter Event="CopyRequested" Handler="CopyProfileValue"/>
+      <Setter Property="ToolTip" Value="{Binding CopyHint, RelativeSource={RelativeSource Self}}"/>
+    </Style>
     <Style x:Key="NavigationRow" TargetType="ListBoxItem">
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="Padding" Value="8,5"/>
@@ -625,18 +629,15 @@
                          FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
             </DockPanel>
             <StackPanel x:Name="JobTitleValueRow" Visibility="Collapsed">
-                <TextBlock x:Name="JobTitleValue" TextTrimming="CharacterEllipsis" MaxHeight="20" AutomationProperties.AutomationId="JobTitleValue"
+                <local:ProfileCopyText x:Name="JobTitleValue" CopyLabel="Job title" TextTrimming="CharacterEllipsis" MaxHeight="20" AutomationProperties.AutomationId="JobTitleValue"
                            Foreground="{StaticResource MutedBrush}" Focusable="True" KeyboardNavigation.IsTabStop="True">
-                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-                </TextBlock>
+                </local:ProfileCopyText>
             </StackPanel>
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-              <TextBlock x:Name="Email" AutomationProperties.AutomationId="Email" TextTrimming="CharacterEllipsis"
-                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+              <local:ProfileCopyText x:Name="Email" CopyLabel="Email" AutomationProperties.AutomationId="Email" TextTrimming="CharacterEllipsis"
                          Focusable="True" KeyboardNavigation.IsTabStop="True">
-                <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-              </TextBlock>
+              </local:ProfileCopyText>
               <TextBlock x:Name="PersonArchivalStatus" Grid.Column="1" AutomationProperties.AutomationId="PersonArchivalStatus"
                          Visibility="Collapsed" TextWrapping="NoWrap" Foreground="#8A3B12" FontWeight="SemiBold"
                          Margin="8,0,0,0" VerticalAlignment="Center" Focusable="True"/>
@@ -655,16 +656,14 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="OfficeBuildingValue" TextTrimming="CharacterEllipsis" MaxHeight="20" AutomationProperties.AutomationId="OfficeBuildingValue"
+                <local:ProfileCopyText x:Name="OfficeBuildingValue" CopyLabel="Office building" TextTrimming="CharacterEllipsis" MaxHeight="20" AutomationProperties.AutomationId="OfficeBuildingValue"
                            Focusable="True" KeyboardNavigation.IsTabStop="True">
-                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-                </TextBlock>
+                </local:ProfileCopyText>
                 <TextBlock x:Name="OfficeSeparator" Grid.Column="1" Text=" &#xB7; "/>
-                <TextBlock x:Name="OfficeNumberValue" Grid.Column="2" TextTrimming="CharacterEllipsis" MaxWidth="100" MaxHeight="20"
+                <local:ProfileCopyText x:Name="OfficeNumberValue" CopyLabel="Office number" Grid.Column="2" TextTrimming="CharacterEllipsis" MaxWidth="100" MaxHeight="20"
                            AutomationProperties.AutomationId="OfficeNumberValue"
                            Focusable="True" KeyboardNavigation.IsTabStop="True">
-                  <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-                </TextBlock>
+                </local:ProfileCopyText>
               </Grid>
             </DockPanel>
             <Popup x:Name="PreferredNamePopup" PlacementTarget="{Binding ElementName=EditPreferredNameButton}"
@@ -789,7 +788,9 @@
                           </Style>
                         </TextBlock.Style>
                       </TextBlock>
-                      <TextBlock Grid.Column="1" Text="{Binding Segment.Name}" TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                      <local:ProfileCopyText Grid.Column="1" Text="{Binding Segment.Name}" CopyText="{Binding Segment.Name}"
+                                 Style="{StaticResource {x:Type local:ProfileCopyText}}"
+                                 CopyLabel="Team name" TextWrapping="Wrap" Focusable="True" KeyboardNavigation.IsTabStop="True"
                                  AutomationProperties.AutomationId="TeamNameSegment"
                                  GotKeyboardFocus="ShowTeamNameOwner" LostKeyboardFocus="HideTeamNameOwner">
                         <AutomationProperties.HelpText>
@@ -797,11 +798,10 @@
                             <Binding Path="Segment.Owner.Heading"/><Binding Path="Segment.Owner.Email"/>
                           </MultiBinding>
                         </AutomationProperties.HelpText>
-                        <TextBlock.ToolTip>
-                          <ToolTip Content="{Binding PlacementTarget.(AutomationProperties.HelpText), RelativeSource={RelativeSource Self}}"/>
-                        </TextBlock.ToolTip>
-                        <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-                      </TextBlock>
+                        <local:ProfileCopyText.ToolTip>
+                          <ToolTip Content="{Binding PlacementTarget.CopyHint, RelativeSource={RelativeSource Self}}"/>
+                        </local:ProfileCopyText.ToolTip>
+                      </local:ProfileCopyText>
                     </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -817,45 +817,39 @@
           </StackPanel>
           <StackPanel x:Name="DepartmentValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Department" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="DepartmentValue" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
+            <local:ProfileCopyText x:Name="DepartmentValue" CopyLabel="Department" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
           </StackPanel>
           <StackPanel x:Name="OfficeStateValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Office state / province" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="OfficeStateValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
+            <local:ProfileCopyText x:Name="OfficeStateValue" CopyLabel="Office state / province" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeStateValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
           </StackPanel>
           <StackPanel x:Name="OfficeCountryValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Office country" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="OfficeCountryValue" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
+            <local:ProfileCopyText x:Name="OfficeCountryValue" CopyLabel="Office country" TextWrapping="Wrap" AutomationProperties.AutomationId="OfficeCountryValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
           </StackPanel>
           <StackPanel Style="{StaticResource FactSlot}">
             <TextBlock Text="Directory name" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="DirectoryName" AutomationProperties.AutomationId="DirectoryName" TextWrapping="Wrap"
+            <local:ProfileCopyText x:Name="DirectoryName" CopyLabel="Directory name" AutomationProperties.AutomationId="DirectoryName" TextWrapping="Wrap"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
           </StackPanel>
           <StackPanel x:Name="AliasValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Alias" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="AliasValue" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
+            <local:ProfileCopyText x:Name="AliasValue" CopyLabel="Alias" TextWrapping="Wrap" AutomationProperties.AutomationId="AliasValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
           </StackPanel>
           <StackPanel x:Name="LinkedInProfileUrlValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="LinkedIn profile URL" Style="{StaticResource FactLabel}"/>
-            <TextBlock x:Name="LinkedInProfileUrlValue" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
+            <local:ProfileCopyText x:Name="LinkedInProfileUrlValue" CopyLabel="LinkedIn profile URL" TextWrapping="Wrap" AutomationProperties.AutomationId="LinkedInProfileUrlValue"
                        Focusable="True" KeyboardNavigation.IsTabStop="True">
-              <TextBlock.ContextMenu><ContextMenu><MenuItem Header="Copy value" Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Click="CopyProfileValue"/></ContextMenu></TextBlock.ContextMenu>
-            </TextBlock>
+            </local:ProfileCopyText>
             <Button x:Name="OpenLinkedInButton" Content="Open LinkedIn" IsEnabled="False" Visibility="Collapsed"
                     Style="{StaticResource QuietButton}" Padding="0" HorizontalContentAlignment="Left"
                     AutomationProperties.AutomationId="OpenLinkedIn" Click="OpenLinkedIn"/>
@@ -992,6 +986,10 @@
         </Grid>
       </StackPanel>
       </ScrollViewer>
+      <TextBlock x:Name="ProfileCopyFeedback" Grid.Row="2" Panel.ZIndex="1" Visibility="Collapsed"
+                 AutomationProperties.AutomationId="ProfileCopyFeedback" AutomationProperties.LiveSetting="Polite"
+                 HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,12" Padding="10,6"
+                 Background="#EAF3FF" Foreground="{StaticResource AccentBrush}" IsHitTestVisible="False"/>
       </Grid>
       <Button x:Name="PeopleDismissSurface" Grid.ColumnSpan="3" Panel.ZIndex="10" Visibility="Collapsed"
               Background="#33000000" BorderThickness="0" Focusable="False" IsTabStop="False"

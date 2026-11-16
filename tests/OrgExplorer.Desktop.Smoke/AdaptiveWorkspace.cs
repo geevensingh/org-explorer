@@ -353,16 +353,31 @@ internal static partial class Program
     {
         if (bounds.Width <= 0 || bounds.Height <= 0)
             throw new InvalidOperationException("The rendered backdrop sample is empty.");
+        var left = (int)Math.Floor(bounds.Left);
+        var top = (int)Math.Floor(bounds.Top);
+        var width = (int)Math.Ceiling(bounds.Right) - left;
+        var height = (int)Math.Ceiling(bounds.Bottom) - top;
         var dc = GetDC(IntPtr.Zero);
         if (dc == IntPtr.Zero) throw new InvalidOperationException("Actual desktop pixels are unavailable.");
+        var memory = IntPtr.Zero;
+        var bitmap = IntPtr.Zero;
+        var previous = IntPtr.Zero;
         try
         {
+            memory = CreateCompatibleDC(dc);
+            bitmap = CreateCompatibleBitmap(dc, width, height);
+            if (memory == IntPtr.Zero || bitmap == IntPtr.Zero)
+                throw new InvalidOperationException("Actual contrast capture could not allocate its pixel buffer.");
+            previous = SelectObject(memory, bitmap);
+            if (previous == IntPtr.Zero || previous == new IntPtr(-1) ||
+                !BitBlt(memory, 0, 0, width, height, dc, left, top, 0x40CC0020))
+                throw new InvalidOperationException("Actual desktop contrast capture failed.");
             var minimum = 255d;
             var maximum = 0d;
             for (var y = (int)Math.Ceiling(bounds.Top); y < bounds.Bottom; y += 6)
                 for (var x = (int)Math.Ceiling(bounds.Left); x < bounds.Right; x += 6)
                 {
-                    var color = GetPixel(dc, x, y);
+                    var color = GetPixel(memory, x - left, y - top);
                     if (color == uint.MaxValue)
                         throw new InvalidOperationException("Actual backdrop pixels are unavailable on this desktop.");
                     var luminance = ((color & 255) + ((color >> 8) & 255) + ((color >> 16) & 255)) / 3d;
@@ -371,16 +386,32 @@ internal static partial class Program
                 }
             return maximum - minimum;
         }
-        finally { ReleaseDC(IntPtr.Zero, dc); }
+        finally
+        {
+            if (previous != IntPtr.Zero && previous != new IntPtr(-1)) SelectObject(memory, previous);
+            if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
+            if (memory != IntPtr.Zero) DeleteDC(memory);
+            ReleaseDC(IntPtr.Zero, dc);
+        }
     }
 
-    private static void AssertLongAndMissingFacts(AutomationElement window)
+    private static void AssertLongAndMissingFacts(AutomationElement window, string workspace)
     {
         var ids = new[] { "DepartmentValue", "OfficeStateValue",
             "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" };
         var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        var bytes = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
+        foreach (var (id, expected) in new[] { ("Email", "avery@example.com"), ("JobTitleValue", "Scientist"),
+            ("OfficeBuildingValue", "Juniper"), ("OfficeNumberValue", "007B"), ("DepartmentValue", "Research"),
+            ("OfficeStateValue", "Ontario"), ("OfficeCountryValue", "Canada"), ("DirectoryName", "Avery Directory"),
+            ("AliasValue", "avhandle"), ("LinkedInProfileUrlValue", "https://www.linkedin.com/in/fictitious-avery") })
+            AssertPrimaryCopy(window, Find(window, id), expected, freshFeedback: id is "Email" or "DepartmentValue");
+        foreach (var key in new byte[] { 0x0D, 0x20 })
+            AssertFocusedCopy(window, Find(window, "Email"), "avery@example.com", key);
+        AwaitCopyFeedbackGone(window);
+        AssertWorkspaceBytes(workspace, bytes);
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
         QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
         Click(window, "ClearSearch");
@@ -396,6 +427,18 @@ internal static partial class Program
                 throw new InvalidOperationException("A missing ordinary fact lost its neutral-dash slot: " + id);
         const string building = "South campus research and collaboration building with a deliberately long descriptive location";
         AssertKeyboardCopy(window, "OfficeBuildingValue", building);
+        AssertCopyHint(window, Find(window, "OfficeBuildingValue"), building);
+        AssertPrimaryCopy(window, Find(window, "OfficeBuildingValue"), building);
+        const string state = "A long state or province description that must wrap without shrinking the ordinary reading type";
+        AssertCopyHint(window, Find(window, "OfficeStateValue"), state);
+        AssertPrimaryCopy(window, Find(window, "OfficeStateValue"), state);
+        if (Find(window, "OfficeStateValue").Current.BoundingRectangle.Height <= Find(window, "Email").Current.BoundingRectangle.Height * 1.5)
+            throw new InvalidOperationException("The responsive copy fixture did not exercise actually wrapped state/province text.");
+        foreach (var key in new byte[] { 0x0D, 0x20 })
+            AssertFocusedCopy(window, Find(window, "OfficeStateValue"), state, key);
+        AwaitCopyFeedbackGone(window);
+        foreach (var id in new[] { "DepartmentValue", "OfficeCountryValue", "LinkedInProfileUrlValue" })
+            AssertMissingCopy(window, Find(window, id));
         if (Find(window, "ProfileHeading").Current.Name !=
             "Alexandra Reference with a deliberately long Directory name for accessible Person reading" ||
             Find(window, "PhotoPlaceholder").Current.IsOffscreen || scroll.Current.HorizontallyScrollable)
@@ -679,6 +722,10 @@ internal static partial class Program
         void AtSize(string stateName)
         {
             AssertTeamNamePath(window, name, name);
+            AssertPrimaryCopy(window, FindTeamNameSegment(window, 0), name,
+                freshFeedback: stateName == "team-name-ordinary-1100-900");
+            AssertPrimaryCopy(window, FindTeamNameSegment(window, 1), name,
+                freshFeedback: stateName == "team-name-ordinary-1100-900");
             CaptureVisualEvidence(window, stateName + "-reading");
             BeginProfileEditing(window);
             var editor = Find(window, "TeamNameEditor");
@@ -703,6 +750,10 @@ internal static partial class Program
         AssertTeamNameOwnerAttribution(window, "Alex", "alex@example.com", 1);
         AssertMouseCopy(window, FindTeamNameSegment(window, 0), name);
         AssertKeyboardCopy(window, FindTeamNameSegment(window, 1), name);
+        foreach (var index in new[] { 0, 1 })
+            foreach (var key in new byte[] { 0x0D, 0x20 })
+                AssertFocusedCopy(window, FindTeamNameSegment(window, index), name, key);
+        AwaitCopyFeedbackGone(window);
         foreach (var width in new[] { 959d, 960d, 961d })
         {
             var chrome = window.Current.BoundingRectangle.Width / scale -
