@@ -8,7 +8,7 @@ using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
 
-public sealed class SqliteWorkspaceTests : IDisposable
+public sealed partial class SqliteWorkspaceTests : IDisposable
 {
     private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", "sqlite-" + Guid.NewGuid().ToString("N")));
@@ -245,6 +245,10 @@ public sealed class SqliteWorkspaceTests : IDisposable
         refusal.CommandText = "DROP TRIGGER reject_import_commit;";
         refusal.ExecuteNonQuery();
         Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(LocalSavePhase.Failed, app.LocalSave.Phase);
+        Assert.False(app.CanEditLocalWorkspace);
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
         Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
         Assert.True(app.CanSafelyClose, app.Status);
         File.Delete(photo);
@@ -424,7 +428,8 @@ public sealed class SqliteWorkspaceTests : IDisposable
     [InlineData(NoteScope.Team)]
     public async Task Held_bulk_Import_keeps_browsing_and_newer_owner_drafts_independent_of_its_commit(NoteScope scope)
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        var clock = new SaveClock();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(timeProvider: clock), timeProvider: clock);
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string owner = "manager@example.com";
@@ -450,6 +455,10 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.True(admitted.Wait(TimeSpan.FromSeconds(5)));
         try
         {
+            clock.Advance(TimeSpan.FromSeconds(4));
+            Assert.False(app.LocalSave.EditsPaused);
+            Assert.False(app.LocalSave.HasUnresolvedOutcome);
+            Assert.True(app.CanEditLocalWorkspace);
             app.UpdateNoteDraft(scope, id, "Retained note", "Newer writing during bulk Import");
             Assert.True(app.NavigatePerson("report@example.com"), app.Status);
             Assert.True(app.NavigatePerson(owner), app.Status);
@@ -589,6 +598,7 @@ public sealed class SqliteWorkspaceTests : IDisposable
         }
         Assert.False(app.SaveProfileEdit());
         Assert.Contains("current direct report", app.LocalSaveError);
+        Assert.True(app.CanEditLocalWorkspace, "Eligibility rejection must not be reported as a local storage fault.");
         Assert.Equal("Uncommitted label", app.ProfileEdit!.Draft.TeamName);
         Assert.Equal("Uncommitted department", app.ProfileEdit.Draft.Department);
         using (var unchanged = ApplicationWorkflow.CreateFileBacked())
@@ -605,6 +615,7 @@ public sealed class SqliteWorkspaceTests : IDisposable
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Not committed"), app.Status);
         Assert.False(app.SaveProfileEdit());
         Assert.Contains("photo", app.LocalSaveError);
+        Assert.True(app.CanEditLocalWorkspace, "An unavailable selected photo is a rejected draft, not failed Workspace storage.");
         Assert.True(app.ProfileEdit!.PhotoChanged);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);

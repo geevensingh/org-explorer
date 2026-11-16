@@ -15,7 +15,8 @@ public partial class MainWindow
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        System.Windows.Controls.UserControl? noteDraft = null, bool isImport = false)
+        System.Windows.Controls.UserControl? noteDraft = null, bool isImport = false,
+        bool ordinarySave = false)
     {
         workPending = true;
         localImportPending = isImport && RetainsPersonDrafts;
@@ -25,13 +26,14 @@ public partial class MainWindow
         CreateLocalSqliteWorkspaceButton.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
-        PersonNotes.IsEnabled = localImportPending || ReferenceEquals(noteDraft, PersonNotes);
-        TeamNotes.IsEnabled = localImportPending || ReferenceEquals(noteDraft, TeamNotes);
+        var localSave = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
+        PersonNotes.IsEnabled = localImportPending || localSave || ReferenceEquals(noteDraft, PersonNotes);
+        TeamNotes.IsEnabled = localImportPending || localSave || ReferenceEquals(noteDraft, TeamNotes);
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
         DiscardImportButton.IsEnabled = false;
-        try { return await Task.Run(operation); }
+        try { return localSave ? await workflow.RunLocalSaveAsync(operation) : await Task.Run(operation); }
         finally
         {
             workPending = false;

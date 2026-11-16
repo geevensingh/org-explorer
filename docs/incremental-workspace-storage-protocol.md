@@ -15,6 +15,14 @@ selector as a second authority, or interprets a provider event as a commit.
 Publication and provider delivery are distinct; staged legacy compatibility is
 preserved until the replacement's final cutover.
 
+The development-opt-in SQLite path does not use this readable-file protocol.
+Its transaction/recovery contract is documented under
+[staged local SQLite formats](workspace-format.md#staged-local-sqlite-formats).
+Durable revision-only local-write evidence and validated SQLite state distinguish
+commit, noncommit and unresolved outcomes; elapsed time alone never authorizes
+replay. Browsing remains available while unsafe edits are paused. The legacy
+publication-conflict rules below remain unchanged until the final cutover.
+
 ## Approved publication-conflict contract
 
 The owner explicitly approved durable postpublication conflict handling with

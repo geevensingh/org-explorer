@@ -36,6 +36,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (ProfileDraftGate)
         {
+            if (!AllowLocalDraftEdit()) return false;
             if (profileEdit is not { } edit) return Fail("Choose Edit profile first.");
             if (!CanEditTeamName(edit.Basis.Email))
                 return Fail("Team name requires an active owner with a current direct report. The profile draft is retained.");
@@ -50,5 +51,5 @@ public sealed partial class WorkspaceViewModel
 {
     public bool CanEditTeamName(string email) => workflow.CanEditTeamName(email);
     public IReadOnlyList<TeamNameSegment> GetTeamNames(string email) => workflow.GetTeamNames(email);
-    public bool StageProfileTeamName(string? value) => Observe(() => workflow.StageProfileTeamName(value));
+    public bool StageProfileTeamName(string? value) => AllowLocalDraftEdit() && Observe(() => workflow.StageProfileTeamName(value));
 }

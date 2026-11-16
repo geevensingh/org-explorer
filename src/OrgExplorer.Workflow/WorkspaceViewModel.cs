@@ -12,28 +12,32 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     private readonly object personTextDraftGate = new();
     private readonly Dictionary<(string Email, PersonTextField Field), RetainedPersonTextDraft> personTextDrafts = [];
     private bool HasLocalPersonTextDrafts { get { lock (personTextDraftGate) return personTextDrafts.Count != 0; } }
-    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null)
+    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null, TimeProvider? timeProvider = null)
     {
         this.workflow = workflow;
         this.settings = settings;
+        localSaveRequests = new(timeProvider ?? TimeProvider.System, NotifyLocalNoteDrafts);
         workflow.WorkspaceChanged += ForwardWorkspaceChange;
     }
     public event EventHandler? WorkspaceChanged;
     public bool IsWorkspaceCurrent => workflow.IsWorkspaceCurrent;
     public WorkspaceCompatibility Compatibility => workflow.Compatibility;
-    public bool CanSafelyClose => !HasLocalNoteDrafts && !HasLocalPersonTextDrafts && workflow.CanSafelyClose;
+    public bool CanSafelyClose => !LocalSave.EditsPaused && localSaveRequests.Status.OutstandingRequests == 0 &&
+        !HasLocalNoteDrafts && !HasLocalPersonTextDrafts && workflow.CanSafelyClose;
     public bool CanNavigatePeople => workflow.CanNavigatePeople;
-    public bool CanEnterImport => !HasLocalPersonTextDrafts && workflow.CanEnterImport;
+    public bool CanEnterImport => !LocalSave.HasUnresolvedOutcome && !HasLocalNoteDrafts &&
+        !HasLocalPersonTextDrafts && workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
     public bool HasPendingStorageMaintenance => workflow.HasPendingStorageMaintenance;
     public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() =>
     {
-        if (!HasLocalNoteDrafts && !HasLocalPersonTextDrafts) return workflow.RestartWhenSafe(restart);
+        if (CanSafelyClose) return workflow.RestartWhenSafe(restart);
         navigationError = "Restart blocked: private edits are not confirmed saved locally.";
         return false;
     });
-    public string? LocalSaveError => workflow.LocalSaveError;
+    public string? LocalSaveError => LocalSave.EditsPaused
+        ? LocalSave.Message + (workflow.LocalSaveError is { } error ? "\n" + error : "") : workflow.LocalSaveError;
     public void DiscardUnsavedChanges(Guid? noteId = null) => Observe(() =>
     {
         if (!DiscardLocalNoteDrafts(noteId)) return false;
@@ -54,6 +58,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             noteAutosaveStopped = true;
             foreach (var draft in localNoteDrafts.Values) draft.AdoptionDeferral.Dispose();
         }
+        localSaveRequests.Dispose();
         workflow.WorkspaceChanged -= ForwardWorkspaceChange;
         workflow.Dispose();
     }
@@ -61,13 +66,13 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public IReadOnlyList<PersonProfile> People => workflow.People;
     public IReadOnlyList<SearchResult> Search(string query) => workflow.Search(query);
     public IReadOnlyList<PersonProfile> FavoritePeople => workflow.FavoritePeople;
-    public bool EditFavorite(string email, bool isFavorite) => Observe(() => workflow.EditFavorite(email, isFavorite));
+    public bool EditFavorite(string email, bool isFavorite) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditFavorite(email, isFavorite));
     public IReadOnlyList<PersonProfile> ArchivedPeople => workflow.ArchivedPeople;
     public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);
     public ProfileTimeline? GetProfileTimeline(string email) => workflow.GetProfileTimeline(email);
     public IReadOnlyList<HistoricalTeamContext> GetHistoricalTeamContexts(string email) => workflow.GetHistoricalTeamContexts(email);
-    public string Status => navigationError ?? (HasLocalNoteDrafts || HasLocalPersonTextDrafts
+    public string Status => navigationError ?? (LocalSave.EditsPaused ? LocalSave.Message : HasLocalNoteDrafts || HasLocalPersonTextDrafts
         ? (HasLocalNoteDrafts ? "Pending private note edits - not yet saved." :
             "Pending Preferred-name drafts - not yet saved. Choose explicit Save or Cancel on the owner.") +
             (workflow.LocalSaveError is { } error ? "\n" + error : "") : workflow.Status);
@@ -75,6 +80,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool IsImportOpen { get; private set; }
     public bool TryOpenImport() => Observe(() =>
     {
+        if (LocalSave.HasUnresolvedOutcome)
+        {
+            navigationError = "Import cannot start while a local save outcome is unresolved. Person browsing remains available.";
+            return false;
+        }
         if (!workflow.TryLeaveProfileEdit(ProfileLeaveDecision.Stay)) return false;
         if (!CanEnterImport)
         {
@@ -95,7 +105,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         Observe(() =>
         {
             LastWorkspaceOpenWasRejected = false;
-            if (HasLocalPersonTextDrafts || !workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
+            if (LocalSave.HasUnresolvedOutcome || HasLocalPersonTextDrafts ||
+                !workflow.CanSafelyClose && workflow.ProfileEdit is not { IsDirty: true })
             {
                 LastWorkspaceOpenWasRejected = true;
                 navigationError = "Workspace navigation blocked: local writing is pending or was NOT saved. " +
@@ -121,16 +132,17 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
     public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
-    public bool EditPreferredName(string email, string? preferredName) => Observe(() => workflow.EditPreferredName(email, preferredName));
+    public bool EditPreferredName(string email, string? preferredName) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPreferredName(email, preferredName));
     public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
         ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay) =>
-        Observe(() => workflow.EditPersonArchived(email, archived, confirmed, profileDecision));
-    public bool EditPersonManager(string email, string? managerEmail) => Observe(() => workflow.EditPersonManager(email, managerEmail));
+        CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPersonArchived(email, archived, confirmed, profileDecision));
+    public bool EditPersonManager(string email, string? managerEmail) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPersonManager(email, managerEmail));
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
-    public bool EditPhoto(string email, string? localPath) => Observe(() => workflow.EditPhoto(email, localPath));
-    public bool EditPersonText(string email, PersonTextField field, string? value) => Observe(() => workflow.EditPersonText(email, field, value));
+    public bool EditPhoto(string email, string? localPath) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPhoto(email, localPath));
+    public bool EditPersonText(string email, PersonTextField field, string? value) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPersonText(email, field, value));
     public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
     {
+        if (!AllowLocalDraftEdit()) return;
         if (field != PersonTextField.PreferredName)
             throw new ArgumentException("Ordinary fields belong to the complete profile draft.", nameof(field));
         lock (personTextDraftGate)
@@ -148,8 +160,9 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         lock (personTextDraftGate) return personTextDrafts.GetValueOrDefault((email.ToLowerInvariant(), field));
     }
 
-    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) => Observe(() =>
+    public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) => ObserveLocalSave(() =>
     {
+        if (!CanSubmitLocalSave()) return null;
         var accepted = workflow.SavePersonTextDraft(basis, field, value);
         lock (personTextDraftGate)
         {
@@ -185,6 +198,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
 
     private void Notify()
     {
+        PropertyChanged?.Invoke(this, new(nameof(LocalSave)));
+        PropertyChanged?.Invoke(this, new(nameof(CanEditLocalWorkspace)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(People)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ArchivedPeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FavoritePeople)));

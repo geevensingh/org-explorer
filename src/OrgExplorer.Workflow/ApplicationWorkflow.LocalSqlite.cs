@@ -264,6 +264,7 @@ public sealed partial class ApplicationWorkflow
             SupportsOrdinaryEdits = !synchronization.Diverged, SupportsNoteEdits = !synchronization.Diverged,
             SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
+        ReconcileLocalWriteEvidence();
     }
 
     private string LocalSqliteRevision()
@@ -299,6 +300,18 @@ public sealed partial class ApplicationWorkflow
     private void SaveLocalSqliteNote(NoteScope scope, NoteMetadata metadata, string markdown)
     {
         if (Synchronization.Diverged) throw new IOException("Edits are paused for preserved divergent Workspace versions.");
+        try { SaveLocalSqliteNoteCore(scope, metadata, markdown); }
+        catch (Exception error) when (StorageError(error))
+        {
+            LocalStorageFailed(error);
+            throw;
+        }
+    }
+
+    private void SaveLocalSqliteNoteCore(NoteScope scope, NoteMetadata metadata, string markdown)
+    {
+        if (localSaveFault is not null)
+            throw new IOException("Reconcile the original local transaction before retrying.");
         using var connection = OpenLocalConnection();
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
@@ -315,6 +328,7 @@ public sealed partial class ApplicationWorkflow
         }
         ValidateNoteDraft(scope, metadata.Id);
         ValidateNoteMetadata(metadata, scope, people, "Local note");
+        using var evidence = BeginLocalWrite();
         // A staged format-1 store acquires note support atomically with its first note.
         if (version == 1) CreateLocalNoteSchema(command);
         command.CommandText = """
@@ -327,8 +341,8 @@ public sealed partial class ApplicationWorkflow
         command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize(metadata, metadata.GetType(), JsonOptions));
         command.Parameters.AddWithValue("$markdown", markdown);
         command.ExecuteNonQuery();
-        var next = AdvanceLocalRevision(command, Math.Max(version, 2));
-        transaction.Commit();
+        var next = AdvanceLocalRevision(command, Math.Max(version, 2), evidence.Intent.NextRevision);
+        CommitLocalWrite(transaction, evidence);
         AcceptLocalRevision(next);
     }
 
@@ -338,9 +352,11 @@ public sealed partial class ApplicationWorkflow
         Dictionary<string, List<HistoricalTeamContext>> nextHistorical, string operation,
         IReadOnlyList<PhotoResource>? resources)
     {
+        if (Synchronization.Diverged) return Fail("Edits are paused for preserved divergent Workspace versions.");
         try
         {
-            if (Synchronization.Diverged) throw new IOException("Edits are paused for preserved divergent Workspace versions.");
+            if (localSaveFault is not null)
+                return Fail("Reconcile the original local transaction before retrying. No replacement write was started.");
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
@@ -359,6 +375,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var reference in RequiredIncrementalPhotos(proposed, history, nextHistorical))
                 if (!proposedPhotos.ContainsKey(reference))
                     throw new IOException("Required current or retained Profile photo is unavailable. Nothing saved.");
+            using var evidence = BeginLocalWrite();
             CreateLocalNoteSchema(command);
             CreateLocalProfileSchema(command);
             foreach (var person in proposed.Values)
@@ -425,8 +442,8 @@ public sealed partial class ApplicationWorkflow
             }
             if (resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Required photo changed while saving. Nothing saved; retain the draft and choose the intended image again.");
-            var next = AdvanceLocalRevision(command, 3);
-            transaction.Commit();
+            var next = AdvanceLocalRevision(command, 3, evidence.Intent.NextRevision);
+            CommitLocalWrite(transaction, evidence);
             AcceptLocalRevision(next);
             teamContextRevisions = nextContexts;
             historicalTeamContexts = nextHistorical;
@@ -436,6 +453,7 @@ public sealed partial class ApplicationWorkflow
 
         catch (Exception error) when (StorageError(error))
         {
+            LocalStorageFailed(error);
             if (operation == "import") workspaceCurrent = false;
             return SaveFailed(operation, "Change NOT confirmed saved locally. Draft retained; reopen to reconcile before retrying. " + error.Message);
         }

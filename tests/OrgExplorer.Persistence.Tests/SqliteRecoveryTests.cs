@@ -1,0 +1,440 @@
+using System.Reflection;
+using System.Diagnostics;
+using OrgExplorer.Storage.ProcessFixture;
+using Microsoft.Data.Sqlite;
+using OrgExplorer.Workflow;
+using Xunit;
+
+namespace OrgExplorer.Persistence.Tests;
+
+public sealed partial class SqliteWorkspaceTests
+{
+    [Fact]
+    public async Task Reconciliation_resolves_expired_queued_requests_without_losing_or_replaying_independent_drafts()
+    {
+        var clock = new SaveClock();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var once = 0;
+        boundary.BeforeSave = () =>
+        {
+            if (Interlocked.Exchange(ref once, 1) != 0) return;
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Fixture admission was not released.");
+            throw new IOException("The admitted request ended without an acknowledgment.");
+        };
+        var first = app.CreateOwnedNoteDraft(NoteScope.Person, "manager@example.com")!;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            var queued = app.CreateOwnedNoteDraft(NoteScope.Team, "report@example.com")!;
+            app.UpdateNoteDraft(NoteScope.Team, queued.Id, "Independent queued title", "Exact independent queued writing");
+            clock.Advance(TimeSpan.FromSeconds(4));
+            release.Set();
+            Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(NoteScope.Person, first.Id)?.IsSaving != true,
+                TimeSpan.FromSeconds(5)));
+            Assert.Equal(LocalSavePhase.Indeterminate, app.LocalSave.Phase);
+            Assert.True(app.ReconcileLocalSaves(), app.Status);
+            Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
+            Assert.True(app.CanEditLocalWorkspace);
+            Assert.False(app.CanSafelyClose);
+            Assert.True(await app.RetryNoteDraftAsync(NoteScope.Person, first.Id), app.Status);
+            Assert.True(await app.RetryNoteDraftAsync(NoteScope.Team, queued.Id), app.Status);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal("Exact independent queued writing", Assert.Single(reopened.GetTeamNotes("report@example.com")).Markdown);
+            Assert.Single(reopened.GetPersonNotes("manager@example.com"));
+        }
+        finally { release.Set(); }
+    }
+
+    [Fact]
+    public async Task Independent_profile_and_Preferred_name_Cancel_and_Import_eligibility_do_not_wait_for_a_stalled_note_writer()
+    {
+        using var observer = new CommitBoundary();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
+        Assert.True(app.StageProfileTeamName("Cancelled independent label"), app.Status);
+        var basis = app.GetRelationships("manager@example.com")!.Person;
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Cancelled independent name");
+        observer.Hold = true;
+        var note = app.CreateOwnedNoteDraft(NoteScope.Person, basis.Email)!;
+        app.UpdateNoteDraft(NoteScope.Person, note.Id, "Retained note", "Writing survives independent Cancel");
+        Task? cancellation = null;
+        try
+        {
+            Assert.True(observer.Entered.Wait(TimeSpan.FromSeconds(5)));
+            cancellation = Task.Run(() =>
+            {
+                Assert.False(app.CanEnterImport);
+                app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+                app.CancelProfileEdit();
+            });
+            await cancellation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(observer.Release.IsSet);
+            Assert.Null(app.ProfileEdit);
+            Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            Assert.NotNull(app.GetRetainedNoteDraft(NoteScope.Person, note.Id));
+            Assert.False(app.CanSafelyClose);
+        }
+        finally
+        {
+            observer.Release.Set();
+            if (cancellation is not null) await cancellation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(NoteScope.Person, note.Id)?.IsSaving != true,
+                TimeSpan.FromSeconds(5)));
+        }
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Null(reopened.GetRelationships(basis.Email)!.Person.TeamName);
+        Assert.Null(reopened.GetRelationships(basis.Email)!.Person.PreferredName);
+        Assert.Equal("Writing survives independent Cancel", Assert.Single(reopened.GetPersonNotes(basis.Email)).Markdown);
+    }
+
+    [Fact]
+    public void Actual_commit_refusal_reconciles_rollback_before_retrying_the_retained_complete_profile()
+    {
+        using var observer = new CommitBoundary();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
+        Assert.True(app.StageProfileTeamName("Retained after commit refusal"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.Department, "One committed history entry"), app.Status);
+        using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
+        connection.Open();
+        using var reader = connection.BeginTransaction(deferred: true);
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = reader;
+            command.CommandText = "SELECT name FROM sqlite_schema LIMIT 1;";
+            Assert.NotNull(command.ExecuteScalar());
+        }
+        var priorAttempts = observer.CommitAttempts;
+        Assert.False(app.SaveProfileEdit());
+        Assert.True(observer.CommitAttempts > priorAttempts, "The real transaction must reach Commit, not fail at writer admission.");
+        Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+        Assert.Equal(LocalSavePhase.Failed, app.LocalSave.Phase);
+        Assert.Equal("Retained after commit refusal", app.ProfileEdit!.Draft.TeamName);
+        reader.Rollback();
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Retained after commit refusal", reopened.GetRelationships("manager@example.com")!.Person.TeamName);
+        Assert.Single(reopened.GetProfileTimeline("manager@example.com")!.Changes);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Lost_note_acknowledgment_reconciles_real_committed_content_before_retry_without_duplicate_creation(NoteScope scope)
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var once = 0;
+        boundary.AfterSuccessfulSave = _ =>
+        {
+            if (Interlocked.Exchange(ref once, 1) == 0) throw new IOException("The acknowledgment boundary was unavailable.");
+        };
+        var note = app.CreateOwnedNoteDraft(scope, "manager@example.com")!;
+        app.UpdateNoteDraft(scope, note.Id, "One exact title", "One exact committed body");
+        Assert.False(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(LocalSavePhase.Indeterminate, app.LocalSave.Phase);
+        Assert.Equal("One exact committed body", app.GetRetainedNoteDraft(scope, note.Id)!.Markdown);
+        Assert.False(app.CanEditLocalWorkspace);
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
+        Assert.Null(app.GetRetainedNoteDraft(scope, note.Id));
+        Assert.True(app.CanSafelyClose);
+        Assert.True(await app.RetryNoteDraftAsync(scope, note.Id), app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("One exact committed body", reopened.BeginNoteDraft(scope, "manager@example.com", note.Id)!.Markdown);
+        Assert.Equal(note.Id, Assert.Single(scope == NoteScope.Person
+            ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Id)
+            : reopened.GetTeamNotes("manager@example.com").Select(n => n.Id)));
+    }
+
+    [Fact]
+    public async Task Queued_Person_save_stalls_without_competing_retry_and_accounts_for_the_exact_submitted_profile()
+    {
+        var clock = new SaveClock();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
+        Assert.True(app.StageProfileTeamName("Submitted label"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.Department, "Submitted department"), app.Status);
+        var submitted = app.ProfileEdit!;
+        using var admitted = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var saving = app.RunLocalSaveAsync(() =>
+        {
+            admitted.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Queued profile was not released.");
+            return app.SaveProfileEdit(submitted);
+        });
+        try
+        {
+            Assert.True(admitted.Wait(TimeSpan.FromSeconds(5)));
+            clock.Advance(TimeSpan.FromSeconds(2));
+            Assert.True(app.StageProfileTeamName("Newer unsubmitted label"), app.Status);
+            clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.Equal(LocalSavePhase.Stalled, app.LocalSave.Phase);
+            Assert.False(app.SaveProfileEdit(submitted));
+            Assert.False(app.StageProfileText(PersonTextField.Department, "Must not replace the retained department"));
+            Assert.False(app.ReconcileLocalSaves());
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+            Assert.Equal("Newer unsubmitted label", app.ProfileEdit!.Draft.TeamName);
+            release.Set();
+            Assert.True(await saving.WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+            Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
+            Assert.Equal("Submitted label", app.ProfileEdit!.Basis.TeamName);
+            Assert.Equal("Newer unsubmitted label", app.ProfileEdit.Draft.TeamName);
+            Assert.False(app.CanSafelyClose);
+            using (var reading = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                Assert.Equal("Submitted label", reading.GetRelationships("manager@example.com")!.Person.TeamName);
+                Assert.Equal("Submitted department", reading.GetRelationships("manager@example.com")!.Person.Department);
+            }
+            app.CancelProfileEdit();
+            Assert.True(app.CanSafelyClose, app.Status);
+        }
+        finally { release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
+    }
+
+    [Theory]
+    [InlineData("before", "Person", false)]
+    [InlineData("after", "Person", false)]
+    [InlineData("before", "Team", false)]
+    [InlineData("after", "Team", false)]
+    [InlineData("before", "profile", false)]
+    [InlineData("after", "profile", false)]
+    [InlineData("before", "profile", true)]
+    public async Task Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(
+        string boundary, string mutation, bool unresolvedEvidence)
+    {
+        using (var app = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+            Assert.NotNull(app.CreatePersonNote("report@example.com", "Previously committed", "Survives every interruption"));
+        }
+        var readyName = @"Local\OrgExplorer-storage-crash-" + Guid.NewGuid().ToString("N");
+        using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
+        var start = new ProcessStartInfo("dotnet")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "exec", "--runtimeconfig",
+            Path.ChangeExtension(typeof(SqliteWorkspaceTests).Assembly.Location, ".runtimeconfig.json"),
+            typeof(StorageCrash).Assembly.Location, Workspace, readyName, boundary, mutation })
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        try
+        {
+            Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
+                process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            string? evidence = null;
+            if (unresolvedEvidence)
+            {
+                Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+                evidence = Path.Combine(Workspace, $"local-write-{Guid.NewGuid():N}.json");
+                File.WriteAllText(evidence, "Interrupted invalid transaction evidence");
+            }
+            using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            if (evidence is not null)
+            {
+                Assert.Equal(LocalSavePhase.Indeterminate, reopened.LocalSave.Phase);
+                Assert.False(reopened.CanEditLocalWorkspace);
+                Assert.True(reopened.NavigatePerson("report@example.com"), reopened.Status);
+                Assert.True(reopened.NavigatePerson("manager@example.com"), reopened.Status);
+                Assert.Null(reopened.GetRelationships("manager@example.com")!.Person.TeamName);
+                Assert.False(reopened.ReconcileLocalSaves());
+                Assert.Equal("Interrupted invalid transaction evidence", File.ReadAllText(evidence));
+                return;
+            }
+            Assert.Equal(LocalSavePhase.Recovered, reopened.LocalSave.Phase);
+            Assert.True(reopened.CanEditLocalWorkspace);
+            Assert.Equal("Survives every interruption", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
+            if (mutation == "profile")
+            {
+                var manager = reopened.GetRelationships("manager@example.com")!.Person;
+                Assert.Equal(boundary == "after" ? "Crash boundary label" : null, manager.TeamName);
+                Assert.Equal(boundary == "after" ? "Crash boundary department" : null, manager.Department);
+                Assert.Equal(boundary == "after" ? 1 : 0, reopened.GetProfileTimeline(manager.Email)!.Changes.Count);
+            }
+            else
+            {
+                var notes = mutation == "Person" ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Markdown) :
+                    reopened.GetTeamNotes("manager@example.com").Select(n => n.Markdown);
+                Assert.Equal(boundary == "after" ? ["Exact crash boundary writing"] : Array.Empty<string>(), notes);
+            }
+            Console.WriteLine($"SQLITE-CRASH-RECOVERY boundary={boundary}; mutation={mutation}; pid={process.Id}; outcome={reopened.LocalSave.Phase}; validatedPeople={reopened.People.Count}");
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Reopening_during_an_unresolved_real_transaction_browses_the_validated_commit_but_cannot_replace_it()
+    {
+        using var boundary = new CommitBoundary();
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        boundary.Hold = true;
+        var saving = Task.Run(() => app.EditPreferredName("manager@example.com", "Committed after release"));
+        try
+        {
+            Assert.True(boundary.Entered.Wait(TimeSpan.FromSeconds(5)));
+            using var reading = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+            Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal(LocalSavePhase.Indeterminate, reading.LocalSave.Phase);
+            Assert.False(reading.CanEditLocalWorkspace);
+            Assert.True(reading.NavigatePerson("report@example.com"), reading.Status);
+            Assert.True(reading.NavigatePerson("manager@example.com"), reading.Status);
+            Assert.Null(reading.GetRelationships("manager@example.com")!.Person.PreferredName);
+            Assert.False(reading.EditPreferredName("manager@example.com", "Competing mutation"));
+            Assert.False(reading.ReconcileLocalSaves());
+            boundary.Release.Set();
+            Assert.True(await saving.WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+            Assert.True(reading.ReconcileLocalSaves(), reading.Status);
+            Assert.Equal("Committed after release", reading.GetRelationships("manager@example.com")!.Person.PreferredName);
+            Assert.True(reading.CanEditLocalWorkspace);
+        }
+        finally { boundary.Release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
+    }
+
+    [Fact]
+    public void Storage_failure_pauses_edits_but_retains_complete_Team_profile_and_independent_note_for_safe_retry()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
+        Assert.True(app.StageProfileTeamName("Exact retained label"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.Department, "Exact retained department"), app.Status);
+        var note = app.BeginNoteDraft(NoteScope.Person, "report@example.com")!;
+        app.RetainNoteDraft(note);
+        using (File.Open(Path.Combine(Workspace, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.False(app.SaveProfileEdit());
+        Assert.Equal(LocalSavePhase.Failed, app.LocalSave.Phase);
+        Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+        Assert.False(app.CanEditLocalWorkspace);
+        Assert.False(app.StageProfileTeamName("Must not replace retained writing"));
+        Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+        Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+        Assert.Equal("Exact retained label", app.ProfileEdit!.Draft.TeamName);
+        Assert.Equal("Exact retained department", app.ProfileEdit.Draft.Department);
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        Assert.NotNull(app.SaveNoteDraft(note, "Independent title", "Exact independent writing"));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Exact retained label", reopened.GetRelationships("manager@example.com")!.Person.TeamName);
+        Assert.Equal("Exact independent writing", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Oldest_note_request_stalls_including_queueing_and_late_commit_preserves_newer_writing(NoteScope scope)
+    {
+        var clock = new SaveClock();
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var admitted = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        boundary.BeforeSave = () =>
+        {
+            admitted.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Save return not released.");
+        };
+        try
+        {
+            var note = app.CreateOwnedNoteDraft(scope, "manager@example.com")!;
+            app.UpdateNoteDraft(scope, note.Id, "Retained title", "First writing");
+            clock.Advance(TimeSpan.FromSeconds(2));
+            Assert.Equal(LocalSavePhase.Pending, app.LocalSave.Phase);
+            Assert.True(admitted.Wait(TimeSpan.FromSeconds(5)));
+            app.UpdateNoteDraft(scope, note.Id, "Retained title", "Newer exact writing");
+            clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.Equal(LocalSavePhase.Stalled, app.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+            Assert.False(app.CanEditLocalWorkspace);
+            Assert.False(app.ReconcileLocalSaves());
+            Assert.False(await app.RetryNoteDraftAsync(scope, note.Id).WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+            Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+            Assert.Equal("Newer exact writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            Assert.False(app.CanSafelyClose);
+            release.Set();
+            Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(scope, note.Id)?.IsSaving != true &&
+                !app.LocalSave.EditsPaused, TimeSpan.FromSeconds(5)));
+            Assert.True(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+            Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
+            Assert.True(app.CanEditLocalWorkspace);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal("Newer exact writing", reopened.BeginNoteDraft(scope, "manager@example.com", note.Id)!.Markdown);
+        }
+        finally { release.Set(); await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)); }
+    }
+
+    private sealed class SaveClock : TimeProvider
+    {
+        private long ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Interlocked.Read(ref ticks);
+        public void Advance(TimeSpan amount) => Interlocked.Add(ref ticks, amount.Ticks);
+    }
+
+    private sealed class CommitBoundary : IWorkspaceFileObserver, IDisposable
+    {
+        public bool Hold;
+        public int CommitAttempts;
+        public readonly ManualResetEventSlim Entered = new();
+        public readonly ManualResetEventSlim Release = new();
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name == "local-sqlite-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+                Interlocked.Increment(ref CommitAttempts);
+            if (!Hold || phase.Name != "local-sqlite-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Commit fixture was not released.");
+        }
+        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
+    }
+}

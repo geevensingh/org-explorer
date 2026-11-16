@@ -20,7 +20,8 @@ public sealed partial class ApplicationWorkflow
     private bool navigationBlockedSnapshot;
     private readonly IDictionary<string, string> failedSaves = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
-    public bool CanSafelyClose => Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
+    public bool CanSafelyClose => !LocalSave.EditsPaused && LocalSave.OutstandingRequests == 0 &&
+        Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
         !HasUnsavedProfiles && !HasRetainedPersonTextDrafts;
     public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
@@ -28,6 +29,7 @@ public sealed partial class ApplicationWorkflow
     {
         get
         {
+            if (localSqlite && LocalSave.HasUnresolvedOutcome) return false;
             lock (workspaceGate)
                 return failedSaves.Keys.All(operation => operation == "import") && unsavedNoteBases.IsEmpty &&
                     !HasUnsavedProfiles;
@@ -197,6 +199,7 @@ public sealed partial class ApplicationWorkflow
         }
         catch (Exception ex) when (StorageError(ex))
         {
+            LocalStorageFailed(ex);
             pending = null;
             workspaceCurrent = false;
             MarkCompatibilityFailure(ex);
@@ -299,6 +302,7 @@ public sealed partial class ApplicationWorkflow
         lock (workspaceGate)
         {
             disposed = true;
+            localRequests.Dispose();
             StopWatching();
         }
     }

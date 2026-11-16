@@ -28,6 +28,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPhoto(string email, string? localPath)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPhotoLocked(email, localPath));
+
+    private bool EditPhotoLocked(string email, string? localPath)
     { lock (workspaceGate) return EditPhotoCore(email, localPath); }
 
     private bool EditPhotoCore(string email, string? localPath)

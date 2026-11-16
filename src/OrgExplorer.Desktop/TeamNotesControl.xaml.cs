@@ -162,8 +162,8 @@ public partial class TeamNotesControl : UserControl
     }
 
     private Task<T> RunAsync<T>(Func<T> operation, bool draft = false) =>
-        LocalAutosave ? Task.Run(operation) :
-            ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Team note…", noteDraft: draft ? this : null);
+        LocalAutosave ? workflow!.RunLocalSaveAsync(operation) :
+            ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Team note…", noteDraft: draft ? this : null, ordinarySave: true);
 
     private async void CreateNote(object sender, RoutedEventArgs e)
     {
@@ -372,9 +372,9 @@ public partial class TeamNotesControl : UserControl
             noteBase = workflow.BeginNoteDraft(NoteScope.Team, owner, saved);
         RetryButton.Visibility = DiscardButton.Visibility = HasRetainedDraft ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.IsEnabled = DiscardButton.IsEnabled = retained is { IsSaving: false };
-        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.IsWorkspaceCurrent &&
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.CanEditLocalWorkspace &&
             workflow.Compatibility.SupportsNoteEdits && view.SelectedNote is { Archived: false };
-        ArchiveButton.IsEnabled = selected is not null && workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits;
+        ArchiveButton.IsEnabled = selected is not null && workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits;
         ShowStatus();
     }
 
@@ -434,13 +434,13 @@ public partial class TeamNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.TeamNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits, HasRetainedDraft);
+        presentation.Show(workflow.TeamNotesView, workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits, HasRetainedDraft);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
         var notes = owner is null ? [] : workflow.GetTeamNotes(owner, true);
         var note = notes.FirstOrDefault(n => n.Id == selected);
         ReviewStatus.Text = note?.ReviewStatus ?? "";
         ReviewStatus.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
-        ConfirmButton.IsEnabled = workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits &&
+        ConfirmButton.IsEnabled = workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits &&
             note is { NeedsReview: true, Archived: false };
         ConfirmButton.Visibility = note is { NeedsReview: true, Archived: false } ? Visibility.Visible : Visibility.Collapsed;
         var warnings = notes.Where(n => n.NeedsReview && !n.Archived).ToArray();

@@ -88,6 +88,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public NoteDraft? SaveNoteDraft(NoteDraft draft, string title, string markdown)
+        => CanBeginLocalSave() ? TrackLocalSave(() => SaveNoteDraftCore(draft, title, markdown)) : null;
+
+    private NoteDraft? SaveNoteDraftCore(NoteDraft draft, string title, string markdown)
     {
         lock (workspaceGate)
         {

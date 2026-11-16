@@ -67,6 +67,7 @@ public partial class MainWindow
     private void ShowOperationalNotice()
     {
         var messages = new List<string>();
+        if (workflow.LocalSave.Phase == Workflow.LocalSavePhase.Recovered) messages.Add(workflow.LocalSave.Message);
         var error = workflow.LocalSaveError;
         var retainedErrors = error?.Split('\n', StringSplitOptions.RemoveEmptyEntries) ?? [];
         var feedback = StatusText.Text != workflow.Status ? StatusText.Text : workflow.OperationError;
@@ -104,9 +105,10 @@ public partial class MainWindow
         NoticeRetryButton.Visibility = workflow.GetWorkspaceConflicts().Count == 0 &&
             (failedWorkspaceOpen is not null || !workflow.IsWorkspaceCurrent &&
                 workflow.Compatibility.State != Workflow.WorkspaceCompatibilityState.NotOpened ||
-                workflow.HasPendingStorageMaintenance)
+                workflow.HasPendingStorageMaintenance || workflow.LocalSave.EditsPaused)
             ? Visibility.Visible : Visibility.Collapsed;
-        NoticeRetryButton.IsEnabled = RetryWorkspaceButton.IsEnabled = !workPending && !updateHandoffPending;
+        NoticeRetryButton.IsEnabled = RetryWorkspaceButton.IsEnabled = !workPending && !updateHandoffPending &&
+            workflow.LocalSave.OutstandingRequests == 0;
     }
 
     private void OpenRecoverySettings(object sender, RoutedEventArgs e)
@@ -152,6 +154,12 @@ public partial class MainWindow
             return;
         }
         if (workPending) return;
+        if (workflow.Compatibility.SupportsNonblockingNoteAutosave && workflow.LocalSave.EditsPaused)
+        {
+            await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...");
+            RefreshExternalWorkspace();
+            return;
+        }
         if (failedWorkspaceOpen is { } failed)
         {
             await OpenWorkspaceAtPathAsync(failed.Path, failed.Mode);
