@@ -11,7 +11,7 @@ public partial class MainWindow
     private void ShowWorkspaceVersionStatus()
     {
         var state = workflow.Synchronization;
-        var ready = !synchronizationPending && !updateHandoffPending && state.Folder is not null;
+        var ready = !synchronizationPending && !workflow.IsSynchronizing && !updateHandoffPending && state.Folder is not null;
         ReviewWorkspaceVersionsButton.IsEnabled = ready;
         WorkspaceVersionsPanel.Visibility = state.Diverged || workspaceVersionReview is not null
             ? Visibility.Visible : Visibility.Collapsed;
@@ -30,7 +30,7 @@ public partial class MainWindow
 
     private async void ReviewWorkspaceVersions(object sender, RoutedEventArgs e)
     {
-        if (synchronizationPending || updateHandoffPending) return;
+        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending) return;
         synchronizationPending = true;
         ShowSynchronizationStatus();
         try
@@ -48,7 +48,7 @@ public partial class MainWindow
 
     private async void ChooseWorkspaceVersion(object sender, RoutedEventArgs e)
     {
-        if (synchronizationPending || updateHandoffPending || workspaceVersionReview is not { } review ||
+        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending || workspaceVersionReview is not { } review ||
             WorkspaceVersionChoices.SelectedItem is not WorkspaceVersion selected) return;
         synchronizationPending = true;
         ShowSynchronizationStatus();
@@ -64,7 +64,7 @@ public partial class MainWindow
 
     private async void DeleteRetainedWorkspaceVersion(object sender, RoutedEventArgs e)
     {
-        if (synchronizationPending || updateHandoffPending || workspaceVersionReview is not { } review ||
+        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending || workspaceVersionReview is not { } review ||
             WorkspaceVersionChoices.SelectedItem is not WorkspaceVersion selected ||
             MessageBox.Show(this, $"Permanently delete retained recovery version {selected.Revision:D}?\n" +
                 "This removes its retained recovery copy, not the current local Workspace or unknown provider copies.",

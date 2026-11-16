@@ -967,6 +967,140 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.False(second.CanSafelyClose);
     }
 
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task A_clean_admitted_choice_refuses_a_later_unknown_committed_child_until_reconciliation_and_fresh_review(NoteScope scope)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var owner = scope == NoteScope.Team ? "manager@example.com" : "report@example.com";
+        var photo = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        File.WriteAllBytes(Local("choice-owner.png"), photo);
+        Assert.True(first.EditPhoto(owner, Local("choice-owner.png")), first.Status);
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(scope, owner)!, "Exact choice owner", "Original complete note")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        using var preparing = new ManualResetEventSlim();
+        using var prepared = new ManualResetEventSlim();
+        using var committing = new ManualResetEventSlim();
+        var observer = new ChoiceValidationObserver(preparing, prepared, committing);
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        using var second = new WorkspaceViewModel(proxy, timeProvider: new UnadvancedSaveClock());
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(second.NavigatePerson(owner), second.Status);
+        Assert.True(second.OpenOwnedNote(scope, note.Id, editing: true), second.Status);
+        Assert.True(first.EditPreferredName("report@example.com", "Deliberately selected incoming version"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        var review = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        var incoming = first.Synchronization.LocalRevision!.Value;
+        Assert.True(second.CanSafelyClose);
+        Assert.False(second.LocalSave.HasUnresolvedOutcome);
+        observer.Armed = 1;
+        var choosing = Task.Run(() => second.ChooseWorkspaceVersion(review.Id, incoming));
+        SqliteConnection? connection = null;
+        SqliteTransaction? heldReader = null;
+        Guid? committedChild = null;
+        try
+        {
+            Assert.True(preparing.Wait(TimeSpan.FromSeconds(5)), "The actual choice review never prepared its isolated validation store.");
+            var candidate = Assert.Single(Directory.GetDirectories(Local("second"), "snapshot-*"),
+                path => File.Exists(Path.Combine(path, "workspace.sqlite")));
+            connection = new SqliteConnection($"Data Source={Path.Combine(candidate, "workspace.sqlite")};Pooling=False");
+            connection.Open();
+            heldReader = connection.BeginTransaction(deferred: true);
+            using (var read = connection.CreateCommand())
+            {
+                read.Transaction = heldReader;
+                read.CommandText = "PRAGMA schema_version;";
+                read.ExecuteScalar();
+            }
+            prepared.Set();
+            Assert.True(committing.Wait(TimeSpan.FromSeconds(5)), "Actual choice validation never reached its reader-held SQLite Commit.");
+            boundary.AfterSave = () => throw new IOException("Actual note commit returned after choice admission, but its acknowledgment was lost.");
+            second.UpdateNoteDraft(scope, note.Id, note.Title, "Committed child after clean choice admission");
+            await AwaitSnapshot(() => second.GetRetainedNoteDraft(scope, note.Id) is { IsSaving: false } &&
+                second.LocalSave.Phase == LocalSavePhase.Indeterminate);
+            committedChild = second.Synchronization.LocalRevision;
+            Assert.NotEqual(review.LocalRevision, committedChild);
+            using (var reading = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(reading.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+                Assert.Equal(committedChild, reading.Synchronization.LocalRevision);
+                Assert.Equal("Committed child after clean choice admission", reading.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+            }
+            second.DiscardUnsavedChanges(note.Id);
+            Assert.Null(second.GetRetainedNoteDraft(scope, note.Id));
+            Assert.True(second.LocalSave.HasUnresolvedOutcome);
+            Assert.False(second.CanSafelyClose);
+            Assert.True(observer.CommitActive && !choosing.IsCompleted && !observer.PreparationExpired &&
+                File.Exists(Path.Combine(candidate, "workspace.sqlite-journal")),
+                "The same actual validation Commit must remain held through the lost return and explicit buffer discard.");
+        }
+        finally
+        {
+            prepared.Set();
+            heldReader?.Rollback();
+            heldReader?.Dispose();
+            connection?.Dispose();
+            boundary.AfterSave = null;
+            await choosing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.False(await choosing);
+        Assert.Equal(committedChild, second.Synchronization.LocalRevision);
+        Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.LocalSave.HasUnresolvedOutcome);
+        Assert.False(second.ChooseWorkspaceVersion(review.Id, incoming));
+        Assert.Equal(committedChild, second.Synchronization.LocalRevision);
+        Assert.True(second.ReconcileLocalSaves(), second.Status);
+        Assert.False(second.LocalSave.HasUnresolvedOutcome);
+        // The later commit invalidates the shown review independently of the unknown-outcome lease.
+        Assert.False(second.ChooseWorkspaceVersion(review.Id, incoming));
+        var fresh = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.Contains(fresh.Versions, version => version.Revision == committedChild && version.Retained);
+        Assert.True(second.ChooseWorkspaceVersion(fresh.Id, incoming), second.Synchronization.Error);
+        Assert.Equal("Deliberately selected incoming version", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal("Original complete note", second.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        var recovery = Assert.IsType<WorkspaceVersionReview>(second.GetWorkspaceVersionReview());
+        Assert.Contains(recovery.Versions, version => version.Revision == committedChild && version.Retained);
+        Assert.True(second.ChooseWorkspaceVersion(recovery.Id, committedChild!.Value), second.Synchronization.Error);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Committed child after clean choice admission", reopened.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        Assert.Equal(photo, reopened.GetPhoto(owner)!.Bytes.ToArray());
+        Assert.Null(reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
+    private sealed class ChoiceValidationObserver(ManualResetEventSlim preparing, ManualResetEventSlim prepared,
+        ManualResetEventSlim committing) : IWorkspaceFileObserver
+    {
+        public int Armed;
+        public volatile bool CommitActive, PreparationExpired;
+        private bool observingCommit;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name == "snapshot.validate-write" && phase.Kind == WorkspaceStoragePhaseKind.Begin &&
+                Interlocked.Exchange(ref Armed, 0) != 0)
+            {
+                observingCommit = true;
+                preparing.Set();
+                PreparationExpired = !prepared.Wait(TimeSpan.FromSeconds(5));
+            }
+            if (!observingCommit || phase.Name != "snapshot.validate-commit") return;
+            CommitActive = phase.Kind == WorkspaceStoragePhaseKind.Begin;
+            if (CommitActive) committing.Set();
+            else observingCommit = false;
+        }
+    }
+
     [Fact]
     public void Adoption_preserves_the_previous_known_good_complete_version_even_if_the_provider_removed_its_export()
     {

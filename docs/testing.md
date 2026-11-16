@@ -414,10 +414,25 @@ committed note return: refused recovery, independent profile/field Cancel and a
 held unrelated successful return cannot release the unknown-outcome lease, even
 after the note buffer is discarded. Actual successful reconciliation then permits
 the delivered child; neither path replays the note.
+The combined #97/#98 case admits an exact-version choice while clean, then holds
+the actual isolated validation Commit with a real SQLite reader. Both note scopes
+commit locally and lose their real return while that same validation remains
+held; explicit buffer discard cannot authorize installation or replace the newly
+committed child. Reconciliation and a fresh review allow deliberate selection;
+the complete local child, note and photo remain recoverable afterwards.
+This is a combined stale-authorization/Unknown refusal proof, not an isolated
+causal proof of the fault lease: the later commit independently invalidates the
+shown review. The admitted timer/manual cases above isolate that lease.
+`snapshot.validate-write` and `snapshot.validate-commit` observe real candidate
+I/O without replacing it or changing its existing transaction timeout.
 The invisible compiled snapshot selection additionally observes automatic
 publication/status, writable exact owner notes and Person switches during a real
 export, later publication and selected-Person incoming refresh. It never shows a
 window or creates its native handle.
+It prepares a real selectable whole-version review before held automatic export
+and requires Sync now and all Review/Continue/Delete readiness to be disabled
+during that export. Automatic proof precedes the retained deliberate-choice proof;
+neither proof or native tail substitutes for the other.
 
 The existing `compatibility-settings` journey adds an owned hosted process running
 the actual compiled MainWindow with real SQLite and `.oesnapshot` artifacts.

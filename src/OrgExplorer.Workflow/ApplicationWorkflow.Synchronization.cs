@@ -492,12 +492,13 @@ public sealed partial class ApplicationWorkflow
         try
         {
             candidate.OpenLocalSqlite(true);
-            using (var connection = candidate.OpenLocalConnection())
-            using (var transaction = connection.BeginTransaction())
+            ObserveStoragePhase("snapshot.validate-write", () =>
             {
+                using var connection = candidate.OpenLocalConnection();
+                using var transaction = connection.BeginTransaction();
                 WriteLogicalSnapshot(connection, transaction, data);
-                transaction.Commit();
-            }
+                ObserveStoragePhase("snapshot.validate-commit", transaction.Commit);
+            });
             candidate.OpenLocalSqlite(false);
             return validated;
         }

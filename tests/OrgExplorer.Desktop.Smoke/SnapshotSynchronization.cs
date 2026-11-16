@@ -121,12 +121,23 @@ internal static partial class Program
                 workflow.PeopleNavigation.SelectedEmail != "avery@example.com")
                 throw new InvalidOperationException("Compiled incoming adoption lost the selected Person or left stale reading.");
             if (!workflow.EditFavorite("avery@example.com", true)) throw new InvalidOperationException(workflow.Status);
+            Invoke("OpenSettingsButton");
+            Invoke("ReviewWorkspaceVersionsButton");
+            PumpUntil(() => Control<ListBox>("WorkspaceVersionChoices").Items.Count != 0 &&
+                Control<Button>("ReviewWorkspaceVersionsButton").IsEnabled);
+            var choices = Control<ListBox>("WorkspaceVersionChoices");
+            choices.SelectedItem = choices.Items.Cast<WorkspaceVersion>().Single(item =>
+                item.Revision == workflow.Synchronization.LocalRevision);
+            if (!Control<Button>("ChooseWorkspaceVersionButton").IsEnabled)
+                throw new InvalidOperationException("The real current review was not selectable before automatic synchronization.");
+            Invoke("OpenSettingsButton");
             holdExport = true;
             clock.Advance(TimeSpan.FromSeconds(60));
             PumpUntil(() => exportEntered.IsSet && workflow.IsSynchronizing &&
                 Control<TextBlock>("SynchronizationStatus").Text.Contains("Publishing a complete local version."));
-            if (Control<Button>("SyncNowButton").IsEnabled)
-                throw new InvalidOperationException("Automatic publication did not own the compiled manual lifecycle.");
+            if (new[] { "SyncNowButton", "ReviewWorkspaceVersionsButton", "ChooseWorkspaceVersionButton",
+                "DeleteRetainedWorkspaceVersionButton" }.Any(name => Control<Button>(name).IsEnabled))
+                throw new InvalidOperationException("Automatic publication did not own the compiled manual/whole-version lifecycle.");
             var surface = Control<UserControl>("PersonNotes");
             T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
             Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
