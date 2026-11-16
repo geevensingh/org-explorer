@@ -28,6 +28,7 @@ internal static partial class Program
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--diagnose-uia-observation") return DiagnoseUiaObservation(executable);
             if (args.Length == 2 && args[1] == "--diagnose-idle-observation") return DiagnoseIdleObservation(executable);
+            if (args.Length == 2 && args[1] == "--diagnose-note-view") return DiagnoseNoteView(executable);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-snapshot-adoption")
                 return VerifyCompiledXaml(executable, verifySnapshotAdoption: true);

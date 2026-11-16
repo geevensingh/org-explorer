@@ -11,7 +11,9 @@ internal static class HarnessRuntime
     internal enum Work
     {
         UiaDiscovery, NativeInvoke, NativeSetValue, NativeWait, Observation,
-        DispatcherWait, FeedbackExpiry, Capture, Pixels, CompiledLayout, NoteSnapshot
+        DispatcherWait, FeedbackExpiry, Capture, Pixels, CompiledLayout, NoteSnapshot,
+        NoteViewCall, NoteViewPoll, NoteViewTabLookup, NoteViewEditorLookup, NoteViewPattern, NoteViewProperty,
+        NoteViewFreshLookup
     }
 
     internal sealed record Binding(string? Revision, string? RunId, string? RunAttempt);

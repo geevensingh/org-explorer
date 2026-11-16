@@ -1862,6 +1862,24 @@ The JSONL records raw predicate outcomes/errors, request counts/times, matched
 owner checks and complete terminal evidence. Pending/failed observations do not
 become idle merely because controls are absent or disabled. The original general
 probe remains available, with its earlier raw artifact retained separately.
+The experimental job's `--diagnose-note-view` command first runs the unchanged
+Person-note and draft-navigation callers with bounded in-memory accounting around
+the actual `AssertNoteView` call, predicate, tab lookup, raw editor lookups and
+pattern/property reads. It changes no requests or predicate reads; inner spans
+overlap the outer elapsed time and must not be added together. Per-caller records
+are written only after completion. After this actual native feedback exists, the
+command emits ranked falsifiable hypotheses before any candidate comparison.
+It then makes 104 counterbalanced original/fresh observations across thirteen
+real native states, including Read/Edit, unselected/missing tabs, duplicate-owner
+navigation, offscreen editing, actual SQLite-failure-disabled editors and the
+closed provider. The candidate is diagnostic-only: one newly filtered snapshot
+per predicate invocation with no retained UIA elements across calls.
+The same 180-second command/five-minute job bounds, product source-tree/hash
+binding, actual captures and default-off dispatch restriction remain. A measured
+query reduction is not enough to ship a change: its observed contribution must
+also be useful against the incomplete normal lane, otherwise stop and retain the
+negative/inconclusive result. This command is not full-CI acceptance or a product
+latency measurement, and its accounting/candidate never changes normal selection.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

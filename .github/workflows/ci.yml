@@ -157,6 +157,11 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: Require the approved unchanged product source tree
+        run: |
+          $tree = git rev-parse HEAD:src
+          if ($LASTEXITCODE -ne 0 -or $tree -cne '172f977b4ea6c77f4227f6ab804322032a004f5d') { throw 'The note-view experiment requires the approved d925 product source tree.' }
+          "NOTE_VIEW_PRODUCT_SOURCE_TREE=$tree" >> $env:GITHUB_ENV
       - run: dotnet restore src\OrgExplorer.Desktop --locked-mode
       - run: dotnet restore tests\OrgExplorer.Desktop.Smoke --locked-mode
       - run: dotnet build src\OrgExplorer.Desktop -c Release --no-restore
@@ -164,7 +169,7 @@ jobs:
       - name: Compare fresh native observations on isolated fictitious state
         run: |
           New-Item -ItemType Directory -Force $env:DESKTOP_RESULTS_DIRECTORY | Out-Null
-          dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --diagnose-idle-observation *> "$env:DESKTOP_RESULTS_DIRECTORY\probe.log"
+          dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --diagnose-note-view *> "$env:DESKTOP_RESULTS_DIRECTORY\probe.log"
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}

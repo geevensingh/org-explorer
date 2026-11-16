@@ -276,19 +276,32 @@ internal static partial class Program
 
     private static void AssertNoteView(AutomationElement window, string kind, bool editing)
     {
-        Await(() =>
+        using var call = HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewCall);
+        Await(() => ObserveOriginalNoteView(window, kind, editing));
+    }
+
+    private static bool ObserveOriginalNoteView(AutomationElement window, string kind, bool editing)
+    {
+        using var poll = HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewPoll);
+        AutomationElement tab;
+        using (HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewTabLookup))
+            tab = Find(window, $"{kind}Note{(editing ? "Edit" : "Read")}Tab");
+        SelectionItemPattern selection;
+        using (HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewPattern))
+            selection = (SelectionItemPattern)tab.GetCurrentPattern(SelectionItemPattern.Pattern);
+        using (HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewProperty))
+            if (!selection.Current.IsSelected) return false;
+        foreach (var suffix in new[] { "Title", "Markdown" })
         {
-            var tab = Find(window, $"{kind}Note{(editing ? "Edit" : "Read")}Tab");
-            if (!((SelectionItemPattern)tab.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) return false;
-            foreach (var suffix in new[] { "Title", "Markdown" })
-            {
-                var editor = window.FindFirst(TreeScope.Descendants,
+            AutomationElement? editor;
+            using (HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewEditorLookup))
+                editor = window.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Note{suffix}"));
+            using (HarnessRuntime.Measure(HarnessRuntime.Work.NoteViewProperty))
                 if (editing ? editor is null || !editor.Current.IsEnabled : editor is not null && !editor.Current.IsOffscreen)
                     return false;
-            }
-            return true;
-        });
+        }
+        return true;
     }
 
     private static void AssertEmptyNotes(AutomationElement window, string kind)
