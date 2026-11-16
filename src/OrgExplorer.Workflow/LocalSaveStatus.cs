@@ -151,6 +151,7 @@ public sealed partial class WorkspaceViewModel
 {
     private readonly LocalSaveRequests localSaveRequests;
     private LocalSaveStatus? viewSaveFault;
+    private IDisposable? unknownSaveAdoptionDeferral;
     private volatile bool localSaveReconciling;
     public LocalSaveStatus LocalSave => localSaveReconciling
         ? new(LocalSavePhase.Indeterminate, LocalSaveOutcome.Unknown,
@@ -169,6 +170,8 @@ public sealed partial class WorkspaceViewModel
     public bool ReconcileLocalSaves()
     {
         bool recovering;
+        long epoch;
+        LocalSaveStatus? fault;
         lock (noteDraftGate)
         {
             if (localSaveReconciling) return false;
@@ -180,21 +183,33 @@ public sealed partial class WorkspaceViewModel
                 noteAutosaveEpoch++;
                 noteAutosaveTask = null;
             }
+            epoch = noteAutosaveEpoch;
+            fault = viewSaveFault;
         }
         using var adoptionDeferral = workflow.DeferSnapshotAdoption();
         try
         {
             return Observe(() =>
             {
-                if (!workflow.ReconcileLocalSaves() || !ReconcileUnknownNoteDrafts()) return false;
-                if (recovering)
-                    lock (noteDraftGate)
+                if (!workflow.ReconcileLocalSaves()) return false;
+                lock (noteDraftGate)
+                {
+                    if (epoch != noteAutosaveEpoch || !ReferenceEquals(fault, viewSaveFault))
+                    {
+                        navigationError = "A newer local save outcome requires reconciliation. Editing remains paused; no adoption lease was released.";
+                        return false;
+                    }
+                    if (!ReconcileUnknownNoteDrafts()) return false;
+                    if (recovering)
                         foreach (var draft in localNoteDrafts.Values)
                         {
                             foreach (var request in draft.Requests) localSaveRequests.Complete(request.Request);
                             draft.Requests.Clear();
                         }
-                viewSaveFault = null;
+                    viewSaveFault = null;
+                    unknownSaveAdoptionDeferral?.Dispose();
+                    unknownSaveAdoptionDeferral = null;
+                }
                 return true;
             });
         }
@@ -206,10 +221,16 @@ public sealed partial class WorkspaceViewModel
         }
     }
 
-    private void UnknownLocalSave(Exception error) =>
-        viewSaveFault = new(LocalSavePhase.Indeterminate, LocalSaveOutcome.Unknown,
-            Error: $"Local save acknowledgment is unknown ({error.GetType().Name}). Exact drafts are retained. " +
-                "Editing is paused; browsing remains available. Reconcile committed local state before retrying. " + error.Message);
+    private void UnknownLocalSave(Exception error)
+    {
+        lock (noteDraftGate)
+        {
+            unknownSaveAdoptionDeferral ??= workflow.DeferSnapshotAdoption();
+            viewSaveFault = new(LocalSavePhase.Indeterminate, LocalSaveOutcome.Unknown,
+                Error: $"Local save acknowledgment is unknown ({error.GetType().Name}). Exact drafts are retained. " +
+                    "Editing is paused; browsing remains available. Reconcile committed local state before retrying. " + error.Message);
+        }
+    }
 
     private int explicitLocalSaves;
     private readonly AsyncLocal<bool> admittedLocalSave = new();

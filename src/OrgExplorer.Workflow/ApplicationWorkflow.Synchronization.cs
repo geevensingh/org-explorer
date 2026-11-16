@@ -492,12 +492,13 @@ public sealed partial class ApplicationWorkflow
         try
         {
             candidate.OpenLocalSqlite(true);
-            using (var connection = candidate.OpenLocalConnection())
-            using (var transaction = connection.BeginTransaction())
+            ObserveStoragePhase("snapshot.validate-write", () =>
             {
+                using var connection = candidate.OpenLocalConnection();
+                using var transaction = connection.BeginTransaction();
                 WriteLogicalSnapshot(connection, transaction, data);
-                transaction.Commit();
-            }
+                ObserveStoragePhase("snapshot.validate-commit", transaction.Commit);
+            });
             candidate.OpenLocalSqlite(false);
             return validated;
         }
@@ -664,17 +665,4 @@ public sealed partial class ApplicationWorkflow
             }
         }
     }
-}
-
-public sealed partial class WorkspaceViewModel
-{
-    public WorkspaceSynchronization Synchronization => workflow.Synchronization;
-    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false) =>
-        Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace));
-    public bool SyncNow()
-    {
-        using var unresolvedAdoption = LocalSave.HasUnresolvedOutcome ? workflow.DeferSnapshotAdoption() : null;
-        return Observe(workflow.SyncNow);
-    }
-    public IDisposable DeferSnapshotAdoption() => workflow.DeferSnapshotAdoption();
 }

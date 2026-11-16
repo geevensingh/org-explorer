@@ -176,6 +176,19 @@ stale/reordered delivery cannot roll back a newer revision.
 The observable synchronization phase distinguishes checking, sealed adoption
 and complete-version publication. It is transient activity, not a local-save
 receipt or provider-delivery acknowledgement.
+The #98 view-model lifecycle schedules publication and incoming checks every
+approximately 60 seconds while a configured local Workspace is open. The timer
+starts on open/configuration, not on the latest edit; continuous typing and
+ordinary commits cannot reset it. Sync now requests that same single-flight
+worker immediately. Requests arriving during a cycle coalesce into one subsequent
+cycle, allowing a later committed revision to publish without a competing export.
+Both paths retain the public view-model admission checks, not just core Ready.
+Publication errors remain separate from local-save recovery; folder failure,
+invalid delivery and lost synchronization returns remain visible and retryable
+without pausing ordinary local editing. Reopening derives pending publication
+from durable revision metadata and resumes the cadence without replaying edits.
+Closing/disposal stops future timer requests; it does not invent a successful
+publication or implement the later informed-exit policy.
 Ordinary Person save returns and explicit reconciliation also retain admission
 leases through their full view-model lifetime. Reconciled committed notes release
 their own lease only after the latest generation is accepted; newer or uncertain
@@ -183,6 +196,10 @@ writing keeps it. Note-only acknowledgment is short bookkeeping, not I/O behind
 the view-model draft gate. Actual core or view-model unresolved outcomes refuse
 adoption even after an explicit editor-buffer discard; releasing a lease never
 clears saving/recovery state.
+An unknown view-model save outcome retains its own non-base adoption lease,
+including when it arises after a synchronization cycle was admitted. Independent
+Cancel/discard or a successful unrelated save cannot release it. Only successful
+reconciliation of that same fault/worker epoch, or owner disposal, releases it.
 
 Divergence is refused, durably marked and preserved as complete local artifacts
 under `snapshot-conflicts`; browsing remains available and new edits are paused.
@@ -218,8 +235,7 @@ checked before deletion; changed/provider bytes are preserved and cleanup report
 an error. Interrupted retirement may retain extra evidence rather than risk data.
 This does not serialize a noncooperating provider or establish remote delivery.
 Local `snapshot-*` validation directories are disposable staging, not accepted
-recovery or another Workspace authority. Periodic scheduling and redesigned exit
-remain separate slices.
+recovery or another Workspace authority. Redesigned exit remains a separate slice.
 
 ## Readable-file version 3
 

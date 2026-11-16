@@ -17,6 +17,8 @@ internal static partial class Program
         {
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
                 return RunLocalSaveRecoveryFixture(args);
+            if (args.Length > 0 && args[0] == "--automatic-snapshot-fixture")
+                return RunAutomaticSnapshotFixture(args);
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
                 return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||

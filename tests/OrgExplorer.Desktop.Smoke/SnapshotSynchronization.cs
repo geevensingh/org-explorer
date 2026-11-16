@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using OrgExplorer.Workflow;
 using Microsoft.Data.Sqlite;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -39,8 +40,15 @@ internal static partial class Program
                 File.Copy(file, Path.Combine(incoming, Path.GetFileName(file)), true);
         }
         Deliver();
+        var clock = new SnapshotClock();
+        using var exportEntered = new ManualResetEventSlim();
+        using var releaseExport = new ManualResetEventSlim();
+        var holdExport = false;
+        var publisher = new AutomaticSnapshotPublicationGate(() => holdExport, exportEntered.Set,
+            () => releaseExport.Wait(TimeSpan.FromSeconds(15)));
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+            [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher), chooseFolder,
+                (Action<string>)(_ => { }), clock], null)!;
         WorkspaceViewModel? workflow = null;
         try
         {
@@ -112,13 +120,71 @@ internal static partial class Program
                 Control<TextBlock>("Email").Text != "avery@example.com" ||
                 workflow.PeopleNavigation.SelectedEmail != "avery@example.com")
                 throw new InvalidOperationException("Compiled incoming adoption lost the selected Person or left stale reading.");
+            if (!workflow.EditFavorite("avery@example.com", true)) throw new InvalidOperationException(workflow.Status);
+            Invoke("OpenSettingsButton");
+            Invoke("ReviewWorkspaceVersionsButton");
+            PumpUntil(() => Control<ListBox>("WorkspaceVersionChoices").Items.Count != 0 &&
+                Control<Button>("ReviewWorkspaceVersionsButton").IsEnabled);
+            var choices = Control<ListBox>("WorkspaceVersionChoices");
+            choices.SelectedItem = choices.Items.Cast<WorkspaceVersion>().Single(item =>
+                item.Revision == workflow.Synchronization.LocalRevision);
+            if (!Control<Button>("ChooseWorkspaceVersionButton").IsEnabled)
+                throw new InvalidOperationException("The real current review was not selectable before automatic synchronization.");
+            Invoke("OpenSettingsButton");
+            holdExport = true;
+            clock.Advance(TimeSpan.FromSeconds(60));
+            PumpUntil(() => exportEntered.IsSet && workflow.IsSynchronizing &&
+                Control<TextBlock>("SynchronizationStatus").Text.Contains("Publishing a complete local version."));
+            if (new[] { "SyncNowButton", "ReviewWorkspaceVersionsButton", "ChooseWorkspaceVersionButton",
+                "DeleteRetainedWorkspaceVersionButton" }.Any(name => Control<Button>(name).IsEnabled))
+                throw new InvalidOperationException("Automatic publication did not own the compiled manual/whole-version lifecycle.");
+            var surface = Control<UserControl>("PersonNotes");
+            T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
+            Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var automaticNote = workflow.PersonNotesView.SelectedNote!.Id;
+            Note<TextBox>("NoteTitle").Text = "Compiled automatic export";
+            Note<TextBox>("MarkdownEditor").Text = "Exact writing during automatic export";
+            Select("morgan@example.com");
+            Select("avery@example.com");
+            PumpUntil(() => workflow.GetRetainedNoteDraft(NoteScope.Person, automaticNote) is null);
+            using (var reading = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!reading.OpenWorkspace(target, WorkspaceOpenMode.ExistingOnly) ||
+                    reading.BeginNoteDraft(NoteScope.Person, "avery@example.com", automaticNote)?.Markdown !=
+                        "Exact writing during automatic export" || !workflow.IsSynchronizing || releaseExport.IsSet ||
+                    Note<TextBox>("MarkdownEditor").Text != "Exact writing during automatic export" ||
+                    !Note<TextBox>("MarkdownEditor").IsEnabled)
+                    throw new InvalidOperationException("Compiled ordinary writing/navigation waited for automatic export or lost its owner.");
+            }
+            holdExport = false;
+            releaseExport.Set();
+            PumpUntil(() => !workflow.IsSynchronizing);
+            if (!workflow.Synchronization.HasUnpublishedChanges)
+                throw new InvalidOperationException("An older automatic export acknowledged newer compiled writing.");
+            clock.Advance(TimeSpan.FromSeconds(60));
+            PumpUntil(() => !workflow.IsSynchronizing && !workflow.Synchronization.HasUnpublishedChanges);
+            foreach (var file in Directory.GetFiles(incoming, "*.oesnapshot"))
+                File.Copy(file, Path.Combine(outgoing, Path.GetFileName(file)), true);
+            if (!first.SyncNow() || !first.EditPreferredName("avery@example.com", "Automatically refreshed Person") || !first.SyncNow())
+                throw new InvalidOperationException(first.Synchronization.Summary);
+            Deliver();
+            clock.Advance(TimeSpan.FromSeconds(60));
+            PumpUntil(() => Control<TextBlock>("ProfileHeading").Text == "Automatically refreshed Person" &&
+                !workflow.IsSynchronizing);
+            if (workflow.PeopleNavigation.SelectedEmail != "avery@example.com" ||
+                Note<TextBox>("MarkdownEditor").Text != "Exact writing during automatic export" ||
+                !Control<TextBlock>("SynchronizationStatus").Text.Contains("delivery elsewhere is unknown"))
+                throw new InvalidOperationException("Compiled automatic incoming refresh lost selection/writing or invented provider delivery.");
             VerifyCompiledWorkspaceVersions(window, workflow, first, Deliver, Select);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Snapshot compiled verification must not show or create a native window.");
-            Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now validates real artifacts, preserves identity/selected Person and exact post-seal owner drafts while the same real adoption commit remains held, and reports publication separately from unknown provider delivery without a visible window/native handle.");
+            Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now and controlled automatic cadence validate real artifacts, preserve identity/selected Person and post-seal owner drafts, allow exact durable writing/navigation during real export, retain newer unpublished revisions and refresh incoming reading; provider delivery remains unknown. No visible window/native handle.");
         }
         finally
         {
+            holdExport = false;
+            releaseExport.Set();
+            if (workflow is not null) PumpUntil(() => !workflow.IsSynchronizing);
             workflow?.Dispose();
             window.Close();
         }
