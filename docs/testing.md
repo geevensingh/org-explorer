@@ -302,6 +302,17 @@ Actual local writer locks and filesystem staging observations admit Preferred-na
 profile and note drafts during validation; adoption must refuse them without
 losing writing. An actual publication-boundary hold allows another local commit
 and proves that publication of the older snapshot cannot acknowledge it.
+Both note scopes also hold the actual successful SaveNoteDraft return, retain a
+newer generation, independently publish that committed revision and deliver its
+real child. The non-base admission lease must prevent adoption through that VM
+handoff even when core saving is complete. A real SQLite reader holds the final
+adoption commit after clean admission; the existing storage-phase observer only
+records entry into `snapshot.adopt-commit`. Browsing and later profile draft
+admission must return while the same commit is still held, and installation
+must preserve that later draft. Both note scopes additionally retain their exact
+owner/writing/immutable base after that seal, then commit/reopen and publish a
+valid child which the first store must accept. A failed/timed-out commit cannot
+satisfy this structural nonblocking proof.
 Interruption before/after real immutable publication reopens and retries without
 replaying edits; duplicates/reordering cannot roll back; divergence preserves
 complete versions and pauses editing across restart. No private-table assertions
@@ -316,8 +327,15 @@ fresh second-local-store joining and visible incoming adoption, without a new
 scenario or a deadline/assertion change. `*-sqlite-snapshots.json` binds source
 revision/run/attempt/product hash, process, independent stores, Workspace/version
 IDs, actual artifact hashes and exact photo/Team/history evidence. Captures are
-`sqlite-sync-folder-published`, `sqlite-sync-joined-person-history` and
+`sqlite-sync-folder-published`, `sqlite-sync-joined-person-history`,
+`sqlite-sync-held-adoption-draft` and
 `sqlite-sync-incoming-continuation`, with the shared actual-pixel metadata.
+The normal receiving phase and actual live SQLite journal bind the native held
+adoption observation: a real reader remains held through native post-seal input,
+Person selection and capture, then is deliberately released. The exact owner
+draft must survive success before its explicit Cancel exposes the new committed
+reading. `heldAdoption` records the real phase/action timestamps and boundaries;
+no busy-time extension or new latency claim is used.
 These are not periodic synchronization, conflict-resolution/retention, redesigned
 exit, native latency or 10,000-Person background-export proof.
 

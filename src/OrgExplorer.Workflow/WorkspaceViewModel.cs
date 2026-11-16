@@ -49,7 +49,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
     public void Dispose()
     {
-        lock (noteDraftGate) noteAutosaveStopped = true;
+        lock (noteDraftGate)
+        {
+            noteAutosaveStopped = true;
+            foreach (var draft in localNoteDrafts.Values) draft.AdoptionDeferral.Dispose();
+        }
         workflow.WorkspaceChanged -= ForwardWorkspaceChange;
         workflow.Dispose();
     }

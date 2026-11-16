@@ -110,12 +110,22 @@ Receiving validates the envelope, strict logical schema, identity, ordered ances
 whole graph/evidence/history, image decoding and every resource through isolated
 local staging before a single atomic installation. A fresh explicit join may
 replace only a pristine empty seed identity. A continuation requires a clean,
-published local base and no retained writing; draft admission is rechecked at the
-commit boundary and local revision changes cannot be overwritten. Existing
+published local base and no retained writing. `DeferSnapshotAdoption()` is an
+idempotently released admission lease, not note-base retention or a durability
+receipt. The view model holds one through each retained note draft's full
+generation/accepted-return handoff, including a newer generation after its prior
+commit has already been published. Clean adoption is sealed under the same short
+draft-admission gate before commit. No draft/navigation gate is held over commit
+I/O; later drafts retain their immutable bases and are never cleared by the
+incoming installation. Subsequent saves must validate those bases normally.
+Local revision changes cannot be overwritten. Existing
 selected Person/note navigation is retained where possible. Invalid, partial,
 incompatible or unrelated delivery reports a synchronization error without making
 the valid local Workspace stale or pausing ordinary local edits. Duplicates and
 stale/reordered delivery cannot roll back a newer revision.
+The observable synchronization phase distinguishes checking, sealed adoption
+and complete-version publication. It is transient activity, not a local-save
+receipt or provider-delivery acknowledgement.
 
 Divergence is refused, durably marked and preserved as complete local artifacts
 under `snapshot-conflicts`; browsing remains available and new edits are paused.

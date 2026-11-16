@@ -8,6 +8,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using OrgExplorer.Workflow;
+using Microsoft.Data.Sqlite;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -170,10 +171,45 @@ internal static partial class Program
             continuation = editing.Synchronization.LocalRevision;
         }
         Deliver();
+        BeginProfileEditing(window);
         SetSettingsVisible(window, true);
-        Synchronize();
+        DateTimeOffset heldAdmissionAt, heldActionsCompletedAt;
+        using (var connection = new SqliteConnection($"Data Source={Path.Combine(target, "workspace.sqlite")};Pooling=False"))
+        {
+            connection.Open();
+            using var heldReader = connection.BeginTransaction(deferred: true);
+            using (var read = connection.CreateCommand())
+            {
+                read.Transaction = heldReader;
+                read.CommandText = "PRAGMA schema_version;";
+                read.ExecuteScalar();
+            }
+            PrepareAction("SyncNow");
+            Click(window, "SyncNow");
+            Await(() => Find(window, "SynchronizationStatus").Current.Name.Contains("Installing a validated incoming version.") &&
+                !Find(window, "SyncNow").Current.IsEnabled && File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
+            heldAdmissionAt = DateTimeOffset.UtcNow;
+            SetSettingsVisible(window, false);
+            Set(window, "JobTitle", "Private draft admitted after snapshot seal");
+            SelectTreePerson(window, "morgan@example.com");
+            Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+            if (heldReader.Connection != connection || !File.Exists(Path.Combine(target, "workspace.sqlite-journal")))
+                throw new InvalidOperationException("Native browsing/draft admission outlasted the actual held adoption transaction.");
+            CaptureVisualEvidence(window, "sqlite-sync-held-adoption-draft");
+            heldActionsCompletedAt = DateTimeOffset.UtcNow;
+            if (!File.Exists(Path.Combine(target, "workspace.sqlite-journal")))
+                throw new InvalidOperationException("Native adoption evidence was captured after its held transaction had ended.");
+            heldReader.Rollback();
+        }
+        SetSettingsVisible(window, true);
+        Await(() => Find(window, "SyncNow").Current.IsEnabled &&
+            Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.") &&
+            !Find(window, "SynchronizationStatus").Current.Name.Contains("Synchronization failed"));
         SetSettingsVisible(window, false);
+        SelectTreePerson(window, "avery@example.com");
         Await(() => CurrentPersonEmail(window) == "avery@example.com");
+        AssertValue(window, "JobTitle", "Private draft admitted after snapshot seal");
+        CancelProfileEditing(window);
         AssertProfileValue(window, "OfficeNumber", "009D");
         AssertPhotoVisible(window);
         AssertTeamNameReading(window, "Platform");
@@ -210,10 +246,19 @@ internal static partial class Program
             captureId = expected.CaptureId,
             frozenNoteId = expected.NoteId,
             frozenVersion = expected.FrozenVersion,
+            heldAdoption = new
+            {
+                heldAdmissionAt, heldActionsCompletedAt,
+                boundary = "Normal Sync now reports sealed validated adoption with a live SQLite journal; native draft input and actual Person selection complete and are captured while the same real reader still prevents commit. Only then is the reader deliberately released.",
+                ownerEmail = "avery@example.com", selectedWhileHeld = "morgan@example.com",
+                retainedJobTitle = "Private draft admitted after snapshot seal",
+                discardedExplicitlyAfterSuccess = true
+            },
             artifacts = Directory.GetFiles(incoming, "*.oesnapshot").Select(path => new
             { name = Path.GetFileName(path), bytes = new FileInfo(path).Length, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) }).ToArray(),
             providerDelivery = "Unknown; deterministic copying of actual complete artifacts substitutes only external provider delivery.",
-            captures = new[] { "sqlite-sync-folder-published", "sqlite-sync-joined-person-history", "sqlite-sync-incoming-continuation" },
+            captures = new[] { "sqlite-sync-folder-published", "sqlite-sync-joined-person-history",
+                "sqlite-sync-held-adoption-draft", "sqlite-sync-incoming-continuation" },
             scope = "Normal native Settings folder, Sync now, fresh join and automatic clean continuation; real independent logical stores/resources/history. Not periodic scheduling, conflict resolution, retention, exit or 10,000-Person export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: hosted SQLite snapshots: native Settings folder/Sync now/status, independent-store fresh join and selected-Person incoming adoption preserve actual photos/private Team names/frozen history; candidate-bound evidence: " + evidence);

@@ -4,12 +4,20 @@ using Microsoft.Data.Sqlite;
 
 namespace OrgExplorer.Workflow;
 
+public enum WorkspaceSynchronizationPhase { Idle, Checking, Adopting, Publishing }
+
 public sealed record WorkspaceSynchronization(bool Supported, string? Folder = null,
     Guid? WorkspaceId = null, Guid? LocalRevision = null, Guid? PublishedRevision = null,
-    string? Error = null, bool Diverged = false)
+    string? Error = null, bool Diverged = false, WorkspaceSynchronizationPhase Phase = WorkspaceSynchronizationPhase.Idle)
 {
     public bool HasUnpublishedChanges => Supported && LocalRevision != PublishedRevision;
-    public string Summary => !Supported ? "Synchronization requires a local SQLite Workspace." :
+    public string Summary => !Supported ? "Synchronization requires a local SQLite Workspace." : (Phase switch
+        {
+            WorkspaceSynchronizationPhase.Checking => "Checking complete incoming versions.\n",
+            WorkspaceSynchronizationPhase.Adopting => "Installing a validated incoming version.\n",
+            WorkspaceSynchronizationPhase.Publishing => "Publishing a complete local version.\n",
+            _ => ""
+        }) +
         (HasUnpublishedChanges ? "Locally saved; latest version is not confirmed published." : "Locally saved and published.") +
         " Provider delivery elsewhere is unknown." + (Error is null ? "" : "\n" + Error);
 }
@@ -19,6 +27,7 @@ public partial interface IApplicationWorkflow
     WorkspaceSynchronization Synchronization { get; }
     bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false);
     bool SyncNow();
+    IDisposable DeferSnapshotAdoption();
 }
 
 public sealed partial class ApplicationWorkflow
@@ -27,6 +36,7 @@ public sealed partial class ApplicationWorkflow
     private WorkspaceSynchronization synchronization = new(false);
     private Guid[] localAncestry = [];
     private bool joiningWorkspace;
+    private int snapshotAdoptionDeferrals;
     private const string SnapshotFormat = "OrgExplorer complete logical Workspace";
     private static readonly JsonSerializerOptions SnapshotJson = new(JsonOptions)
     { RespectRequiredConstructorParameters = true };
@@ -40,6 +50,25 @@ public sealed partial class ApplicationWorkflow
     private sealed record DeliveredSnapshot(LogicalSnapshot Data, string Hash, byte[] Bytes);
 
     public WorkspaceSynchronization Synchronization => Volatile.Read(ref synchronization);
+
+    public IDisposable DeferSnapshotAdoption()
+    {
+        lock (profileDraftGate)
+        {
+            snapshotAdoptionDeferrals++;
+            return new SnapshotAdoptionDeferral(this);
+        }
+    }
+
+    private sealed class SnapshotAdoptionDeferral(ApplicationWorkflow workflow) : IDisposable
+    {
+        private ApplicationWorkflow? owner = workflow;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref owner, null) is not { } current) return;
+            lock (current.profileDraftGate) current.snapshotAdoptionDeferrals--;
+        }
+    }
 
     private static void EnsureLocalSynchronization(SqliteCommand command)
     {
@@ -109,7 +138,9 @@ public sealed partial class ApplicationWorkflow
         var folder = state.IsDBNull(0) ? null : state.GetString(0);
         var error = divergence ?? (Synchronization.WorkspaceId == identity && Synchronization.Folder == folder
             ? Synchronization.Error : null);
-        synchronization = new(true, folder, identity, committedRevision, published, error, divergence is not null);
+        var phase = Synchronization.WorkspaceId == identity && Synchronization.Folder == folder
+            ? Synchronization.Phase : WorkspaceSynchronizationPhase.Idle;
+        synchronization = new(true, folder, identity, committedRevision, published, error, divergence is not null, phase);
     }
 
     public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false)
@@ -181,6 +212,7 @@ public sealed partial class ApplicationWorkflow
                 }
                 RejectSnapshotLinks(folder);
                 if (!Directory.Exists(folder)) throw new IOException("The synchronization folder is unavailable. Local writing is retained.");
+                SetSynchronizationPhase(WorkspaceSynchronizationPhase.Checking);
                 var delivered = Directory.GetFiles(folder, "*.oesnapshot").Order(StringComparer.Ordinal)
                     .Select(ReadDeliveredSnapshot).ToArray();
                 DeliveredSnapshot? newest = null;
@@ -222,8 +254,9 @@ public sealed partial class ApplicationWorkflow
                 }
                 else if (joiningWorkspace)
                     throw new IOException("No complete Workspace snapshot is available to join. Incomplete delivery is not an empty Workspace.");
+                SetSynchronizationPhase(WorkspaceSynchronizationPhase.Publishing);
                 PublishLocalSnapshot(path, folder);
-                synchronization = Synchronization with { Error = null };
+                synchronization = Synchronization with { Error = null, Phase = WorkspaceSynchronizationPhase.Idle };
                 Status = Synchronization.Summary;
                 result = true;
             }
@@ -235,8 +268,14 @@ public sealed partial class ApplicationWorkflow
 
     private bool SynchronizationFailed(string message)
     {
-        synchronization = Synchronization with { Error = "Synchronization failed: " + message };
+        synchronization = Synchronization with { Error = "Synchronization failed: " + message, Phase = WorkspaceSynchronizationPhase.Idle };
         return Fail(Synchronization.Summary);
+    }
+
+    private void SetSynchronizationPhase(WorkspaceSynchronizationPhase phase)
+    {
+        synchronization = Synchronization with { Phase = phase };
+        WorkspaceChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static Guid ParseSnapshotId(string value) =>
@@ -469,7 +508,7 @@ public sealed partial class ApplicationWorkflow
 
     private void AdoptSnapshot(ValidatedSnapshot candidate, DeliveredSnapshot incoming)
     {
-        if (!CanSafelyClose || pending is not null ||
+        if (!CanSafelyClose || pending is not null || Volatile.Read(ref snapshotAdoptionDeferrals) != 0 ||
             (joiningWorkspace
                 ? people.Count != 0 || batches.Count != 0 || localAncestry.Length != 1 || Synchronization.PublishedRevision is not null
                 : Synchronization.HasUnpublishedChanges))
@@ -484,13 +523,17 @@ public sealed partial class ApplicationWorkflow
         command.CommandText = "UPDATE synchronization SET published_revision=$revision, joining=0 WHERE singleton=1;";
         command.Parameters.AddWithValue("$revision", incoming.Data.Revision.ToString("D"));
         command.ExecuteNonQuery();
-        // Draft admission is independent of the I/O gate. Recheck at the commit boundary,
-        // then install the already validated read view without further storage work.
+        // Seal clean adoption before commit, without holding the draft/navigation gate
+        // over storage I/O. Drafts admitted after this point retain their immutable bases.
         lock (profileDraftGate)
         {
-            if (!CanSafelyClose || pending is not null)
+            if (!CanSafelyClose || pending is not null || snapshotAdoptionDeferrals != 0)
                 throw new IOException("A new draft arrived during adoption. Incoming data was not installed.");
-            transaction.Commit();
+        }
+        SetSynchronizationPhase(WorkspaceSynchronizationPhase.Adopting);
+        ObserveStoragePhase("snapshot.adopt-commit", transaction.Commit);
+        lock (profileDraftGate)
+        {
             var accepted = candidate.Workflow;
             people = accepted.people;
             batches = accepted.batches;
@@ -510,8 +553,9 @@ public sealed partial class ApplicationWorkflow
                 PublishedRevision = incoming.Data.Revision, Error = null
             };
             compatibility = accepted.compatibility with { WorkspacePath = workspace };
-            localProfileEdits.Clear();
-            profileEdit = null;
+            foreach (var owner in localProfileEdits.Where(item => !item.Value.IsDirty).Select(item => item.Key).ToArray())
+                localProfileEdits.Remove(owner);
+            if (profileEdit is not { IsDirty: true }) profileEdit = null;
             queryView = accepted.queryView;
         }
     }
@@ -552,4 +596,5 @@ public sealed partial class WorkspaceViewModel
     public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false) =>
         Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace));
     public bool SyncNow() => Observe(workflow.SyncNow);
+    public IDisposable DeferSnapshotAdoption() => workflow.DeferSnapshotAdoption();
 }
