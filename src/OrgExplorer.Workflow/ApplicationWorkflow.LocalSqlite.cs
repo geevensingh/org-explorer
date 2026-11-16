@@ -263,6 +263,7 @@ public sealed partial class ApplicationWorkflow
             SupportsOrdinaryEdits = true, SupportsNoteEdits = true,
             SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
+        ReconcileLocalWriteEvidence();
     }
 
     private string LocalSqliteRevision()
@@ -297,6 +298,18 @@ public sealed partial class ApplicationWorkflow
 
     private void SaveLocalSqliteNote(NoteScope scope, NoteMetadata metadata, string markdown)
     {
+        try { SaveLocalSqliteNoteCore(scope, metadata, markdown); }
+        catch (Exception error) when (StorageError(error))
+        {
+            LocalStorageFailed(error);
+            throw;
+        }
+    }
+
+    private void SaveLocalSqliteNoteCore(NoteScope scope, NoteMetadata metadata, string markdown)
+    {
+        if (localSaveFault is not null)
+            throw new IOException("Reconcile the original local transaction before retrying.");
         using var connection = OpenLocalConnection();
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
@@ -313,6 +326,7 @@ public sealed partial class ApplicationWorkflow
         }
         ValidateNoteDraft(scope, metadata.Id);
         ValidateNoteMetadata(metadata, scope, people, "Local note");
+        using var evidence = BeginLocalWrite();
         // A staged format-1 store acquires note support atomically with its first note.
         if (version == 1) CreateLocalNoteSchema(command);
         command.CommandText = """
@@ -325,14 +339,13 @@ public sealed partial class ApplicationWorkflow
         command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize(metadata, metadata.GetType(), JsonOptions));
         command.Parameters.AddWithValue("$markdown", markdown);
         command.ExecuteNonQuery();
-        var next = Guid.NewGuid().ToString("D");
+        var next = evidence.Intent.NextRevision;
         command.CommandText = "UPDATE workspace SET format_version=$version, revision=$revision WHERE singleton=1;";
         command.Parameters.Clear();
         command.Parameters.AddWithValue("$revision", next);
         command.Parameters.AddWithValue("$version", Math.Max(version, 2));
         command.ExecuteNonQuery();
-        transaction.Commit();
-        revision = next;
+        CommitLocalWrite(transaction, evidence);
     }
 
     private bool SaveLocalSqlite(Dictionary<string, PersonProfile> proposed,
@@ -343,6 +356,8 @@ public sealed partial class ApplicationWorkflow
     {
         try
         {
+            if (localSaveFault is not null)
+                return Fail("Reconcile the original local transaction before retrying. No replacement write was started.");
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
@@ -361,6 +376,7 @@ public sealed partial class ApplicationWorkflow
             foreach (var reference in RequiredIncrementalPhotos(proposed, history, nextHistorical))
                 if (!proposedPhotos.ContainsKey(reference))
                     throw new IOException("Required current or retained Profile photo is unavailable. Nothing saved.");
+            using var evidence = BeginLocalWrite();
             CreateLocalNoteSchema(command);
             CreateLocalProfileSchema(command);
             foreach (var person in proposed.Values)
@@ -427,13 +443,12 @@ public sealed partial class ApplicationWorkflow
             }
             if (resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Required photo changed while saving. Nothing saved; retain the draft and choose the intended image again.");
-            var next = Guid.NewGuid().ToString("D");
+            var next = evidence.Intent.NextRevision;
             command.CommandText = "UPDATE workspace SET format_version=3, revision=$revision WHERE singleton=1;";
             command.Parameters.Clear();
             command.Parameters.AddWithValue("$revision", next);
             command.ExecuteNonQuery();
-            transaction.Commit();
-            revision = next;
+            CommitLocalWrite(transaction, evidence);
             teamContextRevisions = nextContexts;
             historicalTeamContexts = nextHistorical;
             failedSaves.Remove(operation);
@@ -442,6 +457,7 @@ public sealed partial class ApplicationWorkflow
 
         catch (Exception error) when (StorageError(error))
         {
+            LocalStorageFailed(error);
             if (operation == "import") workspaceCurrent = false;
             return SaveFailed(operation, "Change NOT confirmed saved locally. Draft retained; reopen to reconcile before retrying. " + error.Message);
         }

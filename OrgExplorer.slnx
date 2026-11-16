@@ -9,5 +9,6 @@
     <Project Path="tests/OrgExplorer.Installer.ProcessFixture/OrgExplorer.Installer.ProcessFixture.csproj" />
     <Project Path="tests/OrgExplorer.Installer.Smoke/OrgExplorer.Installer.Smoke.csproj" />
     <Project Path="tests/OrgExplorer.Persistence.Tests/OrgExplorer.Persistence.Tests.csproj" />
+    <Project Path="tests/OrgExplorer.Storage.ProcessFixture/OrgExplorer.Storage.ProcessFixture.csproj" />
   </Folder>
 </Solution>

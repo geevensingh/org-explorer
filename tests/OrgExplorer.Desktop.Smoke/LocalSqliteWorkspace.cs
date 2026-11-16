@@ -400,6 +400,8 @@ internal static partial class Program
             finally { StopApplication(reopened); }
             HarnessRuntime.Run("native-sqlite-reviewed-import",
                 () => RunLocalReviewedImportFlow(executable, root, local));
+            HarnessRuntime.Run("native-sqlite-local-recovery",
+                () => RunHostedLocalSaveRecovery(executable, root));
         }
         finally
         {
@@ -504,11 +506,16 @@ internal static partial class Program
             Invoke("CancelPreferredNameButton");
             if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("Compiled SQLite Cancel waited for the admitted Preferred-name request.");
-            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
+            PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Failed &&
+                Control<TextBlock>("WorkflowActivity").Text.Contains("NOT saved", StringComparison.Ordinal));
             if (workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
-                !workflow.CanSafelyClose)
-                throw new InvalidOperationException("Cancelled SQLite Preferred-name failure retained an invisible unsafe entry.");
+                workflow.CanSafelyClose || workflow.CanEditLocalWorkspace ||
+                Control<Button>("EditProfileButton").IsEnabled)
+                throw new InvalidOperationException("Cancelled SQLite Preferred-name failure lost its explicit read-only recovery state.");
             held.Rollback();
+            Invoke("NoticeRetryButton");
+            PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Recovered && workflow.CanSafelyClose &&
+                Control<Button>("EditProfileButton").IsEnabled);
         }
         Console.WriteLine("PASS: compiled SQLite profiles and Preferred names retain owner drafts across actual selection events; explicit held Save permits browsing and coherently reopens the photo without a visible window/native handle.");
     }

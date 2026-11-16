@@ -10,7 +10,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
-    private bool CanEditCurrentWorkspace => workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsOrdinaryEdits;
+    private bool CanEditCurrentWorkspace => workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsOrdinaryEdits;
     private readonly Func<Window, string?> chooseWorkspaceFolder;
     private readonly Action<string> writeClipboard;
     private Guid? preview;
@@ -53,7 +53,16 @@ public partial class MainWindow : Window
         Photo.PhotoEdited += EditPersonPhoto;
         workflow.WorkspaceChanged += (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            if (workPending) externalRefreshPending = true;
+            if (workPending)
+            {
+                externalRefreshPending = true;
+                if (workflow.LocalSave.EditsPaused)
+                {
+                    PersonNotes.RefreshExternalWorkspace();
+                    TeamNotes.RefreshExternalWorkspace();
+                    ShowStatus();
+                }
+            }
             else RefreshExternalWorkspace();
         });
         Closing += (_, e) =>
@@ -449,7 +458,10 @@ public partial class MainWindow : Window
         UpdateMainViews();
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
-        if (!workPending)
+        System.Windows.Automation.AutomationProperties.SetItemStatus(OperationalNotice,
+            $"Local save: {workflow.LocalSave.Phase}; outcome: {workflow.LocalSave.Outcome}");
+        if (workflow.LocalSave.EditsPaused) WorkflowActivity.Text = workflow.LocalSave.Message;
+        else if (!workPending)
             WorkflowActivity.Text = workflow.GetWorkspaceConflicts().Count != 0
                 ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
                     ? "Publication outcome unknown - external resolution required"

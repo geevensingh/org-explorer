@@ -95,6 +95,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.filePublisher = filePublisher ?? new WorkspaceFilePublisher();
         this.fileObserver = fileObserver;
+        localRequests = new(this.timeProvider, () => WorkspaceChanged?.Invoke(this, EventArgs.Empty));
     }
     public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>
         new ApplicationWorkflow(true, profileLinkOpener, timeProvider);

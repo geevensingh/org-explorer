@@ -59,6 +59,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (ProfileDraftGate)
         {
+            if (!AllowLocalDraftEdit()) return false;
             if (!localSqlite && profileEdit is { IsDirty: true }) return Fail("Unsaved profile: Save, Discard or Stay before leaving.");
             if (!workspaceCurrent || GetRelationships(email)?.Person is not { } person) return Fail("Open a current Person first.");
             SetProfileEdit(localSqlite && localProfileEdits.TryGetValue(email, out var retained) ? retained : new(person, person));
@@ -71,6 +72,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (ProfileDraftGate)
         {
+            if (!AllowLocalDraftEdit()) return false;
             if (profileEdit is null) return Fail("Choose Edit profile first.");
             if (!Enum.IsDefined(field) || field == PersonTextField.PreferredName)
                 return Fail("Choose an ordinary profile field. Preferred name saves independently.");
@@ -84,6 +86,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (ProfileDraftGate)
         {
+            if (!AllowLocalDraftEdit()) return false;
             if (profileEdit is null) return Fail("Choose Edit profile first.");
             SetProfileEdit(profileEdit with { Draft = profileEdit.Draft with { ManagerEmail = managerEmail } });
             Status = "Manager staged in the unsaved profile draft.";
@@ -95,6 +98,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (ProfileDraftGate)
         {
+            if (!AllowLocalDraftEdit()) return false;
             if (profileEdit is null) return Fail("Choose Edit profile first.");
             SetProfileEdit(profileEdit with { PhotoChanged = true, PhotoLocalPath = localPath });
             Status = "Photo staged in the unsaved profile draft. Save validates the local image; Cancel retains the saved photo.";
@@ -132,16 +136,32 @@ public sealed partial class ApplicationWorkflow
 
     public void CancelProfileEdit()
     {
+        if (localSqlite)
+        {
+            lock (profileDraftGate)
+            {
+                if (Volatile.Read(ref localProfileRequests) != 0)
+                {
+                    Fail("Cancel cannot revoke an admitted profile write. Wait for its reconciled outcome; browsing remains available.");
+                    return;
+                }
+                CancelProfileEditCore();
+            }
+            return;
+        }
         lock (workspaceGate)
         lock (profileDraftGate)
-        {
-            if (profileEdit is null) return;
-            var owner = profileEdit.Basis.Email;
-            localProfileEdits.Remove(owner);
-            profileEdit = null;
-            failedSaves.Remove(localSqlite ? $"profile-session:{owner.ToLowerInvariant()}" : "profile-session");
-            Status = "Profile draft discarded. Independently saved personal context is retained.";
-        }
+            CancelProfileEditCore();
+    }
+
+    private void CancelProfileEditCore()
+    {
+        if (profileEdit is null) return;
+        var owner = profileEdit.Basis.Email;
+        localProfileEdits.Remove(owner);
+        profileEdit = null;
+        failedSaves.Remove(localSqlite ? $"profile-session:{owner.ToLowerInvariant()}" : "profile-session");
+        Status = "Profile draft discarded. Independently saved personal context is retained.";
     }
 
     public bool SaveProfileEdit() => ProfileEdit is { } edit
@@ -149,9 +169,10 @@ public sealed partial class ApplicationWorkflow
 
     public bool SaveProfileEdit(ProfileEditSession edit)
     {
+        if (!CanBeginLocalSave()) return false;
         if (!localSqlite) return SaveProfileEditCore(edit);
         Interlocked.Increment(ref localProfileRequests);
-        try { return SaveProfileEditCore(edit); }
+        try { return TrackLocalSave(() => SaveProfileEditCore(edit)); }
         finally { Interlocked.Decrement(ref localProfileRequests); }
     }
 
@@ -287,12 +308,12 @@ public sealed partial class ApplicationWorkflow
 public sealed partial class WorkspaceViewModel
 {
     public ProfileEditSession? ProfileEdit => workflow.ProfileEdit;
-    public bool BeginProfileEdit(string email) => Observe(() => workflow.BeginProfileEdit(email));
-    public bool StageProfileText(PersonTextField field, string? value) => Observe(() => workflow.StageProfileText(field, value));
-    public bool StageProfileManager(string? managerEmail) => Observe(() => workflow.StageProfileManager(managerEmail));
-    public bool StageProfilePhoto(string? localPath) => Observe(() => workflow.StageProfilePhoto(localPath));
-    public bool SaveProfileEdit() => Observe(workflow.SaveProfileEdit);
-    public bool SaveProfileEdit(ProfileEditSession edit) => Observe(() => workflow.SaveProfileEdit(edit));
+    public bool BeginProfileEdit(string email) => AllowLocalDraftEdit() && Observe(() => workflow.BeginProfileEdit(email));
+    public bool StageProfileText(PersonTextField field, string? value) => AllowLocalDraftEdit() && Observe(() => workflow.StageProfileText(field, value));
+    public bool StageProfileManager(string? managerEmail) => AllowLocalDraftEdit() && Observe(() => workflow.StageProfileManager(managerEmail));
+    public bool StageProfilePhoto(string? localPath) => AllowLocalDraftEdit() && Observe(() => workflow.StageProfilePhoto(localPath));
+    public bool SaveProfileEdit() => CanSubmitLocalSave() && ObserveLocalSave(workflow.SaveProfileEdit);
+    public bool SaveProfileEdit(ProfileEditSession edit) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.SaveProfileEdit(edit));
     public void SelectProfilePerson(string email) => Observe(() => { workflow.SelectProfilePerson(email); return true; });
     public bool TryLeaveProfileEdit(ProfileLeaveDecision decision) => Observe(() => workflow.TryLeaveProfileEdit(decision));
     public void CancelProfileEdit() => Observe(() => { workflow.CancelProfileEdit(); return true; });

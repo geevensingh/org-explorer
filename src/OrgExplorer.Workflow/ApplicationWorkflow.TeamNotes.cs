@@ -67,6 +67,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditTeamNote(Guid noteId, string title, string markdown)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditTeamNoteLocked(noteId, title, markdown));
+
+    private bool EditTeamNoteLocked(Guid noteId, string title, string markdown)
     { lock (workspaceGate) return EditTeamNoteCore(noteId, title, markdown); }
 
     private bool EditTeamNoteCore(Guid noteId, string title, string markdown)
@@ -90,6 +93,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool ConfirmTeamNote(Guid noteId)
+        => CanBeginLocalSave() && TrackLocalSave(() => ConfirmTeamNoteLocked(noteId));
+
+    private bool ConfirmTeamNoteLocked(Guid noteId)
     { lock (workspaceGate) return ConfirmTeamNoteCore(noteId); }
 
     private bool ConfirmTeamNoteCore(Guid noteId)
@@ -100,6 +106,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool ArchiveTeamNote(Guid noteId, bool archived = true)
+        => CanBeginLocalSave() && TrackLocalSave(() => ArchiveTeamNoteLocked(noteId, archived));
+
+    private bool ArchiveTeamNoteLocked(Guid noteId, bool archived)
     { lock (workspaceGate) return ArchiveTeamNoteCore(noteId, archived); }
 
     private bool ArchiveTeamNoteCore(Guid noteId, bool archived)

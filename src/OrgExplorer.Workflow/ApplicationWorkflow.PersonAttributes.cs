@@ -45,9 +45,15 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPersonText(string email, PersonTextField field, string? value)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonTextLocked(email, field, value));
+
+    private bool EditPersonTextLocked(string email, PersonTextField field, string? value)
     { lock (workspaceGate) return EditPersonTextCore(email, field, value); }
 
     public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+        => CanBeginLocalSave() ? TrackLocalSave(() => SavePersonTextDraftCore(basis, field, value)) : null;
+
+    private PersonProfile? SavePersonTextDraftCore(PersonProfile basis, PersonTextField field, string? value)
     {
         lock (workspaceGate)
         {
@@ -77,16 +83,20 @@ public sealed partial class ApplicationWorkflow
 
     public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field)
     {
+        if (localSqlite) { DiscardPersonTextDraftCore(basis, field); return; }
         lock (workspaceGate)
+            DiscardPersonTextDraftCore(basis, field);
+    }
+
+    private void DiscardPersonTextDraftCore(PersonProfile basis, PersonTextField field)
+    {
+        if (!Enum.IsDefined(field))
         {
-            if (!Enum.IsDefined(field))
-            {
-                Fail("Choose a supported textual Person field to cancel.");
-                return;
-            }
-            failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
-            Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
+            Fail("Choose a supported textual Person field to cancel.");
+            return;
         }
+        failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
+        Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
     }
 
     private bool EditPersonTextCore(string email, PersonTextField field, string? value)

@@ -395,6 +395,38 @@ layout, Person selection and independently reopened commits under a clearly
 labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they
 remain distinct from native focus/pixels and hosted acceptance.
 
+The #95 cases extend the same public real-storage workflow/view-model seam with
+controlled request clocks and held/lost return boundaries. They prove the oldest
+queued three-second deadline, never-returning admission, explicit edit pause,
+continued arbitrary Person browsing, exact independent drafts/Team-name profiles,
+late accepted generations and real committed-state reconciliation before retry.
+Lost acknowledgment cannot create another note. `OrgExplorer.Storage.ProcessFixture`
+is an owned, non-UI child killed at the existing storage observer's actual
+SQLite pre/post-Commit boundaries for both note scopes and complete profiles.
+Reopening uses the normal validating reader; neither Dispose nor private-table
+inspection supplies crash evidence. Active unresolved real writers yield
+validated read-only browsing rather than an empty success.
+Reviewed-Import rollback requires explicit local-save reconciliation before retry;
+an outstanding bulk Apply alone does not acquire the ordinary-save stall deadline.
+
+The existing invisible compiled selection additionally drives the real three-second
+stall, disabled edit controls, native-handle-free Person selection and exact newer
+writing through late commit. The hosted `compatibility-settings` tail preserves
+all prior cases/samples and adds visible failure, retained complete profile and
+independent note writing, read-only browsing and stalled-owner proof with actual captures. Its
+deterministic delay hosts the normal product MainWindow BAML in an isolated
+test-only smoke process with the public real-storage commit observer held; there
+is no production injection switch or global scheduling change. The
+`*-sqlite-local-recovery.json` records that distinction, revision/run/attempt,
+distinct host and product executable/assembly disk hashes, observed notices,
+actual phase/outcome and exact owner. The three capture metadata files identify
+the dotnet host executable, not the loaded product. This pre-close manifest is
+partial evidence until the terminal hosted PASS follows actual idle, normal
+close and the existing ten-second process-exit check.
+The separate ordinary executable lifecycle and original native latency samples
+remain unchanged. Compiling or invisibly replaying this tail does not establish
+hosted pixels or a new latency claim; all lane budgets and matrices remain.
+
 `IncrementalProfileStorageTests` exercises shipping version 3 through
 the same file-backed workflow (and the view model for text drafts). It creates
 an empty Workspace, seeds accepted Import evidence, and reopens profile text,

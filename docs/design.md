@@ -10,6 +10,13 @@ being delivered in slices; see its implementation-status section. Where
 presentation differs, use that refinement while
 preserving the ownership, inheritance, import, editing, and data-safety rules here.
 
+The [approved local-transaction design](reliable-nonblocking-saves.md) supersedes
+the persistence/navigation coupling below for the staged development-opt-in
+SQLite implementation. Its implemented failure slice retains exact drafts,
+pauses edits after local I/O failure or an ordinary three-second stall, keeps
+browsing available, and reconciles actual committed state before safe retry.
+It does not yet deliver snapshot synchronization or the new exit decision.
+
 ## Product and platform
 
 Build an org explorer with rich person profiles, not a relationship-reminder CRM.

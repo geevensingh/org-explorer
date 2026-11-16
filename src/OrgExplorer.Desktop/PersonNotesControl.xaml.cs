@@ -144,8 +144,8 @@ public partial class PersonNotesControl : UserControl
     }
 
     private Task<T> RunAsync<T>(Func<T> operation, bool draft = false) =>
-        LocalAutosave ? Task.Run(operation) :
-            ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Person note…", noteDraft: draft ? this : null);
+        LocalAutosave ? workflow!.RunLocalSaveAsync(operation) :
+            ((MainWindow)Window.GetWindow(this)).RunWorkflowAsync(operation, "Saving private Person note…", noteDraft: draft ? this : null, ordinarySave: true);
 
     private async void CreateNote(object sender, RoutedEventArgs e)
     {
@@ -339,9 +339,9 @@ public partial class PersonNotesControl : UserControl
             noteBase = workflow.BeginNoteDraft(NoteScope.Person, owner, saved);
         RetryButton.Visibility = DiscardButton.Visibility = HasRetainedDraft ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.IsEnabled = DiscardButton.IsEnabled = retained is { IsSaving: false };
-        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.IsWorkspaceCurrent &&
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.CanEditLocalWorkspace &&
             workflow.Compatibility.SupportsNoteEdits && view.SelectedNote is { Archived: false };
-        ArchiveButton.IsEnabled = selected is not null && workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits;
+        ArchiveButton.IsEnabled = selected is not null && workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits;
         ShowStatus();
     }
 
@@ -355,7 +355,7 @@ public partial class PersonNotesControl : UserControl
     private void ShowPresentation()
     {
         if (workflow is null) return;
-        presentation.Show(workflow.PersonNotesView, workflow.IsWorkspaceCurrent && workflow.Compatibility.SupportsNoteEdits, HasRetainedDraft);
+        presentation.Show(workflow.PersonNotesView, workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits, HasRetainedDraft);
         ((MainWindow?)Window.GetWindow(this))?.ShowViewPreferenceStatus();
     }
 

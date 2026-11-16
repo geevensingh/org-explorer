@@ -13,6 +13,9 @@ public sealed partial class WorkspaceViewModel
         public long Order = order;
         public bool Saving;
         public string? Error;
+        public readonly List<(long Generation, long Request)> Requests = [];
+        public (long Generation, string Title, string Markdown)? Submitted;
+        public bool UnknownOutcome;
     }
     private readonly object noteDraftGate = new();
     private readonly Dictionary<(NoteScope Scope, Guid Id), LocalNoteDraft> localNoteDrafts = [];
@@ -25,7 +28,7 @@ public sealed partial class WorkspaceViewModel
 
     public NoteDraft? CreateOwnedNoteDraft(NoteScope scope, string ownerEmail) => Observe(() =>
     {
-        if (!Compatibility.SupportsNonblockingNoteAutosave || !Compatibility.SupportsNoteEdits || !IsWorkspaceCurrent)
+        if (!Compatibility.SupportsNonblockingNoteAutosave || !Compatibility.SupportsNoteEdits || !CanEditLocalWorkspace)
         {
             navigationError = "Open a current local SQLite Workspace before creating an autosaved note.";
             return null;
@@ -35,7 +38,9 @@ public sealed partial class WorkspaceViewModel
         if (basis is null) return null;
         lock (noteDraftGate)
         {
-            localNoteDrafts.Add((scope, basis.Id), new(basis, $"New {scope} note", "", ++noteDraftOrder));
+            var draft = new LocalNoteDraft(basis, $"New {scope} note", "", ++noteDraftOrder);
+            draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
+            localNoteDrafts.Add((scope, basis.Id), draft);
             workflow.RetainNoteDraft(basis);
             ScheduleNoteAutosave();
         }
@@ -47,6 +52,12 @@ public sealed partial class WorkspaceViewModel
     {
         if (!Compatibility.SupportsNonblockingNoteAutosave)
             throw new InvalidOperationException("Retained autosave requires a local SQLite Workspace.");
+        if (!CanEditLocalWorkspace)
+        {
+            navigationError = "Editing paused. The exact retained note is unchanged; browsing remains available.";
+            Notify();
+            return;
+        }
         var owner = GetOwnedNotesView(scope).SelectedNote?.OwnerEmail;
         lock (noteDraftGate)
         {
@@ -59,6 +70,7 @@ public sealed partial class WorkspaceViewModel
             draft.Title = title;
             draft.Markdown = markdown;
             draft.Generation++;
+            draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
             draft.Error = null;
             // The admitted writer owns retention until its accepted successor base is installed.
             if (!draft.Saving) workflow.RetainNoteDraft(draft.Basis);
@@ -76,22 +88,36 @@ public sealed partial class WorkspaceViewModel
 
     public async Task<bool> FlushNoteDraftsAsync()
     {
+        if (LocalSave.EditsPaused) return false;
         Task? saving;
         lock (noteDraftGate)
         {
             ScheduleNoteAutosave();
             saving = noteAutosaveTask;
         }
-        if (saving is not null) await saving;
+        if (saving is not null)
+        {
+            while (!saving.IsCompleted)
+            {
+                if (LocalSave.EditsPaused) return false;
+                await Task.WhenAny(saving, Task.Delay(50));
+            }
+            await saving;
+        }
         return !HasLocalNoteDrafts;
     }
 
     public async Task<bool> RetryNoteDraftAsync(NoteScope scope, Guid id)
     {
+        if (LocalSave.HasUnresolvedOutcome && LocalSave.EditsPaused && !ReconcileLocalSaves()) return false;
+        if (workflow.LocalSave.EditsPaused && !ReconcileLocalSaves()) return false;
         lock (noteDraftGate)
         {
             if (localNoteDrafts.TryGetValue((scope, id), out var draft) && !draft.Saving)
+            {
                 draft.Error = null;
+                if (draft.Requests.Count == 0) draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
+            }
         }
         return await FlushNoteDraftsAsync();
     }
@@ -99,8 +125,10 @@ public sealed partial class WorkspaceViewModel
     private void ScheduleNoteAutosave()
     {
         noteAutosaveContext ??= SynchronizationContext.Current;
-        if (noteAutosaveStopped || noteAutosaveTask is { IsCompleted: false } ||
+        if (noteAutosaveStopped || localSaveReconciling || viewSaveFault is not null || workflow.LocalSave.EditsPaused || noteAutosaveTask is { IsCompleted: false } ||
             !localNoteDrafts.Values.Any(d => d.Error is null)) return;
+        foreach (var draft in localNoteDrafts.Values.Where(draft => draft.Error is null && draft.Requests.Count == 0))
+            draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
         noteAutosaveTask = Task.Run(SaveLocalNoteDraftsAsync);
     }
 
@@ -116,7 +144,8 @@ public sealed partial class WorkspaceViewModel
             long generation;
             lock (noteDraftGate)
             {
-                if (noteAutosaveStopped) return;
+                if (noteAutosaveStopped || localSaveReconciling || viewSaveFault is not null || workflow.LocalSave.EditsPaused)
+                { noteAutosaveTask = null; return; }
                 var next = localNoteDrafts.Values.Where(d => d.Error is null).OrderBy(d => d.Order).FirstOrDefault();
                 if (next is null)
                 {
@@ -124,18 +153,35 @@ public sealed partial class WorkspaceViewModel
                     return;
                 }
                 draft = next;
+                if (draft.Requests.Count == 0) draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
                 basis = draft.Basis;
                 title = draft.Title;
                 markdown = draft.Markdown;
                 generation = draft.Generation;
+                draft.Submitted = (generation, title, markdown);
                 draft.Saving = true;
             }
             NotifyLocalNoteDrafts();
-            var accepted = workflow.SaveNoteDraft(basis, title, markdown);
+            NoteDraft? accepted = null;
+            try { accepted = workflow.SaveNoteDraft(basis, title, markdown); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+            {
+                UnknownLocalSave(error);
+                draft.UnknownOutcome = true;
+            }
             lock (noteDraftGate)
             {
                 draft.Saving = false;
-                if (accepted is null) draft.Error = workflow.Status;
+                foreach (var request in draft.Requests.Where(request => request.Generation <= generation).ToArray())
+                {
+                    localSaveRequests.Complete(request.Request);
+                    draft.Requests.Remove(request);
+                }
+                if (accepted is null)
+                {
+                    draft.Error = viewSaveFault?.Message ?? workflow.Status;
+                    draft.UnknownOutcome |= workflow.LocalSave.HasUnresolvedOutcome;
+                }
                 else if (generation == draft.Generation) localNoteDrafts.Remove((basis.Scope, basis.Id));
                 else
                 {
@@ -158,6 +204,46 @@ public sealed partial class WorkspaceViewModel
         }
         if (noteAutosaveContext is { } context) context.Post(_ => Changed(), null);
         else Changed();
+    }
+
+    private bool ReconcileUnknownNoteDrafts()
+    {
+        lock (noteDraftGate)
+        {
+            foreach (var (key, draft) in localNoteDrafts.Where(item => item.Value.UnknownOutcome).ToArray())
+            {
+                var current = workflow.BeginNoteDraft(key.Scope, draft.Basis.OwnerEmail, key.Id);
+                if (draft.Submitted is not { } submitted) return false;
+                if (current is not null && current.Title == submitted.Title && current.Markdown == submitted.Markdown)
+                {
+                    workflow.DiscardUnsavedChanges(key.Id);
+                    foreach (var request in draft.Requests) localSaveRequests.Complete(request.Request);
+                    draft.Requests.Clear();
+                    if (draft.Generation == submitted.Generation) localNoteDrafts.Remove(key);
+                    else
+                    {
+                        draft.Basis = current;
+                        draft.Error = null;
+                        draft.UnknownOutcome = false;
+                        draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
+                        workflow.RetainNoteDraft(current);
+                    }
+                }
+                else if (draft.Basis.IsNew && current is null ||
+                    current is not null && current.Person == draft.Basis.Person && current.Team == draft.Basis.Team &&
+                        current.Confirmation == draft.Basis.Confirmation)
+                {
+                    draft.UnknownOutcome = false;
+                    draft.Error = "The original request did not commit. The exact draft is retained; choose Retry local save.";
+                }
+                else
+                {
+                    navigationError = "Local outcome remains unresolved: committed note content differs from both the captured base and submitted writing. Both are retained; do not replay the mutation.";
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     private IReadOnlyList<OwnedNote> RetainedOwnedNotes(NoteScope scope, string owner)
@@ -190,6 +276,7 @@ public sealed partial class WorkspaceViewModel
                         retainedNoteViews[remembered].Selected == key.Id).ToArray())
                         retainedNoteViews.Remove(remembered);
                 }
+                foreach (var request in localNoteDrafts[key].Requests) localSaveRequests.Complete(request.Request);
                 localNoteDrafts.Remove(key);
             }
             return true;
@@ -200,7 +287,7 @@ public sealed partial class WorkspaceViewModel
         workflow.BeginNoteDraft(scope, ownerEmail, noteId);
 
     public NoteDraft? SaveNoteDraft(NoteDraft draft, string title, string markdown) =>
-        Observe(() => workflow.SaveNoteDraft(draft, title, markdown));
+        CanSubmitLocalSave() ? ObserveLocalSave(() => workflow.SaveNoteDraft(draft, title, markdown)) : null;
 
     public void RetainNoteDraft(NoteDraft draft)
     {
