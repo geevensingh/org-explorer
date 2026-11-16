@@ -26,6 +26,7 @@ internal static partial class Program
 
     private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Capture);
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
         var desktop = new Rect(GetSystemMetrics(76), GetSystemMetrics(77),

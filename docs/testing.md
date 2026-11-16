@@ -1378,6 +1378,27 @@ desktop-pixel check still proves rendering.
 Exact clipboard-copy observation uses the existing bounded STA dispatcher pump,
 servicing the harness's own OLE clipboard-owner messages while another process copies.
 The real clipboard equality and 20-second bound remain; no copied-text effect is faked.
+Bounded `DIAGNOSTIC: harness-runtime` JSON lines investigate ordinary-lane
+runtime without changing the workload or acceptance clocks. Every native scenario
+and compiled profile-refresh/update invocation emits a start/end record; compiled
+copy and SQLite, native copy and SQLite note/profile work have named child phases.
+Copy starts before its first existing PASS, with fixed payload/Team/missing-value
+checkpoints; SQLite checkpoints separate held navigation and repeated dispatch.
+An unmatched start/checkpoint identifies interrupted work, not success.
+Each phase carries the exact `GITHUB_SHA`, run and attempt (null when unbound
+locally), its parent/context and outcome. Fixed-size, thread-safe in-memory
+counters retain started/completed counts, total and maximum elapsed observation
+cost for existing discovery, shared native requests, waits/predicates, filtered
+note snapshots, capture/pixels and compiled copy/SQLite layout. These diagnostics
+add no per-poll writes, UIA reads/cache warming, actions or retries. Existing
+direct native latency requests and samples remain unchanged. Nested/inclusive
+measurements overlap and concurrent snapshots are non-atomic; these are neither
+database commit times nor replacement product latency, and nothing is subtracted
+from the raw acceptance samples or lane budget. Diagnostic output failure cannot
+replace an action's result/exception. No note/profile values or exception text
+are recorded by these diagnostics. Harness regressions cover bound early
+failure/interruption records, unchanged outcomes on output failure and bounded
+parallel aggregation. These probes are investigation, not a root-cause fix.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the

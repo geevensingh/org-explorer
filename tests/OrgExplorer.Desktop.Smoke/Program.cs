@@ -24,9 +24,11 @@ internal static partial class Program
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
-                return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
+                return HarnessRuntime.Run("compiled-profile-refresh",
+                    () => VerifyCompiledXaml(executable, verifyProfileRefresh: true));
             if (args.Length == 2 && args[1] == "--verify-update-yield")
-                return VerifyCompiledXaml(executable, verifyUpdateYield: true);
+                return HarnessRuntime.Run("compiled-update-yield",
+                    () => VerifyCompiledXaml(executable, verifyUpdateYield: true));
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {
@@ -128,6 +130,7 @@ internal static partial class Program
     }
     internal static AutomationElement Find(AutomationElement window, string id, ControlType? controlType = null)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
         Condition condition = new PropertyCondition(AutomationElement.AutomationIdProperty, id);
         if (controlType is not null)
             condition = new AndCondition(condition, new PropertyCondition(AutomationElement.ControlTypeProperty, controlType));
@@ -136,13 +139,17 @@ internal static partial class Program
     }
     internal static void Set(AutomationElement window, string id, string value)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
-            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
+        var pattern = ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeSetValue);
+        pattern.SetValue(value);
     }
     internal static void Click(AutomationElement window, string id, ControlType? controlType = null)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
-            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
+        var pattern = ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
+        pattern.Invoke();
     }
     private static string Status(AutomationElement window) => window.Current.HelpText;
     private static string Activity(AutomationElement window) => window.Current.ItemStatus;
@@ -250,10 +257,15 @@ internal static partial class Program
     }
     internal static void Await(Func<bool> condition)
     {
+        using var waiting = HarnessRuntime.Measure(HarnessRuntime.Work.NativeWait);
         var timer = Stopwatch.StartNew();
         while (timer.Elapsed < TimeSpan.FromSeconds(20))
         {
-            try { if (condition()) return; }
+            try
+            {
+                using var observation = HarnessRuntime.Measure(HarnessRuntime.Work.Observation);
+                if (condition()) return;
+            }
             catch (ElementNotAvailableException) { }
             catch (InvalidOperationException error) when (error.Message.StartsWith("Missing actual UI control:", StringComparison.Ordinal)) { }
             Thread.Sleep(100);

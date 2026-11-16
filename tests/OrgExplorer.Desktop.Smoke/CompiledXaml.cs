@@ -176,7 +176,7 @@ internal static partial class Program
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
             if (verifyProfileRefresh)
             {
-                VerifyProfileCopyControls(type, settings);
+                HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyTreePresentation(treeWindow, settings); }
@@ -190,7 +190,7 @@ internal static partial class Program
                 try { VerifyRetainedNoteCreationFailure(noteFailureWindow, settings); }
                 finally { noteFailureWindow.Close(); }
                 VerifySettingsFocus(window);
-                VerifySqliteCreationNavigation(type, settings, chooseFolder);
+                HarnessRuntime.Run("compiled-sqlite", () => VerifySqliteCreationNavigation(type, settings, chooseFolder));
                 // The empty 44-Person probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
@@ -283,8 +283,13 @@ internal static partial class Program
                 UIElementAutomationPeer.CreatePeerForElement(feedback).GetName() != "Office number copied." ||
                 feedback.IsHitTestVisible)
                 throw new InvalidOperationException("Copy success needs a non-blocking, accessible confirmation that omits the copied value.");
+            void WaitForFeedback()
+            {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.FeedbackExpiry);
+                PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            }
             var lifetime = System.Diagnostics.Stopwatch.StartNew();
-            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            WaitForFeedback();
             if (lifetime.Elapsed > TimeSpan.FromSeconds(3))
                 throw new InvalidOperationException("Copy confirmation did not return to quiet reading within three seconds.");
             if (Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Collapsed)
@@ -304,6 +309,7 @@ internal static partial class Program
             };
             void ActivateKey(TextBlock value, Key key) => value.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
                 new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
+            HarnessRuntime.Checkpoint("compiled-copy-payload-matrix");
             foreach (var (name, expected, label) in fields)
             {
                 var value = Control<TextBlock>(name);
@@ -318,7 +324,7 @@ internal static partial class Program
                 foreach (var gesture in new[] { "primary", "Enter", "Space", "menu", "accessible Invoke" })
                 {
                     if (name is "Email" or "OfficeNumberValue")
-                        PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+                        WaitForFeedback();
                     copied = "Copy has not been invoked.";
                     if (gesture == "primary")
                         value.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
@@ -334,10 +340,14 @@ internal static partial class Program
                         throw new InvalidOperationException($"{name} {gesture} must copy its exact payload with the same value-free confirmation.");
                 }
             }
+            HarnessRuntime.Checkpoint("compiled-copy-team-segments");
             var root = (FrameworkElement)window.Content;
-            root.Measure(new Size(700, 500));
-            root.Arrange(new Rect(0, 0, 700, 500));
-            root.UpdateLayout();
+            using (HarnessRuntime.Measure(HarnessRuntime.Work.CompiledLayout))
+            {
+                root.Measure(new Size(700, 500));
+                root.Arrange(new Rect(0, 0, 700, 500));
+                root.UpdateLayout();
+            }
             var segments = VisualDescendants(Control<ItemsControl>("TeamNames")).OfType<TextBlock>()
                 .Where(value => System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameSegment").ToArray();
             if (segments.Length != 2) throw new InvalidOperationException("Copy fixture lost duplicate attributed Team names.");
@@ -352,15 +362,16 @@ internal static partial class Program
                     throw new InvalidOperationException("The compiled Team tooltip must retain the full label, copy hint and owner without opening.");
                 foreach (var key in new[] { Key.Enter, Key.Space })
                 {
-                    PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+                    WaitForFeedback();
                     copied = "Copy has not been invoked.";
                     ActivateKey(segment, key);
                     if (copied != "Platform" || feedback.Visibility != Visibility.Visible || feedback.Text != "Team name copied.")
                         throw new InvalidOperationException("Team-name activation must copy only that segment with the shared feedback.");
                 }
             }
-            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            WaitForFeedback();
             AssertWorkspaceBytes(folder, beforeCopy);
+            HarnessRuntime.Checkpoint("compiled-copy-missing-and-failure");
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!,
                 tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "unset@example.com"),
                 TreeView.SelectedItemChangedEvent));
@@ -394,7 +405,7 @@ internal static partial class Program
             Control<TextBlock>("OfficeStateValue").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
             if (copied != "—") throw new InvalidOperationException("A real dash value is not a missing-value placeholder.");
-            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            WaitForFeedback();
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, avery, TreeView.SelectedItemChangedEvent));
             var notes = Control<FrameworkElement>("PersonNotes");
             var title = (TextBox)notes.FindName("NoteTitle");
@@ -422,7 +433,7 @@ internal static partial class Program
             failClipboard = false;
             Control<TextBlock>("Email").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
-            PumpUntil(() => feedback.Visibility == Visibility.Collapsed);
+            WaitForFeedback();
             if (!Control<TextBlock>("NoticeSummary").Text.Contains("Person note", StringComparison.Ordinal) ||
                 noteStatus.Text != unrelatedNoteStatus)
                 throw new InvalidOperationException("Successful copy or its expiry dismissed an independent writing failure.");
@@ -3045,13 +3056,19 @@ internal static partial class Program
 
     private static void PumpUntil(Func<bool> complete)
     {
+        using var waiting = HarnessRuntime.Measure(HarnessRuntime.Work.DispatcherWait);
+        bool Observe()
+        {
+            using var observation = HarnessRuntime.Measure(HarnessRuntime.Work.Observation);
+            return complete();
+        }
         var frame = new DispatcherFrame();
         var deadline = DateTime.UtcNow.AddSeconds(20);
         var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1) };
-        timer.Tick += (_, _) => { if (complete() || DateTime.UtcNow >= deadline) frame.Continue = false; };
+        timer.Tick += (_, _) => { if (Observe() || DateTime.UtcNow >= deadline) frame.Continue = false; };
         timer.Start();
         try { Dispatcher.PushFrame(frame); }
         finally { timer.Stop(); }
-        if (!complete()) throw new TimeoutException("The no-window profile refresh operation did not complete.");
+        if (!Observe()) throw new TimeoutException("The no-window profile refresh operation did not complete.");
     }
 }
