@@ -694,6 +694,8 @@ internal static partial class Program
     private static void AssertCopyCursor(bool copyable)
     {
         var cursor = new CopyCursorInfo { Size = Marshal.SizeOf<CopyCursorInfo>() };
+        ReadCopyCursor(ref cursor);
+        ReadCopyCursor(ref cursor);
         var hand = LoadCursor(IntPtr.Zero, (IntPtr)32649);
         if (hand == IntPtr.Zero) throw new InvalidOperationException("The hosted hand cursor is unavailable.");
         Await(() =>
@@ -768,7 +770,6 @@ internal static partial class Program
 
     private static void AssertPrimaryCopy(AutomationElement window, AutomationElement value, string expected, bool freshFeedback = false)
     {
-        var phase = Stopwatch.StartNew();
         var id = value.Current.AutomationId;
         if (freshFeedback) AwaitCopyFeedbackGone(window);
         if (id == "TeamNameSegment")
@@ -779,17 +780,10 @@ internal static partial class Program
             if (!SetCursorPos((int)away.X, (int)away.Y))
                 throw new InvalidOperationException("The hosted desktop could not dismiss the previous owner tooltip.");
         }
-        var prepared = phase.Elapsed.TotalSeconds;
         System.Windows.Clipboard.SetText("Copy has not been invoked.");
-        var seeded = phase.Elapsed.TotalSeconds;
         PrimaryClick(() => value);
-        var clicked = phase.Elapsed.TotalSeconds;
         AwaitCopiedText(expected);
-        var copied = phase.Elapsed.TotalSeconds;
         AssertCopyFeedback(window, value);
-        if (id is "Email" or "TeamNameSegment")
-            Console.WriteLine($"[DEBUG-profile-copy-timing] primary {id}; prepare={prepared:F2}; seed={seeded - prepared:F2}; " +
-                $"click={clicked - seeded:F2}; clipboard={copied - clicked:F2}; feedback={phase.Elapsed.TotalSeconds - copied:F2}");
     }
 
     private static void AssertFocusedCopy(AutomationElement window, AutomationElement value, string expected, byte key)

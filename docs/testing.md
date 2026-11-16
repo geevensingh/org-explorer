@@ -579,10 +579,6 @@ or printing header values.
 It needs no GitHub credentials, network or desktop.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
-It first samples the actual native cursor twice without moving it or sending input.
-Every read reinitializes `CURSORINFO.cbSize`: the API can clear it on return, so
-reusing the previous output makes subsequent observations fail with Win32 87.
-This repeated-read regression proves interop validity, not the hosted hand cursor.
 It constructs the actual compiled MainWindow BAML and event connectors on STA
 with isolated settings, requires the window to remain invisible with no native
 main-window handle, then closes it. It never calls Show or runs the application
@@ -1160,6 +1156,10 @@ deliberate missing-value checks retain their disabled automation peers.
 Copy/owner hovers send actual absolute mouse movement on the verified primary
 display, not position-only `SetCursorPos`, which left the hosted cursor suppressed
 despite hitting the correct value. The native visible-hand/non-hand assertion remains.
+Hosted cursor observation samples twice to retain its repeated-read regression.
+Every read reinitializes `CURSORINFO.cbSize`, which the API can clear on return;
+reusing that output made later reads fail with Win32 87. Invisible local contracts
+never query the interactive cursor, which can be inaccessible on a locked desktop.
 Tooltip discovery checks native top-level popup children before the same descendant
 query, avoiding full reading-document traversal when the popup is top-level. Exact
 tooltip content, cursor, clipboard and rendered-feedback predicates are unchanged.

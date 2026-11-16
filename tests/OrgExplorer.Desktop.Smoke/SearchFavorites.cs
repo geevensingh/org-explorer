@@ -40,15 +40,8 @@ internal static partial class Program
             AssertMouseSearchActivation(window);
             if (responsive)
             {
-                // [DEBUG-profile-copy-timing] Temporary exact-lane phase measurement; remove after diagnosis.
-                var phase = System.Diagnostics.Stopwatch.StartNew();
-                Console.WriteLine("[DEBUG-profile-copy-timing] begin copy-facts");
                 AssertLongAndMissingFacts(window, workspace);
-                Console.WriteLine($"[DEBUG-profile-copy-timing] end copy-facts seconds={phase.Elapsed.TotalSeconds:F2}");
-                phase.Restart();
-                Console.WriteLine("[DEBUG-profile-copy-timing] begin owned-team-matrix");
                 AssertResponsiveOwnedTeamName(window, import);
-                Console.WriteLine($"[DEBUG-profile-copy-timing] end owned-team-matrix seconds={phase.Elapsed.TotalSeconds:F2}");
             }
             Click(window, "NewPersonNote");
             Set(window, "PersonNoteTitle", "Individual context");
@@ -62,14 +55,8 @@ internal static partial class Program
             double? peopleBalance = null;
             if (responsive)
             {
-                var phase = System.Diagnostics.Stopwatch.StartNew();
-                Console.WriteLine("[DEBUG-profile-copy-timing] begin existing-adaptive-matrix");
                 peopleBalance = AssertAdaptiveWorkspace(window);
-                Console.WriteLine($"[DEBUG-profile-copy-timing] end existing-adaptive-matrix seconds={phase.Elapsed.TotalSeconds:F2}");
-                phase.Restart();
-                Console.WriteLine("[DEBUG-profile-copy-timing] begin existing-browsing-restoration");
                 AssertSearchBrowsingRestoration(window);
-                Console.WriteLine($"[DEBUG-profile-copy-timing] end existing-browsing-restoration seconds={phase.Elapsed.TotalSeconds:F2}");
             }
             if (Find(window, "PersonNoteHeading").Current.Name != "Individual context")
                 throw new InvalidOperationException("Search did not open the saved Person note for reading.");
