@@ -545,6 +545,22 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
+Crash acceptance distinguishes committed-state durability from current receipt
+availability (owner-approved reconciliation on 2026-11-16). Every pre/post-Commit
+case must still expose the exact admitted base/next revision, previously committed
+writing, correct interrupted mutation and unchanged history cardinality. A real
+receipt-acquire sharing violation (`0x80070020`, no acquired handle) may instead
+retain `Indeterminate`/`Unknown`, its evidence, read-only Person browsing and an
+unsafe-close warning; it must not resume edits or claim recovery from the revision
+alone. Other unexplained recovery failures do not satisfy this exception.
+Two controlled pre/post-Commit profile cases keep an actual independent receipt
+reader open after killing and waiting for the admitted writer. Reconciliation
+must remain refused while that holder exists. Only after deliberately releasing
+it and proving one actual exclusive acquisition succeeds does one explicit
+reconcile restore editing with the same revision/profile/history, without replay.
+The ordinary cold cases do not poll, sleep, retry or force availability. This is
+an acceptance reconciliation, not identification or a fix of the historical hosted
+holder; production sharing, recovery and retirement behavior is unchanged.
 Receipt failures also retain their actual reconciliation stage (acquire, read,
 validate, release or retirement), native HRESULT, originating method and observed
 managed-handle lifetime in the existing error diagnostic. They do not change

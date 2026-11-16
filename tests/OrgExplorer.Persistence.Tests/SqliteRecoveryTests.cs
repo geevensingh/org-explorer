@@ -262,15 +262,17 @@ public sealed partial class SqliteWorkspaceTests
     }
 
     [Theory]
-    [InlineData("before", "Person", false)]
-    [InlineData("after", "Person", false)]
-    [InlineData("before", "Team", false)]
-    [InlineData("after", "Team", false)]
-    [InlineData("before", "profile", false)]
-    [InlineData("after", "profile", false)]
-    [InlineData("before", "profile", true)]
+    [InlineData("before", "Person", false, false)]
+    [InlineData("after", "Person", false, false)]
+    [InlineData("before", "Team", false, false)]
+    [InlineData("after", "Team", false, false)]
+    [InlineData("before", "profile", false, false)]
+    [InlineData("after", "profile", false, false)]
+    [InlineData("before", "profile", true, false)]
+    [InlineData("before", "profile", false, true)]
+    [InlineData("after", "profile", false, true)]
     public async Task Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(
-        string boundary, string mutation, bool unresolvedEvidence)
+        string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld)
     {
         using (var app = ApplicationWorkflow.CreateFileBacked())
         {
@@ -287,17 +289,22 @@ public sealed partial class SqliteWorkspaceTests
             typeof(StorageCrash).Assembly.Location, Workspace, readyName, boundary, mutation })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start)!;
+        FileStream? receiptHolder = null;
         try
         {
             Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
                 process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
             var admission = await process.StandardOutput.ReadLineAsync();
             Console.WriteLine($"SQLITE-CRASH-ADMISSION launcherProcessId={process.Id}; observed={admission}");
+            string expectedRevision;
             using (var observed = System.Text.Json.JsonDocument.Parse(admission
                 ?? throw new IOException("The admitted writer did not identify its actual process.")))
             {
                 Assert.Equal(process.Id, observed.RootElement.GetProperty("writerProcessId").GetInt32());
                 Assert.Equal(boundary == "before" ? "Begin" : "End", observed.RootElement.GetProperty("phase").GetString());
+                expectedRevision = Assert.Single(observed.RootElement.GetProperty("evidence").EnumerateArray())
+                    .GetProperty(boundary == "after" ? "nextRevision" : "baseRevision").GetString()
+                    ?? throw new IOException("The admitted writer did not identify its expected committed revision.");
             }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
@@ -308,8 +315,12 @@ public sealed partial class SqliteWorkspaceTests
                 evidence = Path.Combine(Workspace, $"local-write-{Guid.NewGuid():N}.json");
                 File.WriteAllText(evidence, "Interrupted invalid transaction evidence");
             }
+            if (receiptHeld)
+                receiptHolder = new FileStream(Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json")),
+                    FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
             Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
             if (!unresolvedEvidence && reopened.LocalSave.Phase != LocalSavePhase.Recovered)
                 Console.WriteLine("SQLITE-CRASH-UNRESOLVED " + System.Text.Json.JsonSerializer.Serialize(new
                 {
@@ -332,26 +343,70 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.Equal("Interrupted invalid transaction evidence", File.ReadAllText(evidence));
                 return;
             }
-            Assert.Equal(LocalSavePhase.Recovered, reopened.LocalSave.Phase);
-            Assert.True(reopened.CanEditLocalWorkspace);
-            Assert.Equal("Survives every interruption", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
-            if (mutation == "profile")
+            if (receiptHeld) Assert.Equal(LocalSavePhase.Indeterminate, reopened.LocalSave.Phase);
+            if (reopened.LocalSave.Phase == LocalSavePhase.Indeterminate)
             {
-                var manager = reopened.GetRelationships("manager@example.com")!.Person;
-                Assert.Equal(boundary == "after" ? "Crash boundary label" : null, manager.TeamName);
-                Assert.Equal(boundary == "after" ? "Crash boundary department" : null, manager.Department);
-                Assert.Equal(boundary == "after" ? 1 : 0, reopened.GetProfileTimeline(manager.Email)!.Changes.Count);
+                Assert.Equal(LocalSaveOutcome.Unknown, reopened.LocalSave.Outcome);
+                Assert.Contains("receipt-stage=acquire", reopened.LocalSave.Error);
+                Assert.Contains("managed-receipt-handle=not-acquired", reopened.LocalSave.Error);
+                Assert.Contains("hresult=0x80070020", reopened.LocalSave.Error);
+                Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+                Assert.False(reopened.CanEditLocalWorkspace);
+                Assert.False(reopened.CanSafelyClose);
+                Assert.True(reopened.NavigatePerson("report@example.com"), reopened.Status);
+                Assert.True(reopened.NavigatePerson("manager@example.com"), reopened.Status);
+                Assert.False(reopened.EditPreferredName("manager@example.com", "Must not bypass unresolved evidence"));
+                Assert.Null(reopened.GetRelationships("manager@example.com")!.Person.PreferredName);
             }
             else
             {
-                var notes = mutation == "Person" ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Markdown) :
-                    reopened.GetTeamNotes("manager@example.com").Select(n => n.Markdown);
-                Assert.Equal(boundary == "after" ? ["Exact crash boundary writing"] : Array.Empty<string>(), notes);
+                Assert.Equal(LocalSavePhase.Recovered, reopened.LocalSave.Phase);
+                Assert.True(reopened.CanEditLocalWorkspace);
             }
-            Console.WriteLine($"SQLITE-CRASH-RECOVERY boundary={boundary}; mutation={mutation}; pid={process.Id}; outcome={reopened.LocalSave.Phase}; validatedPeople={reopened.People.Count}");
+            Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
+            AssertCommittedWriting();
+            if (receiptHeld)
+            {
+                var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+                Assert.False(reopened.ReconcileLocalSaves());
+                Assert.Equal(LocalSavePhase.Indeterminate, reopened.LocalSave.Phase);
+                Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
+                AssertCommittedWriting();
+                Assert.NotNull(receiptHolder);
+                receiptHolder.Dispose();
+                receiptHolder = null;
+                using (new FileStream(receipt, FileMode.Open, FileAccess.Read, FileShare.None)) { }
+                Assert.True(reopened.ReconcileLocalSaves(), reopened.Status);
+                Assert.Equal(LocalSavePhase.Recovered, reopened.LocalSave.Phase);
+                Assert.True(reopened.CanEditLocalWorkspace);
+                Assert.True(reopened.CanSafelyClose, reopened.Status);
+                Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
+                Assert.Empty(Directory.GetFiles(Workspace, "local-write-*.json"));
+                AssertCommittedWriting();
+            }
+            Console.WriteLine($"SQLITE-CRASH-RECOVERY boundary={boundary}; mutation={mutation}; pid={process.Id}; outcome={reopened.LocalSave.Phase}; validatedPeople={reopened.People.Count}; controlledReceiptHeld={receiptHeld}");
+
+            void AssertCommittedWriting()
+            {
+                Assert.Equal("Survives every interruption", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
+                if (mutation == "profile")
+                {
+                    var manager = reopened.GetRelationships("manager@example.com")!.Person;
+                    Assert.Equal(boundary == "after" ? "Crash boundary label" : null, manager.TeamName);
+                    Assert.Equal(boundary == "after" ? "Crash boundary department" : null, manager.Department);
+                    Assert.Equal(boundary == "after" ? 1 : 0, reopened.GetProfileTimeline(manager.Email)!.Changes.Count);
+                }
+                else
+                {
+                    var notes = mutation == "Person" ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Markdown) :
+                        reopened.GetTeamNotes("manager@example.com").Select(n => n.Markdown);
+                    Assert.Equal(boundary == "after" ? ["Exact crash boundary writing"] : Array.Empty<string>(), notes);
+                }
+            }
         }
         finally
         {
+            receiptHolder?.Dispose();
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
