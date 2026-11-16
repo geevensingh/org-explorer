@@ -15,7 +15,10 @@ public sealed partial class ExportSession
     {
         public bool RecoveryConsumed { get; set; }
         public string? StopReason { get; set; }
+        public List<ServiceRecoveryAuthorization> ServiceRecoveries { get; set; } = [];
     }
+    public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
+    public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
@@ -123,6 +126,36 @@ public sealed partial class ExportSession
             ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
         return ledger;
     });
+
+    public SourceLedger BeginSource503Recovery(string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization for additional HTTP 503 recovery.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
+            Require(ledger.Reads.All(read => read.State != "active"), "Stop dispatch and settle or interrupt all active workers first.");
+            var failures = ledger.Reads.Where(read => read.State == "failed").ToArray();
+            Require(failures.Length > 0 && failures.All(read => read.Attempts.Count == 1
+                && read.Attempts[^1].Retryable && !read.RecoveryEligible),
+                "Only first-attempt failures can receive additional HTTP 503 recovery; existing recovery cannot reset.");
+            foreach (var read in failures)
+            {
+                var resultFile = read.Attempts[^1].ResultFile
+                    ?? throw new InvalidOperationException("HTTP 503 recovery requires retained original source results.");
+                var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
+                var statuses = SourceObjects(result.Response).SelectMany(SourceStatuses)
+                    .Where(status => status is < 200 or >= 300).ToArray();
+                Require(statuses.Length > 0 && statuses.All(status => status == 503),
+                    "Additional recovery is limited to HTTP 503; other source failures remain blockers.");
+            }
+            ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason, failures.Select(read =>
+                new ServiceRecoveryTarget(read.Kind, read.Target, read.Attempts[^1].ClaimId)).ToArray()));
+            foreach (var read in failures)
+                ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
+            return ledger;
+        });
+    }
 
     public SourceLedger InterruptSource(Guid claimId, string reason)
     {

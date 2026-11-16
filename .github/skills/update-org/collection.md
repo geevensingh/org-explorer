@@ -36,6 +36,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
 | `source-finish RUN CLAIM-ID RESULTS.json` | Records and returns only this claim's outcomes plus invocation recovery/stop flags; retains the result file for handoff. Use `source-status` for the full ledger. |
 | `source-recover RUN` | Coordinator only: consumes the single failed-read recovery pass after all active claims settle. |
+| `source-recover-503 RUN REASON` | Coordinator only, with explicit user authorization: records an additional recovery of currently failed, first-attempt HTTP 503 reads after the ordinary pass was consumed. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
@@ -225,6 +226,26 @@ the whole invocation; wait until the returned `retryAt`, never substitute a shor
 delay. Once recovery succeeds, queued targets with zero attempts remain first
 reads. A later failure, non-retryable error or failed recovery is a reported
 publication blocker.
+
+### User-authorized HTTP 503 continuation
+
+If the user explicitly authorizes additional HTTP 503 recovery, the coordinator
+may run `source-recover-503 RUN REASON` after all active claims settle. Record the
+authorization in `REASON`; an instruction covering future 503s in this invocation
+also covers later calls to this command. General permission to work is not this
+authorization. Each command snapshots only current first-attempt failures whose
+retained original responses establish HTTP 503, and appends the reason, time,
+targets and failed-claim identities to `serviceRecoveries`. Completed reads,
+original failures and the consumed ordinary recovery pass remain unchanged.
+
+Use the granted targets through the normal claim/capture/finish sequence.
+The existing invocation-wide `retryAt` still gates every source call, including
+queued first reads. Each failed lookup still has only one retry: a failed second
+attempt, another status, invalid delay or missing original evidence blocks this
+exception. Workers pause and report; only the coordinator authorizes recovery.
+Access/authentication/policy denials remain unconditional stops.
+
+### Denials and stopped-worker handoff
 
 Nested authentication/access/policy denials or forbidden responses persist a
 stop reason: no further source claims, recovery or queued dispatch in this run.

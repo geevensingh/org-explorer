@@ -80,6 +80,9 @@ Use `source-status` to settle every active claim before the coordinator consumes
 retry delays; follow its granted targets rather than re-running whole batches.
 Retain local successes and deferred first reads. An interrupted worker requires
 the explicit stopped-worker handoff in the collection protocol.
+Explicit user authorization can permit additional first-attempt HTTP 503 recovery
+through the protocol's `source-recover-503` gate; returned delays, one retry per
+lookup and denial stops still apply.
 For mixed profile batches, correct and resubmit only failed inputs according to
 the collection protocol; retained successes need no repeated lookup or resubmission.
 Authentication/access/policy denial stops this invocation without alternate

@@ -1266,6 +1266,62 @@ public sealed class OrgExportTests : IDisposable
 
     private string NewRun(string account = AccountId)
         => ExportSession.Create("Example Person", RootId, account, root);
+
+    [Fact]
+    public async Task Explicit_503_recovery_records_later_failures_without_resetting_successes_or_retry_limits()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        JsonObject Unavailable() => new()
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
+        };
+        var first = session.ClaimSource("first", "profile", [RootId]);
+        FinishSource(session, first, Unavailable());
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("first-retry", "profile", [RootId]), Ok(new JsonObject()));
+        var savedSuccess = session.SourceStatus().Reads.Single(read => read.Kind == "profile").Attempts[^1].ResultFile;
+        const string reason = "User explicitly authorized delayed 503 recovery in this invocation.";
+        foreach (var id in new[] { ChildId, AltId })
+        {
+            var claim = session.ClaimSource("later", "profile", [id]);
+            FinishSource(session, claim, Unavailable());
+            Assert.Null(session.ClaimSource("not-authorized", "profile", [id]).ClaimId);
+
+            var authorized = await RunCli("source-recover-503", path, reason);
+
+            Assert.Equal(0, authorized.ExitCode);
+            Assert.Empty(authorized.Error);
+            var ledger = JsonNode.Parse(authorized.Output)!;
+            Assert.True(ledger["recoveryConsumed"]!.GetValue<bool>());
+            var authorization = ledger["serviceRecoveries"]!.AsArray().Last()!;
+            Assert.Equal(reason, authorization["reason"]!.GetValue<string>());
+            var target = Assert.Single(authorization["targets"]!.AsArray())!;
+            Assert.Equal("profile", target["kind"]!.GetValue<string>());
+            Assert.Equal(id, target["target"]!.GetValue<string>());
+            Assert.Equal(claim.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
+            Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == id).Attempts);
+            Assert.Equal(1, (await RunCli("source-recover-503", path, reason)).ExitCode);
+            var retry = session.ClaimSource("authorized-retry", "profile", [id]);
+            Assert.NotNull(retry.ClaimId);
+            FinishSource(session, retry, id == ChildId ? Ok(new JsonObject()) : Unavailable());
+        }
+
+        var status = session.SourceStatus();
+        var successful = status.Reads.Single(read => read.Kind == "profile" && read.Target == RootId);
+        Assert.Equal(2, successful.Attempts.Count);
+        Assert.Equal(savedSuccess, successful.Attempts[^1].ResultFile);
+        Assert.Equal("completed", successful.State);
+        Assert.Equal(2, JsonNode.Parse((await RunCli("source-status", path)).Output)!["serviceRecoveries"]!.AsArray().Count);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        var refused = await RunCli("source-recover-503", path, reason);
+        Assert.Equal(1, refused.ExitCode);
+        Assert.Empty(refused.Output);
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [AltId]).ClaimId);
+        Assert.Null(session.ClaimSource("queued", "profile", [AccountId]).ClaimId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == AltId).Attempts.Count);
+    }
+
     private string Seed(string office = "NORTH/001.2", string account = AccountId)
     {
         var path = NewRun(account);

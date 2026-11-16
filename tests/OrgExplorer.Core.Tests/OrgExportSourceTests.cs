@@ -140,9 +140,85 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Null(coordinator.ClaimSource("queued", "profile", [Identity(4)]).ClaimId);
         Assert.Null(coordinator.ClaimSource("different-phase", "structured", [ExportSession.UserPath(RootId)]).ClaimId);
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSourceRecovery());
+        Assert.Throws<InvalidOperationException>(() => coordinator.BeginSource503Recovery("User-approved 503 continuation."));
         Assert.Throws<InvalidOperationException>(() => coordinator.InterruptSource(deniedClaim, "Cannot undo a completed denial."));
         Assert.Contains("source", Assert.Throws<InvalidOperationException>(() => coordinator.Publish()).Message,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Authorized_later_503_recovery_preserves_delays_and_requires_settled_claims_and_original_evidence()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using (var session = ExportSession.Open(path, sourceClock: clock))
+        {
+            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit authorization."));
+            var first = session.ClaimSource("first", "profile", [Identity(1)]);
+            Finish(session, first, new JsonObject { ["statusCode"] = 503 });
+            session.BeginSourceRecovery();
+            Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+            var later = session.ClaimSource("metadata", "structured", [ExportSession.PhotoPath(RootId)]);
+            var other = session.ClaimSource("already-running", "profile", [Identity(2)]);
+            Finish(session, later, new JsonObject
+            {
+                ["statusCode"] = 503, ["headers"] = new JsonObject { ["Retry-After"] = "450" }
+            });
+            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit authorization."));
+            Finish(session, other, Ok());
+            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery(" "));
+            var status = session.BeginSource503Recovery("User authorized future delayed HTTP 503 retries.");
+            var authorization = Assert.Single(status.ServiceRecoveries);
+            Assert.Equal(clock.Now, authorization.AuthorizedAt);
+            Assert.Equal(new("structured", ExportSession.PhotoPath(RootId), later.ClaimId!.Value),
+                Assert.Single(authorization.Targets));
+            Assert.True(status.RecoveryConsumed);
+        }
+        using var resumed = ExportSession.Open(path, sourceClock: clock);
+        var blocked = resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
+        Assert.Null(blocked.ClaimId);
+        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
+        clock.Now = clock.Now.AddSeconds(449);
+        Assert.Null(resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
+        Assert.Null(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
+        clock.Now = clock.Now.AddSeconds(1);
+        var retry = resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
+        Assert.NotNull(retry.ClaimId);
+        Assert.Null(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
+        Finish(resumed, retry, Ok());
+        Assert.NotNull(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
+        Assert.Single(resumed.SourceStatus().ServiceRecoveries);
+    }
+
+    [Theory]
+    [InlineData(429, "TooManyRequests", null)]
+    [InlineData(500, "InternalServerError", null)]
+    [InlineData(404, "Request_ResourceNotFound", null)]
+    [InlineData(403, "Forbidden", null)]
+    [InlineData(503, "Authorization_RequestDenied", null)]
+    [InlineData(503, "ServiceUnavailable", "invalid")]
+    public void Authorized_503_exception_cannot_bypass_other_failures_or_denials(int status, string code, string? delay)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var first = session.ClaimSource("first", "profile", [Identity(1)]);
+        Finish(session, first, new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+        var later = session.ClaimSource("later", "profile", [Identity(2)]);
+        var response = new JsonObject
+        {
+            ["statusCode"] = status, ["error"] = new JsonObject { ["code"] = code }
+        };
+        if (delay is not null) response["headers"] = new JsonObject { ["Retry-After"] = delay };
+        Finish(session, later, response);
+
+        Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit user authorization."));
+
+        Assert.Empty(session.SourceStatus().ServiceRecoveries);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts);
+        Assert.Null(session.ClaimSource("blocked-retry", "profile", [Identity(2)]).ClaimId);
+        Assert.True(session.SourceStatus().RecoveryConsumed);
     }
 
     [Fact]
