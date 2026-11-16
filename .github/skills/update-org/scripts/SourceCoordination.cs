@@ -191,7 +191,8 @@ public sealed partial class ExportSession
             var objects = SourceObjects(result.Response).ToArray();
             Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
                 && objects.All(obj => SourceText(obj["code"]).Length == 0)
-                && objects.Any(obj => SourceText(obj["message"]) == "Open '' Failure: Unable to open, Exception Caught."),
+                && objects.Any(obj => SourceText(obj["message"]) == "Open '' Failure: Unable to open, Exception Caught."
+                    || SourceText(obj["error"]) == "Open '' Failure: Unable to open, Exception Caught."),
                 "Only the unclassified profile-open failure qualifies; structured failures and denials remain blockers.");
             ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason,
                 [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
