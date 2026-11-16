@@ -59,8 +59,16 @@ create an empty local Workspace, choose **Join folder**, then **Sync now**.
 The app validates complete logical snapshots before adopting a clean continuation;
 unpublished local writing and drafts are never overwritten. Invalid delivery
 leaves the last validated state usable with an explicit error. Divergent versions
-are preserved and edits paused; interactive resolution, routine retention,
-periodic synchronization and redesigned exit remain later slices.
+are preserved and edits paused, while Person browsing remains available.
+**Review complete versions / retained recovery** lists exact complete versions
+without choosing one for you. Deliberately select a version, then **Continue using
+selected complete version**. This chooses all of that version's data, not a merge;
+new arrivals invalidate an earlier review. Other versions remain separately
+retained for recovery after selection and restart. Only the explicit, confirmed
+**Delete selected retained recovery** action removes a retained recovery copy.
+Routine complete snapshots rotate to current and previous; retained recovery,
+unknown files and provider-named conflict copies do not rotate away.
+Periodic synchronization and redesigned exit remain later slices.
 
 Failed local saves retain exact owner drafts and pause editing, not Person
 browsing. An ordinary save outstanding for three seconds (including its queue)

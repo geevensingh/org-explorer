@@ -123,10 +123,17 @@ are portable data. Every current/dormant private label, accepted Import,
 Profile-change observation, frozen capture/transition, note version/review value
 and current or retained photo is included. Each artifact owns its resource bytes;
 there are no mutable or cross-artifact resource dependencies.
+After deliberate whole-version selection, optional `resolvedRevisions` lists the
+exact revision identities acknowledged by that decision, including earlier
+acknowledgments. It never contains the new resolution revision. The selected
+version's ordered ancestry gains a fresh resolution revision; its logical data
+is selected intact, not merged. An acknowledged competing revision is stale;
+an unseen descendant of that competitor is still divergent.
 
 Optional local `synchronization` and `revision_ancestry` metadata retain the
 configured folder, last verified published revision, join intent, divergence
-marker and complete local revision lineage. Existing staged 1/2 stores acquire
+marker and complete local revision lineage. Optional `resolved_revisions` retains
+the decision's acknowledged identities in that same transaction. Existing staged 1/2 stores acquire
 the format-3 tables on explicit configuration without discarding existing data.
 Every subsequent note/profile/Import commit appends its new revision in that same
 transaction; hashing/export is not performed per edit. A revision/lineage mismatch
@@ -179,10 +186,40 @@ clears saving/recovery state.
 
 Divergence is refused, durably marked and preserved as complete local artifacts
 under `snapshot-conflicts`; browsing remains available and new edits are paused.
-No version is silently selected or deleted. Interactive choice, bounded routine
-retention, periodic scheduling and redesigned exit belong to later slices. Unknown
-files and provider copies are not removed. Local `snapshot-*` validation directories
-are disposable staging, not accepted recovery or another Workspace authority.
+The #97 public review binds the Workspace, current local revision, exact complete
+content hashes and retained/delivered inventory. Settings makes no default
+selection. An explicit choice revalidates that inventory and all local save/draft
+admission guards, preserves both committed versions, then installs one complete
+state under a new transaction/revision identity. It cannot discard retained
+writing or bypass an unknown-outcome/accepted-return handoff. New arrivals make
+an older review stale. Arrivals during commit are checked again; newly divergent
+data is retained and requires another choice. A durable read-only marker remains
+until that final check completes, including across restart or failed validation.
+
+Chosen and unchosen conflict artifacts remain separate retained recovery, even
+after later ordinary edits and publication. An explicit fresh, confirmed deletion
+can remove an unneeded retained copy, never the active local version or an
+unresolved conflict. It does not erase unknown provider copies.
+
+Routine publication retains the current and previous available known-good
+complete snapshots. Before clean adoption, the validated local base is preserved
+as a complete artifact even if the provider removed its earlier export; removal
+of an old export is not a request to delete the Workspace. A local `snapshot_inventory` records exact canonical
+`<workspace-id>-<revision>.oesnapshot` names and validated content hashes for the
+configured folder. Cleanup excludes retained conflicts, noncanonical/provider
+names, unknown files, pending writes, newer continuations and divergent versions.
+Each retained artifact remains independently complete; domain history and photo
+resources inside it are never pruned. A per-folder exclusive
+`.orgexplorer-snapshot-lease` coordinates app publication/adoption/review/cleanup
+across local clients, not ordinary local commits or the external provider.
+Before retirement, current delivery and resources are validated again. A candidate
+is renamed to a unique `.retiring` name and its actual displaced content is
+checked before deletion; changed/provider bytes are preserved and cleanup reports
+an error. Interrupted retirement may retain extra evidence rather than risk data.
+This does not serialize a noncooperating provider or establish remote delivery.
+Local `snapshot-*` validation directories are disposable staging, not accepted
+recovery or another Workspace authority. Periodic scheduling and redesigned exit
+remain separate slices.
 
 ## Readable-file version 3
 

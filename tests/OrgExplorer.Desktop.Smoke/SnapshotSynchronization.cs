@@ -112,6 +112,7 @@ internal static partial class Program
                 Control<TextBlock>("Email").Text != "avery@example.com" ||
                 workflow.PeopleNavigation.SelectedEmail != "avery@example.com")
                 throw new InvalidOperationException("Compiled incoming adoption lost the selected Person or left stale reading.");
+            VerifyCompiledWorkspaceVersions(window, workflow, first, Deliver, Select);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Snapshot compiled verification must not show or create a native window.");
             Console.WriteLine("PASS: compiled SQLite Settings folder/Join/Sync now validates real artifacts, preserves identity/selected Person and exact post-seal owner drafts while the same real adoption commit remains held, and reports publication separately from unknown provider delivery without a visible window/native handle.");
@@ -382,6 +383,7 @@ internal static partial class Program
             scope = "Normal native Settings folder, Sync now, fresh join and automatic clean continuation; real independent logical stores/resources/history. Not periodic scheduling, conflict resolution, retention, exit or 10,000-Person export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: hosted SQLite snapshots: native Settings folder/Sync now/status, independent-store fresh join and selected-Person incoming adoption preserve actual photos/private Team names/frozen history; candidate-bound evidence: " + evidence);
+        RunWorkspaceConflictJourney(window, source, target, outgoing, incoming, expected);
         SetSettingsVisible(window, true);
         PrepareAction("OpenWorkspace");
         PickWorkspaceFolder(window, source);
