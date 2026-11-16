@@ -85,7 +85,7 @@ public partial class MainWindow
 
     private async void RefreshSearchAndFavorites()
     {
-        if (SearchResults is null || refreshingQueries || workPending) return;
+        if (SearchResults is null || refreshingQueries || workPending && !localImportPending) return;
         var query = SearchQuery.Text;
         if (!queryDirty && lastQuery == query)
         {
@@ -100,7 +100,7 @@ public partial class MainWindow
         var request = ++queryRequest;
         var snapshot = await Task.Run(() => (Results: workflow.Search(query),
             Favorites: workflow.FavoritePeople, Current: workflow.IsWorkspaceCurrent));
-        if (request != queryRequest || workPending || query != SearchQuery.Text) return;
+        if (request != queryRequest || workPending && !localImportPending || query != SearchQuery.Text) return;
         refreshingQueries = true;
         try
         {

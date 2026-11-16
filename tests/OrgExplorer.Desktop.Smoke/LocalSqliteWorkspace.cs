@@ -251,6 +251,7 @@ internal static partial class Program
                     p95SelectionThroughLayoutMs = P95(selectionMs), p95CommitMs = P95(commitMs),
                     boundary = "Actual invisible compiled event handlers/layout and first-request-to-real-workflow reopen; not native focus, rendered pixels or hosted latency acceptance." }));
             VerifyLocalProfileControls(window, workflow, Select, ArrangeContent, settings);
+            VerifyLocalReviewedImportControls(window, workflow, Select, ArrangeContent, settings);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("SQLite navigation verification must not show a window or create its native handle.");
             Console.WriteLine("PASS: compiled SQLite Create returns to the ordinary start view and normal Settings Import reaches a real reviewed preview without a visible window/native handle.");
@@ -390,6 +391,7 @@ internal static partial class Program
                 Close(reopened);
             }
             finally { StopApplication(reopened); }
+            RunLocalReviewedImportFlow(executable, root, local);
         }
         finally
         {
