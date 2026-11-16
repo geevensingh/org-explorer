@@ -77,42 +77,85 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void SetUnknownLocalOutcome(Exception error) =>
+    private void SetUnknownLocalOutcome(Exception error, string? diagnostic = null) =>
         localSaveFault = new(LocalSavePhase.Indeterminate, LocalSaveOutcome.Unknown,
             CommittedRevision: revision, Error:
                 $"Local transaction outcome is unknown ({error.GetType().Name}). Evidence and drafts are retained. " +
-                "Editing is paused; browsing remains available. Reconcile before retrying. " + error.Message);
+                "Editing is paused; browsing remains available. Reconcile before retrying. " + error.Message +
+                (diagnostic is null ? "" : "\n" + diagnostic));
 
     private bool ReconcileLocalWriteEvidence()
     {
+        var stage = "enumerate";
+        string? receipt = null;
+        Microsoft.Win32.SafeHandles.SafeFileHandle? handle = null;
+        var acquired = false;
+        Exception? primaryFailure = null;
+        string? primaryStage = null;
         try
         {
             foreach (var path in Directory.EnumerateFiles(workspace!, "local-write-*.json"))
             {
+                receipt = Path.GetFileName(path);
+                handle = null;
+                acquired = false;
+                primaryFailure = null;
+                primaryStage = null;
+                stage = "inspect-path";
                 RejectWorkspaceLink(path);
+                stage = "acquire";
                 using (var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                 {
-                    if (file.Length > 4096) throw new FormatException("Invalid local transaction evidence size.");
-                    var intent = JsonSerializer.Deserialize<LocalWriteIntent>(file, JsonOptions)
-                        ?? throw new FormatException("Missing local transaction evidence.");
-                    if (intent.Format != 1 || intent.Id == Guid.Empty ||
-                        Path.GetFileName(path) != $"local-write-{intent.Id:N}.json" ||
-                        !Guid.TryParseExact(intent.BaseRevision, "D", out _) ||
-                        !Guid.TryParseExact(intent.NextRevision, "D", out _) ||
-                        intent.BaseRevision == intent.NextRevision)
-                        throw new FormatException("Invalid local transaction evidence.");
-                    // A matching validated revision establishes commit or rollback, not elapsed time.
-                    if (revision != intent.BaseRevision && revision != intent.NextRevision)
-                        throw new IOException("The validated local revision does not establish this transaction's outcome.");
+                    acquired = true;
+                    try
+                    {
+                        handle = file.SafeFileHandle;
+                        stage = "read";
+                        if (file.Length > 4096) throw new FormatException("Invalid local transaction evidence size.");
+                        var intent = JsonSerializer.Deserialize<LocalWriteIntent>(file, JsonOptions)
+                            ?? throw new FormatException("Missing local transaction evidence.");
+                        stage = "validate";
+                        if (intent.Format != 1 || intent.Id == Guid.Empty ||
+                            Path.GetFileName(path) != $"local-write-{intent.Id:N}.json" ||
+                            !Guid.TryParseExact(intent.BaseRevision, "D", out _) ||
+                            !Guid.TryParseExact(intent.NextRevision, "D", out _) ||
+                            intent.BaseRevision == intent.NextRevision)
+                            throw new FormatException("Invalid local transaction evidence.");
+                        // A matching validated revision establishes commit or rollback, not elapsed time.
+                        if (revision != intent.BaseRevision && revision != intent.NextRevision)
+                            throw new IOException("The validated local revision does not establish this transaction's outcome.");
+                    }
+                    catch (Exception error) when (StorageError(error))
+                    {
+                        primaryFailure = error;
+                        primaryStage = stage;
+                        throw;
+                    }
+                    finally { stage = "release"; }
                 }
+                stage = "retire";
                 DeleteWorkspaceFile(path);
                 localSavingRecovered = true;
+                stage = "enumerate";
+                receipt = null;
+                handle = null;
+                acquired = false;
             }
             return true;
         }
         catch (Exception error) when (StorageError(error))
         {
-            SetUnknownLocalOutcome(error);
+            var failure = primaryFailure ?? error;
+            var failureStage = primaryStage ?? stage;
+            var lifetime = handle is null ? acquired ? "not-observed" : "not-acquired" : handle.IsClosed ? "closed" : "open";
+            var origin = failure.TargetSite is { } target ? $"{target.DeclaringType?.FullName}.{target.Name}" : "unavailable";
+            var cleanup = primaryFailure is not null && !ReferenceEquals(error, primaryFailure)
+                ? $" Cleanup also failed during release ({error.GetType().Name}, hresult=0x{error.HResult:X8}): {error.Message}"
+                : "";
+            SetUnknownLocalOutcome(failure,
+                $"Receipt reconciliation: receipt-stage={failureStage}; managed-receipt-handle={lifetime}; " +
+                $"hresult=0x{failure.HResult:X8}; origin={origin}; receipt={receipt ?? "unavailable"}; process={Environment.ProcessId}. " +
+                "Handle state is a non-atomic observation after failure, not historical ownership proof." + cleanup);
             return false;
         }
     }

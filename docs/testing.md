@@ -510,6 +510,15 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
+Receipt failures also retain their actual reconciliation stage (acquire, read,
+validate, release or retirement), native HRESULT, originating method and observed
+managed-handle lifetime in the existing error diagnostic. They do not change
+lease sharing, retirement or recovery policy. Failure attribution is captured before
+release; a later cleanup failure is retained alongside the original. Borrowed-handle
+state is a non-atomic observation, not historical ownership or OS availability proof.
+A real post-Commit Team-note gate
+calibrates acquire refusal with exact committed writing still browseable/read-only,
+then permits reconciliation only after the actual owned writer releases its lease.
 Active unresolved real writers yield
 validated read-only browsing rather than an empty success.
 Reviewed-Import rollback requires explicit local-save reconciliation before retry;
