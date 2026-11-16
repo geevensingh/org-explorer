@@ -215,12 +215,26 @@ internal static partial class Program
     }
     private static void AwaitLocalWorkIdle(AutomationElement window)
     {
-        Await(() =>
-            Activity(window) == "Ready" &&
-            !Status(window).StartsWith("Pending", StringComparison.Ordinal) &&
-            (CurrentPersonEmail(window).Length == 0 ||
-                !NoteFeedback(window, "Person").StartsWith("Pending", StringComparison.Ordinal) &&
-                !NoteFeedback(window, "Team").StartsWith("Pending", StringComparison.Ordinal)));
+        Await(() => IsLocalWorkIdle(window));
+    }
+    private static bool IsLocalWorkIdle(AutomationElement window) =>
+        LocalWorkObservation.Observe(() => Activity(window), () => Status(window), () => ReadIdleControls(window));
+
+    private static IReadOnlyList<LocalWorkObservation.Control> ReadIdleControls(AutomationElement window)
+    {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+        var cache = new CacheRequest { TreeScope = TreeScope.Element };
+        cache.Add(AutomationElement.AutomationIdProperty);
+        cache.Add(AutomationElement.NameProperty);
+        cache.Add(AutomationElement.ItemStatusProperty);
+        cache.Add(AutomationElement.IsOffscreenProperty);
+        AutomationElementCollection controls;
+        using (cache.Activate())
+            controls = window.FindAll(TreeScope.Descendants, new OrCondition(
+                new[] { "Email", "WorkspaceStart", "PersonNotesSurface", "TeamNotesSurface" }
+                    .Select(id => new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+        return controls.Cast<AutomationElement>().Select(control => new LocalWorkObservation.Control(
+            control.Cached.AutomationId, control.Cached.Name, control.Cached.ItemStatus, control.Cached.IsOffscreen)).ToArray();
     }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {

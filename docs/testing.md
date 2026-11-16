@@ -1472,6 +1472,18 @@ Later records carry `diagnosticsComplete=false` and `outputFailures`; action
 outcome is separate from evidence completeness. Missing boundaries or any output
 failure make investigation evidence incomplete, even when actions passed.
 Unexpected diagnostic programming errors are not silently caught.
+`AwaitLocalWorkIdle` preserves its original exact `Ready` activity and ordinal
+non-`Pending` status guards before requesting one fresh, four-ID filtered native
+snapshot per eligible poll. The snapshot contains only Email, WorkspaceStart and
+the two note surfaces, never elements/properties retained across polls or owners.
+Absent Email still requires the actual visible starting view; empty Email retains
+its original optional-note behavior. A selected Person still requires Person then
+Team feedback without `Pending`, including offscreen note reading. Required-control
+absence and provider failures are not readiness, and no local-save phase/status is
+normalized. The existing twenty-second observer/catches remain unchanged.
+Runner regressions pin short-circuit order, startup/required-control failures,
+per-poll query count, changed owners/feedback and unavailable providers. These are
+observation contracts, not rendered usability, local durability or latency claims.
 The experimental `run_uia_observation_probe=true` manual `ci.yml` input adds a
 separate disposable Windows job; all required CI jobs still run unchanged.
 Its `--diagnose-uia-observation` command refuses local/unbound execution, launches
