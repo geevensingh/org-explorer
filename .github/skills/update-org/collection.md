@@ -274,8 +274,11 @@ all active claims settled, run `source-recover-profile-open RUN DIRECTORY-ID REA
 and use the returned eligibility through the usual claim/capture/finish sequence.
 Record the authorization in `serviceRecoveries`; preserve the original error,
 successful identities and returned delays. This exception covers only that
-first-attempt, code-less profile-open failure, not other failures or future
-identities. A failed second attempt still blocks publication.
+first-attempt, code-less profile-open failure, not other failure types. Approval
+is identity-specific unless the user explicitly includes future identical
+profile-open failures in this invocation. Even with that broader approval, record
+each identity's authorization separately through the gate. A failed second
+attempt still blocks publication.
 
 ### Denials and stopped-worker handoff
 
