@@ -437,13 +437,36 @@
                       Click="CreateLocalSqliteWorkspace"/>
             </WrapPanel>
             <TextBlock x:Name="SqlitePreviewGuidance" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,16"
-                      Text="SQLite preview: Person profiles, photos, Team names, note autosave and initial People-only Import. Synchronization and subsequent Imports are not available. The existing Workspace is preserved."/>
+                      Text="SQLite preview: Person profiles, photos, Team names, note autosave, reviewed Imports and explicit snapshot synchronization. The existing Workspace is preserved."/>
             <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
             <TextBlock Text="Import" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
             <TextBlock Text="Review the proposed changes before applying them." TextWrapping="Wrap"
                        Foreground="{StaticResource MutedBrush}"/>
             <Button x:Name="OpenImportButton" Content="_Import..." AutomationProperties.AutomationId="OpenImport"
                     Click="OpenImportView" HorizontalAlignment="Left" Margin="0,16,0,24"/>
+            <StackPanel x:Name="SynchronizationPanel" Visibility="Collapsed" Margin="0,0,0,24">
+              <TextBlock Text="Synchronization" FontSize="20" FontWeight="SemiBold" Margin="0,8,0,8"/>
+              <TextBlock Text="Choose a separate folder carried by your existing provider. Only complete logical snapshots are exchanged, never the live local database. Use computers one at a time."
+                         TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
+              <TextBlock x:Name="SynchronizationFolder" AutomationProperties.AutomationId="SynchronizationFolder"
+                         TextWrapping="Wrap" Focusable="True" Margin="0,8,0,8">
+                <TextBlock.ContextMenu>
+                  <ContextMenu><MenuItem Header="Copy path"
+                      Tag="{Binding PlacementTarget.Text, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      Click="CopyProfileValue"/></ContextMenu>
+                </TextBlock.ContextMenu>
+              </TextBlock>
+              <WrapPanel>
+                <Button x:Name="ConfigureSynchronizationFolderButton" Content="Configure folder..."
+                        AutomationProperties.AutomationId="ConfigureSynchronizationFolder" Click="ConfigureSynchronizationFolder"/>
+                <Button x:Name="JoinSynchronizationFolderButton" Content="Join folder (empty local Workspace)..."
+                        AutomationProperties.AutomationId="JoinSynchronizationFolder" Click="JoinSynchronizationFolder"/>
+                <Button x:Name="SyncNowButton" Content="Sync now" AutomationProperties.AutomationId="SyncNow"
+                        Click="SynchronizeNow"/>
+              </WrapPanel>
+              <TextBlock x:Name="SynchronizationStatus" AutomationProperties.AutomationId="SynchronizationStatus"
+                         TextWrapping="Wrap" Margin="0,8,0,0"/>
+            </StackPanel>
             <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
             <TextBlock Text="Updates" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
             <WrapPanel Margin="0,8,0,12">

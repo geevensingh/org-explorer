@@ -94,7 +94,7 @@ public sealed partial class ApplicationWorkflow
         (localRequests.Status.Phase != LocalSavePhase.Ready ? localRequests.Status with { CommittedRevision = revision } :
             new(localSavingRecovered ? LocalSavePhase.Recovered : LocalSavePhase.Ready,
                 LocalSaveOutcome.None, CommittedRevision: revision));
-    public bool CanEditLocalWorkspace => IsWorkspaceCurrent && !LocalSave.EditsPaused;
+    public bool CanEditLocalWorkspace => IsWorkspaceCurrent && !LocalSave.EditsPaused && !Synchronization.Diverged;
     public bool ReconcileLocalSaves()
     {
         if (!localSqlite) return RefreshWorkspace();
@@ -125,6 +125,8 @@ public sealed partial class ApplicationWorkflow
     private bool CanBeginLocalSave()
     {
         if (!localSqlite) return true;
+        if (Synchronization.Diverged)
+            return Fail("Edits are paused for preserved divergent Workspace versions.");
         if (localSaveFault?.Outcome == LocalSaveOutcome.Unknown ||
             localSaveDepth.Value == 0 && LocalSave.EditsPaused && LocalSave.HasUnresolvedOutcome)
             return Fail("Local save outcome remains unknown. No competing retry was started; browsing and retained drafts remain available.");
@@ -132,8 +134,8 @@ public sealed partial class ApplicationWorkflow
         return true;
     }
 
-    private bool AllowLocalDraftEdit() => !localSqlite || !LocalSave.EditsPaused ||
-        Fail("Editing paused. Retained drafts are unchanged. Reconcile the original local save; browsing remains available.");
+    private bool AllowLocalDraftEdit() => !localSqlite || !LocalSave.EditsPaused && !Synchronization.Diverged ||
+        Fail("Editing paused. Retained drafts are unchanged. Resolve local saving or retained synchronization versions; browsing remains available.");
 
     private T TrackLocalSave<T>(Func<T> operation)
     {
@@ -156,10 +158,10 @@ public sealed partial class WorkspaceViewModel
         : Volatile.Read(ref viewSaveFault) ?? (workflow.LocalSave.EditsPaused ? workflow.LocalSave :
         localSaveRequests.Status.Phase != LocalSavePhase.Ready
             ? localSaveRequests.Status with { CommittedRevision = workflow.LocalSave.CommittedRevision } : workflow.LocalSave);
-    public bool CanEditLocalWorkspace => IsWorkspaceCurrent && !LocalSave.EditsPaused;
+    public bool CanEditLocalWorkspace => IsWorkspaceCurrent && !LocalSave.EditsPaused && !Synchronization.Diverged;
     private bool AllowLocalDraftEdit()
     {
-        if (!Compatibility.SupportsNonblockingNoteAutosave || !LocalSave.EditsPaused) return true;
+        if (!Compatibility.SupportsNonblockingNoteAutosave || !LocalSave.EditsPaused && !Synchronization.Diverged) return true;
         navigationError = "Editing paused. Retained drafts are unchanged; reconcile local saving. Browsing remains available.";
         Notify();
         return false;
@@ -173,7 +175,13 @@ public sealed partial class WorkspaceViewModel
             if (localNoteDrafts.Values.Any(draft => draft.Saving) || Volatile.Read(ref explicitLocalSaves) != 0) return false;
             recovering = LocalSave.EditsPaused;
             localSaveReconciling = true;
+            if (recovering)
+            {
+                noteAutosaveEpoch++;
+                noteAutosaveTask = null;
+            }
         }
+        using var adoptionDeferral = workflow.DeferSnapshotAdoption();
         try
         {
             return Observe(() =>
@@ -217,6 +225,7 @@ public sealed partial class WorkspaceViewModel
     {
         if (!Compatibility.SupportsNonblockingNoteAutosave) return Observe(operation);
         var request = Compatibility.SupportsNonblockingNoteAutosave ? localSaveRequests.Begin() : (long?)null;
+        using var adoptionDeferral = request is not null ? workflow.DeferSnapshotAdoption() : null;
         Interlocked.Increment(ref explicitLocalSaves);
         try { return Observe(operation); }
         finally
@@ -231,6 +240,7 @@ public sealed partial class WorkspaceViewModel
     {
         var admitted = CanSubmitLocalSave();
         var request = Compatibility.SupportsNonblockingNoteAutosave ? localSaveRequests.Begin() : (long?)null;
+        using var adoptionDeferral = request is not null ? workflow.DeferSnapshotAdoption() : null;
         Interlocked.Increment(ref explicitLocalSaves);
         try
         {

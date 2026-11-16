@@ -22,7 +22,7 @@ public sealed partial class ApplicationWorkflow
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => !LocalSave.EditsPaused && LocalSave.OutstandingRequests == 0 &&
         Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
-        !HasUnsavedProfiles;
+        !HasUnsavedProfiles && !HasRetainedPersonTextDrafts;
     public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
         ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
     public bool CanEnterImport
@@ -52,6 +52,23 @@ public sealed partial class ApplicationWorkflow
 
     public void DiscardUnsavedChanges(Guid? noteId = null)
     {
+        if (localSqlite && noteId is { } localId)
+        {
+            lock (profileDraftGate)
+            {
+                if (LocalSave.HasUnresolvedOutcome || LocalSave.OutstandingRequests != 0)
+                {
+                    Fail("Note discard waits for the original local outcome. Saving and recovery state are unchanged.");
+                    return;
+                }
+                failedSaves.Remove($"note:{localId}");
+                unsavedNoteBases.TryRemove((NoteScope.Person, localId), out _);
+                failedSaves.Remove($"team-note:{localId}");
+                unsavedNoteBases.TryRemove((NoteScope.Team, localId), out _);
+                Status = "Unsaved local note draft deliberately discarded. Independent writing and recovery state are retained.";
+                return;
+            }
+        }
         lock (workspaceGate)
         {
             if (noteId is { } id)

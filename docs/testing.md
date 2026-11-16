@@ -290,6 +290,77 @@ reopened captures carry actual desktop pixels and matching metadata.
 These focused two-Person checks do not establish rich-scale/background-export,
 stalled-save orchestration or hosted acceptance before the required lane runs.
 
+`WorkspaceSnapshotTests` covers #96 through two independent real SQLite
+workflow/view-model stores and controlled copying of actual `.oesnapshot`
+artifacts. It observes complete logical publication/fresh identity join, selected
+Person/query preservation, private dormant Team labels and derived owner paths,
+current/retained decoded photos, accepted Import replay and complete frozen
+capture provenance/note versions/review. Hash-valid missing-resource delivery,
+truncation, incompatible envelopes, bad schema/ancestry/identity and missing
+accepted evidence retain the last valid local state with explicit errors.
+Actual local writer locks and filesystem staging observations admit Preferred-name,
+profile and note drafts during validation; adoption must refuse them without
+losing writing. An actual publication-boundary hold allows another local commit
+and proves that publication of the older snapshot cannot acknowledge it.
+Reviewed partial/photo Imports use that same ancestry/commit proof, including
+accepted later replay after current photo clearing and full two-store frozen
+history/resources. An Import accepted during held export must remain separately
+unpublished until its own complete revision is exported.
+Both note scopes also hold the actual successful SaveNoteDraft return, retain a
+newer generation, independently publish that committed revision and deliver its
+real child. The non-base admission lease must prevent adoption through that VM
+handoff even when core saving is complete. A real SQLite reader holds the final
+adoption commit after clean admission; the existing storage-phase observer only
+records entry into `snapshot.adopt-commit`. Browsing and later profile draft
+admission must return while the same commit is still held, and installation
+must preserve that later draft. Both note scopes additionally retain their exact
+owner/writing/immutable base after that seal, then commit/reopen and publish a
+valid child which the first store must accept. A failed/timed-out commit cannot
+satisfy this structural nonblocking proof.
+The joint #95 cases create a real committed-but-lost note return in both scopes,
+with and without newer generations. Actual SQLite exclusive locking holds
+`snapshot.local-read` while reconciliation reaches its real core draft
+acknowledgment. Browsing must return before that same observed read ends; a read
+failure or merely pending task is not sufficient. Committed-ack removal must
+release adoption admission, whereas newer writing must survive, retry/reopen and
+refuse a truly divergent child. Explicit buffer discard cannot erase an unknown
+outcome or authorize adoption. A published Person save held at its real return
+uses an unadvanced injected request clock to isolate the pre-timeout lifetime,
+not manufacture a timeout or claim latency. A real rejected SQLite adoption
+Commit must retain the old root and enter actual local recovery before safe retry.
+Recovery also invalidates only an already-ended save worker's epoch before
+clearing its paused state. The queued-request regression holds that exact worker's
+public completion notification (not a timer callback), then requires the explicit
+recovered retry to enter while the old notification is still held. A stale worker
+cannot veto the new worker or silently resume queued writing after reconciliation.
+The first-edit cadence, actual active transaction and oldest-request clocks are
+unchanged.
+Interruption before/after real immutable publication reopens and retries without
+replaying edits; duplicates/reordering cannot roll back; divergence preserves
+complete versions and pauses editing across restart. No private-table assertions
+or fake hosted provider are used.
+
+The existing invisible `--verify-profile-refresh` selection also drives compiled
+Settings folder/Join/Sync now against those actual artifacts and observes a clean
+incoming continuation while preserving the selected Person. It never shows a
+window or creates its native handle. The existing hosted `compatibility-settings`
+tail adds native folder configuration, truthful publication/provider status,
+fresh second-local-store joining and visible incoming adoption, without a new
+scenario or a deadline/assertion change. `*-sqlite-snapshots.json` binds source
+revision/run/attempt/product hash, process, independent stores, Workspace/version
+IDs, actual artifact hashes and exact photo/Team/history evidence. Captures are
+`sqlite-sync-folder-published`, `sqlite-sync-joined-person-history`,
+`sqlite-sync-held-adoption-draft` and
+`sqlite-sync-incoming-continuation`, with the shared actual-pixel metadata.
+The normal receiving phase and actual live SQLite journal bind the native held
+adoption observation: a real reader remains held through native post-seal input,
+Person selection and capture, then is deliberately released. The exact owner
+draft must survive success before its explicit Cancel exposes the new committed
+reading. `heldAdoption` records the real phase/action timestamps and boundaries;
+no busy-time extension or new latency claim is used.
+These are not periodic synchronization, conflict-resolution/retention, redesigned
+exit, native latency or 10,000-Person background-export proof.
+
 The #94 reviewed-Import path uses that same SQLite commit boundary for partial
 multi-Person updates, photos, accepted evidence, Profile changes, reporting
 transitions, Team-note review and frozen context. `SqliteWorkspaceTests` compares

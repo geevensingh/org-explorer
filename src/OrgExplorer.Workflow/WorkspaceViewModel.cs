@@ -53,7 +53,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool RefreshWorkspace() => Observe(workflow.RefreshWorkspace);
     public void Dispose()
     {
-        lock (noteDraftGate) noteAutosaveStopped = true;
+        lock (noteDraftGate)
+        {
+            noteAutosaveStopped = true;
+            foreach (var draft in localNoteDrafts.Values) draft.AdoptionDeferral.Dispose();
+        }
         localSaveRequests.Dispose();
         workflow.WorkspaceChanged -= ForwardWorkspaceChange;
         workflow.Dispose();
@@ -146,6 +150,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             var key = (basis.Email.ToLowerInvariant(), field);
             if (value == basis.PreferredName && !personTextDrafts.ContainsKey(key)) return;
             personTextDrafts[key] = new(basis, field, value, personTextDrafts.GetValueOrDefault(key)?.Error);
+            workflow.RetainPersonTextDraft(basis, field, value);
         }
         Notify();
     }
@@ -210,6 +215,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingStorageMaintenance)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Synchronization)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));

@@ -469,6 +469,7 @@ public partial class MainWindow : Window
                 : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
         ShowPublicationConflicts();
+        ShowSynchronizationStatus();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."

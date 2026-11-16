@@ -41,8 +41,8 @@ dotnet run --project src\OrgExplorer.Desktop
 
 **Settings → Create local Workspace (preview)** creates a new app-managed
 Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
-It preserves the previous Workspace. The staged path supports a reviewed
-initial People-only Import, browsing and startup reopening, with all supplied
+It preserves the previous Workspace. The staged path supports reviewed
+partial Imports including photos, browsing and startup reopening, with all supplied
 Person attributes, relationships and accepted evidence committed together.
 Successful creation returns to the browsing start view, like Open Workspace;
 open **Settings → Import...** to review the initial population.
@@ -50,6 +50,18 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
+The new exit interaction is not available yet; unsupported actions are rejected,
+never sent to the legacy writer. Original and later exact Import replay remain
+no-ops after subsequent changes.
+For explicit cross-computer use, open **Settings -> Synchronization**, configure
+a separate provider-carried folder and choose **Sync now**. On a second computer,
+create an empty local Workspace, choose **Join folder**, then **Sync now**.
+The app validates complete logical snapshots before adopting a clean continuation;
+unpublished local writing and drafts are never overwritten. Invalid delivery
+leaves the last validated state usable with an explicit error. Divergent versions
+are preserved and edits paused; interactive resolution, routine retention,
+periodic synchronization and redesigned exit remain later slices.
+
 Failed local saves retain exact owner drafts and pause editing, not Person
 browsing. An ordinary save outstanding for three seconds (including its queue)
 shows **stalled / not confirmed saved**; further typing cannot postpone that
@@ -60,9 +72,6 @@ Cancel remains owner-scoped and does not clear a storage fault or independent
 note writing. Restart recovers validated committed data, not unsaved edit buffers;
 unresolved transaction evidence keeps that data read-only. An invalid database
 reports an explicit failure, never an empty replacement.
-Subsequent Imports, synchronization and the new exit
-interaction are not available yet; unsupported actions are rejected, never sent
-to the legacy writer. Exact Import replay remains a no-op.
 Do not synchronize the live database or its journal, and do not treat local
 commit as publication or provider delivery. See the
 [staged format](docs/workspace-format.md#staged-local-sqlite-formats).

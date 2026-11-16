@@ -194,6 +194,7 @@ internal static partial class Program
                 finally { noteFailureWindow.Close(); }
                 VerifySettingsFocus(window);
                 HarnessRuntime.Run("compiled-sqlite", () => VerifySqliteCreationNavigation(type, settings, chooseFolder));
+                HarnessRuntime.Run("compiled-snapshots", () => VerifySnapshotSynchronization(type, settings, chooseFolder));
                 HarnessRuntime.Run("compiled-local-recovery", () => VerifyCompiledLocalSaveRecovery(type, settings));
                 // The empty 44-Person probe must not warm the separate cold browsing window.
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,

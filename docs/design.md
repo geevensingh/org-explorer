@@ -55,6 +55,15 @@ This restores reading context, not unsaved edit buffers.
 
 ## Local files and the sync boundary
 
+The readable-file rules below describe the normal shipping path. The opt-in
+replacement now also supports explicit complete-snapshot Sync now and fresh
+joining through Settings, with independent local SQLite authority. See
+[ADR 0008](adr/0008-local-transactions-independent-sync.md) and the
+[interchange contract](workspace-format.md#complete-logical-snapshots-interchange-1).
+Its clean validated continuations preserve drafts/navigation; divergent versions
+are preserved and refused, not semantically merged. Scheduling, interactive
+resolution, retention and redesigned exit are still separate unfinished slices.
+
 All canonical person data, notes, photos, and history belong in a user-chosen local
 workspace folder, separate from the installation directory. Use readable
 per-person records, separate Markdown note files, and ordinary image files, not

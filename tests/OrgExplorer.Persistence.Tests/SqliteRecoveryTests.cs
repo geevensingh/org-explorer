@@ -18,25 +18,55 @@ public sealed partial class SqliteWorkspaceTests
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        using var notificationEntered = new ManualResetEventSlim();
+        using var releaseNotification = new ManualResetEventSlim();
+        using var retryEntered = new ManualResetEventSlim();
+        using var releaseRetry = new ManualResetEventSlim();
         using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
-        var once = 0;
+        var calls = 0;
+        var savingThread = 0;
+        var observeNotification = 0;
+        var observedNotification = 0;
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (Environment.CurrentManagedThreadId != Volatile.Read(ref savingThread) ||
+                Volatile.Read(ref observeNotification) == 0 || app.LocalSave.Phase != LocalSavePhase.Indeterminate ||
+                Interlocked.Exchange(ref observedNotification, 1) != 0) return;
+            notificationEntered.Set();
+            if (!releaseNotification.Wait(TimeSpan.FromSeconds(10)))
+                throw new IOException("Fixture completed-request notification was not released.");
+        };
         boundary.BeforeSave = () =>
         {
-            if (Interlocked.Exchange(ref once, 1) != 0) return;
-            entered.Set();
-            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Fixture admission was not released.");
-            throw new IOException("The admitted request ended without an acknowledgment.");
+            var call = Interlocked.Increment(ref calls);
+            if (call == 1)
+            {
+                Volatile.Write(ref savingThread, Environment.CurrentManagedThreadId);
+                entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Fixture admission was not released.");
+                throw new IOException("The admitted request ended without an acknowledgment.");
+            }
+            if (call != 2) return;
+            retryEntered.Set();
+            if (!releaseRetry.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Fixture explicit retry was not released.");
         };
-        var first = app.CreateOwnedNoteDraft(NoteScope.Person, "manager@example.com")!;
+        var first = (await Task.Run(() => app.CreateOwnedNoteDraft(NoteScope.Person, "manager@example.com")))!;
+        Task<bool>? retry = null;
         try
         {
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
-            var queued = app.CreateOwnedNoteDraft(NoteScope.Team, "report@example.com")!;
-            app.UpdateNoteDraft(NoteScope.Team, queued.Id, "Independent queued title", "Exact independent queued writing");
+            var queued = await Task.Run(() =>
+            {
+                var draft = app.CreateOwnedNoteDraft(NoteScope.Team, "report@example.com")!;
+                app.UpdateNoteDraft(NoteScope.Team, draft.Id, "Independent queued title", "Exact independent queued writing");
+                return draft;
+            });
             clock.Advance(TimeSpan.FromSeconds(4));
+            Volatile.Write(ref observeNotification, 1);
             release.Set();
+            Assert.True(notificationEntered.Wait(TimeSpan.FromSeconds(5)));
             Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(NoteScope.Person, first.Id)?.IsSaving != true,
                 TimeSpan.FromSeconds(5)));
             Assert.Equal(LocalSavePhase.Indeterminate, app.LocalSave.Phase);
@@ -44,14 +74,25 @@ public sealed partial class SqliteWorkspaceTests
             Assert.Equal(LocalSavePhase.Recovered, app.LocalSave.Phase);
             Assert.True(app.CanEditLocalWorkspace);
             Assert.False(app.CanSafelyClose);
-            Assert.True(await app.RetryNoteDraftAsync(NoteScope.Person, first.Id), app.Status);
+            retry = app.RetryNoteDraftAsync(NoteScope.Person, first.Id);
+            Assert.True(retryEntered.Wait(TimeSpan.FromSeconds(5)),
+                "A completed older worker still vetoed the recovered explicit retry.");
+            releaseNotification.Set();
+            releaseRetry.Set();
+            Assert.True(await retry, app.Status);
             Assert.True(await app.RetryNoteDraftAsync(NoteScope.Team, queued.Id), app.Status);
             using var reopened = ApplicationWorkflow.CreateFileBacked();
             Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
             Assert.Equal("Exact independent queued writing", Assert.Single(reopened.GetTeamNotes("report@example.com")).Markdown);
             Assert.Single(reopened.GetPersonNotes("manager@example.com"));
         }
-        finally { release.Set(); }
+        finally
+        {
+            release.Set();
+            releaseNotification.Set();
+            releaseRetry.Set();
+            if (retry is not null) await retry.WaitAsync(TimeSpan.FromSeconds(10));
+        }
     }
 
     [Fact]
