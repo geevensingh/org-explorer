@@ -80,12 +80,13 @@ internal static partial class Program
             PumpUntil(() => entered.IsSet);
             Note<TextBox>("MarkdownEditor").Text = "Compiled newer exact writing";
             var id = workflow.TeamNotesView.SelectedNote!.Id;
-            PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Stalled);
-            if (Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Visible ||
-                !Control<TextBlock>("NoticeSummary").Text.Contains("3 seconds", StringComparison.Ordinal) ||
-                Note<TextBox>("MarkdownEditor").IsEnabled || Note<Button>("NewButton").IsEnabled ||
-                Control<Button>("EditProfileButton").IsEnabled || workflow.ReconcileLocalSaves())
-                throw new InvalidOperationException("Compiled stalled state did not pause edits and expose actionable recovery.");
+            PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Stalled &&
+                Control<FrameworkElement>("OperationalNotice").Visibility == Visibility.Visible &&
+                Control<TextBlock>("NoticeSummary").Text.Contains("3 seconds", StringComparison.Ordinal) &&
+                !Note<TextBox>("MarkdownEditor").IsEnabled && !Note<Button>("NewButton").IsEnabled &&
+                !Control<Button>("EditProfileButton").IsEnabled);
+            if (workflow.ReconcileLocalSaves())
+                throw new InvalidOperationException("Compiled recovery accepted an unresolved admitted transaction.");
             Select("avery@example.com");
             Select("morgan@example.com");
             if (workflow.TeamNotesView.SelectedNote?.Id != id ||
