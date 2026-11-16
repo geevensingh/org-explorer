@@ -744,6 +744,59 @@ public sealed class SqliteWorkspaceTests : IDisposable
     }
 
     [Fact]
+    public async Task Predetermined_continuous_typing_spans_the_durability_window_and_observes_committed_writing_before_it_ends()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        var drafts = new[] { NoteScope.Person, NoteScope.Team };
+        foreach (var scope in drafts)
+        {
+            var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
+            const string prefix = "# Sustained predetermined writing";
+            var firstRead = 0;
+            using var observation = NoteCommitObservation.Begin(
+                () => app.UpdateNoteDraft(scope, draft.Id, "Sustained context", prefix),
+                () =>
+                {
+                    if (Interlocked.Increment(ref firstRead) == 1) Thread.Sleep(450);
+                    using var reading = ApplicationWorkflow.CreateFileBacked();
+                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                    var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
+                    return committed?.Title == "Sustained context" &&
+                        committed.OwnerEmail == "manager@example.com" &&
+                        committed.Markdown.StartsWith(prefix, StringComparison.Ordinal);
+                });
+            var latest = prefix;
+            var typing = observation.ContinueTyping(index =>
+            {
+                latest += $"\nContinued entry {index}";
+                app.UpdateNoteDraft(scope, draft.Id, "Sustained context", latest);
+                Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+                Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+            });
+            var observedMs = observation.Complete();
+            Console.WriteLine("NOTE-SUSTAINED-TYPING " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                scope = scope.ToString(), readDelayMs = 450, observedMs,
+                continuedEditRequestStartedMs = typing.RequestStartedMs,
+                continuedEditRequestCompletedMs = typing.RequestCompletedMs,
+                typingCompletedMs = typing.RequestCompletedMs[^1]
+            }));
+            Assert.True(typing.RequestStartedMs[^1] - typing.RequestCompletedMs[0] >= 1000,
+                "The fixed typing workload ended before the approved one-second observation window could be exercised.");
+            Assert.True(observedMs <= typing.RequestCompletedMs[^1],
+                "The complete actual committed-content observation must finish before the final predetermined edit completes.");
+            Assert.Equal(typing.RequestStartedMs.Length, typing.RequestCompletedMs.Length);
+            Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal(latest, reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+            Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", draft.Id));
+        }
+    }
+
+    [Fact]
     public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());

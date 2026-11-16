@@ -719,6 +719,8 @@ internal static partial class Program
         var observerAdmittedMs = new List<double?>();
         var firstReadStartedMs = new List<double?>();
         var successfulReadStartedMs = new List<double?>();
+        var continuedEditRequestStartedMs = new List<double[]>();
+        var continuedEditRequestCompletedMs = new List<double[]>();
         var typingCompletedMs = new List<double>();
         var identities = new HashSet<Guid>();
         var saved = new Dictionary<NoteScope, (Guid, string, string)>();
@@ -808,13 +810,14 @@ internal static partial class Program
                         frame.Writable && frame.Editing;
                 });
 
-                for (var edit = 0; edit < 6; edit++)
+                var continuedTyping = firstCommit.ContinueTyping(edit =>
                 {
                     text += $"\nContinuing entry {edit}";
                     bodyPattern.SetValue(text);
-                    Thread.Sleep(60);
-                }
-                var completedTyping = firstCommit.ElapsedMs;
+                });
+                var completedTyping = continuedTyping.RequestCompletedMs[^1];
+                if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
+                    throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
                 durability.Add(firstCommit.Complete());
                 commitRequests.Add(firstCommit.RequestMs);
                 commitReads.Add(firstCommit.ReadCount);
@@ -822,6 +825,8 @@ internal static partial class Program
                 observerAdmittedMs.Add(firstCommit.WorkerAdmittedMs);
                 firstReadStartedMs.Add(firstCommit.FirstReadStartedMs);
                 successfulReadStartedMs.Add(firstCommit.SuccessfulReadStartedMs);
+                continuedEditRequestStartedMs.Add(continuedTyping.RequestStartedMs);
+                continuedEditRequestCompletedMs.Add(continuedTyping.RequestCompletedMs);
                 typingCompletedMs.Add(completedTyping);
                 AssertNoteView(window, family, editing: true);
                 AssertValue(window, family + "NoteTitle", titleText);
@@ -874,7 +879,7 @@ internal static partial class Program
             executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
             environment = new { os = Environment.OSVersion.ToString(), processors = Environment.ProcessorCount,
                 runtime = Environment.Version.ToString(), window = window.Current.BoundingRectangle.ToString() },
-            workload = "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, six continued edits and immediate report/Manager switches per note. Combined rich 10,000-Person/background-export proof belongs to #100.",
+            workload = "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, 20 predetermined continued edits at nominal 60-ms spacing and immediate report/Manager switches per note. All edits execute independently of save observation. Combined rich 10,000-Person/background-export proof belongs to #100.",
             percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based.",
             observation = "Acceptance samples retain all native-request-to-observed-state time, without subtracting instrumentation. Each post-action editor cache selects only the current scope's surface, exact note identity, title, Markdown and Edit tab; it does not request unrelated note reading/list controls. Identity properties come from freshly updated permanent native elements. An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues.",
             addTeamNote = new { boundary = "Native Invoke request through new exact identity, enabled writable editor, visible title and actual keyboard focus.",
@@ -891,6 +896,10 @@ internal static partial class Program
                 samplesMs = durability, p95Ms = P95(durability), budgetMs = 1000,
                 nativeRequestMs = commitRequests, observationReads = commitReads, observationReadMs = commitReadMs,
                 observerAdmittedMs, firstReadStartedMs, successfulReadStartedMs,
+                continuedEditsPerNote = NoteCommitObservation.ContinuedEditCount,
+                nominalEditSpacingMs = NoteCommitObservation.ContinuedEditSpacingMs,
+                continuedEditRequestStartedMs, continuedEditRequestCompletedMs,
+                typingCompletionBoundary = "Actual completion of the final predetermined native Markdown SetValue; no trailing sleep, idle wait or save-conditioned continuation.",
                 typingCompletedMs, committedDuringTyping }
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (P95(editors) > 100 || P95(navigation) > 100 || P95(durability) > 1000 || committedDuringTyping.Any(value => !value))

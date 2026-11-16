@@ -4,6 +4,8 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal sealed class NoteCommitObservation : IDisposable
 {
+    internal const int ContinuedEditCount = 20;
+    internal const int ContinuedEditSpacingMs = 60;
     private readonly Stopwatch elapsed = Stopwatch.StartNew();
     private readonly CancellationTokenSource stopped = new();
     private readonly Task<double?> observed;
@@ -44,6 +46,20 @@ internal sealed class NoteCommitObservation : IDisposable
     internal double ElapsedMs => elapsed.Elapsed.TotalMilliseconds;
     internal int ReadCount { get; private set; }
     internal double ReadMs { get; private set; }
+
+    internal (double[] RequestStartedMs, double[] RequestCompletedMs) ContinueTyping(Action<int> edit)
+    {
+        var started = new double[ContinuedEditCount];
+        var completed = new double[started.Length];
+        for (var index = 0; index < started.Length; index++)
+        {
+            if (index != 0) Thread.Sleep(ContinuedEditSpacingMs);
+            started[index] = elapsed.Elapsed.TotalMilliseconds;
+            edit(index);
+            completed[index] = elapsed.Elapsed.TotalMilliseconds;
+        }
+        return (started, completed);
+    }
 
     internal static NoteCommitObservation Begin(Action request, Func<bool> committed)
     {

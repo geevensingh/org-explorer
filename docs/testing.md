@@ -306,7 +306,16 @@ permanent missing/wrong values and provider failures still fail without new
 deadlines, repeated actions or changes to profile Save/Cancel/read-only behavior.
 
 `NoteCommitObservation` independently reopens the real Workspace through the
-workflow while native navigation and six continued edits proceed. It timestamps
+workflow while native navigation and twenty predetermined continued edits
+proceed at nominal 60-ms spacing. This includes all original first six edits;
+the sequence never stops early or changes cadence based on save observation.
+Every native Markdown request has start/completion timing, and typing ends at
+the final actual SetValue completion, not after a trailing sleep or idle wait.
+The first-to-last continued edit must span the full one-second observation
+window. The former subsecond six-edit burst could end before an otherwise
+in-budget complete reopen, so it did not establish the sustained-writing setup.
+This workload correction does not change any native sample count or latency
+budget. The observer timestamps
 the first coherent committed writing covering the original request instead of
 waiting for unrelated UIA assertions before beginning observation. A real-storage
 regression makes the first actual reader deliberately slow, continues both
@@ -324,6 +333,14 @@ The latency JSON retains all original raw arrays, p95, budgets and boundaries
 observation poll/read counts, cumulative reopen-read time, typing-completion
 timestamps and observed-during-typing flags. All commits must be observed before
 the continued-typing sequence completes.
+`localDurability.continuedEditsPerNote` (20), `nominalEditSpacingMs` (60),
+`continuedEditRequestStartedMs` and `continuedEditRequestCompletedMs` retain the
+fixed plan and all 21 by 20 actual action timings. Each original
+`typingCompletedMs` equals the corresponding final request completion.
+The shared fixed sequence also drives a real-storage regression in both scopes:
+a controlled 450-ms reader delay must not outlast the sustained edits, actual
+committed owner/writing is observed before typing ends, and exact final writing
+reopens. `NOTE-SUSTAINED-TYPING` retains those action/observation timings.
 Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
 `successfulReadStartedMs` retain actual worker/reader timing beside the original
 21 raw totals. Queueing and read/validation are included, never deducted; these
