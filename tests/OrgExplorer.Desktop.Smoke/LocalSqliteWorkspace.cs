@@ -90,6 +90,7 @@ internal static partial class Program
             Select("morgan@example.com");
             void ArrangeContent()
             {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.CompiledLayout);
                 var root = (FrameworkElement)window.Content;
                 root.InvalidateMeasure();
                 root.Measure(new Size(1024, 768));
@@ -97,6 +98,7 @@ internal static partial class Program
                 root.UpdateLayout();
             }
             ArrangeContent();
+            HarnessRuntime.Checkpoint("compiled-sqlite-held-note-navigation");
             foreach (var scope in new[] { NoteScope.Person, NoteScope.Team })
             {
                 var surface = Control<UserControl>(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
@@ -200,12 +202,14 @@ internal static partial class Program
             var content = (FrameworkElement)window.Content;
             void Layout()
             {
+                using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.CompiledLayout);
                 content.InvalidateMeasure();
                 content.InvalidateArrange();
                 content.Measure(new Size(1024, 768));
                 content.Arrange(new Rect(0, 0, 1024, 768));
                 content.UpdateLayout();
             }
+            HarnessRuntime.Checkpoint("compiled-sqlite-repeated-note-dispatch");
             for (var sample = 0; sample < 20; sample++)
             {
                 var elapsed = Stopwatch.StartNew();
@@ -250,7 +254,8 @@ internal static partial class Program
                     commitMs, reopenReadMs = reopenMs, p95DispatchMs = P95(dispatchMs), p95AddThroughLayoutMs = P95(layoutMs),
                     p95SelectionThroughLayoutMs = P95(selectionMs), p95CommitMs = P95(commitMs),
                     boundary = "Actual invisible compiled event handlers/layout and first-request-to-real-workflow reopen; not native focus, rendered pixels or hosted latency acceptance." }));
-            VerifyLocalProfileControls(window, workflow, Select, ArrangeContent, settings);
+            HarnessRuntime.Run("compiled-sqlite-profile",
+                () => VerifyLocalProfileControls(window, workflow, Select, ArrangeContent, settings));
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("SQLite navigation verification must not show a window or create its native handle.");
             Console.WriteLine("PASS: compiled SQLite Create returns to the ordinary start view and normal Settings Import reaches a real reviewed preview without a visible window/native handle.");
@@ -333,8 +338,9 @@ internal static partial class Program
                         !Find(window, "ToggleFavorite").Current.IsEnabled)
                         throw new InvalidOperationException("The SQLite path did not enable its implemented ordinary Person edits.");
                     CaptureVisualEvidence(window, "sqlite-initial-import-browsing");
-                    savedNotes = RunLocalNoteAutosaveJourney(window, local);
-                    personJourney = RunLocalPersonSaveJourney(window, local, root, savedNotes[NoteScope.Team]);
+                    savedNotes = HarnessRuntime.Run("native-sqlite-notes", () => RunLocalNoteAutosaveJourney(window, local));
+                    personJourney = HarnessRuntime.Run("native-sqlite-profile",
+                        () => RunLocalPersonSaveJourney(window, local, root, savedNotes[NoteScope.Team]));
                     savedNotes = savedNotes.ToDictionary(pair => pair.Key, pair => pair.Key == NoteScope.Team
                         ? (pair.Value.Id, pair.Value.Title, pair.Value.Markdown + "\nLater current-only writing") : pair.Value);
                     SelectTreePerson(window, "avery@example.com");
@@ -919,12 +925,14 @@ internal static partial class Program
 
     private static int ObserveNoteLatency(Func<bool> condition)
     {
+        using var waiting = HarnessRuntime.Measure(HarnessRuntime.Work.NativeWait);
         var elapsed = Stopwatch.StartNew();
         var polls = 0;
         while (elapsed.Elapsed < TimeSpan.FromSeconds(20))
         {
             polls++;
-            if (condition()) return polls;
+            using (HarnessRuntime.Measure(HarnessRuntime.Work.Observation))
+                if (condition()) return polls;
             Thread.Sleep(1);
         }
         throw new TimeoutException("The actual usable note/Person condition did not become true within the existing 20-second observation budget.");
@@ -992,6 +1000,7 @@ internal static partial class Program
 
     private static NoteEditorFrame ReadNoteEditor(AutomationElement surface, CacheRequest cache, string family)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NoteSnapshot);
         var nodes = new List<AutomationElement>();
         var pending = new Stack<AutomationElement>();
         pending.Push(surface.GetUpdatedCache(cache));

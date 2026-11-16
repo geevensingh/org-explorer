@@ -143,7 +143,7 @@ internal static partial class Program
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
-            AssertProfileCopyGestures(window, workspace, link);
+            HarnessRuntime.Run("native-copy", () => AssertProfileCopyGestures(window, workspace, link));
             BeginProfileEditing(window);
             if (IsVisible(window, "TeamNameEditor"))
                 throw new InvalidOperationException("A Person without current direct reports can edit a Team name.");
@@ -563,6 +563,7 @@ internal static partial class Program
 
     private static void PressCopyKey(byte key)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
         keybd_event(key, 0, 0, 0);
         keybd_event(key, 0, 2, 0);
     }
@@ -684,6 +685,7 @@ internal static partial class Program
     {
         AutomationElement? value = null;
         var point = AwaitClickablePoint(() => value = find(), requireEnabled);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
         if (!SetCursorPos((int)point.X, (int)point.Y))
             throw new InvalidOperationException("The hosted desktop could not primary-click " + value!.Current.AutomationId);
         mouse_event(2, 0, 0, 0, 0);
@@ -773,6 +775,7 @@ internal static partial class Program
 
     private static void AwaitCopyFeedbackGone(AutomationElement window)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.FeedbackExpiry);
         var lifetime = Stopwatch.StartNew();
         Await(() => !IsVisible(window, "ProfileCopyFeedback"));
         if (lifetime.Elapsed > TimeSpan.FromSeconds(3))
