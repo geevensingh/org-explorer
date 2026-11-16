@@ -154,13 +154,57 @@ explicit external-link opening.
 Outside search, People navigation provides Favorites and the reporting tree.
 During search, temporarily replace those regions with a full-height results
 list instead of stacking several competing small lists. Clearing the query
-restores Favorites and the previous reporting-tree position.
+without activating a result restores Favorites and the previous reporting-tree
+position. Successful activation instead reveals the chosen Person as described
+below.
 
 Search still covers existing profile and note information, including its
 current/historical distinctions; it is not reduced to a name-only filter.
-Secondary notes remain discoverable and openable through search. Preserve
+Secondary notes remain searchable: their matches lead to their Person, whose
+notes remain available through the normal note surfaces. Preserve
 archived-information access and the distinction between the Imported population
 and a complete company directory.
+
+### Person-level search
+
+This approved design supersedes the destination-level search behavior described
+in the implemented slices below. It still requires implementation.
+
+- Show one result per Person, using the existing email identity, across matching
+  profile fields, Person/Team notes and history. Different people with the same
+  display name remain separate. Show the Person's name and email with a compact
+  explanation of matching fields/sources, retaining current, archived and
+  historical attribution rather than repeating the Person for each match.
+- Count distinct people, not individual matches. Preserve existing matching
+  rules and result order, placing each Person at their first matching position;
+  this change does not introduce new ranking.
+- Automatically highlight the first result and reset the highlight to the first
+  result whenever the query changes. With no results, there is no highlighted
+  result. Highlighting is not activation: typing or moving the highlight must
+  not change the open Person/profile, load a preview, open notes or navigate
+  History. No delayed profile-preview timer is needed.
+- Up/Down in the search field move the result highlight while leaving keyboard
+  focus in the field so typing can continue. Keep the highlighted result visible
+  and stop at either end rather than wrapping.
+- Enter in the search field or results activates the highlighted Person; the
+  automatic initial highlight makes a single Enter choose the first result.
+  Clicking a result activates that Person through the same navigation guards.
+  Activation opens the normal Person profile, not a particular matching field,
+  note or historical entry. Matching notes and history remain available through
+  the Person's ordinary surfaces. With no results, Enter leaves search open.
+- Only after successful activation, clear the query and return to People
+  browsing. For a current Person, expand/reveal and select their reporting-tree
+  row, scrolling to it instead of restoring an old offset that hides it. For an
+  Archived person, reveal the existing archived-people list and select/reveal
+  their row without unarchiving them or inserting them into the current tree.
+  In the wide layout, focus the chosen tree or archived-list row. In the compact
+  layout, preserve accepted-navigation dismissal of the People overlay and
+  return focus to the People button.
+- Preserve existing pending-edit, profile and navigation guards. Rejected
+  activation retains the query, highlighted result, panel/owner and exact
+  unsaved writing, with actionable feedback; it must not clear search or dismiss
+  the overlay. Moving the search highlight alone does not navigate away from
+  an editor.
 
 ## Ongoing notes and secondary notes
 
@@ -200,9 +244,12 @@ Concealing secondary actions must not conceal unsaved drafts or failures.
 The Person-note host now opens its ongoing document directly and puts the
 collection behind Other notes. Multiple active candidates require explicit
 Use as ongoing; a sole active note may be read without recording a designation.
-Search and Other notes open the exact selected document in Read mode; new notes
-start editing. An unavailable or archived designated note keeps its recorded
-choice, gives visible recovery guidance and never selects replacement writing.
+Other notes opens the exact selected document in Read mode; new notes start
+editing. Search currently also opens exact documents; the approved
+[Person-level search](#person-level-search) design replaces that shortcut with
+Person-profile navigation. An unavailable or archived designated note keeps its
+recorded choice, gives visible recovery guidance and never selects replacement
+writing.
 
 Designations extend version-1 app-local WorkspaceSettings with optional
 per-Workspace entries, not synchronized Workspace data or a format migration.
@@ -236,23 +283,28 @@ retain their own appropriate scrolling.
 People becomes a labelled overlay, not a squeezed column. Escape/Close returns
 focus to People; accepted destinations close the overlay, while rejected
 navigation retains its panel, owner, exact writing and actionable feedback.
-Search replaces Favorites/tree with a full-height result list. Clearing restores
-their in-session expansion and scroll position, including after overlay use.
-Exact current, archived and frozen search destinations remain distinct.
+The implemented search replaces Favorites/tree with a full-height result list.
+Clearing restores their in-session expansion and scroll position, including
+after overlay use. Its exact current, archived and frozen destinations remain
+distinct; the approved Person-level design above retains those distinctions
+in match explanations instead of separate result rows.
 
 The #77 slice adds single-line reporting names with modest guide-line indentation,
 quiet selection and starred Favorites. Full email/Directory-name identity remains
 available to accessibility and through row tooltips; virtualization and reporting
 depth are unchanged. Only root containers reserve the bookmarked measured width,
 so restoring a horizontal offset does not compound minimum widths down the tree.
-Results show name, source and a query-relevant excerpt. Query Enter focuses the
-results without opening a Person; selecting a row alone is not activation.
+The existing destination-level results show name, source and a query-relevant
+excerpt. Query Enter focuses the results without opening a Person; selecting a
+row alone is not activation.
 Click or selected-row Enter uses the same draft/profile/navigation guards.
 Profile matches focus/highlight their actual field; exact owned notes open in
 Read, and inherited/frozen notes reveal their exact attributed section in current
 context/History. The duplicate generic search inspector is removed. Rejection
-retains the overlay, query and exact failed editor. These implementation and
-invisible replay checks do not claim hosted input/layout or owner visual acceptance.
+retains the overlay, query and exact failed editor. The approved
+[Person-level search](#person-level-search) design supersedes these result,
+keyboard and destination-activation behaviors. These implementation and invisible
+replay checks do not claim hosted input/layout or owner visual acceptance.
 
 The numeric implementation choices are:
 
