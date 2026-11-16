@@ -164,7 +164,7 @@ jobs:
       - name: Compare fresh native observations on isolated fictitious state
         run: |
           New-Item -ItemType Directory -Force $env:DESKTOP_RESULTS_DIRECTORY | Out-Null
-          dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --diagnose-uia-observation *> "$env:DESKTOP_RESULTS_DIRECTORY\probe.log"
+          dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --diagnose-idle-observation *> "$env:DESKTOP_RESULTS_DIRECTORY\probe.log"
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}

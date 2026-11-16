@@ -43,7 +43,7 @@ $probe = [regex]::Match($workflow, '(?ms)^  uia-observation-probe:\r?\n(?<body>.
 if (!$workflow.Contains("if: `${{ github.event_name == 'workflow_dispatch' && inputs.run_uia_observation_probe }}") -or
     $workflow -notmatch '(?s)run_uia_observation_probe:\s+description:[^\r\n]+\s+required: false\s+default: false\s+type: boolean' -or
     !$probe.Contains('runs-on: windows-latest') -or !$probe.Contains('timeout-minutes: 5') -or
-    !$probe.Contains('--diagnose-uia-observation') -or $probe -match '(?m)^\s+needs:' -or
+    !$probe.Contains('--diagnose-idle-observation') -or $probe -match '(?m)^\s+needs:' -or
     $workflow.Contains('needs: [core, filesystem, desktop, high-resolution, uia-observation-probe]')) {
     throw 'The native observation probe must remain opt-in, bounded, isolated and outside the required acceptance gate.'
 }

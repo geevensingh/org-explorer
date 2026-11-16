@@ -1504,6 +1504,18 @@ probe and retains evidence; interruption/missing terminal evidence is incomplete
 This experiment does not alter ordinary helper selection, actions, latency clocks,
 sample counts, required scenarios, budgets or the CI aggregate, and cannot establish
 full smoke or feature acceptance.
+The same default-off job now selects the narrower `--diagnose-idle-observation`
+comparison of the original predicate and the actual `AwaitLocalWorkIdle` observer.
+Twelve real native stages each retain ABBA/BAAB samples: startup, opened starting
+view, duplicate-name owners, Settings transition, a real SQLite-writer-blocked
+note save and its failure, disabled read-only browsing, explicit retry/durable
+owner-correct reopening, and the detached provider after normal process exit.
+Idle/busy/unavailable expectations are explicit; the Settings stage compares
+the original outcome without inventing a new presentation-readiness requirement.
+The JSONL records raw predicate outcomes/errors, request counts/times, matched
+owner checks and complete terminal evidence. Pending/failed observations do not
+become idle merely because controls are absent or disabled. The original general
+probe remains available, with its earlier raw artifact retained separately.
 Journeys prepare Settings explicitly before folder, Import or update actions,
 and deliberately return to People before subsequent writing. Rejected-close
 observations require Settings to be closed by the app before retrying the
