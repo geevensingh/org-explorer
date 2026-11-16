@@ -322,6 +322,26 @@ acceptance. All existing note workloads, native sample counts/targets, required
 scenario manifests and deadlines remain unchanged; combined rich 10,000-Person
 and background-publication proof remains #100.
 
+The held-Import JSON also retains bounded `heldApplyBrowsing.decomposition`:
+three samples (Back, Avery Select, Morgan Select), request start/return offsets,
+the original unadjusted total, poll count, and started/completed/total/max time
+for each fresh email/heading query. Queries retain the original short-circuit
+predicate and run only after the actual native request; no pre-request cache
+warming or extra Select is introduced. Retained-writing SetValue start/return
+offsets use the bulk Apply clock; each sample uses its original Back/Select clock.
+Exception evidence contains type/HResult, never writing or error messages.
+This decomposition is emitted with the existing final JSON, not before a failed
+earlier lifecycle step. Native request time includes provider/dispatcher work,
+and a fresh query can wait for product work; neither duration alone establishes
+pure observer overhead or a product root cause. No component is subtracted.
+The existing invisible compiled selection additionally records handler/layout
+durations and requires the same Apply/writer held before and after each existing
+Person switch. Those are structural no-save-wait diagnostics, not native proof.
+The unchanged two-case **each <= 100 ms** held-bulk guard is additional coverage,
+not a p95 estimate or a redefinition of the approved ordinary-navigation
+**p95 <= 100 ms** target. Its verdict remains enforced separately; the original
+42 native navigation samples and all ordinary workload/percentile checks remain.
+
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
 note identity, title, Markdown and Edit tab, not unrelated reading/list controls.
