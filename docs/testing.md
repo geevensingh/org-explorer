@@ -310,10 +310,10 @@ while the same actual SQLite writer holds Apply, then independently reopens the
 coherent update/photo/history and exact owner writing. The `compatibility-settings`
 hosted tail adds representative reviewed update/photo Apply, held-transaction
 native browsing/writing, original/later no-op replay and separate-process reopen.
-Its `*-sqlite-reviewed-import.json` records candidate/run/attempt/product hash,
+Its `*-sqlite-reviewed-import.json` schema 2 records candidate/run/attempt/product hash,
 distinct editing/reopened process IDs, exact batch/capture/note/version/resource
 identities and complete reopened-state digest. It retains raw native Back/Person
-navigation samples (100-ms Person budget) and a separately labelled bulk duration
+navigation samples as diagnostics and a separately labelled bulk duration
 with no ordinary-edit one-second budget. Named `sqlite-reviewed-import-preview`,
 `sqlite-reviewed-import-retained-owner`, `sqlite-reviewed-import-history` and
 `sqlite-reviewed-import-reopened` captures carry actual desktop pixels/metadata.
@@ -337,10 +337,13 @@ pure observer overhead or a product root cause. No component is subtracted.
 The existing invisible compiled selection additionally records handler/layout
 durations and requires the same Apply/writer held before and after each existing
 Person switch. Those are structural no-save-wait diagnostics, not native proof.
-The unchanged two-case **each <= 100 ms** held-bulk guard is additional coverage,
-not a p95 estimate or a redefinition of the approved ordinary-navigation
-**p95 <= 100 ms** target. Its verdict remains enforced separately; the original
-42 native navigation samples and all ordinary workload/percentile checks remain.
+The owner approved aligning this extra held-bulk check with the agreed contract:
+both selections must reach the exact usable Person while the same actual Apply
+transaction remains held and unpublished, without losing retained owner writing.
+The two unadjusted times remain diagnostic, not a per-selection deadline or a p95
+estimate. Schema 2 marks `heldApplyBrowsing.timingUse` as `diagnostic` and removes
+the old per-case `budgetMs` field. The original 42 native navigation samples still
+enforce **p95 <= 100 ms**; all other ordinary workload/percentile checks remain.
 
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
