@@ -1268,9 +1268,10 @@ public sealed class OrgExportTests : IDisposable
         => ExportSession.Create("Example Person", RootId, account, root);
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(bool stringError)
+    [InlineData("message")]
+    [InlineData("string")]
+    [InlineData("markdown")]
+    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(string envelope)
     {
         var path = Seed();
         using var session = ExportSession.Open(path);
@@ -1281,8 +1282,13 @@ public sealed class OrgExportTests : IDisposable
         var failed = session.ClaimSource("profile", "profile", [RootId]);
         JsonObject OpenFailure() => new()
         {
-            ["error"] = stringError ? JsonValue.Create("Open '' Failure: Unable to open, Exception Caught.")
-                : new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." }
+            ["error"] = envelope switch
+            {
+                "string" => JsonValue.Create("Open '' Failure: Unable to open, Exception Caught."),
+                "markdown" => JsonValue.Create("- **Fictitious Engineer**\r\n  - **personId:** " + RootId
+                    + "\r\n  - **snippet:** Open '' Failure: Unable to open, Exception Caught."),
+                _ => new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." }
+            }
         };
         FinishSource(session, failed, OpenFailure());
         var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,

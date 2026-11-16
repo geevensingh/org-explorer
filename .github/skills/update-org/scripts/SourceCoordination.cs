@@ -191,8 +191,7 @@ public sealed partial class ExportSession
             var objects = SourceObjects(result.Response).ToArray();
             Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
                 && objects.All(obj => SourceText(obj["code"]).Length == 0)
-                && objects.Any(obj => SourceText(obj["message"]) == "Open '' Failure: Unable to open, Exception Caught."
-                    || SourceText(obj["error"]) == "Open '' Failure: Unable to open, Exception Caught."),
+                && objects.Any(obj => ProfileOpenDiagnostic(obj["message"]) || ProfileOpenDiagnostic(obj["error"])),
                 "Only the unclassified profile-open failure qualifies; structured failures and denials remain blockers.");
             ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason,
                 [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
@@ -205,6 +204,14 @@ public sealed partial class ExportSession
         => read.State == "failed" && read.Attempts.Count == 2 && ledger.MetadataDeferrals.Any(deferral =>
             deferral.Targets.Any(target => target.Kind == read.Kind && target.Target == read.Target
                 && target.FailedClaimId == read.Attempts[^1].ClaimId));
+
+    private static bool ProfileOpenDiagnostic(JsonNode? value)
+    {
+        const string diagnostic = "Open '' Failure: Unable to open, Exception Caught.";
+        var text = SourceText(value).Trim();
+        return text == diagnostic || text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n')
+            .Any(line => line.Trim() == "- **snippet:** " + diagnostic);
+    }
 
     private void Require503SourceResult(SourceRead read)
     {

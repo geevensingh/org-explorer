@@ -292,6 +292,7 @@ public sealed class OrgExportSourceTests : IDisposable
     [InlineData(503, null, "Open '' Failure: Unable to open, Exception Caught.")]
     [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception Caught.")]
     [InlineData(null, null, "Another source failure.")]
+    [InlineData(null, null, "Earlier diagnostic: Open '' Failure: Unable to open, Exception Caught.")]
     public void Profile_open_recovery_cannot_reclassify_structured_or_unrelated_failures(int? status, string? code, string message)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
