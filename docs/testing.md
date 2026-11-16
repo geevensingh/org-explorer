@@ -310,10 +310,10 @@ while the same actual SQLite writer holds Apply, then independently reopens the
 coherent update/photo/history and exact owner writing. The `compatibility-settings`
 hosted tail adds representative reviewed update/photo Apply, held-transaction
 native browsing/writing, original/later no-op replay and separate-process reopen.
-Its `*-sqlite-reviewed-import.json` records candidate/run/attempt/product hash,
+Its `*-sqlite-reviewed-import.json` schema 2 records candidate/run/attempt/product hash,
 distinct editing/reopened process IDs, exact batch/capture/note/version/resource
 identities and complete reopened-state digest. It retains raw native Back/Person
-navigation samples (100-ms Person budget) and a separately labelled bulk duration
+navigation samples as diagnostics and a separately labelled bulk duration
 with no ordinary-edit one-second budget. Named `sqlite-reviewed-import-preview`,
 `sqlite-reviewed-import-retained-owner`, `sqlite-reviewed-import-history` and
 `sqlite-reviewed-import-reopened` captures carry actual desktop pixels/metadata.
@@ -321,6 +321,29 @@ Compiling this tail or running invisible controls is not hosted interaction
 acceptance. All existing note workloads, native sample counts/targets, required
 scenario manifests and deadlines remain unchanged; combined rich 10,000-Person
 and background-publication proof remains #100.
+
+The held-Import JSON also retains bounded `heldApplyBrowsing.decomposition`:
+three samples (Back, Avery Select, Morgan Select), request start/return offsets,
+the original unadjusted total, poll count, and started/completed/total/max time
+for each fresh email/heading query. Queries retain the original short-circuit
+predicate and run only after the actual native request; no pre-request cache
+warming or extra Select is introduced. Retained-writing SetValue start/return
+offsets use the bulk Apply clock; each sample uses its original Back/Select clock.
+Exception evidence contains type/HResult, never writing or error messages.
+This decomposition is emitted with the existing final JSON, not before a failed
+earlier lifecycle step. Native request time includes provider/dispatcher work,
+and a fresh query can wait for product work; neither duration alone establishes
+pure observer overhead or a product root cause. No component is subtracted.
+The existing invisible compiled selection additionally records handler/layout
+durations and requires the same Apply/writer held before and after each existing
+Person switch. Those are structural no-save-wait diagnostics, not native proof.
+The owner approved aligning this extra held-bulk check with the agreed contract:
+both selections must reach the exact usable Person while the same actual Apply
+transaction remains held and unpublished, without losing retained owner writing.
+The two unadjusted times remain diagnostic, not a per-selection deadline or a p95
+estimate. Schema 2 marks `heldApplyBrowsing.timingUse` as `diagnostic` and removes
+the old per-case `budgetMs` field. The original 42 native navigation samples still
+enforce **p95 <= 100 ms**; all other ordinary workload/percentile checks remain.
 
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
