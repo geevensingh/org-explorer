@@ -362,6 +362,25 @@ Person selection and capture, then is deliberately released. The exact owner
 draft must survive success before its explicit Cancel exposes the new committed
 reading. `heldAdoption` records the real phase/action timestamps and boundaries;
 no busy-time extension or new latency claim is used.
+The native driver prepares only actual control/pattern references before starting
+Sync now. It does not cache ready values: post-request adoption phase, disabled
+Sync now, visible owner, enabled editor, exact written value and destination are
+fresh bounded element-cache observations. The same shared driver holds the real
+SQLite reader through actions/capture and retains the live-journal verdict.
+`--verify-snapshot-adoption` is a narrow invisible compiled replay of this driver;
+its fixed 1.2-second control-preparation delay must precede reader acquisition,
+not consume or extend the real commit's busy timeout. Public real-store cases also
+delay the actual action by 1.2 seconds and require the unchanged held verdict to
+fail, so late success or failure cannot satisfy the proof.
+`*-sqlite-held-adoption-observation.json` is written on success or failure, even
+when the later main snapshot marker is absent. It binds candidate/run/attempt,
+executable hash/process, raw Stopwatch timestamps/frequency, bounded preparation/
+request/observation/capture/release milestones, real reader connection and journal
+state, attempted input/selection counts, and non-atomic window feedback observed
+before reader disposal. Preparation time is not subtracted from any acceptance
+clock. An observation `Passed` proves only this held interval; the existing later
+commit, immutable draft/base, data/revision, original-Workspace restoration, close
+and complete scenario results remain independently required.
 These are not periodic synchronization, conflict-resolution/retention, redesigned
 exit, native latency or 10,000-Person background-export proof.
 

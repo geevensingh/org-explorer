@@ -55,10 +55,10 @@ internal static partial class Program
     }
 
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false,
-        bool verifyLegacySaveFeedback = false)
+        bool verifyLegacySaveFeedback = false, bool verifySnapshotAdoption = false)
     {
         AssertDisplayInterop();
-        if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
@@ -75,7 +75,7 @@ internal static partial class Program
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback)
+            if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
@@ -175,6 +175,8 @@ internal static partial class Program
                 }
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+            if (verifySnapshotAdoption)
+                HarnessRuntime.Run("compiled-snapshots", () => VerifySnapshotSynchronization(type, settings, chooseFolder));
             if (verifyProfileRefresh || verifyLegacySaveFeedback)
                 HarnessRuntime.Run("compiled-legacy-save-feedback", () => VerifyLegacySaveFeedback(type, settings, chooseFolder));
             if (verifyProfileRefresh)

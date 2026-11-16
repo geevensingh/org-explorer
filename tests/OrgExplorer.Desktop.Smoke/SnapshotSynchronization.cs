@@ -79,31 +79,29 @@ internal static partial class Program
             Deliver();
             Invoke("EditProfileButton");
             var displayedBasis = workflow.ProfileEdit!.Basis;
-            Invoke("OpenSettingsButton");
-            using (var connection = new SqliteConnection($"Data Source={Path.Combine(target, "workspace.sqlite")};Pooling=False"))
-            {
-                connection.Open();
-                using var held = connection.BeginTransaction(deferred: true);
-                using (var read = connection.CreateCommand())
+            HeldSnapshotAdoption.Run(target, () =>
                 {
-                    read.Transaction = held;
-                    read.CommandText = "PRAGMA schema_version;";
-                    read.ExecuteScalar();
-                }
-                Invoke("SyncNowButton");
-                PumpUntil(() => workflow.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
-                    File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
-                Invoke("OpenSettingsButton");
-                Control<TextBox>("JobTitle").Text = "Compiled later owner draft";
-                Select("morgan@example.com");
-                Select("avery@example.com");
-                if (workflow.Synchronization.Phase != WorkspaceSynchronizationPhase.Adopting ||
-                    held.Connection != connection || workflow.CanSafelyClose ||
-                    Control<TextBox>("JobTitle").Text != "Compiled later owner draft" ||
-                    !Control<TextBox>("JobTitle").IsEnabled)
-                    throw new InvalidOperationException("Actual compiled draft/browsing waited for held adoption or lost its owner writing.");
-                held.Rollback();
-            }
+                    Thread.Sleep(1200);
+                    var editor = Control<TextBox>("JobTitle");
+                    return new(() => Invoke("OpenSettingsButton"),
+                        () => editor.Text = "Compiled later owner draft",
+                        () => { Select("morgan@example.com"); Select("avery@example.com"); },
+                        () =>
+                        {
+                            if (Control<TextBlock>("Email").Text != "avery@example.com")
+                                throw new InvalidOperationException("Compiled held-adoption selection lost its actual destination.");
+                        });
+                },
+                () => { Invoke("OpenSettingsButton"); Invoke("SyncNowButton"); },
+                () => PumpUntil(() => workflow.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
+                    File.Exists(Path.Combine(target, "workspace.sqlite-journal"))),
+                () =>
+                {
+                    if (workflow.Synchronization.Phase != WorkspaceSynchronizationPhase.Adopting || workflow.CanSafelyClose ||
+                        Control<TextBox>("JobTitle").Text != "Compiled later owner draft" || !Control<TextBox>("JobTitle").IsEnabled)
+                        throw new InvalidOperationException("Compiled capture did not retain the same pending adoption and owner draft.");
+                },
+                observation => Console.WriteLine("DIAGNOSTIC: compiled-held-snapshot " + JsonSerializer.Serialize(observation)));
             PumpUntil(() => workflow.GetRelationships("avery@example.com")!.Person.PreferredName == "Incoming continuation" &&
                 Control<Button>("SyncNowButton").IsEnabled);
             if (Control<TextBox>("JobTitle").Text != "Compiled later owner draft" ||
@@ -206,35 +204,70 @@ internal static partial class Program
         }
         Deliver();
         BeginProfileEditing(window);
-        SetSettingsVisible(window, true);
-        DateTimeOffset heldAdmissionAt, heldActionsCompletedAt;
-        using (var connection = new SqliteConnection($"Data Source={Path.Combine(target, "workspace.sqlite")};Pooling=False"))
-        {
-            connection.Open();
-            using var heldReader = connection.BeginTransaction(deferred: true);
-            using (var read = connection.CreateCommand())
+        DateTimeOffset? heldAdmissionAt = null, heldActionsCompletedAt = null;
+        AutomationElement? syncStatus = null, syncButton = null;
+        var syncState = new CacheRequest { TreeScope = TreeScope.Element };
+        syncState.Add(AutomationElement.NameProperty);
+        syncState.Add(AutomationElement.IsEnabledProperty);
+        var personState = new CacheRequest { TreeScope = TreeScope.Element };
+        personState.Add(AutomationElement.NameProperty);
+        personState.Add(AutomationElement.IsOffscreenProperty);
+        var inputState = new CacheRequest { TreeScope = TreeScope.Element };
+        inputState.Add(AutomationElement.IsEnabledProperty);
+        inputState.Add(ValuePattern.ValueProperty);
+        var heldObservation = HeldSnapshotAdoption.Run(target,
+            () =>
             {
-                read.Transaction = heldReader;
-                read.CommandText = "PRAGMA schema_version;";
-                read.ExecuteScalar();
-            }
-            PrepareAction("SyncNow");
-            Click(window, "SyncNow");
-            Await(() => Find(window, "SynchronizationStatus").Current.Name.Contains("Installing a validated incoming version.") &&
-                !Find(window, "SyncNow").Current.IsEnabled && File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
-            heldAdmissionAt = DateTimeOffset.UtcNow;
-            SetSettingsVisible(window, false);
-            Set(window, "JobTitle", "Private draft admitted after snapshot seal");
-            SelectTreePerson(window, "morgan@example.com", expectNavigation: false);
-            Await(() => CurrentPersonEmail(window) == "morgan@example.com");
-            if (heldReader.Connection != connection || !File.Exists(Path.Combine(target, "workspace.sqlite-journal")))
-                throw new InvalidOperationException("Native browsing/draft admission outlasted the actual held adoption transaction.");
-            CaptureVisualEvidence(window, "sqlite-sync-held-adoption-draft");
-            heldActionsCompletedAt = DateTimeOffset.UtcNow;
-            if (!File.Exists(Path.Combine(target, "workspace.sqlite-journal")))
-                throw new InvalidOperationException("Native adoption evidence was captured after its held transaction had ended.");
-            heldReader.Rollback();
-        }
+                var settingsAction = (InvokePattern)Find(window, "OpenSettings").GetCurrentPattern(InvokePattern.Pattern);
+                var editor = Find(window, "JobTitle");
+                var writing = (ValuePattern)editor.GetCurrentPattern(ValuePattern.Pattern);
+                var tree = Find(window, "People");
+                var manager = tree.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "morgan@example.com"))
+                    ?? throw new InvalidOperationException("Snapshot preparation could not find the real Manager.");
+                var selection = (SelectionItemPattern)manager.GetCurrentPattern(SelectionItemPattern.Pattern);
+                var email = Find(window, "Email");
+                return new(
+                    () =>
+                    {
+                        using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke)) settingsAction.Invoke();
+                        Await(() => email.GetUpdatedCache(personState).Cached is { Name: "avery@example.com", IsOffscreen: false } &&
+                            editor.GetUpdatedCache(inputState).Cached.IsEnabled);
+                    },
+                    () =>
+                    {
+                        using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeSetValue))
+                            writing.SetValue("Private draft admitted after snapshot seal");
+                        Await(() => (string)editor.GetUpdatedCache(inputState).GetCachedPropertyValue(ValuePattern.ValueProperty) ==
+                            "Private draft admitted after snapshot seal");
+                    },
+                    () => { using var action = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke); selection.Select(); },
+                    () => Await(() => email.GetUpdatedCache(personState).Cached is { Name: "morgan@example.com", IsOffscreen: false }));
+            },
+            () =>
+            {
+                SetSettingsVisible(window, true);
+                PrepareAction("SyncNow");
+                syncButton = Find(window, "SyncNow");
+                var synchronization = ControlReadiness.AwaitPattern(() => syncButton,
+                    control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+                    control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
+                syncStatus = Find(window, "SynchronizationStatus");
+                using var action = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
+                synchronization.Invoke();
+            },
+            () =>
+            {
+                Await(() => syncStatus!.GetUpdatedCache(syncState).Cached.Name.Contains("Installing a validated incoming version.") &&
+                    !syncButton!.GetUpdatedCache(syncState).Cached.IsEnabled && File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
+                heldAdmissionAt = DateTimeOffset.UtcNow;
+            },
+            () =>
+            {
+                CaptureVisualEvidence(window, "sqlite-sync-held-adoption-draft");
+                heldActionsCompletedAt = DateTimeOffset.UtcNow;
+            },
+            observation => WriteHeldSnapshotObservation(window, observation));
         SetSettingsVisible(window, true);
         Await(() => Find(window, "SyncNow").Current.IsEnabled &&
             Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.") &&
@@ -283,6 +316,11 @@ internal static partial class Program
             heldAdoption = new
             {
                 heldAdmissionAt, heldActionsCompletedAt,
+                observationFile = Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-held-adoption-observation.json",
+                milestones = heldObservation.Milestones,
+                timestampFrequency = heldObservation.TimestampFrequency,
+                inputRequests = heldObservation.Milestones.Count(value => value.Stage == "enter-draft-started"),
+                selectionRequests = heldObservation.Milestones.Count(value => value.Stage == "select-person-started"),
                 boundary = "Normal Sync now reports sealed validated adoption with a live SQLite journal; native draft input and actual Person selection complete and are captured while the same real reader still prevents commit. Only then is the reader deliberately released.",
                 ownerEmail = "avery@example.com", selectedWhileHeld = "morgan@example.com",
                 retainedJobTitle = "Private draft admitted after snapshot seal",
@@ -304,5 +342,38 @@ internal static partial class Program
         EnsurePeopleBrowsing(window);
         SelectTreePerson(window, "morgan@example.com");
         Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+    }
+
+    private static void WriteHeldSnapshotObservation(AutomationElement window, SnapshotAdoptionObservation observation)
+    {
+        using var process = Process.GetProcessById(window.Current.ProcessId);
+        using var executable = File.OpenRead(process.MainModule!.FileName);
+        var state = new CacheRequest { TreeScope = TreeScope.Element };
+        state.Add(AutomationElement.ItemStatusProperty);
+        state.Add(AutomationElement.HelpTextProperty);
+        var current = window.GetUpdatedCache(state);
+        var path = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-held-adoption-observation.json");
+        if (File.Exists(path)) throw new InvalidOperationException("Held-adoption observations must not overwrite earlier evidence.");
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+            runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+            executableSha256 = Convert.ToHexString(SHA256.HashData(executable)),
+            processId = window.Current.ProcessId,
+            observedAt = DateTimeOffset.UtcNow,
+            observation,
+            inputRequests = observation.Milestones.Count(value => value.Stage == "enter-draft-started"),
+            selectionRequests = observation.Milestones.Count(value => value.Stage == "select-person-started"),
+            outcomeObservedBeforeReaderDisposal = new
+            {
+                itemStatus = current.Cached.ItemStatus,
+                helpText = current.Cached.HelpText
+            },
+            boundary = "Harness monotonic actual preparation/request/observation milestones and real reader/journal state. No database commit timestamp or latency subtraction. UI outcome is observed before disposing the reader; a passing proof has already deliberately released it. Feedback remains non-atomic."
+        }, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        Console.WriteLine("DIAGNOSTIC: sqlite-held-adoption outcome=" + observation.Outcome + " evidence=" + path);
     }
 }

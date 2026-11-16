@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using OrgExplorer.Desktop.Smoke;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -898,6 +899,81 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     private sealed class UnadvancedSaveClock : TimeProvider
     {
         public override long GetTimestamp() => 0;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Held_adoption_driver_excludes_slow_preparation_but_still_rejects_late_actual_actions(bool lateAction)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        using var second = Create("second");
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+        Assert.True(second.SyncNow(), second.Synchronization.Error);
+        Assert.True(first.EditPreferredName("report@example.com", "Incoming after prepared controls"), first.Status);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Deliver("outgoing", "incoming");
+        SnapshotAdoptionObservation? observed = null;
+        PersonProfile? draftBasis = null;
+        Task<bool>? sync = null;
+        Exception? failure = null;
+        var synchronized = false;
+        try
+        {
+            HeldSnapshotAdoption.Run(Local("second"),
+                () =>
+                {
+                    Thread.Sleep(1200);
+                    return new(
+                        () =>
+                        {
+                            Assert.True(second.BeginProfileEdit("report@example.com"), second.Status);
+                            draftBasis = second.ProfileEdit!.Basis;
+                        },
+                        () =>
+                        {
+                            if (lateAction) Thread.Sleep(1200);
+                            second.StageProfileText(PersonTextField.JobTitle, "Exact prepared owner draft");
+                        },
+                        () => Assert.True(second.NavigatePerson("manager@example.com"), second.Status),
+                        () => Assert.Equal("manager@example.com", second.PeopleNavigation.SelectedEmail));
+                },
+                () => sync = Task.Run(second.SyncNow),
+                () => Assert.True(SpinWait.SpinUntil(() => second.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
+                    File.Exists(Path.Combine(Local("second"), "workspace.sqlite-journal")), TimeSpan.FromSeconds(5))),
+                () => { },
+                value => observed = value);
+        }
+        catch (InvalidOperationException error) { failure = error; }
+        finally
+        {
+            if (sync is not null) synchronized = await sync.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.NotNull(observed);
+        Assert.All(observed.Milestones.Where(value => value.Stage.StartsWith("prepare-controls", StringComparison.Ordinal)),
+            value => Assert.False(value.ReaderHeld));
+        if (lateAction)
+        {
+            Assert.Equal("Native browsing/draft admission outlasted the actual held adoption transaction.", failure?.Message);
+            Assert.Equal("Failed", observed.Outcome);
+            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && value.ReaderHeld && !value.JournalPresent);
+            Assert.False(synchronized);
+        }
+        else
+        {
+            Assert.Null(failure);
+            Assert.Equal("Passed", observed.Outcome);
+            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && value.ReaderHeld && value.JournalPresent);
+            Assert.True(synchronized, second.Synchronization.Error);
+            Assert.True(second.NavigatePerson("report@example.com"), second.Status);
+            Assert.Equal("Exact prepared owner draft", second.ProfileEdit!.Draft.JobTitle);
+            Assert.Same(draftBasis, second.ProfileEdit.Basis);
+            Assert.Equal("Incoming after prepared controls", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        }
     }
 
     private sealed class SnapshotReadObserver(ManualResetEventSlim reading) : IWorkspaceFileObserver
