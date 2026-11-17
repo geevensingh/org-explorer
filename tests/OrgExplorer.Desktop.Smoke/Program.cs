@@ -30,6 +30,8 @@ internal static partial class Program
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-exit") return VerifyCompiledXaml(executable, verifyExit: true);
+            if (args.Length == 2 && args[1] == "--verify-exit-host-startup")
+                return VerifyCompiledXaml(executable, verifyExitStartup: true);
             if (args.Length == 2 && args[1] == "--verify-snapshot-adoption")
                 return VerifyCompiledXaml(executable, verifySnapshotAdoption: true);
             if (args.Length == 2 && args[1] == "--verify-legacy-save-feedback")

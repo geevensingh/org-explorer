@@ -48,16 +48,33 @@ internal static partial class Program
     private static int RunWorkspaceExitFixture(string[] args)
     {
         if (args.Length != 5 || !ExitProcessCases.Contains(args[3]) && args[3] is not ("normal-latest" or "update-handoff") ||
-            args[4] is not ("invisible" or "native") || !Path.IsPathFullyQualified(args[2]) ||
+            args[4] is not ("invisible" or "native" or "startup-invisible") || !Path.IsPathFullyQualified(args[2]) ||
             !args[2].Contains(Path.DirectorySeparatorChar + ".test-workspaces" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ArgumentException("Exit host requires its owned isolated Workspace and an explicit display mode.");
+        Directory.CreateDirectory(args[2]);
+        var observation = new ExitHostObservation(args[2], args[3], args[4]);
+        try
+        {
+            observation.Record("created");
+            return RunWorkspaceExitFixtureCore(args, observation);
+        }
+        catch (Exception primary)
+        {
+            try { observation.Record("failed", error: primary); }
+            catch (Exception secondary)
+            { ReportExitHostObservationFailure(primary, secondary); }
+            throw;
+        }
+    }
+
+    private static int RunWorkspaceExitFixtureCore(string[] args, ExitHostObservation observation)
+    {
         Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         var executable = Path.GetFullPath(args[1]);
         var root = args[2];
         var mode = args[3];
         var path = Path.Combine(root, "local");
         var folder = Path.Combine(root, "sync");
-        Directory.CreateDirectory(root);
         SeedRecoveryWorkspace(path);
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
@@ -85,6 +102,7 @@ internal static partial class Program
             }
         }
         if (mode == "failed-export") Directory.Move(folder, Path.Combine(root, "unavailable"));
+        observation.Record("seeded");
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
         AssemblyLoadContext.Default.Resolving += (context, name) =>
@@ -99,16 +117,36 @@ internal static partial class Program
                 (Func<Window, string?>)(_ => path)], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        observation.Record("window-created");
         window.Closed += (_, _) => File.WriteAllText(Path.Combine(root, "closed"), "Normal Closed event");
         FileStream? storageLock = null;
         SignedReleaseFixture? release = null;
         LocalReleaseServer? server = null;
         Guid? noteId = null;
+        var preparationStarted = false;
         void Prepare()
         {
-            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Control<Button>("OpenWorkspaceButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            PumpUntil(() => model.People.Count == 2 && Control<TextBlock>("WorkflowActivity").Text == "Ready");
+            if (preparationStarted) throw new InvalidOperationException("Exit host preparation was entered more than once.");
+            preparationStarted = true;
+            observation.Record("preparation", activity: ExitHostActivity(Control<TextBlock>("WorkflowActivity").Text),
+                openEnabled: Control<Button>("OpenWorkspaceButton").IsEnabled, people: model.People.Count, requests: 0);
+            var openRequested = false;
+            PumpUntil(() =>
+            {
+                if (!openRequested)
+                {
+                    if (Control<TextBlock>("WorkflowActivity").Text != "Ready" ||
+                        !Control<Button>("OpenWorkspaceButton").IsEnabled) return false;
+                    openRequested = true;
+                    observation.Record("open-requested", activity: "Ready", openEnabled: true, people: model.People.Count, requests: 1);
+                    Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Control<Button>("OpenWorkspaceButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    if (Control<TextBlock>("StatusText").Text.StartsWith("Navigation blocked:", StringComparison.Ordinal))
+                        throw new InvalidOperationException("Exit host preparation Open was refused after startup readiness.");
+                }
+                return model.People.Count == 2 && Control<TextBlock>("WorkflowActivity").Text == "Ready";
+            });
+            observation.Record("workspace-opened", activity: "Ready", openEnabled: true, people: model.People.Count, requests: 1);
             Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(
                 null!, model.ReportingRoots.Single(), TreeView.SelectedItemChangedEvent));
             effects.Armed = true;
@@ -150,21 +188,34 @@ internal static partial class Program
                 if (File.Exists(Path.Combine(fixture, "handoff.json")))
                     throw new InvalidOperationException("The updater handed off before the held local transaction.");
             }
+            observation.Record("ready", people: model.People.Count, requests: 1);
             File.WriteAllText(Path.Combine(root, "ready.json"), JsonSerializer.Serialize(new
             {
                 mode, processId = Environment.ProcessId, noteId, revision = model.Synchronization.LocalRevision,
+                peopleCount = model.People.Count, selectedOwner = model.PeopleNavigation.SelectedEmail,
                 localPhase = model.LocalSave.Phase.ToString(), localOutcome = model.LocalSave.Outcome.ToString()
             }));
         }
+        if (args[4] is "native" or "startup-invisible")
+            window.Loaded += (_, _) =>
+            {
+                observation.Record("loaded");
+                Prepare();
+            };
         if (args[4] == "native")
         {
             // Native setup uses the compiled control path; the parent performs real UIA close/Cancel/Exit anyway.
-            window.Loaded += (_, _) => Prepare();
             application.Run(window);
         }
         else
         {
-            Prepare();
+            if (args[4] == "startup-invisible")
+            {
+                window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                PumpUntil(() => File.Exists(Path.Combine(root, "ready.json")));
+            }
+            else Prepare();
+            observation.Record("close-requested");
             window.Close();
             PumpUntil(() => Control<FrameworkElement>("ExitDecision").Visibility == Visibility.Visible &&
                 (mode != "active-export" || File.Exists(Path.Combine(root, "held"))) &&
@@ -177,6 +228,7 @@ internal static partial class Program
                 risk = Control<TextBlock>("ExitRisk").Text, model.ExitStatus, model.LocalSave,
                 model.Synchronization, noteId, processId = Environment.ProcessId
             }));
+            observation.Record("force-requested");
             Control<Button>("ExitAnywayButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             File.WriteAllText(Path.Combine(root, "force-returned"), "Exit anyway returned without terminating.");
         }
@@ -186,7 +238,8 @@ internal static partial class Program
         return mode == "normal-latest" ? 0 : 31;
     }
 
-    private static Process StartWorkspaceExitFixture(string executable, string root, string mode, bool native)
+    private static Process StartWorkspaceExitFixture(string executable, string root, string mode, bool native,
+        bool replayStartup = false)
     {
         var settings = Path.Combine(root, "settings");
         Directory.CreateDirectory(settings);
@@ -196,7 +249,7 @@ internal static partial class Program
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
         start.Environment["ORG_EXPLORER_SETTINGS_DIRECTORY"] = settings;
         foreach (var argument in new[] { typeof(Program).Assembly.Location, "--workspace-exit-fixture",
-            Path.GetFullPath(executable), root, mode, native ? "native" : "invisible" })
+            Path.GetFullPath(executable), root, mode, native ? "native" : replayStartup ? "startup-invisible" : "invisible" })
             start.ArgumentList.Add(argument);
         return Process.Start(start) ?? throw new InvalidOperationException("Owned exit fixture did not launch.");
     }
