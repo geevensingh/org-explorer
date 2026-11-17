@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using OrgExplorer.Workflow;
 
@@ -104,11 +105,19 @@ internal static partial class Program
                     Capture(stage);
                     var view = model.GetOwnedNotesView(scope);
                     var current = model.GetRetainedNoteDraft(scope, active!.Value);
+                    var document = Note<FlowDocumentScrollViewer>("Reading").Document;
+                    var reading = new TextRange(document.ContentStart, document.ContentEnd).Text;
+                    var currentContent = editing
+                        ? Note<TextBox>("NoteTitle").Text == title && Note<TextBox>("MarkdownEditor").Text == body
+                        : Note<TextBlock>("NoteHeading").Text == title &&
+                            (body.Length == 0 ? string.IsNullOrWhiteSpace(reading) :
+                                body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                                    .All(line => reading.Contains(line.TrimEnd('\r'), StringComparison.Ordinal)));
                     if (view.OwnerEmail != owner || view.SelectedNote?.Id != active ||
                         view.SelectedNote.OwnerEmail != owner || view.SelectedNote.Title != title ||
                         view.SelectedNote.Markdown != body || view.IsEditing != editing ||
                         Note<TabControl>("Views").SelectedItem != Note<TabItem>(editing ? "EditTab" : "ReadTab") ||
-                        Note<TextBox>("NoteTitle").Text != title || Note<TextBox>("MarkdownEditor").Text != body ||
+                        !currentContent ||
                         view.HasUnsavedChanges != (retained is not null) ||
                         (retained is null ? current is not null : current != retained))
                         failures.Add($"{scope} {stage}: expected exact owner/id/title/body, " +
@@ -118,9 +127,12 @@ internal static partial class Program
                 {
                     Select(away);
                     Capture(stage + "-away");
+                    var document = Note<FlowDocumentScrollViewer>("Reading").Document;
                     if (model.GetOwnedNotesView(scope).OwnerEmail != away ||
                         model.GetOwnedNotesView(scope).SelectedNote is not null ||
-                        Note<TextBox>("NoteTitle").Text != "" || Note<TextBox>("MarkdownEditor").Text != "")
+                        Note<TextBlock>("NoteHeading").Text != "" ||
+                        !string.IsNullOrWhiteSpace(new TextRange(document.ContentStart, document.ContentEnd).Text) ||
+                        Note<TextBox>("NoteTitle").IsEnabled || Note<TextBox>("MarkdownEditor").IsEnabled)
                         throw new InvalidOperationException("Owner navigation leaked another Person's exact note writing.");
                     Select(owner);
                 }

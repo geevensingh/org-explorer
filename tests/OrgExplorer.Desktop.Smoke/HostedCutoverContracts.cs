@@ -23,6 +23,7 @@ internal static partial class Program
         var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
         var previousContext = SynchronizationContext.Current;
         Application? application = null;
+        Exception? primary = null;
         Directory.CreateDirectory(root);
         AssemblyLoadContext.Default.Resolving += Resolve;
         Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", Path.Combine(root, "settings"));
@@ -34,13 +35,23 @@ internal static partial class Program
             verify(assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!, root);
             return 0;
         }
+        catch (Exception error)
+        {
+            primary = error;
+            throw;
+        }
         finally
         {
             application?.Shutdown();
             SynchronizationContext.SetSynchronizationContext(previousContext);
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
             AssemblyLoadContext.Default.Resolving -= Resolve;
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+            catch (Exception cleanup) when (primary is not null && cleanup is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine("HOSTED-CUTOVER-CLEANUP-FAILURE " +
+                    $"primary={primary.GetType().Name}; cleanup={cleanup.GetType().Name}: {cleanup.Message}");
+            }
         }
     }
 

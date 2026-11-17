@@ -106,9 +106,10 @@ internal static partial class Program
             void EnterPending(string query, string email)
             {
                 Control<TextBox>("SearchQuery").Text = query;
-                Control<TextBox>("SearchQuery").RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                var key = new KeyEventArgs(Keyboard.PrimaryDevice,
                     new UnshownInputSource { RootVisual = content }, 0, Key.Enter)
-                    { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+                    { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+                Control<TextBox>("SearchQuery").RaiseEvent(key);
                 try
                 {
                     PumpUntil(() => Control<TextBlock>("Email").Text == email &&
@@ -117,7 +118,7 @@ internal static partial class Program
                 catch (TimeoutException error)
                 {
                     throw new InvalidOperationException("Current single-Enter search did not activate during the same real held profile transaction: " +
-                        $"owner={model.PeopleNavigation.SelectedEmail}; query={model.PeopleNavigation.Query}; " +
+                        $"handled={key.Handled}; owner={model.PeopleNavigation.SelectedEmail}; query={model.PeopleNavigation.Query}; " +
                         $"highlight={model.PeopleNavigation.HighlightedResult?.Person.Email}; local={model.LocalSave}; " +
                         $"stillHeld={barrier.Entered.IsSet && !barrier.Release.IsSet}.", error);
                 }

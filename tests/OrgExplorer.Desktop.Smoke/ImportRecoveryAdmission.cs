@@ -47,11 +47,13 @@ internal static partial class Program
         using (WorkspaceFixtures.LockLocalStore(path))
         {
             Invoke("ApplyButton");
-            PumpUntil(() => model.HasFailedImport && model.LocalSave.Phase == LocalSavePhase.Failed);
+            PumpUntil(() => model.HasFailedImport && model.LocalSave.Phase == LocalSavePhase.Failed &&
+                Control<Button>("OpenWorkspaceButton").IsEnabled);
             People();
         }
         Invoke("NoticeRetryButton");
-        PumpUntil(() => model.CanEditLocalWorkspace && model.CanEnterImport);
+        PumpUntil(() => model.CanEditLocalWorkspace && model.CanEnterImport &&
+            Control<Button>("OpenWorkspaceButton").IsEnabled);
         var error = model.LocalSaveError;
         if (error is null || !model.HasFailedImport || model.CanSafelyClose)
             throw new InvalidOperationException("Import recovery setup silently discarded its original failure.");
@@ -67,7 +69,8 @@ internal static partial class Program
                 unchanged.GetRelationships(note.OwnerEmail)?.Person.JobTitle != "Original title")
                 throw new InvalidOperationException("Reentered preview cleared the failure or committed unreviewed data.");
         Invoke("ApplyButton");
-        PumpUntil(() => model.LocalSaveError is null && !model.HasFailedImport && model.CanSafelyClose);
+        PumpUntil(() => model.LocalSaveError is null && !model.HasFailedImport && model.CanSafelyClose &&
+            Control<Button>("OpenWorkspaceButton").IsEnabled);
         People();
         using (var reopened = OpenSmokeWorkspace(path))
             if (reopened.GetRelationships(note.OwnerEmail)?.Person.JobTitle != "Reviewed retry title" ||

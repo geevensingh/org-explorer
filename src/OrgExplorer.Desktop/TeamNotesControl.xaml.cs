@@ -13,6 +13,7 @@ public partial class TeamNotesControl : UserControl
     private Action? changed;
     private string? owner;
     private Guid? selected;
+    private OwnedNote? displayedNote;
     private bool loading;
     private bool includeArchived;
     private readonly OwnedNotePresentation presentation;
@@ -103,9 +104,12 @@ public partial class TeamNotesControl : UserControl
         selected = note?.Id;
         var retained = note is null ? null : workflow?.GetRetainedNoteDraft(NoteScope.Team, note.Id);
         var noteBase = retained?.Basis ?? (note is null ? null : workflow?.BeginNoteDraft(NoteScope.Team, note.OwnerEmail, note.Id));
-        NoteTitle.Text = retained?.Title ?? noteBase?.Title ?? "";
-        MarkdownEditor.Text = retained?.Markdown ?? noteBase?.Markdown ?? "";
-        NoteHeading.Text = NoteTitle.Text;
+        var title = retained?.Title ?? noteBase?.Title ?? "";
+        var markdown = retained?.Markdown ?? noteBase?.Markdown ?? "";
+        displayedNote = note is null ? null : note with { Title = title, Markdown = markdown };
+        if (editing) NoteTitle.Text = title;
+        if (editing) MarkdownEditor.Text = markdown;
+        NoteHeading.Text = title;
         Views.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         Views.SelectedItem = editing ? EditTab : ReadTab;
         NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = noteBase is not null && note is { Archived: false };
@@ -114,7 +118,7 @@ public partial class TeamNotesControl : UserControl
         ArchiveButton.Visibility = ConfirmButton.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
         RetryButton.IsEnabled = DiscardButton.IsEnabled = false;
         RetryButton.Visibility = DiscardButton.Visibility = Visibility.Collapsed;
-        Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
+        Reading.Document = PrivateMarkdownReading.Create(markdown, OpenExternalLink);
         loading = false;
         RefreshLocalAutosave();
     }
@@ -147,6 +151,9 @@ public partial class TeamNotesControl : UserControl
     {
         if (loading || workflow is null || selected is not { } id) return;
         workflow.UpdateNoteDraft(NoteScope.Team, id, NoteTitle.Text, MarkdownEditor.Text);
+        displayedNote = displayedNote is { } current
+            ? current with { Title = NoteTitle.Text, Markdown = MarkdownEditor.Text }
+            : throw new InvalidOperationException("The selected Team editor has no displayed note.");
         NoteHeading.Text = NoteTitle.Text;
         Reading.Document = PrivateMarkdownReading.Create(MarkdownEditor.Text, OpenExternalLink);
         RefreshLocalAutosave();
@@ -213,7 +220,7 @@ public partial class TeamNotesControl : UserControl
         if (!HasRetainedDraft &&
             (!view.Notes.Where(note => includeArchived || !note.Archived).SequenceEqual(NotesList.Items.Cast<OwnedNote>()) ||
              selected != view.SelectedNote?.Id || view.IsEditing != (Views.SelectedItem == EditTab) ||
-             NoteTitle.Text != (view.SelectedNote?.Title ?? "") || MarkdownEditor.Text != (view.SelectedNote?.Markdown ?? "")))
+             displayedNote?.Title != view.SelectedNote?.Title || displayedNote?.Markdown != view.SelectedNote?.Markdown))
             RefreshNotes();
         else RefreshLocalAutosave();
         RefreshContext();
@@ -236,7 +243,7 @@ public partial class TeamNotesControl : UserControl
         loading = false;
         RetryButton.Visibility = DiscardButton.Visibility = HasRetainedDraft ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.IsEnabled = DiscardButton.IsEnabled = retained is { IsSaving: false };
-        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = workflow.CanEditLocalWorkspace &&
+        NoteTitle.IsEnabled = MarkdownEditor.IsEnabled = view.IsEditing && workflow.CanEditLocalWorkspace &&
             workflow.Compatibility.SupportsNoteEdits && view.SelectedNote is { Archived: false };
         ArchiveButton.IsEnabled = selected is not null && workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsNoteEdits;
         ShowStatus();
@@ -323,6 +330,7 @@ public partial class TeamNotesControl : UserControl
         if (!loading && selected is { } id && e.Source == Views)
         {
             workflow?.OpenOwnedNote(NoteScope.Team, id, editing: Views.SelectedItem == EditTab);
+            if (Views.SelectedItem == EditTab) LoadNote(workflow?.TeamNotesView.SelectedNote);
             ShowPresentation();
         }
     }
