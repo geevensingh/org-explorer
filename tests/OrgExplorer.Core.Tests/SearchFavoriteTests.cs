@@ -6,6 +6,98 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class SearchFavoriteTests
 {
+    [Fact]
+    public void Complete_relevance_keeps_exact_historical_identity_reporting_and_frozen_notes_below_current_context()
+    {
+        using var app = Open();
+        Apply(app, """
+            {"email":"exact@example.com","displayName":"Z exact","alias":"Cedar","managerEmail":null},
+            {"email":"word@example.com","displayName":"Y Cedar name","managerEmail":null},
+            {"email":"prefix@example.com","displayName":"X Cedargrove","managerEmail":null},
+            {"email":"substring@example.com","displayName":"W JayCedar","managerEmail":null},
+            {"email":"owned@example.com","displayName":"V owned","department":"Cedar current department","managerEmail":"exact@example.com"},
+            {"email":"inherited@example.com","displayName":"U inherited","managerEmail":"exact@example.com"},
+            {"email":"promoted@example.com","displayName":"T inherited","preferredName":"Cedar","managerEmail":"exact@example.com"},
+            {"email":"history@example.com","displayName":"A history","preferredName":"Cedar","alias":"Cedar","managerEmail":"exact@example.com"}
+            """, 2);
+        var note = app.CreateTeamNote("exact@example.com", "Cedar", "Cedar")!;
+        Assert.True(app.EditPreferredName("promoted@example.com", "T inherited"));
+        Assert.True(app.EditPreferredName("history@example.com", "A history"));
+        Assert.True(app.EditPersonText("history@example.com", PersonTextField.Alias, "Past"));
+        Assert.True(app.EditPersonManager("history@example.com", "morgan@example.com"));
+        var capture = Assert.Single(app.GetHistoricalTeamContexts("history@example.com"));
+        Assert.True(app.EditTeamNote(note.Id, "Current", "Cedar current inherited writing"));
+        Assert.True(app.EditPersonArchived("history@example.com", true));
+
+        var people = app.SearchPeople("cedar");
+
+        Assert.Equal(["exact@example.com", "word@example.com", "prefix@example.com", "substring@example.com",
+            "owned@example.com", "promoted@example.com", "inherited@example.com", "history@example.com"],
+            people.Select(result => result.Person.Email));
+        var inherited = people[5];
+        Assert.Equal(SearchSource.InheritedTeamNote, inherited.Matches[0].Source);
+        Assert.Equal("Cedar current inherited writing", inherited.Excerpt);
+        Assert.Contains(inherited.Matches, match => match.Source == SearchSource.ProfileHistory && match.MatchText == "Cedar");
+        var history = people[7];
+        Assert.True(history.Person.Archived);
+        Assert.All(history.Matches, match => Assert.Equal(SearchContext.Historical, match.Context));
+        Assert.Contains(history.Matches, match => match.Source == SearchSource.ProfileHistory &&
+            match.Field == "preferredName" && match.MatchText == "Cedar");
+        Assert.Contains(history.Matches, match => match.Source == SearchSource.ProfileHistory &&
+            match.Field == "alias" && match.MatchText == "Cedar");
+        Assert.Contains(history.Matches, match => match.Source == SearchSource.FormerReportingChain &&
+            match.Field == "alias" && match.MatchText == "Cedar" && match.NoteOwner!.Email == "exact@example.com");
+        Assert.Contains(history.Matches, match => match.Source == SearchSource.HistoricalTeamNote &&
+            match.HistoricalContextId == capture.Id && match.NoteId == note.Id && match.MatchText == "Cedar" &&
+            match.NoteOwner!.Email == "exact@example.com");
+        Assert.Contains("Historical / Archived person", history.EvidenceDescription);
+        var evidence = app.Search("cedar");
+        Assert.All(people, result => Assert.Equal(evidence.Where(match => match.Person.Email == result.Person.Email).ToHashSet(),
+            result.Matches.ToHashSet()));
+        Assert.Equal(evidence.Where(match => match.Person.Email == "history@example.com"), history.Matches);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Owned_current_context_outranks_Manager_and_inherited_mentions_with_stable_primary_evidence(bool archived)
+    {
+        using var app = Open();
+        Apply(app, """
+            {"email":"cedar-manager@example.com","displayName":"Z manager","managerEmail":null},
+            {"email":"report@example.com","displayName":"A report","managerEmail":"cedar-manager@example.com","isFavorite":true},
+            {"email":"b-owned@example.com","displayName":"Z owner","managerEmail":"cedar-manager@example.com"},
+            {"email":"z-owned@example.com","displayName":"Z owner","department":"Cedar direct department","managerEmail":"cedar-manager@example.com"}
+            """, 2);
+        for (var index = 0; index < 3; index++)
+            app.CreateTeamNote("cedar-manager@example.com", $"Cedar shared {index}", "Cedar repeated context");
+        var personNote = app.CreatePersonNote("b-owned@example.com", "Cedar", "Private title-only match")!;
+        var teamNote = app.CreateTeamNote("b-owned@example.com", "Owned", "Cedar")!;
+        if (archived) Assert.True(app.EditPersonArchived("b-owned@example.com", true));
+
+        var people = app.SearchPeople("  CeDaR \t");
+
+        Assert.Equal(["cedar-manager@example.com", "b-owned@example.com", "z-owned@example.com", "report@example.com"],
+            people.Select(result => result.Person.Email));
+        var owner = people[1];
+        Assert.Equal(archived, owner.Person.Archived);
+        Assert.Equal([personNote.Id, teamNote.Id], owner.Matches.Take(2).Select(match => match.NoteId));
+        Assert.Equal([SearchSource.PersonNote, SearchSource.OwnedTeamNote], owner.Matches.Take(2).Select(match => match.Source));
+        Assert.Equal("Private title-only match", owner.Excerpt);
+        Assert.StartsWith(archived ? "Archived person — Person note" : "Current — Person note", owner.SourceLabel);
+        Assert.Contains(owner.Matches, match => match.Source == SearchSource.Profile && match.Field == "managerEmail");
+        Assert.All(owner.Matches.Where(match => match.NoteId == personNote.Id || match.NoteId == teamNote.Id),
+            match => Assert.Equal("b-owned@example.com", match.NoteOwner!.Email));
+        Assert.Equal("department", people[2].Matches[0].Field);
+        Assert.Equal("Cedar direct department", people[2].Excerpt);
+        Assert.Equal("managerEmail", people[3].Matches[0].Field);
+        Assert.Equal(3, people[3].Matches.Count(match => match.Source == SearchSource.InheritedTeamNote));
+        Assert.Contains("owned by Z manager (cedar-manager@example.com)", people[3].EvidenceDescription);
+        var evidence = app.Search("  CeDaR \t");
+        Assert.All(people, result => Assert.Equal(evidence.Where(match => match.Person.Email == result.Person.Email).ToHashSet(),
+            result.Matches.ToHashSet()));
+    }
+
     [Theory]
     [InlineData("sachin", "sachin-target@example.com", "\"displayName\":\"Sachin\"", "displayName", false)]
     [InlineData("sachin", "sachin-target@example.com", "\"displayName\":\"Z Sachin context\",\"preferredName\":\"Sachin\"", "preferredName", true)]
@@ -85,7 +177,7 @@ public sealed class SearchFavoriteTests
         var request = app.BeginPeopleSearch("  SaChIn \t");
         var results = app.SearchPeople(app.PeopleNavigation.Query);
         Assert.Equal(["sachin-manager@example.com", "sam@example.com", "prefix@example.com",
-            "kiran.sachintala@example.com", "history@example.com", "report@example.com"],
+            "kiran.sachintala@example.com", "report@example.com", "history@example.com"],
             results.Select(r => r.Person.Email));
         Assert.True(app.PublishPeopleSearchResults(request, results));
         Assert.Equal("sachin-manager@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
@@ -94,8 +186,8 @@ public sealed class SearchFavoriteTests
         Assert.Equal("email", kiran.Matches[0].Field);
         Assert.Contains(kiran.Matches, match => match.NoteId == secondary.Id &&
             match.NoteOwner!.Email == "kiran.sachintala@example.com" && match.Excerpt == "Retained writing");
-        Assert.All(results[4].Matches, match => Assert.Equal(SearchContext.Historical, match.Context));
-        Assert.Equal("managerEmail", Assert.Single(results[5].Matches).Field);
+        Assert.Equal("managerEmail", Assert.Single(results[4].Matches).Field);
+        Assert.All(results[5].Matches, match => Assert.Equal(SearchContext.Historical, match.Context));
         Assert.Empty(app.SearchPeople("Sachin Sri"));
 
         Assert.True(app.BeginProfileEdit("alex@example.com"));
@@ -139,7 +231,13 @@ public sealed class SearchFavoriteTests
         Assert.Null(app.PeopleNavigation.HighlightedResult);
         Assert.Null(app.PeopleNavigation.SelectedEmail);
         Assert.True(app.PublishPeopleSearchResults(request, app.SearchPeople("lastneedle")));
-        Assert.Equal("avery@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+        Assert.Equal(SearchSource.OwnedTeamNote, app.PeopleNavigation.HighlightedResult.Matches[0].Source);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.NavigateSearchResult(app.PeopleNavigation.HighlightedResult), app.Status);
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.PeopleNavigation.IsBrowsing);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
     }
 
     [Fact]
@@ -185,6 +283,7 @@ public sealed class SearchFavoriteTests
         var markdown = string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
         app.CreateTeamNote("morgan@example.com", "Shared context", markdown);
         app.ChangePeopleQuery("lastneedle");
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
         app.MoveSearchHighlight(1);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
@@ -193,7 +292,7 @@ public sealed class SearchFavoriteTests
 
         Assert.True(allocated < 2 * 1024 * 1024,
             $"Highlighting existing matches must not rebuild excerpts; allocated {allocated:N0} bytes.");
-        Assert.Equal("morgan@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+        Assert.Equal("avery@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
     }
 
     [Fact]

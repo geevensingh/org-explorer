@@ -72,6 +72,9 @@ public sealed partial class ApplicationWorkflow
 
     private static int MatchPriority(SearchResult match, string query)
     {
+        if (match.Context == SearchContext.Historical) return 6;
+        if (match.Source == SearchSource.InheritedTeamNote ||
+            match.Source == SearchSource.Profile && match.Field == "managerEmail") return 5;
         if (match.Source != SearchSource.Profile ||
             match.Field is not ("preferredName" or "displayName" or "alias" or "email")) return 4;
         var value = match.MatchText;

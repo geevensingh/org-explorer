@@ -423,8 +423,17 @@ Kiran's incidental email and Manager-only matches, preserves secondary-note and
 historical attribution, and exercises ranked highlight/guarded acceptance without
 replacing unsaved writing. Referenced Managers must still exist; the existing
 invalid-reference rejection is unchanged, not bypassed for an unreachable fixture.
-Other evidence shares one lower tier in this slice; owned/inherited/historical
-context refinement remains a separate delivery prerequisite. These non-UI cases
+The #112 context slice completes the seven-tier policy at this same boundary:
+other owned current profile/Person-note/Team-note matches precede current
+Manager/inherited Team-note matches, and all historical evidence follows.
+Small mixed-source cases retain exact former names/Aliases, former Manager
+identity and frozen note versions below weaker-text current evidence. They
+check archived/current owned-context parity, same-heading email ties, one
+strong hit versus repeated inherited mentions, title-only primary excerpts,
+stable same-tier evidence order and complete owner-correct evidence retention.
+The existing no-identity-hit publication and bounded-allocation cases now
+highlight the owned Team-note result before its reports; ordinary first-result
+acceptance opens that owner without targeting a matched note. These non-UI cases
 do not establish native query focus, viewport visibility or mouse/keyboard
 acceptance; the existing required hosted journeys remain required on the complete
 candidate, with no new desktop scenario or explicit-scale execution.
