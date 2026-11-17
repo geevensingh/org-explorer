@@ -5,6 +5,42 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class DesktopScenarioSelectionTests
 {
+    [Theory]
+    [InlineData("""{"people":["first"],"workspace":["first"]}""")]
+    [InlineData("""{"people":["first"],"workspace":[]}""")]
+    [InlineData("""{"people":["first"],"workspace":["second","scale"]}""")]
+    [InlineData("""{"people":["first"],"unknown":["second"]}""")]
+    [Trait("Category", "Runner")]
+    public void Incomplete_overlapping_or_unexpected_partition_plans_are_refused_before_execution(string partitions)
+    {
+        var root = Path.GetFullPath(Path.Combine(".test-workspaces", "selection-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "DesktopScenarios.json"), """["first","second"]""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionScenarios.json"), """["high-resolution"]""");
+            File.WriteAllText(Path.Combine(root, "UiScaleScenarios.json"), """["scale"]""");
+            File.WriteAllText(Path.Combine(root, "DesktopPartitions.json"), partitions);
+            Assert.Throws<InvalidOperationException>(() => new DesktopScenarioSelection(root));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Isolated_desktop_partitions_preserve_every_ordinary_scenario_once_without_scale_or_high_resolution()
+    {
+        var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
+        var people = selection.Select("--desktop-people");
+        var workspace = selection.Select("--desktop-workspace");
+        Assert.Equal(["profile-journey", "draft-navigation", "person-note-rendering",
+            "team-context-history", "search-favorites"], people);
+        Assert.Equal(["archival-navigation", "compatibility-settings", "update-settings", "external-refresh"], workspace);
+        Assert.Equal(selection.Smoke, people.Concat(workspace));
+        Assert.Empty(people.Intersect(workspace));
+        Assert.Empty(people.Concat(workspace).Intersect(selection.HighResolution.Concat(selection.Scale)));
+    }
+
     [Fact]
     [Trait("Category", "Runner")]
     public void Required_high_resolution_is_explicit_complete_and_independent_from_ordinary_smoke_and_ui_scale()

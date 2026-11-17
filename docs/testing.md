@@ -1123,14 +1123,19 @@ matrix belongs to its separate required smoke suite, not a substitute for comple
 ## Required PR/main execution
 
 Every PR and `main` commit, including docs/test-only changes, retains four
-independent parallel jobs: workflow/view-model, filesystem, ordinary desktop,
-and high-resolution desktop on its own disposable GitHub-hosted Windows runner.
-The stable aggregate `CI` requires all four successes. Failure, required skip,
+required logical lanes: workflow/view-model, filesystem, ordinary desktop,
+and high-resolution desktop. Ordinary desktop uses two parallel, isolated
+GitHub-hosted Windows jobs (`people` and `workspace`), approved on 2026-11-16.
+Each native worker has its own disposable desktop; UI automation never runs
+concurrently on one desktop.
+The stable aggregate `CI` requires all four lanes, including both ordinary
+desktop workers. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the 5-minute
-workflow/view-model, 11-minute filesystem, 15-minute ordinary desktop,
-15-minute high-resolution desktop and 2-minute aggregate deadlines: 48 minutes
+workflow/view-model, 11-minute filesystem, 15-minute limit for each ordinary
+desktop worker, 15-minute high-resolution desktop and 2-minute aggregate
+deadlines: 63 minutes
 summed, at most 17 minutes on the parallel critical path, excluding queues and
-later CD. The two desktop runners enforce matching 900-second whole-execution
+later CD. All three native desktop workers enforce matching 900-second whole-execution
 budgets, including setup, temporarily raised with owner approval on 2026-11-15.
 Both full scenario/size/assertion matrices, including profile-copy and SQLite
 save coverage, remain required. Core/filesystem deadlines, separate scale-suite
@@ -1138,6 +1143,25 @@ budgets and save-latency targets are unchanged. If fifteen minutes is insufficie
 investigate rather than automatically extending it again.
 The five-minute target includes setup, restore, build, fixtures, tests and cleanup;
 passing a hard deadline does not claim that target or a new latency SLA.
+
+`DesktopPartitions.json` assigns every existing ordinary scenario exactly once.
+The `people` worker runs profile, draft, Person-note, Team/history and search
+journeys. The `workspace` worker runs archival, compatibility, update and external
+refresh journeys, followed by every existing compiled profile/note-refresh,
+update-yield, release-isolation, release-trust and application-icon check.
+Neither partition removes actions, samples, size matrices or assertions.
+The original unpartitioned desktop command remains available for an explicitly
+isolated desktop; high-resolution and explicit scale selections are unchanged.
+
+Each ordinary worker uploads `scenarios.json`, `execution.json`, timing, logs and
+captures in an artifact named `desktop-<partition>-attempt-<runAttempt>`.
+`CI` validates both current-attempt artifacts against the exact candidate/run,
+complete native selections and successful required companion commands. Missing,
+duplicate, unexpected, stale or partial results fail closed even when a matrix
+job reports success. Rerun both partitions together; an earlier attempt's
+successful artifact cannot fill a missing current-attempt result.
+This changes execution capacity, not application performance targets or the
+unidentified cause of longer UI observation calls.
 
 Default local verification is non-UI:
 
