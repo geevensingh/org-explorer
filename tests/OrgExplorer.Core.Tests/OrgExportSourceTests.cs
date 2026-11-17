@@ -293,6 +293,10 @@ public sealed class OrgExportSourceTests : IDisposable
     [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception Caught.")]
     [InlineData(null, null, "Another source failure.")]
     [InlineData(null, null, "Earlier diagnostic: Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(403, null, "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(503, null, "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(null, "PolicyDenied", "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(null, null, "Earlier diagnostic: Profile details couldn't be retrieved for this person right now.")]
     public void Profile_open_recovery_cannot_reclassify_structured_or_unrelated_failures(int? status, string? code, string message)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
@@ -312,8 +316,10 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Null(session.ClaimSource("blocked", "profile", [Identity(2)]).ClaimId);
     }
 
-    [Fact]
-    public void Profile_open_recovery_requires_settled_calls_and_preserves_returned_delays()
+    [Theory]
+    [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("Profile details couldn't be retrieved for this person right now.")]
+    public void Profile_open_recovery_requires_settled_calls_and_preserves_returned_delays(string diagnostic)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
         var clock = new SourceClock(DateTimeOffset.UtcNow);
@@ -325,7 +331,7 @@ public sealed class OrgExportSourceTests : IDisposable
         var other = session.ClaimSource("other", "profile", [Identity(3)]);
         Finish(session, profile, new JsonObject
         {
-            ["error"] = new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." },
+            ["error"] = new JsonObject { ["message"] = diagnostic },
             ["retryAfterSeconds"] = 450
         });
         Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));

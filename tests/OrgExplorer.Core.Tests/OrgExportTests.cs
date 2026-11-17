@@ -1390,10 +1390,13 @@ public sealed class OrgExportTests : IDisposable
         => ExportSession.Create("Example Person", RootId, account, root);
 
     [Theory]
-    [InlineData("message")]
-    [InlineData("string")]
-    [InlineData("markdown")]
-    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(string envelope)
+    [InlineData("message", "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("string", "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("markdown", "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("message", "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData("string", "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData("markdown", "Profile details couldn't be retrieved for this person right now.")]
+    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(string envelope, string diagnostic)
     {
         var path = Seed();
         using var session = ExportSession.Open(path);
@@ -1406,10 +1409,10 @@ public sealed class OrgExportTests : IDisposable
         {
             ["error"] = envelope switch
             {
-                "string" => JsonValue.Create("Open '' Failure: Unable to open, Exception Caught."),
+                "string" => JsonValue.Create(diagnostic),
                 "markdown" => JsonValue.Create("- **Fictitious Engineer**\r\n  - **personId:** " + RootId
-                    + "\r\n  - **snippet:** Open '' Failure: Unable to open, Exception Caught."),
-                _ => new JsonObject { ["message"] = "Open '' Failure: Unable to open, Exception Caught." }
+                    + "\r\n  - **snippet:** " + diagnostic),
+                _ => new JsonObject { ["message"] = diagnostic }
             }
         };
         FinishSource(session, failed, OpenFailure());
