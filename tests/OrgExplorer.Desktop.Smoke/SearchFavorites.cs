@@ -201,24 +201,26 @@ internal static partial class Program
         var beforeNote = PersonNoteIdentity();
         TypeSearchQuery(window, query);
         AutomationElement? result = null;
+        string[] rowEmails = [];
+        var archived = false;
         Await(() =>
         {
-            result = Find(window, "SearchResults").FindAll(TreeScope.Children,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Cast<AutomationElement>()
-                .SingleOrDefault(r => r.Current.AutomationId == email && r.Current.Name.Contains($"({email})") &&
-                    r.Current.HelpText.Contains(context) && r.Current.HelpText.Contains(source) &&
-                    (owner is null || r.Current.HelpText.Contains($"({owner})")));
-            return result is not null;
+            var rows = SearchRows(window);
+            result = rows.SingleOrDefault(r => r.Current.AutomationId == email && r.Current.Name.Contains($"({email})") &&
+                r.Current.HelpText.Contains(context) && r.Current.HelpText.Contains(source) &&
+                (owner is null || r.Current.HelpText.Contains($"({owner})")));
+            if (result is null) return false;
+            archived = result.Current.HelpText.Contains("Archived person", StringComparison.Ordinal);
+            rowEmails = rows.Select(row => row.Current.AutomationId).ToArray();
+            return true;
         });
-        var archived = result!.Current.HelpText.Contains("Archived person", StringComparison.Ordinal);
-        var rows = SearchRows(window);
-        var index = Array.FindIndex(rows, row => row.Current.AutomationId == email);
+        var index = Array.IndexOf(rowEmails, email);
         if (index < 0) throw new InvalidOperationException("The queried Person disappeared before keyboard navigation.");
-        AssertQueryHighlight(window, rows[0].Current.AutomationId);
+        AssertQueryHighlight(window, rowEmails[0]);
         for (var i = 0; i < index; i++)
         {
             PressCopyKey(0x28);
-            AssertQueryHighlight(window, rows[i + 1].Current.AutomationId);
+            AssertQueryHighlight(window, rowEmails[i + 1]);
         }
         if (CurrentPersonEmail(window) != beforeEmail || PersonNoteIdentity() != beforeNote)
             throw new InvalidOperationException("Typing or highlighting opened a Person or replaced exact note reading before activation.");

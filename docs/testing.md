@@ -445,6 +445,10 @@ The existing search journeys now type through the focused query field with real
 keyboard input, retain typing focus during Up/Down, observe each highlighted row
 inside the results viewport, and check first/last clamping, continued typing,
 first/chosen-result Enter, no-result Enter and mouse equivalence.
+Target discovery snapshots attribution and ordered result identities inside the
+same bounded read-only observation, without an unguarded second lookup of the
+result list. Each subsequent highlight still requires fresh native visibility,
+selection and query focus; no input is repeated to repair discovery.
 Population readiness uses the rendered distinct-Person count, not the number
 of simultaneously realized UI Automation rows. The complete-candidate hosted
 failure exposed only seven/nine realized rows for forty matches at the two
