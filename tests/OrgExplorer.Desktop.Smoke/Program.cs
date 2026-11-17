@@ -60,6 +60,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyNoteReadDemand);
             if (args.Length == 2 && args[1] == "--verify-normal-close-publication-preparation")
                 return VerifyHostedCutoverContracts(executable, VerifyNormalClosePublicationPreparation);
+            if (args.Length == 2 && args[1] == "--verify-incoming-smoke-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyIncomingSmokePublication);
             if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")
                 return VerifyHostedCutoverContracts(executable, VerifyActualC38NoteReadinessContracts);
             if (args.Length == 2 && args[1] == "--verify-person-search-integration")

@@ -224,6 +224,8 @@ internal static partial class Program
                     VerifyActual39FunctionalContracts(type, Path.Combine(settings, "af")));
                 HarnessRuntime.Run("compiled-normal-close-publication-preparation", () =>
                     VerifyNormalClosePublicationPreparation(type, Path.Combine(settings, "np")));
+                HarnessRuntime.Run("compiled-incoming-smoke-publication", () =>
+                    VerifyIncomingSmokePublication(type, Path.Combine(settings, "ip")));
                 HarnessRuntime.Run("compiled-actualc38-note-readiness", () =>
                     VerifyActualC38NoteReadinessContracts(type, Path.Combine(settings, "cn")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));

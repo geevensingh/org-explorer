@@ -241,6 +241,14 @@ actual Configure/Sync, a genuinely
 newer Import and normal Closed with an independent complete-snapshot receiver.
 It remains in the full compiled selection. The complete later rich background
 export and profile phases and all original hosted exit cases remain required.
+Only the normal-close preparation wrapper requires the pre-operation head to
+remain unchanged. The shared refresh/publication helper permits legitimate
+incoming adoption and independently checks the post-operation current and
+published revisions instead. `--verify-incoming-smoke-publication` drives that
+same helper through actual compiled Sync controls and two real stores, verifies
+new incoming profile/note data and matching current/published revisions, and
+separately requires close-only preparation to reject an unexpectedly advanced
+head without losing the adopted version. It is also in the full compiled selection.
 
 The exit host's one preparation Open waits for the actual compiled Ready activity
 and enabled Open control inside its original bounded preparation observation.
