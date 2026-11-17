@@ -9,7 +9,7 @@ public sealed class LocalWorkObservationTests
     public void Held_profile_navigation_keeps_slow_raw_time_diagnostic_without_inventing_a_per_case_budget()
     {
         var held = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", true);
-        var result = LocalWorkObservation.HeldProfileNavigationEvidence([154.1758], held, held, held.OwnerEmail, true);
+        var result = LocalWorkObservation.HeldProfileNavigationEvidence([154.1758], held, held, held.OwnerEmail, true, true, true);
         var json = System.Text.Json.JsonSerializer.SerializeToElement(result);
         Assert.Equal(154.1758, json.GetProperty("samplesMs")[0].GetDouble());
         Assert.Equal("diagnostic", json.GetProperty("timingUse").GetString());
@@ -18,18 +18,19 @@ public sealed class LocalWorkObservationTests
     }
 
     [Theory]
-    [InlineData(false, true, "Saving complete profile\u2026", true)]
-    [InlineData(true, false, "Saving complete profile\u2026", true)]
-    [InlineData(true, true, "Ready", true)]
-    [InlineData(true, true, "Local save failed; NOT saved.", true)]
-    [InlineData(true, true, "Saving complete profile\u2026", false)]
-    public void Held_profile_navigation_rejects_released_writers_completed_saves_and_wrong_destinations(
-        bool heldBefore, bool heldAfter, string afterActivity, bool exactDestinationReady)
+    [InlineData(false, true, true, true, true)]
+    [InlineData(true, false, true, true, true)]
+    [InlineData(true, true, false, true, true)]
+    [InlineData(true, true, true, false, true)]
+    [InlineData(true, true, true, true, false)]
+    public void Held_profile_navigation_rejects_released_writers_wrong_destinations_and_incomplete_storage_transitions(
+        bool heldBefore, bool heldAfter, bool exactDestinationReady, bool originalStateDuringHold, bool committedStateAfterRelease)
     {
         var before = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", heldBefore);
-        var after = before with { WriterHeld = heldAfter, Activity = afterActivity };
+        var after = before with { WriterHeld = heldAfter };
         Assert.Throws<InvalidOperationException>(() =>
-            LocalWorkObservation.HeldProfileNavigationEvidence([10], before, after, before.OwnerEmail, exactDestinationReady));
+            LocalWorkObservation.HeldProfileNavigationEvidence([10], before, after, before.OwnerEmail,
+                exactDestinationReady, originalStateDuringHold, committedStateAfterRelease));
     }
 
     [Fact]
@@ -37,7 +38,19 @@ public sealed class LocalWorkObservationTests
     {
         var held = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", true);
         Assert.Throws<InvalidOperationException>(() => LocalWorkObservation.HeldProfileNavigationEvidence(
-            [10], held, held with { OwnerEmail = "morgan@example.com" }, held.OwnerEmail, true));
+            [10], held, held with { OwnerEmail = "morgan@example.com" }, held.OwnerEmail, true, true, true));
+    }
+
+    [Fact]
+    public void Held_profile_navigation_uses_real_storage_transition_not_mutable_UI_feedback_as_save_identity()
+    {
+        var before = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Ready", true);
+        var after = before with { Activity = "Saving locally - changes are not yet confirmed saved." };
+        var result = LocalWorkObservation.HeldProfileNavigationEvidence(
+            [154.1758], before, after, before.OwnerEmail, true, true, true);
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(result);
+        Assert.True(json.GetProperty("originalStateDuringHold").GetBoolean());
+        Assert.True(json.GetProperty("committedStateAfterRelease").GetBoolean());
     }
 
     [Fact]
