@@ -39,16 +39,12 @@ internal static partial class Program
             Control<TextBox>("OfficeNumber").Text = "Retained legacy room";
             using (WorkspaceFixtures.LockLocalStore(path))
             {
-                // Exercise the real compiled save continuation without opening a native modal dialog.
-                async Task RejectLeaveSave()
-                {
-                    var saving = (Task<bool>)windowType.GetMethod("SaveProfileSessionAsync",
-                        BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
-                    if (await saving) throw new InvalidOperationException("A locked SQLite leave-save unexpectedly committed.");
-                }
-                var rejected = RejectLeaveSave();
-                PumpUntil(() => rejected.IsCompleted);
-                rejected.GetAwaiter().GetResult();
+                var save = Control<Button>("SaveProfileButton");
+                if (!save.IsEnabled)
+                    throw new InvalidOperationException("The compiled profile Save action is unavailable.");
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Failed &&
+                    Control<Button>("OpenWorkspaceButton").IsEnabled);
                 var idle = false;
                 window.Dispatcher.BeginInvoke(() => idle = true, DispatcherPriority.ApplicationIdle);
                 PumpUntil(() => idle);
