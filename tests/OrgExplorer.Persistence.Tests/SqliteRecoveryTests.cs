@@ -362,6 +362,15 @@ public sealed partial class SqliteWorkspaceTests
                     .GetProperty(boundary == "after" ? "nextRevision" : "baseRevision").GetString()
                     ?? throw new IOException("The admitted writer did not identify its expected committed revision.");
             }
+            if (receiptHeld)
+            {
+                // Recovery's FileShare.None must exclude this reader, not the reader exclude existing writers.
+                receiptHolder = new FileStream(Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json")),
+                    FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var writerExited = process.HasExited;
+                Assert.False(writerExited);
+                Console.WriteLine($"SQLITE-CRASH-RECEIPT-READER writerProcessId={process.Id}; writerExited={writerExited}; readerProcessId={Environment.ProcessId}; access=Read; share=ReadWrite,Delete");
+            }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             string? evidence = null;
@@ -371,9 +380,6 @@ public sealed partial class SqliteWorkspaceTests
                 evidence = Path.Combine(Workspace, $"local-write-{Guid.NewGuid():N}.json");
                 File.WriteAllText(evidence, "Interrupted invalid transaction evidence");
             }
-            if (receiptHeld)
-                receiptHolder = new FileStream(Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json")),
-                    FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
             Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
             Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);

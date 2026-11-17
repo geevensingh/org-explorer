@@ -784,8 +784,12 @@ receipt-acquire sharing violation (`0x80070020`, no acquired handle) may instead
 retain `Indeterminate`/`Unknown`, its evidence, read-only Person browsing and an
 unsafe-close warning; it must not resume edits or claim recovery from the revision
 alone. Other unexplained recovery failures do not satisfy this exception.
-Two controlled pre/post-Commit profile cases keep an actual independent receipt
-reader open after killing and waiting for the admitted writer. Reconciliation
+Two controlled pre/post-Commit profile cases admit an actual read-only receipt
+reader while the identified writer is still paused at its commit boundary, then
+keep that reader open after killing and waiting for the writer. The reader shares
+read/write/delete access rather than unnecessarily excluding an existing
+write-capable handle; it never receives write access itself. Production recovery's
+exclusive `FileShare.None` still cannot coexist with that open reader. Reconciliation
 must remain refused while that holder exists. Only after deliberately releasing
 it and proving one actual exclusive acquisition succeeds does one explicit
 reconcile restore editing with the same revision/profile/history, without replay.
