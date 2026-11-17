@@ -488,15 +488,25 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             var owner = scope == NoteScope.Person ? "report@example.com" : "manager@example.com";
             var note = first.CreateOwnedNoteDraft(scope, owner)!;
             first.UpdateNoteDraft(scope, note.Id, "Writing during real export", "First owner generation");
-            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(1)), first.Status);
+            var localCommits = System.Diagnostics.Stopwatch.StartNew();
+            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)), first.Status);
+            var firstCommitMs = localCommits.Elapsed.TotalMilliseconds;
+            Assert.Equal(1, Volatile.Read(ref publisher.ActiveSnapshotPublications));
+            Assert.False(publisher.Release.IsSet);
             first.UpdateNoteDraft(scope, note.Id, "Writing during real export", "Latest owner generation");
             Assert.True(first.NavigatePerson(owner == "report@example.com" ? "manager@example.com" : "report@example.com"), first.Status);
-            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(1)), first.Status);
+            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)), first.Status);
             using (var reading = ApplicationWorkflow.CreateFileBacked())
             {
                 Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
                 Assert.Equal("Latest owner generation", reading.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
             }
+            Assert.Equal(1, Volatile.Read(ref publisher.ActiveSnapshotPublications));
+            Assert.Equal(1, Volatile.Read(ref publications));
+            Assert.True(first.IsSynchronizing);
+            Assert.False(publisher.Release.IsSet);
+            Console.WriteLine($"SNAPSHOT-EXPORT-LOCAL-COMMIT scope={scope}; firstMs={firstCommitMs:F4}; " +
+                $"latestReopenedMs={localCommits.Elapsed.TotalMilliseconds:F4}; timingUse=diagnostic; publisherActive=true");
             clock.Advance(TimeSpan.FromSeconds(120));
             manual = first.SynchronizeAsync();
             Assert.False(manual.IsCompleted);
@@ -2399,22 +2409,32 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     private sealed class SnapshotPublisher : IWorkspaceFilePublisher
     {
         public bool Interrupt, AfterPublish, Hold;
+        public int ActiveSnapshotPublications;
         public Action? BeforeSnapshot;
         public ManualResetEventSlim Entered { get; } = new();
         public ManualResetEventSlim Release { get; } = new();
         public void Publish(string staged, string destination, string? backup,
             WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
         {
-            if (destination.EndsWith(".oesnapshot", StringComparison.Ordinal))
+            var snapshot = destination.EndsWith(".oesnapshot", StringComparison.Ordinal);
+            if (snapshot) Interlocked.Increment(ref ActiveSnapshotPublications);
+            try
             {
-                BeforeSnapshot?.Invoke();
-                Entered.Set();
-                if (Hold && !Release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled publication wait expired.");
-                if (Interrupt && !AfterPublish) throw new IOException("Interrupted before publication.");
+                if (snapshot)
+                {
+                    BeforeSnapshot?.Invoke();
+                    Entered.Set();
+                    if (Hold && !Release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled publication wait expired.");
+                    if (Interrupt && !AfterPublish) throw new IOException("Interrupted before publication.");
+                }
+                new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
+                if (Interrupt && snapshot)
+                    throw new IOException("Interrupted after publication; outcome not acknowledged.");
             }
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
-            if (Interrupt && destination.EndsWith(".oesnapshot", StringComparison.Ordinal))
-                throw new IOException("Interrupted after publication; outcome not acknowledged.");
+            finally
+            {
+                if (snapshot) Interlocked.Decrement(ref ActiveSnapshotPublications);
+            }
         }
     }
 
