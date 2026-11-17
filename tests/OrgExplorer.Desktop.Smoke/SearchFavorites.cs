@@ -90,7 +90,9 @@ internal static partial class Program
                     throw new InvalidOperationException("Search discarded an unsaved favorite action.");
                 CaptureVisualEvidence(window, "search-rejected-favorite-writing-retained");
                 process.CloseMainWindow();
-                Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
+                Await(() => ExitDecisionVisible(window) && Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
+                Click(window, "CancelExit");
+                Await(() => !ExitDecisionVisible(window));
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Unmark favorite");

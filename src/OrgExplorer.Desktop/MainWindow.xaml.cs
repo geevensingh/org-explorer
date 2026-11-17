@@ -69,20 +69,7 @@ public partial class MainWindow : Window
             }
             else RefreshExternalWorkspace();
         });
-        Closing += (_, e) =>
-        {
-            if (updateHandoffPending || !TryLeaveLocalEdits() || !workflow.CanSafelyClose)
-            {
-                e.Cancel = true;
-                SettingsPanel.Visibility = Visibility.Collapsed;
-                UpdateMainViews();
-                StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
-                    workPending ? "Local work is still pending; closing waits for it to finish." :
-                    "Unsaved local changes prevent safe closing.\n" + workflow.Status +
-                    "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
-            }
-        };
-        Closed += (_, _) => workflow.Dispose();
+        InitializeExit();
     }
     private static string? ChooseWorkspaceFolder(Window owner)
     {

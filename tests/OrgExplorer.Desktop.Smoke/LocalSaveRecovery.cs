@@ -205,6 +205,7 @@ internal static partial class Program
         var preferences = new WorkspaceSettings(Path.Combine(settings, "workspace-settings.json"));
         using (var seed = ApplicationWorkflow.CreateFileBacked())
             if (!preferences.OpenWorkspace(seed, path, WorkspaceOpenMode.ExistingOnly) ||
+                !seed.ConfigureSynchronizationFolder(Path.Combine(root, "sqlite-recovery-sync")) ||
                 !preferences.SetLastView(path, new("morgan@example.com")))
                 throw new InvalidOperationException("Could not remember the recovery fixture's actual owner.");
         var token = Guid.NewGuid().ToString("N");

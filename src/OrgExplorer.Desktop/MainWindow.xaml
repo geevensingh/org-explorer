@@ -1145,5 +1145,30 @@
       </Expander>
     </StackPanel>
     </GroupBox>
+    <GroupBox x:Name="ExitDecision" Grid.Row="3" Visibility="Collapsed" Background="#FFF4DC"
+            BorderBrush="#E6D3AB" BorderThickness="1" Padding="12" Margin="0,8,0,0"
+            AutomationProperties.AutomationId="ExitDecision" AutomationProperties.Name="Close Workspace decision">
+      <GroupBox.Template>
+        <ControlTemplate TargetType="GroupBox">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter/>
+          </Border>
+        </ControlTemplate>
+      </GroupBox.Template>
+      <StackPanel>
+        <TextBlock Text="Close Workspace" FontWeight="SemiBold" Margin="0,0,0,4"/>
+        <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+          <TextBlock x:Name="ExitRisk" TextWrapping="Wrap" AutomationProperties.AutomationId="ExitRisk"
+                     AutomationProperties.LiveSetting="Polite"/>
+        </ScrollViewer>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+          <Button x:Name="CancelExitButton" Content="_Cancel" Click="CancelExit"
+                  AutomationProperties.AutomationId="CancelExit" Margin="0,0,8,0"/>
+          <Button x:Name="ExitAnywayButton" Content="Exit _anyway" Click="ExitAnyway"
+                  AutomationProperties.AutomationId="ExitAnyway"/>
+        </StackPanel>
+      </StackPanel>
+    </GroupBox>
   </Grid>
 </Window>

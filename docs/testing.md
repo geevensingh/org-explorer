@@ -182,6 +182,47 @@ Older-version rejection has zero observed writes. The
 [incremental storage protocol](incremental-workspace-storage-protocol.md)
 defines the shipping publication, recovery and guarded reclamation contract.
 
+The #99 close cases use that same real-storage workflow/observable view-model
+seam: both note scopes commit/reopen current writing during an older held
+publication, and close readiness requires the latest actual published revision.
+Cancel preserves unsubmitted profile/Preferred-name drafts, selection, exact
+stalled owner writing and the original local fault without waiting for the
+admitted transaction/export. Missing folders and failed exports remain distinct
+from local loss; a fresh close retries publication without mutation replay.
+The invisible compiled `--verify-exit` check (also in the existing required
+`--verify-profile-refresh` command) drives the real BAML close/Cancel controls,
+repeated/canceled intents, newer writing and late exports. Nine owned non-UI
+child processes invoke the compiled Exit anyway action with unconfigured/failed/
+hung publication, pending/stalled precommit writes, postcommit lost acknowledgment,
+failed local saving, an active explicit profile Save and real divergence.
+It requires actual process death without returning through secondary Closed/
+disposal guards, then independently reopens and reconciles committed versus
+incomplete data, retained conflict versions and unpublished work. This never
+shows a window, creates a native handle or substitutes a success flag for exit.
+The existing ephemeral signed/effects `--verify-update-yield` command also requires
+an owned process to terminate through Exit anyway while the real signed update
+command waits at its safe point behind an admitted, held SQLite transaction.
+Its ordinary safe-drain and unsubmitted-Preferred-name refusal proofs remain.
+
+The existing hosted `compatibility-settings` journey adds the native counterpart
+using those actual compiled WPF processes and real SQLite/snapshot artifacts.
+It observes visible enabled exit choices, exact Cancel/owner writing and Person
+browsing, then actual Exit anyway process death for the complete matrix.
+A separate native signed-update case requires the same forced termination
+without changing the updater's preexisting safe-point/edit-disable contract.
+A separate held-export journey cancels normal close, enters newer native note
+writing, independently reopens it before releasing the old export, requires the
+canceled process to remain open/unpublished, then requests normal close once and
+requires latest publication plus normal process death. Its candidate/run/attempt/
+product-hash-bound `*-sqlite-exit-lifecycle.json` and named `sqlite-exit-*` captures
+are hosted-only evidence. The earlier opt-in creation/reopen fixture explicitly
+chooses the saved-but-unpublished exit risk before folder configuration; it still
+requires all local writing to finish first. Existing rejected-close journeys now
+Cancel the decision before their original retry, preserving drafts/bytes and
+profile navigation Save/Discard/Stay without leaving a latent close intent.
+No scenario, sample, previous assertion scope, lane budget or latency target is
+removed or extended. Local compiled/process success is not hosted UI acceptance.
+
 `SqliteWorkspaceTests` observes the staged #91 path through the same real-storage
 `IApplicationWorkflow` / `WorkspaceViewModel` seams. It covers explicit creation,
 reviewed People-only Import, all supplied attributes, exact accepted evidence and

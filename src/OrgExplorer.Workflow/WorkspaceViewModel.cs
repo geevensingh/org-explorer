@@ -232,6 +232,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Synchronization)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSynchronizing)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExitStatus)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));

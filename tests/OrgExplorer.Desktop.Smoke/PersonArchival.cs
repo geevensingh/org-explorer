@@ -118,8 +118,10 @@ internal static partial class Program
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed archival did not retain the pending profile.");
                 process.CloseMainWindow();
-                Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
+                Await(() => ExitDecisionVisible(window) && Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 if (process.HasExited) throw new InvalidOperationException("Failed archival allowed unsafe closing.");
+                Click(window, "CancelExit");
+                Await(() => !ExitDecisionVisible(window));
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));

@@ -20,6 +20,7 @@ public partial class PersonNotesControl : UserControl
     private bool LocalAutosave => workflow?.Compatibility.SupportsNonblockingNoteAutosave == true;
     private bool HasRetainedDraft => LocalAutosave
         ? selected is { } id && workflow!.HasUnsavedNoteDraft(NoteScope.Person, id) : draft.HasUnsavedChanges;
+    internal bool HasUnsavedChanges => HasRetainedDraft;
 
     public PersonNotesControl()
     {
@@ -41,11 +42,6 @@ public partial class PersonNotesControl : UserControl
     {
         workflow = application;
         changed = onChanged;
-        Loaded += (_, _) =>
-        {
-            if (Window.GetWindow(this) is { } window)
-                window.Closing += (_, e) => { if (!TryLeave()) e.Cancel = true; };
-        };
     }
 
     public bool TryLeave()

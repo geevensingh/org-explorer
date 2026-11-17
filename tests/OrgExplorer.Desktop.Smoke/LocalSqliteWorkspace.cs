@@ -348,7 +348,7 @@ internal static partial class Program
                     SelectTreePerson(window, "avery@example.com");
                     Await(() => CurrentPersonEmail(window) == "avery@example.com");
                     AssertWorkspaceBytes(oldWorkspace, originals);
-                    Close(process);
+                    CloseUnpublishedWorkspace(process);
                 }
                 finally { StopApplication(process); }
             }
@@ -405,6 +405,8 @@ internal static partial class Program
                 () => RunHostedLocalSaveRecovery(executable, root));
             HarnessRuntime.Run("native-sqlite-automatic-snapshots",
                 () => RunHostedAutomaticSnapshots(executable, root));
+            HarnessRuntime.Run("native-sqlite-exit",
+                () => RunHostedWorkspaceExit(executable, root));
         }
         finally
         {
