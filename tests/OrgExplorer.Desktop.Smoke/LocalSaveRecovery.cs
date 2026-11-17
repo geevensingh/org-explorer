@@ -9,6 +9,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -51,9 +52,13 @@ internal static partial class Program
         var observer = new RecoveryCommitGate(() => hold, entered.Set, () => release.Wait(TimeSpan.FromSeconds(15)));
         var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [app, (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue())], null)!;
+            [app, (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue()), (Action<string>)(_ => { }),
+                new SnapshotClock()], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        var closed = false;
+        var completed = false;
+        window.Closed += (_, _) => closed = true;
         Guid? pendingNote = null;
         var surface = Control<UserControl>("TeamNotes");
         T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
@@ -136,6 +141,7 @@ internal static partial class Program
                 window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Compiled late completion lost durable writing or created a native window.");
             Console.WriteLine("PASS: invisible compiled local recovery: failed/stalled non-idle caller selection, retained profile fault/draft, explicit 3-second stall, disabled edits, exact retained note owner/newer writing, and independently reopened late commit. No pixels or native latency claimed.");
+            completed = true;
         }
         catch (Exception error)
         {
@@ -152,7 +158,17 @@ internal static partial class Program
             hold = false;
             release.Set();
             PumpUntil(() => pendingNote is not { } id || workflow.GetRetainedNoteDraft(NoteScope.Team, id)?.IsSaving != true);
-            window.Close();
+            if (completed)
+            {
+                ClosePublishedCompiledWindow(window);
+                PumpUntil(() => closed);
+            }
+            else
+            {
+                window.Close();
+                Control<Button>("CancelExitButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                workflow.Dispose();
+            }
         }
     }
 

@@ -12,6 +12,21 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static void VerifyLocalRecoveryCleanup(Type windowType, string root)
+    {
+        var before = Application.Current.Windows.Cast<Window>().ToHashSet();
+        VerifyCompiledLocalSaveRecovery(windowType, root);
+        var remaining = Application.Current.Windows.Cast<Window>().Where(window => !before.Contains(window)).ToArray();
+        if (remaining.Length != 0)
+            throw new InvalidOperationException("The owning compiled recovery fixture returned with a live normal-close intent: " +
+                System.Text.Json.JsonSerializer.Serialize(remaining.Select(window => new
+                {
+                    decision = ((FrameworkElement)window.FindName("ExitDecision")).Visibility.ToString(),
+                    exit = ((WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext).ExitStatus
+                })));
+        Console.WriteLine("PASS: actual compiled recovery fixture joins its own latest publication and normal Closed before returning; no live close probe remains for root cleanup.");
+    }
+
     private static void VerifyRecoveredCopyContract(Type windowType, string root)
     {
         var path = Path.Combine(root, "rc");

@@ -909,6 +909,14 @@ no automatic check at synchronization-clock second 59, adoption at 60, and
 immediate manual reception of the next complete version. Save-request and
 three-second clocks remain real; the existing automatic hosted journey remains.
 These are focused causal regressions, not hosted/native or rich-scale acceptance.
+The compiled local-recovery fixture uses a separate synchronization scheduling
+clock, releases and joins its own admitted local save, then publishes through
+the shared real lifecycle and waits for actual normal Closed before returning.
+`--verify-local-recovery-cleanup` and the full selection reject a leftover logical
+window/exit intent. A bare Close on an unpublished fixture is not cleanup: normal
+exit correctly remains pending and can keep reading its local head during
+directory removal. Production timer/disposal and forced nonjoining exit semantics
+are unchanged; actual save-request and three-second clocks remain real.
 The close-publication selector drives actual Closing/Closed and decision/Cancel
 controls. Fresh exact published heads avoid candidate-validation/export replay;
 real sibling-advanced heads reload and publish, with independent joined-data

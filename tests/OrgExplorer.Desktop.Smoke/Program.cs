@@ -42,6 +42,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyHostedClosePublicationContracts);
             if (args.Length == 2 && args[1] == "--verify-cutover-recovery-copy")
                 return VerifyHostedCutoverContracts(executable, VerifyRecoveredCopyContract);
+            if (args.Length == 2 && args[1] == "--verify-local-recovery-cleanup")
+                return VerifyHostedCutoverContracts(executable, VerifyLocalRecoveryCleanup);
             if (args.Length == 2 && args[1] == "--verify-independent-note-leave")
                 return VerifyHostedCutoverContracts(executable, VerifyIndependentNoteLeaveContract);
             if (args.Length == 2 && args[1] == "--verify-import-recovery-admission")
