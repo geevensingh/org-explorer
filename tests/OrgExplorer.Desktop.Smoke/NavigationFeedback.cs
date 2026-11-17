@@ -89,8 +89,7 @@ internal static partial class Program
                 SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Status(window).StartsWith("Navigation blocked:", StringComparison.Ordinal) &&
-                    Status(window).Contains("NOT saved") &&
+                Await(() => IsSmokeRejectedSave(Status(window), Find(window, "OperationalNotice").Current.ItemStatus) &&
                     Activity(window).Contains("browsing remains available", StringComparison.Ordinal) &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);

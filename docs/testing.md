@@ -876,6 +876,39 @@ noncommit/reconciliation, exact retained owner writing, paused edits and availab
 browsing, followed by complete snapshot publication before normal cleanup close.
 It remains part of the compiled profile-refresh selection.
 
+The #100 hosted-failure regressions also run in that full selection. Focused
+`--verify-cutover-publication`, `--verify-cutover-note-modes`,
+`--verify-cutover-acknowledgment`, `--verify-cutover-failure-feedback` and
+`--verify-cutover-incoming` / `--verify-cutover-close-publication` selectors load actual BAML without showing a window
+or creating a native handle. They use public SQLite creation and complete
+snapshot transport, not canonical-file edits. The folder adapter creates the
+actual synchronization directory before the picker can select it. Clean note
+owner returns reopen Read; pending/failed writing returns Edit with its exact
+owner, identity, draft and error. The native journeys retain both-scope reading,
+historical context and independently reopened writing assertions.
+
+Rejected profile Save observes the actual typed `Failed/NotCommitted` local
+state and visible noncommit error, while retaining owner/draft/destination and
+available-browsing assertions. Successful Import discard observes the removed
+discard action and disabled Apply, not a global success phrase masked by an
+independent local-storage fault. That fault must remain until explicit recovery.
+Clean incoming-version portions of the migrated external-refresh journey
+request actual Sync now instead of expecting a retired immediate file watcher
+inside a twenty-second observation. The compiled regression separately proves
+no automatic check at synchronization-clock second 59, adoption at 60, and
+immediate manual reception of the next complete version. Save-request and
+three-second clocks remain real; the existing automatic hosted journey remains.
+These are focused causal regressions, not hosted/native or rich-scale acceptance.
+The close-publication selector drives actual Closing/Closed and decision/Cancel
+controls. Fresh exact published heads avoid candidate-validation/export replay;
+real sibling-advanced heads reload and publish, with independent joined-data
+checks. Unavailable publication and persisted known divergence remain vetoed,
+without clearing retained bytes or review authorization. The existing older
+export/newer writing/repeated/canceled-intent compiled regression remains.
+Public real-store tests additionally cover changed receipt bytes, locked/corrupt
+artifacts, unavailable local storage and an actual pre-Commit sibling transaction
+whose unresolved receipt must refuse cached Ready until explicit recovery.
+
 ### Retired-engine coverage reconciliation (#100)
 
 `WorkspaceFixtures.CopyCurrent` now caches durable bytes produced by normal
@@ -2034,10 +2067,12 @@ at most 100 ms; ordinary durable-save p95 remains at most 1 second.
 
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.
-It requires observed Pending after input returns before accepting the exact
-Person/Team saved-success (or Team saved-and-confirmed) acknowledgment, never
-generic Ready/Saved combined with optimistic editor text. The scoped accessible
-ItemStatus is set by `OwnedNotePresentation` from VM status. Retained generations
+Pending observation is diagnostic, not mandatory: a fast Commit may finish
+before the first observer call. The exact Person/Team saved-success (or Team
+saved-and-confirmed) acknowledgment and truthful complete-publication/local-only
+success projections can acknowledge the exact request, never generic Ready/Saved
+combined with optimistic editor text. The scoped accessible ItemStatus is set
+by `OwnedNotePresentation` from VM status. Retained generations
 override every core status with Pending; the worker removes a generation only
 after accepted `SaveNoteDraft` and only when it is still the latest generation.
 That core acknowledgment is returned after actual SQLite Commit.
@@ -2049,6 +2084,13 @@ an independent reopen still sees the original writing. Release must permit both
 the exact acknowledgment and independently reopened owner writing to advance.
 Existing failed/unknown/no-stale-generation cases remain. This is causal
 contract evidence, not native timing acceptance.
+The actual compiled input-provider regression also first observes only after
+Commit (without seeing Pending), then performs real Sync now and checks the same
+exact committed writing again. Publication feedback remains unchanged. The final
+independent full-writing check requires exact owner, note identity/title/body,
+Ready state and usable scoped editor; unrelated global English word order is
+not another success gate. Returning to a clean note explicitly selects its
+actual Edit tab before continued typing, without changing the request clock.
 
 Request-to-postcommit-acknowledgment latency is a conservative upper bound on
 Commit latency, not direct storage-only time. Every rich sample independently reopens real local storage

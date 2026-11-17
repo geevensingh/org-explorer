@@ -122,7 +122,9 @@ internal static partial class Program
                     Find(window, "DiscardImport").Current.IsEnabled);
                 ReturnToPeople(window);
                 Click(window, "DiscardImport");
-                Await(() => Status(window).Contains("Import discarded"));
+                Await(() => SmokeImportDiscardComplete(window));
+                if (Find(window, "OperationalNotice").Current.ItemStatus != "Local save: Failed; outcome: NotCommitted")
+                    throw new InvalidOperationException("Import discard cleared the independent confirmed local-storage fault before explicit recovery.");
             }
             ReconcileSmokeLocalSaves(window);
             OpenImportView(window);

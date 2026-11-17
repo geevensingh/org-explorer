@@ -192,6 +192,18 @@ internal static partial class Program
                 HarnessRuntime.Run("compiled-legacy-save-feedback", () => VerifyLegacySaveFeedback(type, settings, chooseFolder));
             if (verifyProfileRefresh)
             {
+                HarnessRuntime.Run("compiled-cutover-publication", () =>
+                    VerifyHostedPublicationContract(type, Path.Combine(settings, "cutover-publication")));
+                HarnessRuntime.Run("compiled-cutover-note-modes", () =>
+                    VerifyHostedNoteModeContracts(type, Path.Combine(settings, "cutover-note-modes")));
+                HarnessRuntime.Run("compiled-cutover-acknowledgment", () =>
+                    VerifyHostedAcknowledgmentContract(type, Path.Combine(settings, "cutover-acknowledgment")));
+                HarnessRuntime.Run("compiled-cutover-failure-feedback", () =>
+                    VerifyHostedMutationFeedbackContracts(type, Path.Combine(settings, "cutover-failure-feedback")));
+                HarnessRuntime.Run("compiled-cutover-incoming", () =>
+                    VerifyHostedIncomingContract(type, Path.Combine(settings, "cutover-incoming")));
+                HarnessRuntime.Run("compiled-cutover-close-publication", () =>
+                    VerifyHostedClosePublicationContracts(type, Path.Combine(settings, "cutover-close-publication")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;

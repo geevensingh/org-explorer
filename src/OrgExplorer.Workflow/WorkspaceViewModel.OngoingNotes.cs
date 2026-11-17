@@ -95,7 +95,11 @@ public sealed partial class WorkspaceViewModel
             retainedNoteViews[(scope, priorOwner.ToUpperInvariant())] = previous;
         noteViews[scope] = Compatibility.SupportsNonblockingNoteAutosave && ownerEmail is { } owner &&
             retainedNoteViews.TryGetValue((scope, owner.ToUpperInvariant()), out var retained)
-                ? retained : new(ownerEmail, OngoingId(scope, ownerEmail, notes));
+                ? retained with
+                {
+                    Editing = retained.Editing && retained.Selected is { } id && HasUnsavedNoteDraft(scope, id)
+                }
+                : new(ownerEmail, OngoingId(scope, ownerEmail, notes));
         return true;
     });
 

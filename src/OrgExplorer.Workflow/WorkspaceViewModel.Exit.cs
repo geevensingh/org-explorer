@@ -21,9 +21,11 @@ public sealed partial class WorkspaceViewModel
     {
         get
         {
-            var unsaved = !CanSafelyClose;
             var state = Synchronization;
-            var error = string.Join("\n", new[] { LocalSaveError, state.Error }.Where(text => !string.IsNullOrEmpty(text)).Distinct());
+            var unavailable = state.Supported && !IsWorkspaceCurrent;
+            var unsaved = !CanSafelyClose || unavailable;
+            var error = string.Join("\n", new[] { LocalSaveError, state.Error, unavailable ? Compatibility.Guidance : null }
+                .Where(text => !string.IsNullOrEmpty(text)).Distinct());
             return new(unsaved, state.HasUnpublishedChanges, IsSynchronizing, state.Diverged,
                 error.Length == 0 ? null : error);
         }
@@ -33,8 +35,13 @@ public sealed partial class WorkspaceViewModel
     {
         cancellationToken.ThrowIfCancellationRequested();
         var state = Synchronization;
-        var attempted = (state.WorkspaceId, state.Folder, state.LocalRevision);
-        Task<bool>? publishing = state.Supported ? SynchronizeAsync() : null;
+        (Guid? WorkspaceId, string? Folder, Guid? LocalRevision)? attempted = null;
+        Task<bool>? publishing = null;
+        if (state.Supported && (state.HasUnpublishedChanges || state.Error is not null))
+        {
+            attempted = (state.WorkspaceId, state.Folder, state.LocalRevision);
+            publishing = SynchronizeAsync();
+        }
         await FlushNoteDraftsAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
         while (true)
         {
@@ -44,11 +51,24 @@ public sealed partial class WorkspaceViewModel
                 await publishing.WaitAsync(cancellationToken).ConfigureAwait(false);
                 publishing = null;
             }
-            if (ExitStatus.CanClose) return;
+            var before = (Compatibility.WorkspacePath, Synchronization.WorkspaceId,
+                Synchronization.Folder, Synchronization.LocalRevision, Synchronization.PublishedRevision);
+            long epoch, order;
+            lock (noteDraftGate) { epoch = noteAutosaveEpoch; order = noteDraftOrder; }
+            var verified = await Task.Run(workflow.VerifyExitPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            bool sameDrafts;
+            lock (noteDraftGate)
+                sameDrafts = epoch == noteAutosaveEpoch && order == noteDraftOrder && localNoteDrafts.Count == 0;
+            var after = (Compatibility.WorkspacePath, Synchronization.WorkspaceId,
+                Synchronization.Folder, Synchronization.LocalRevision, Synchronization.PublishedRevision);
+            if (verified && before == after && sameDrafts && Volatile.Read(ref explicitLocalSaves) == 0 &&
+                localSaveRequests.Status.OutstandingRequests == 0 && !LocalSave.HasUnresolvedOutcome && ExitStatus.CanClose) return;
             state = Synchronization;
             var current = (state.WorkspaceId, state.Folder, state.LocalRevision);
             // A successful shared task may have exported an older revision.
-            if (!IsSynchronizing && state.Supported && state.HasUnpublishedChanges && current != attempted)
+            if (!verified && !IsSynchronizing && state.Supported && !state.Diverged && IsWorkspaceCurrent &&
+                workflow.CanSafelyClose && !LocalSave.EditsPaused && current != attempted)
             {
                 attempted = current;
                 publishing = SynchronizeAsync();

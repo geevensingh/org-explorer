@@ -31,8 +31,10 @@ internal static partial class Program
                 return false;
             }
             var accepted = feedback == $"{scope} note saved locally." ||
-                scope == NoteScope.Team && feedback == "Team note saved locally and confirmed for current context.";
-            if (PendingObservedAt is null || !accepted) return false;
+                scope == NoteScope.Team && feedback == "Team note saved locally and confirmed for current context." ||
+                feedback is "Locally saved and published. Provider delivery elsewhere is unknown." or
+                    "Locally saved; latest version is not confirmed published. Provider delivery elsewhere is unknown.";
+            if (!accepted) return false;
             AcknowledgmentObservedAt ??= Stopwatch.GetTimestamp();
             return true;
         }
@@ -1130,6 +1132,9 @@ internal static partial class Program
                 navigationRequests.Add(nativeMs);
                 navigationPolls.Add(polls);
                 requireHeldExport?.Invoke();
+                var edit = (SelectionItemPattern)Find(window, family + "NoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern);
+                if (!edit.Current.IsSelected) edit.Select();
+                bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
                 ObserveNoteLatency(() =>
                 {
                     var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
@@ -1194,9 +1199,12 @@ internal static partial class Program
                 Await(() =>
                 {
                     using var reading = ApplicationWorkflow.CreateFileBacked();
+                    var frame = ReadNoteEditor(surface, editorCache, family);
                     return reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) &&
                         reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown == text &&
-                        NoteFeedback(window, family).Contains("saved locally", StringComparison.Ordinal);
+                        Activity(window) == "Ready" && CurrentPersonEmail(window) == ownerEmail &&
+                        frame.Identity == id.ToString() && frame.Title == titleText &&
+                        frame.Markdown == text && frame.Writable && frame.Editing;
                 });
                 AssertValue(window, family + "NoteMarkdown", text);
                 saved[scope] = (id, titleText, text);

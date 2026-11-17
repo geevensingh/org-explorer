@@ -98,7 +98,14 @@ Domain history is never routine snapshot garbage.
 ## Exit and compatibility
 
 Normal close requires latest local Commit and latest local publication, not
-remote delivery. The nonmodal decision states unsaved-local versus
+remote delivery. A clean published exit freshly checks the authoritative local
+head and transaction evidence plus the exact known complete artifact and receipt;
+cached Ready alone is insufficient. It need not repeat receive/adoption/export
+solely to quit. Changed local heads reload and revalidate; unconfirmed publication
+requests the shared real publication immediately and rechecks the latest head.
+Failed or unavailable probes, retained writing, unresolved receipts and known
+divergence cannot authorize close or clear retained versions/review evidence.
+The nonmodal decision states unsaved-local versus
 saved-but-unpublished risk. Cancel invalidates that intent without losing drafts.
 Exit anyway directly terminates without a secondary guard, worker or Dispose
 wait; recovery still distinguishes committed from incomplete transactions.

@@ -72,8 +72,7 @@ internal static partial class Program
             {
                 RequestPersonArchival(window, archived: true);
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Status(window).StartsWith("Navigation blocked:") &&
-                    Status(window).Contains("NOT saved") &&
+                Await(() => IsSmokeRejectedSave(Status(window), Find(window, "OperationalNotice").Current.ItemStatus) &&
                     Activity(window).Contains("browsing remains available", StringComparison.Ordinal) &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
