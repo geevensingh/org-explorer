@@ -302,8 +302,9 @@ selection-handler pause makes unrelated slow dispatch explicit. Bounded
 `DIAGNOSTIC: compiled held-note navigation` records unadjusted dispatch/layout
 time and real pending/error/transaction state, not a single-sample latency SLA.
 Waiting until the held write fails cannot satisfy this structural proof.
-The actual native navigation p95 and held-Person-save sample retain their
-100-ms criteria; this invisible oracle neither replaces nor changes them.
+The actual ordinary native navigation workload retains p95 at most 100 ms;
+this invisible oracle neither replaces nor changes it. Deliberately held
+profile-save navigation has the structural, diagnostic-only policy below.
 The existing hosted `compatibility-settings` tail additionally exercises twenty
 distinct Team creations and one Person creation, continuous writing and immediate
 report/Manager switches. It requires p95 at most 100 ms from actual native interaction
@@ -339,11 +340,23 @@ adds native profile draft/Preferred-name navigation, Save/Cancel, photo pixels,
 favorite/archival/reactivation, Manager/frozen history and process reopening.
 Capture details must remain separately collapsed, read-only and fully copyable;
 later current note writing cannot rewrite frozen reading.
-Its `*-sqlite-person-saves.json` schema 1 binds revision/run/attempt/product
+Its `*-sqlite-person-saves.json` schema 2 binds revision/run/attempt/product
 hash, editing/reopened processes, exact Person values/photo hash/capture/note
 version, twenty native Save-to-independent-reopen samples (nearest-rank p95
 at most 1000 ms), and a native Person-selection sample while a real SQLite
-writer holds the profile (at most 100 ms). Named retained/committed/history/
+writer holds the profile. The single held sample is explicitly diagnostic,
+not a per-case 100-ms release deadline or a p95 estimate. Like held-Import
+browsing, `heldSaveNavigation` retains unadjusted `samplesMs`, marks
+`timingUse` as `diagnostic` and has no `budgetMs` field. Before/after evidence
+requires the same submitted owner, actual pending profile-save activity and
+real held SQLite transaction; the original single Select and exact usable,
+visible Person predicate remain. A completed/failed save, released writer,
+different owner or wrong destination fails independently of elapsed time.
+Independent reopen still rejects partial profile/photo publication before
+release. Focused runner negatives and the invisible compiled held-profile
+selection exercise those structural guards, not native timing acceptance.
+The ordinary 42-sample navigation workload still enforces p95 at most 100 ms.
+Named retained/committed/history/
 reopened captures carry actual desktop pixels and matching metadata.
 Each explicit Save pattern is prepared through the existing bounded
 `ControlReadiness` wait, tolerating transient missing/disabled providers without
