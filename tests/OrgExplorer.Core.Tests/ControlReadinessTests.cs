@@ -5,6 +5,34 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class ControlReadinessTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
+    {
+        var observations = 0;
+        var published = new Reading("Current Person note", false);
+        var result = ControlReadiness.AwaitControl<Reading>(
+            () => ++observations switch
+            {
+                1 => null!,
+                2 => new Reading("Current Profile:", false),
+                _ => published
+            },
+            row => row is not null && row.Name.Contains("Current") && row.Name.Contains("Person note"), AwaitReady);
+
+        Assert.Same(published, result);
+        Assert.Equal(3, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_search_result_fails_the_existing_bounded_observation()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitControl<Reading>(
+            () => null!, row => row is not null && row.Name.Contains("Current") &&
+                row.Name.Contains("Person note"), AwaitReady));
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData("", false, "")]

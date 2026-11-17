@@ -413,6 +413,10 @@ that published result list instead of rebuilding excerpts. Bounded allocation
 cases use a warmed long-note fixture, and publication cases reject older query,
 refresh and Workspace requests. The compiled replay also sends Enter immediately
 after query input, before pumping publication, to retain single-Enter acceptance.
+The native manual-clear replay waits read-only for the queried Person's current
+Person-note evidence before selecting once; hidden browsing controls alone do
+not establish result readiness. The existing bounded wait and exact row/pixel
+restoration assertion are unchanged.
 The existing search journeys now type through the focused query field with real
 keyboard input, retain typing focus during Up/Down, observe each highlighted row
 inside the results viewport, and check first/last clamping, continued typing,
