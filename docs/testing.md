@@ -490,18 +490,25 @@ exit, native latency or 10,000-Person background-export proof.
 
 The #98 cases extend the same public real-storage/view-model seam with a
 controlled `TimeProvider`: fixed 60-second checks during repeated edits, shared
-manual/periodic export, both owner-note scopes committing/reopening within one
-second while actual immutable publication is held, older-export/latest-revision
-truth, corrupt delivery, unavailable folders, lost synchronization returns and
-reopening pending publication without replay. Periodic delivery also refuses
-unacknowledged newer note generations and actual unknown outcomes after buffer
-discard. The held accepted-return case advances only the scheduling clock while
-its request timestamp stays unadvanced, preserving its pre-timeout lifetime.
+manual/periodic export, both owner-note scopes committing/reopening within the
+existing bounded publication window while actual immutable publication is held,
+older-export/latest-revision truth, corrupt delivery, unavailable folders, lost
+synchronization returns and reopening pending publication without replay.
+Periodic delivery also refuses unacknowledged newer note generations and actual
+unknown outcomes after buffer discard. The held accepted-return case advances
+only the scheduling clock while its request timestamp stays unadvanced,
+preserving its pre-timeout lifetime.
 An already-admitted timer/manual cycle also encounters an actual later lost
 committed note return: refused recovery, independent profile/field Cancel and a
 held unrelated successful return cannot release the unknown-outcome lease, even
 after the note buffer is discarded. Actual successful reconciliation then permits
 the delivered child; neither path replays the note.
+The periodic/manual coalescing case uses the existing ten-second publication
+hold/observation bound, not an additional one-second deadline for each Flush.
+It independently reopens the exact latest owner writing before release and
+requires the original publisher callback to remain active. Its elapsed local
+commit observations are diagnostic; the ordinary and rich background-export
+native percentile targets remain unchanged.
 The combined #97/#98 case admits an exact-version choice while clean, then holds
 the actual isolated validation Commit with a real SQLite reader. Both note scopes
 commit locally and lose their real return while that same validation remains
