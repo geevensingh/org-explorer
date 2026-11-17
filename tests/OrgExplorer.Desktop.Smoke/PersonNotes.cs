@@ -216,10 +216,13 @@ internal static partial class Program
             ExpandOtherPersonNotes(window);
             ((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectNote(window, "Private meeting");
-            SelectTab(window, "PersonNoteEditTab");
-            if (Value(window, "PersonNoteMarkdown") != markdown)
-                throw new InvalidOperationException("Archival discarded the writing.");
-            SelectTab(window, "PersonNoteReadTab");
+            AssertNoteView(window, "Person", editing: false);
+            var archivedNote = ReadSmokePersonNote(workspace, noteId);
+            if (Find(window, "Email").Current.Name != "avery@example.com" ||
+                Find(window, "PersonNoteHeading").Current.HelpText != noteId.ToString() ||
+                archivedNote.OwnerEmail != "avery@example.com" || archivedNote.Title != "Private meeting" ||
+                !archivedNote.Archived || archivedNote.Markdown != markdown)
+                throw new InvalidOperationException("Archived Read changed the exact saved Person-note identity, owner or Markdown.");
             Await(() => ReadingText(window).Contains("Private context"));
             if (listener.Pending()) throw new InvalidOperationException("Markdown rendering fetched remote content.");
             ClosePublishedWorkspace(process, workspace);

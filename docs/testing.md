@@ -227,6 +227,29 @@ profile navigation Save/Discard/Stay without leaving a latent close intent.
 No scenario, sample, previous assertion scope, lane budget or latency target is
 removed or extended. Local compiled/process success is not hosted UI acceptance.
 
+Fixtures expecting ordinary process exit first establish its real publication
+precondition through the existing Settings Configure/Sync controls and an
+independently reopened exact local/published revision. Opening Settings for this
+preparation must preserve an underlying Import view and its selected owner.
+The rich normal-note phase publishes to its existing isolated transport after
+the unchanged latency samples and before its original 10-second close check;
+the publication stage still counts toward the whole suite budget. A pending
+publication is not a missing-folder error, and neither permits substituting
+Exit anyway or bypassing the normal close guard. The compiled
+`--verify-normal-close-publication-preparation` regression drives
+actual Configure/Sync, a genuinely
+newer Import and normal Closed with an independent complete-snapshot receiver.
+It remains in the full compiled selection. The complete later rich background
+export and profile phases and all original hosted exit cases remain required.
+Only the normal-close preparation wrapper requires the pre-operation head to
+remain unchanged. The shared refresh/publication helper permits legitimate
+incoming adoption and independently checks the post-operation current and
+published revisions instead. `--verify-incoming-smoke-publication` drives that
+same helper through actual compiled Sync controls and two real stores, verifies
+new incoming profile/note data and matching current/published revisions, and
+separately requires close-only preparation to reject an unexpectedly advanced
+head without losing the adopted version. It is also in the full compiled selection.
+
 The exit host's one preparation Open waits for the actual compiled Ready activity
 and enabled Open control inside its original bounded preparation observation.
 Product Loaded performs asynchronous startup/update recovery even with startup
@@ -1193,6 +1216,15 @@ legitimately leave global activity Pending. Outside Preferred-name dismissal
 cancels only an entry still editing; programmatic Finish/owner navigation closes
 it after ending editing. Invisible checks preserve Save/Cancel/newer-entry
 invariants but cannot deliver a native outside-click Popup.Closed event.
+The `--verify-actualc38-note-readiness` companion observes archived-note Read
+instead of a hidden edit provider, reopens the current inherited disclosure
+before a repeated owner-attributed review, and checks exact late committed
+writing/current editable state after healthy recovery. It does not require the
+intentionally quiet healthy state to expose an operational warning. Saved
+owner/id/Markdown, independent preference/profile/note data, retained immutable
+bases and mode-only nonmutation remain asserted. This companion also runs in
+the existing full compiled selection; the passing Person-archival journey,
+product presentation, observation budgets and responsive matrix are unchanged.
 The explicit `--diagnose-rich-navigation` diagnostic keeps all 42 selections,
 20 Team plus one Person Add, full rich population, per-sample independent
 reopens and real 60-second synchronization during sampling. Managed

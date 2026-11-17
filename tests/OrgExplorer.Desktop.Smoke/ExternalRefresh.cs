@@ -53,22 +53,55 @@ internal static partial class Program
     private static void ClosePublishedWorkspace(Process process, string workspace)
     {
         var window = Window(process);
-        PublishSmokeWorkspace(window, workspace);
+        PrepareSmokeNormalClose(workspace, () => PublishSmokeWorkspace(window, workspace));
         Close(process);
     }
 
-    private static void PublishSmokeWorkspace(AutomationElement window, string workspace)
+    private static void PublishSmokeWorkspace(AutomationElement window, string workspace, string? synchronizationFolder = null)
     {
-        SetSettingsVisible(window, true);
-        var transport = SmokeSnapshotFolder(workspace);
-        if (Find(window, "SynchronizationFolder").Current.Name != transport)
-            ConfigureSmokeSnapshotFolder(workspace,
-                folder => PickWorkspaceFolder(window, folder, "ConfigureSynchronizationFolder"));
-        Await(() => Find(window, "SynchronizationFolder").Current.Name == transport);
-        Click(window, "SyncNow");
-        Await(() => Find(window, "SyncNow").Current.IsEnabled &&
-            Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.", StringComparison.Ordinal));
+        PublishSmokeWorkspace(workspace, () =>
+        {
+            SetSettingsVisible(window, true);
+            var transport = synchronizationFolder ?? SmokeSnapshotFolder(workspace);
+            if (Find(window, "SynchronizationFolder").Current.Name != transport)
+            {
+                Directory.CreateDirectory(transport);
+                PickWorkspaceFolder(window, transport, "ConfigureSynchronizationFolder");
+            }
+            Await(() => Find(window, "SynchronizationFolder").Current.Name == transport);
+            Click(window, "SyncNow");
+            Await(() => Find(window, "SyncNow").Current.IsEnabled &&
+                Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.", StringComparison.Ordinal));
+        });
         SetSettingsVisible(window, false);
+    }
+
+    private static void PublishSmokeWorkspace(string workspace, Action synchronize)
+    {
+        Guid? identity;
+        using (var before = OpenSmokeWorkspace(workspace))
+            identity = before.Synchronization.WorkspaceId;
+        synchronize();
+        using var published = OpenSmokeWorkspace(workspace);
+        if (published.Synchronization.WorkspaceId != identity ||
+            published.Synchronization.PublishedRevision != published.Synchronization.LocalRevision ||
+            published.Synchronization.HasUnpublishedChanges)
+            throw new InvalidOperationException("Synchronization did not publish the exact independently reopened current revision.");
+    }
+
+    private static void PrepareSmokeNormalClose(string workspace, Action publish)
+    {
+        Guid? identity, revision;
+        using (var before = OpenSmokeWorkspace(workspace))
+        {
+            identity = before.Synchronization.WorkspaceId;
+            revision = before.Synchronization.LocalRevision;
+        }
+        publish();
+        using (var published = OpenSmokeWorkspace(workspace))
+            if (published.Synchronization.WorkspaceId != identity || published.Synchronization.LocalRevision != revision ||
+                published.Synchronization.PublishedRevision != revision || published.Synchronization.HasUnpublishedChanges)
+                throw new InvalidOperationException("Normal-close preparation changed or failed to publish the exact independently reopened local revision.");
     }
 
     private static void ReconcileSmokeLocalSaves(AutomationElement window)
