@@ -678,8 +678,13 @@ Under the owner-approved non-UI policy correction (2026-11-16), its controlled
 450-ms first-reader delay and fixed 20 edits/60-ms spacing remain, but the
 independent observer must find the exact final intended title/writing, note
 identity, scope and Person owner within its existing 20-second observation
-window. It does so before the existing final draft drain; no added Flush or
-wait makes the observation succeed. Wrong-owner access remains absent on reopen.
+window. The same polling loop defers the independent reopen until the fixed
+input sequence ends and public VM safe-close/local-save status reports no
+pending requests, retained drafts, paused edits or unknown outcome. This is
+readiness only: success still requires the actual independent reopen and exact
+final data/ownership, including wrong-owner absence. An attempted open failure
+remains an explicit error. No added wait or Flush makes the observation succeed;
+the existing final draft drain remains after observation.
 `NOTE-SUSTAINED-TYPING-REOPEN` retains raw action/observation times and whether
 observation happened before typing ended as diagnostics only, not an additional
 per-case deadline. The historical late-observation failure remains causally

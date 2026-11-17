@@ -1281,18 +1281,28 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             const string prefix = "# Sustained predetermined writing";
             var expectedFinal = prefix + string.Concat(Enumerable.Range(0, 20).Select(index => $"\nContinued entry {index}"));
             var firstRead = 0;
+            var typingFinished = false;
             using var observation = NoteCommitObservation.Begin(
                 () => app.UpdateNoteDraft(scope, draft.Id, "Sustained context", prefix),
                 () =>
                 {
                     if (Interlocked.Increment(ref firstRead) == 1) Thread.Sleep(450);
+                    if (!Volatile.Read(ref typingFinished)) return false;
+                    var localSave = app.LocalSave;
+                    var safelyClose = app.CanSafelyClose;
+                    if (!safelyClose || localSave.OutstandingRequests != 0 ||
+                        localSave.EditsPaused || localSave.HasUnresolvedOutcome) return false;
                     using var reading = ApplicationWorkflow.CreateFileBacked();
-                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly),
+                        $"{reading.Status}; final-reopen readiness: safelyClose={safelyClose}, " +
+                        $"localSave={localSave.Phase}/{localSave.Outcome}, outstanding={localSave.OutstandingRequests}; " +
+                        $"currentLocalSave={app.LocalSave.Phase}/{app.LocalSave.Outcome}.");
                     var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
                     return committed is not null && committed.Id == draft.Id && committed.Scope == scope &&
                         committed.Title == "Sustained context" &&
                         committed.OwnerEmail == "manager@example.com" &&
-                        committed.Markdown == expectedFinal;
+                        committed.Markdown == expectedFinal &&
+                        reading.BeginNoteDraft(scope, "report@example.com", draft.Id) is null;
                 });
             var latest = prefix;
             var typing = observation.ContinueTyping(index =>
@@ -1302,6 +1312,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                 Assert.True(app.NavigatePerson("report@example.com"), app.Status);
                 Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
             });
+            Volatile.Write(ref typingFinished, true);
             var observedMs = observation.Complete();
             Console.WriteLine("NOTE-SUSTAINED-TYPING-REOPEN " + System.Text.Json.JsonSerializer.Serialize(new
             {
