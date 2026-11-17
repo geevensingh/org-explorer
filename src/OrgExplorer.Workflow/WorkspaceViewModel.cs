@@ -28,6 +28,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public void DiscardImportChanges() => Observe(() => { workflow.DiscardImportChanges(); return true; });
     private void ForwardWorkspaceChange(object? sender, EventArgs e)
     {
+        Interlocked.Increment(ref peopleSearchRequest);
         Notify();
         WorkspaceChanged?.Invoke(this, e);
     }
@@ -87,6 +88,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                 IsImportOpen = false;
                 noteViews.Clear();
                 ongoingPreferenceError = null;
+                ResetPeopleSearch();
                 PeopleNavigation = new("", false, null, null, [], 0);
                 LayoutPreferenceFeedback = null;
                 ViewPreferenceFeedback = null;

@@ -1886,6 +1886,12 @@ internal static partial class Program
         Enter(Control<TextBox>("SearchQuery"));
         PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
             Control<TextBox>("SearchQuery").Text == "");
+        queryField.Text = "alex@example.com";
+        Enter(queryField);
+        PumpUntil(() => Control<TextBlock>("Email").Text == "alex@example.com" && queryField.Text == "");
+        queryField.Text = "orchid";
+        Enter(queryField);
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" && queryField.Text == "");
         void Activate(string query, Func<PersonSearchResult, bool> predicate)
         {
             var results = Control<ListBox>("SearchResults");

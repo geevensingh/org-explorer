@@ -16,6 +16,7 @@ public partial class MainWindow
     private bool queryDirty = true;
     private string? lastQuery;
     private int queryRequest;
+    private Task searchRefresh = Task.CompletedTask;
     private bool activatingSearch;
     private FrameworkElement? matchedProfileValue;
     private string? matchedProfileHelp;
@@ -24,17 +25,26 @@ public partial class MainWindow
     private async void ConfirmSearchQuery(object sender, KeyEventArgs e)
     {
         if (Keyboard.Modifiers != ModifierKeys.None || workflow.PeopleNavigation.IsBrowsing) return;
+        if (e.Key is not (Key.Up or Key.Down or Key.Enter)) return;
+        e.Handled = true;
+        if (!await AwaitSearchResults()) return;
         if (e.Key is Key.Up or Key.Down)
         {
-            e.Handled = true;
             workflow.MoveSearchHighlight(e.Key == Key.Down ? 1 : -1);
             ShowSearchHighlight();
         }
         else if (e.Key == Key.Enter)
         {
-            e.Handled = true;
             if (workflow.PeopleNavigation.HighlightedResult is { } result) await ActivateSearchResult(result);
         }
+    }
+
+    private async Task<bool> AwaitSearchResults()
+    {
+        var query = SearchQuery.Text;
+        var request = queryRequest;
+        await searchRefresh;
+        return request == queryRequest && query == SearchQuery.Text && !workPending && !queryDirty;
     }
 
     private void HighlightSearchResult(object sender, SelectionChangedEventArgs e)
@@ -59,6 +69,7 @@ public partial class MainWindow
     {
         if (e.Key != Key.Enter) return;
         e.Handled = true;
+        if (!await AwaitSearchResults()) return;
         if (SearchResults.SelectedItem is PersonSearchResult result) await ActivateSearchResult(result);
     }
 
@@ -82,7 +93,7 @@ public partial class MainWindow
         var wasBrowsing = workflow.PeopleNavigation.IsBrowsing;
         if (wasBrowsing && !string.IsNullOrWhiteSpace(SearchQuery.Text) && PeoplePanel.Visibility == Visibility.Visible)
             RememberPeopleBrowsing();
-        workflow.ChangePeopleQuery(SearchQuery.Text);
+        workflow.BeginPeopleSearch(SearchQuery.Text);
         if (!wideWorkspace && !workflow.PeopleNavigation.IsBrowsing) workflow.ShowPeopleOverlay(true);
         UpdatePeopleNavigation();
         if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing)
@@ -104,6 +115,7 @@ public partial class MainWindow
     {
         if (SearchResults is null || refreshingQueries || workPending) return;
         var query = SearchQuery.Text;
+        if (query != workflow.PeopleNavigation.Query) return;
         if (!queryDirty && lastQuery == query)
         {
             refreshingQueries = true;
@@ -115,17 +127,26 @@ public partial class MainWindow
         queryDirty = false;
         lastQuery = query;
         var request = ++queryRequest;
+        var searchRequest = workflow.BeginPeopleSearch(query);
+        searchRefresh = RefreshSearchSnapshot(query, request, searchRequest);
+        await searchRefresh;
+    }
+
+    private async Task RefreshSearchSnapshot(string query, int request, long searchRequest)
+    {
         var snapshot = await Task.Run(() => (Results: workflow.SearchPeople(query),
             Favorites: workflow.FavoritePeople, Current: workflow.IsWorkspaceCurrent));
         if (request != queryRequest || workPending || query != SearchQuery.Text) return;
+        if (!workflow.PublishPeopleSearchResults(searchRequest, snapshot.Results))
+        {
+            queryDirty = true;
+            return;
+        }
         refreshingQueries = true;
         try
         {
             var results = snapshot.Results;
-            var highlighted = workflow.PeopleNavigation.HighlightedResult;
             SearchResults.ItemsSource = results;
-            var selected = results.FirstOrDefault(r => highlighted is not null && SameSearchPerson(r, highlighted));
-            workflow.HighlightSearchResult(selected ?? results.FirstOrDefault());
             ShowSearchHighlight();
             SearchCount.Text = string.IsNullOrWhiteSpace(SearchQuery.Text) ? "Enter text to search local information." :
                 $"People found: {results.Count} — local profiles and notes";

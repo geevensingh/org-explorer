@@ -408,6 +408,11 @@ clamped navigation without leaving exact reading or unsaved profiles, and
 accepted versus rejected current/archived transitions. Manual clear retains
 both browsing axes and measured width; accepted activation instead expands the
 chosen path and reveals its row, never restoring an old offset over that choice.
+Query input defers matching to background publication; highlight movement reuses
+that published result list instead of rebuilding excerpts. Bounded allocation
+cases use a warmed long-note fixture, and publication cases reject older query,
+refresh and Workspace requests. The compiled replay also sends Enter immediately
+after query input, before pumping publication, to retain single-Enter acceptance.
 The existing search journeys now type through the focused query field with real
 keyboard input, retain typing focus during Up/Down, observe each highlighted row
 inside the results viewport, and check first/last clamping, continued typing,

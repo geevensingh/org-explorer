@@ -6,6 +6,82 @@ namespace OrgExplorer.Core.Tests;
 public sealed class SearchFavoriteTests
 {
     [Fact]
+    public void Beginning_query_input_defers_matching_and_highlights_only_the_published_results()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var markdown = string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
+        app.CreateTeamNote("morgan@example.com", "Shared context", markdown);
+        app.SearchPeople("lastneedle");
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        long request = 0;
+        for (var index = 0; index < 20; index++)
+            request = app.BeginPeopleSearch(index % 2 == 0 ? "lastneedl" : "lastneedle");
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated < 2 * 1024 * 1024,
+            $"Query input must defer matching and excerpts to the background search; allocated {allocated:N0} bytes.");
+        Assert.Null(app.PeopleNavigation.HighlightedResult);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.PublishPeopleSearchResults(request, app.SearchPeople("lastneedle")));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+    }
+
+    [Fact]
+    public void Search_publication_rejects_an_old_query_and_preserves_a_newer_highlight()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var oldRequest = app.BeginPeopleSearch("example.com");
+        var oldResults = app.SearchPeople("example.com");
+        var request = app.BeginPeopleSearch("Scientist");
+
+        Assert.False(app.PublishPeopleSearchResults(oldRequest, oldResults));
+        Assert.Null(app.PeopleNavigation.HighlightedResult);
+        Assert.True(app.PublishPeopleSearchResults(request, app.SearchPeople("Scientist")));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+        Assert.False(app.PublishPeopleSearchResults(oldRequest, oldResults));
+        Assert.Equal("avery@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+    }
+
+    [Fact]
+    public void Same_query_refresh_and_workspace_reopen_invalidate_older_search_publication()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var oldRequest = app.BeginPeopleSearch("example.com");
+        var oldResults = app.SearchPeople("example.com");
+        Apply(app, """{"email":"aa-new@example.com","displayName":"New Person","managerEmail":null}""", 2);
+        var request = app.BeginPeopleSearch("example.com");
+
+        Assert.False(app.PublishPeopleSearchResults(oldRequest, oldResults));
+        var results = app.SearchPeople("example.com");
+        Assert.Equal(4, results.Count);
+        Assert.True(app.PublishPeopleSearchResults(request, results));
+        for (var index = 0; index < results.Count; index++) app.MoveSearchHighlight(1);
+        Assert.Equal("aa-new@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+        Assert.True(app.OpenWorkspace("another-fictitious-search"));
+        Assert.False(app.PublishPeopleSearchResults(request, results));
+        Assert.Null(app.PeopleNavigation.HighlightedResult);
+    }
+
+    [Fact]
+    public void Moving_search_highlight_reuses_matches_instead_of_rebuilding_long_note_excerpts()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var markdown = string.Concat(Enumerable.Repeat("Fictitious shared context \t \n", 4096)) + "lastneedle";
+        app.CreateTeamNote("morgan@example.com", "Shared context", markdown);
+        app.ChangePeopleQuery("lastneedle");
+        app.MoveSearchHighlight(1);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 20; index++) app.MoveSearchHighlight(index % 2 == 0 ? -1 : 1);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated < 2 * 1024 * 1024,
+            $"Highlighting existing matches must not rebuild excerpts; allocated {allocated:N0} bytes.");
+        Assert.Equal("morgan@example.com", app.PeopleNavigation.HighlightedResult!.Person.Email);
+    }
+
+    [Fact]
     public void Accepted_Archived_person_reveals_retained_browsing_without_reactivation_and_empty_Enter_cannot_reuse_them()
     {
         using var app = (WorkspaceViewModel)Open();

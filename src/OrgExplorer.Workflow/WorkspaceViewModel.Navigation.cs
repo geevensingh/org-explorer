@@ -131,20 +131,58 @@ public sealed partial class WorkspaceViewModel
     });
 
     public PeopleNavigationView PeopleNavigation { get; private set; } = new("", false, null, null, [], 0);
+    private IReadOnlyList<PersonSearchResult> peopleSearchResults = [];
+    private long peopleSearchRequest;
 
     public void ChangePeopleQuery(string query)
     {
         if (query == PeopleNavigation.Query) return;
-        PeopleNavigation = PeopleNavigation with { Query = query, HighlightedResult = workflow.SearchPeople(query).FirstOrDefault() };
+        var request = BeginPeopleSearch(query);
+        PublishPeopleSearchResults(request, workflow.SearchPeople(query));
+    }
+
+    public long BeginPeopleSearch(string query)
+    {
+        var request = Interlocked.Increment(ref peopleSearchRequest);
+        if (query == PeopleNavigation.Query) return request;
+        peopleSearchResults = [];
+        PeopleNavigation = PeopleNavigation with { Query = query, HighlightedResult = null };
         Notify();
+        return request;
+    }
+
+    public bool PublishPeopleSearchResults(long request, IReadOnlyList<PersonSearchResult> results)
+    {
+        if (request != Volatile.Read(ref peopleSearchRequest)) return false;
+        peopleSearchResults = results;
+        var highlighted = PeopleNavigation.HighlightedResult?.Person.Email;
+        PeopleNavigation = PeopleNavigation with
+        {
+            HighlightedResult = results.FirstOrDefault(r =>
+                r.Person.Email.Equals(highlighted, StringComparison.OrdinalIgnoreCase)) ?? results.FirstOrDefault()
+        };
+        Notify();
+        return true;
+    }
+
+    private void ResetPeopleSearch()
+    {
+        Interlocked.Increment(ref peopleSearchRequest);
+        peopleSearchResults = [];
     }
 
     public void MoveSearchHighlight(int direction)
     {
         if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
-        var results = workflow.SearchPeople(PeopleNavigation.Query);
-        var index = results.ToList().FindIndex(r =>
-            r.Person.Email.Equals(PeopleNavigation.HighlightedResult?.Person.Email, StringComparison.OrdinalIgnoreCase));
+        var results = peopleSearchResults;
+        var index = -1;
+        for (var candidate = 0; candidate < results.Count; candidate++)
+            if (results[candidate].Person.Email.Equals(PeopleNavigation.HighlightedResult?.Person.Email,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                index = candidate;
+                break;
+            }
         PeopleNavigation = PeopleNavigation with
         {
             HighlightedResult = results.Count == 0 ? null : results[Math.Clamp(index + direction, 0, results.Count - 1)]
@@ -233,6 +271,7 @@ public sealed partial class WorkspaceViewModel
         finally { changingDestination = false; }
         if (accepted)
         {
+            ResetPeopleSearch();
             var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var context = workflow.GetRelationships(current.Person.Email);
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
