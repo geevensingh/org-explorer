@@ -203,7 +203,23 @@ internal static partial class Program
                 fixture.Control<TextBox>("TeamNameEditor").Text != "Retained recovery label" ||
                 fixture.Control<TextBox>("Department").Text != "Retained recovery department" ||
                 fixture.NotePeers(scope).Any(peer => peer.GetAutomationId() == "PersonNoteMarkdown"))
-                throw new InvalidOperationException("Failed profile browsing changed the clean Read note, exact retained profile or fault.");
+                throw new InvalidOperationException("Failed profile browsing changed the clean Read note, exact retained profile or fault: " +
+                    JsonSerializer.Serialize(new
+                    {
+                        sameError = fixture.Model.LocalSaveError == failure,
+                        originalError = failure,
+                        currentError = fixture.Model.LocalSaveError,
+                        fixture.Model.CanEditLocalWorkspace,
+                        noteId = fixture.Model.PersonNotesView.SelectedNote?.Id,
+                        expectedNoteId = id,
+                        fixture.Model.PersonNotesView.IsEditing,
+                        retained = fixture.Model.GetRetainedNoteDraft(scope, id) is not null,
+                        tab = (fixture.Note<TabControl>(scope, "Views").SelectedItem as FrameworkElement)?.Name,
+                        teamName = fixture.Control<TextBox>("TeamNameEditor").Text,
+                        department = fixture.Control<TextBox>("Department").Text,
+                        openEnabled = fixture.Control<Button>("OpenWorkspaceButton").IsEnabled,
+                        markdownPeerPresent = fixture.NotePeers(scope).Any(peer => peer.GetAutomationId() == "PersonNoteMarkdown")
+                    }));
             fixture.Note<TabItem>(scope, "EditTab").IsSelected = true;
             fixture.Arrange();
             var editor = fixture.Note<TextBox>(scope, "MarkdownEditor");
