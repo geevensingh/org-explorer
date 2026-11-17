@@ -1269,7 +1269,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public async Task Predetermined_continuous_typing_spans_the_durability_window_and_observes_committed_writing_before_it_ends()
+    public async Task Predetermined_continuous_typing_reopens_exact_final_writing_within_the_existing_observation_window()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
@@ -1279,18 +1279,30 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         {
             var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
             const string prefix = "# Sustained predetermined writing";
+            var expectedFinal = prefix + string.Concat(Enumerable.Range(0, 20).Select(index => $"\nContinued entry {index}"));
             var firstRead = 0;
+            var typingFinished = false;
             using var observation = NoteCommitObservation.Begin(
                 () => app.UpdateNoteDraft(scope, draft.Id, "Sustained context", prefix),
                 () =>
                 {
                     if (Interlocked.Increment(ref firstRead) == 1) Thread.Sleep(450);
+                    if (!Volatile.Read(ref typingFinished)) return false;
+                    var localSave = app.LocalSave;
+                    var safelyClose = app.CanSafelyClose;
+                    if (!safelyClose || localSave.OutstandingRequests != 0 ||
+                        localSave.EditsPaused || localSave.HasUnresolvedOutcome) return false;
                     using var reading = ApplicationWorkflow.CreateFileBacked();
-                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly),
+                        $"{reading.Status}; final-reopen readiness: safelyClose={safelyClose}, " +
+                        $"localSave={localSave.Phase}/{localSave.Outcome}, outstanding={localSave.OutstandingRequests}; " +
+                        $"currentLocalSave={app.LocalSave.Phase}/{app.LocalSave.Outcome}.");
                     var committed = reading.BeginNoteDraft(scope, "manager@example.com", draft.Id);
-                    return committed?.Title == "Sustained context" &&
+                    return committed is not null && committed.Id == draft.Id && committed.Scope == scope &&
+                        committed.Title == "Sustained context" &&
                         committed.OwnerEmail == "manager@example.com" &&
-                        committed.Markdown.StartsWith(prefix, StringComparison.Ordinal);
+                        committed.Markdown == expectedFinal &&
+                        reading.BeginNoteDraft(scope, "report@example.com", draft.Id) is null;
                 });
             var latest = prefix;
             var typing = observation.ContinueTyping(index =>
@@ -1300,23 +1312,29 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                 Assert.True(app.NavigatePerson("report@example.com"), app.Status);
                 Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
             });
+            Volatile.Write(ref typingFinished, true);
             var observedMs = observation.Complete();
-            Console.WriteLine("NOTE-SUSTAINED-TYPING " + System.Text.Json.JsonSerializer.Serialize(new
+            Console.WriteLine("NOTE-SUSTAINED-TYPING-REOPEN " + System.Text.Json.JsonSerializer.Serialize(new
             {
                 scope = scope.ToString(), readDelayMs = 450, observedMs,
                 continuedEditRequestStartedMs = typing.RequestStartedMs,
                 continuedEditRequestCompletedMs = typing.RequestCompletedMs,
-                typingCompletedMs = typing.RequestCompletedMs[^1]
+                typingCompletedMs = typing.RequestCompletedMs[^1],
+                observationCompletedDuringTyping = observedMs <= typing.RequestCompletedMs[^1],
+                timingUse = "Diagnostic only; final exact writing must reopen within the existing observation window, not before typing ends."
             }));
             Assert.True(typing.RequestStartedMs[^1] - typing.RequestCompletedMs[0] >= 1000,
                 "The fixed typing workload ended before the approved one-second observation window could be exercised.");
-            Assert.True(observedMs <= typing.RequestCompletedMs[^1],
-                "The complete actual committed-content observation must finish before the final predetermined edit completes.");
             Assert.Equal(typing.RequestStartedMs.Length, typing.RequestCompletedMs.Length);
             Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
             using var reopened = ApplicationWorkflow.CreateFileBacked();
             Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
-            Assert.Equal(latest, reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+            var final = Assert.IsType<NoteDraft>(reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id));
+            Assert.Equal(draft.Id, final.Id);
+            Assert.Equal(scope, final.Scope);
+            Assert.Equal("manager@example.com", final.OwnerEmail);
+            Assert.Equal("Sustained context", final.Title);
+            Assert.Equal(expectedFinal, final.Markdown);
             Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", draft.Id));
         }
     }
