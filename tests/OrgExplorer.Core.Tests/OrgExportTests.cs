@@ -700,6 +700,125 @@ public sealed class OrgExportTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => session.Publish());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Explicit_binary_photo_absence_preserves_original_failure_and_omits_photo_from_import(bool afterRetry)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        RecordProfile(session);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
+        var metadata = session.Plan().Receipts[ExportSession.PhotoPath(RootId)].Response.ToJsonString();
+        var target = $"/users/{RootId}/photo/$value";
+        var photo = session.ClaimSource("photo", "photo", [target]);
+        if (afterRetry)
+        {
+            FinishSource(session, photo, new JsonObject { ["statusCode"] = 503 });
+            session.BeginSourceRecovery();
+            photo = session.ClaimSource("retry", "photo", [target]);
+        }
+        var other = afterRetry ? null : session.ClaimSource("other", "profile", [AltId]);
+        FinishSource(session, photo, Missing("ImageNotFound"));
+        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == target).Attempts,
+            ExportSession.Json);
+        const string reason = "User explicitly accepts this exact binary 404 ImageNotFound as photo absence.";
+        if (other is not null)
+        {
+            Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, reason)).ExitCode);
+            FinishSource(session, other, Ok(new JsonObject()));
+        }
+        Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, "")).ExitCode);
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+
+        var confirmed = await RunCli("source-confirm-photo-absence", path, RootId, reason);
+
+        Assert.True(confirmed.ExitCode == 0, confirmed.Error);
+        Assert.Empty(confirmed.Error);
+        var audit = Assert.Single(JsonNode.Parse(confirmed.Output)!["photoAbsenceConfirmations"]!.AsArray())!;
+        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
+        Assert.Equal(target, audit["target"]!.GetValue<string>());
+        Assert.Equal(photo.ClaimId, audit["sourceClaimId"]!.GetValue<Guid>());
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Equal("completed", read.State);
+        Assert.Equal(original, JsonSerializer.Serialize(read.Attempts, ExportSession.Json));
+        Assert.Equal(metadata, session.Plan().Receipts[ExportSession.PhotoPath(RootId)].Response.ToJsonString());
+        Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, reason)).ExitCode);
+        Assert.Null(session.ClaimSource("repeat", "photo", [target]).ClaimId);
+        var cache = JsonSerializer.SerializeToNode(session.ReusePhoto(RootId))!;
+        Assert.True(cache["unavailable"]!.GetValue<bool>());
+        Assert.False(cache["reused"]!.GetValue<bool>());
+        Assert.Throws<InvalidOperationException>(() => session.Photo(RootId, Blob()));
+        session.Dispose();
+        using var publisher = ExportSession.Open(path, publishing: true);
+        var import = JsonSerializer.SerializeToNode(publisher.Publish())!["importPath"]!.GetValue<string>();
+        var person = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray().Single()!.AsObject();
+        Assert.False(person.ContainsKey("photoPath"));
+        var warnings = File.ReadAllText(Path.Combine(Path.GetDirectoryName(import)!, "review-required.json"));
+        Assert.Contains("binary ImageNotFound", warnings);
+    }
+
+    [Theory]
+    [InlineData(404, "Request_ResourceNotFound", null, null)]
+    [InlineData(404, "OtherImageNotFoundError", null, null)]
+    [InlineData(404, "imagenotfound", null, null)]
+    [InlineData(404, "", null, null)]
+    [InlineData(403, "ImageNotFound", null, null)]
+    [InlineData(503, "ImageNotFound", null, null)]
+    [InlineData(404, "ImageNotFound", "PolicyDenied", null)]
+    [InlineData(404, "ImageNotFound", null, 503)]
+    [InlineData(404, "ImageNotFound", null, 200)]
+    public async Task Binary_photo_absence_cannot_reclassify_other_or_mixed_failures(
+        int status, string code, string? nestedCode, int? nestedStatus)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
+        var target = $"/users/{RootId}/photo/$value";
+        var response = Missing(code);
+        response["statusCode"] = status;
+        response["error"]!["innerError"] = new JsonObject { ["code"] = nestedCode, ["statusCode"] = nestedStatus };
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), response);
+        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == target).Attempts,
+            ExportSession.Json);
+
+        var result = await RunCli("source-confirm-photo-absence", path, RootId, "User approved exact binary ImageNotFound only.");
+
+        Assert.Equal(1, result.ExitCode);
+        var ledger = session.SourceStatus();
+        Assert.Empty(ledger.PhotoAbsenceConfirmations);
+        var read = ledger.Reads.Single(read => read.Target == target);
+        Assert.Equal("failed", read.State);
+        Assert.Equal(original, JsonSerializer.Serialize(read.Attempts, ExportSession.Json));
+    }
+
+    [Fact]
+    public async Task Binary_photo_absence_does_not_resolve_an_independent_metadata_deferral()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        RecordProfile(session);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
+        var metadataTarget = ExportSession.PhotoPath(ChildId);
+        FinishSource(session, session.ClaimSource("metadata", "structured", [metadataTarget]),
+            new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("metadata-retry", "structured", [metadataTarget]),
+            new JsonObject { ["statusCode"] = 503 });
+        session.Defer503PhotoMetadata("User requested fetching unread entries.");
+        var target = $"/users/{RootId}/photo/$value";
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), Missing("ImageNotFound"));
+
+        var confirmed = await RunCli("source-confirm-photo-absence", path, RootId, "User approved exact binary ImageNotFound.");
+
+        Assert.True(confirmed.ExitCode == 0, confirmed.Error);
+        var metadata = session.SourceStatus().Reads.Single(read => read.Target == metadataTarget);
+        Assert.Equal("failed", metadata.State);
+        Assert.Equal(2, metadata.Attempts.Count);
+        Assert.Single(session.SourceStatus().MetadataDeferrals);
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
     [Fact]
     public void Shared_source_failures_block_an_otherwise_complete_export_until_recovered_without_replaying_successes()
     {

@@ -17,10 +17,12 @@ public sealed partial class ExportSession
         public string? StopReason { get; set; }
         public List<ServiceRecoveryAuthorization> ServiceRecoveries { get; set; } = [];
         public List<MetadataDeferral> MetadataDeferrals { get; set; } = [];
+        public List<PhotoAbsenceConfirmation> PhotoAbsenceConfirmations { get; set; } = [];
     }
     public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
     public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record MetadataDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
+    public sealed record PhotoAbsenceConfirmation(DateTimeOffset ConfirmedAt, string Reason, string Target, Guid SourceClaimId);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
@@ -198,6 +200,44 @@ public sealed partial class ExportSession
             ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
             return ledger;
         });
+    }
+
+    public SourceLedger ConfirmPhotoAbsence(string id, string reason)
+    {
+        id = SourceTarget("profile", id);
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to accept binary ImageNotFound.");
+        Success(PhotoMetadata(id), "Photo metadata");
+        var target = $"/users/{id}/photo/$value";
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before confirming photo absence.");
+            RequireCompletedSource(ledger, "structured", PhotoPath(id));
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "photo" && read.Target == target)
+                ?? throw new InvalidOperationException("The binary photo lookup is not in this run.");
+            Require(read.State == "failed" && read.Attempts.Count is >= 1 and <= 2,
+                "Only a settled failed binary photo lookup can receive an absence confirmation.");
+            var resultFile = read.Attempts[^1].ResultFile
+                ?? throw new InvalidOperationException("Photo absence requires retained original source results.");
+            var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == target);
+            var objects = SourceObjects(result.Response).ToArray();
+            var codes = objects.Select(obj => SourceText(obj["code"])).Where(code => code.Length > 0).ToArray();
+            Require(SourceStatusCode(result.Response["statusCode"]) == 404
+                && objects.SelectMany(SourceStatuses).All(status => status == 404)
+                && codes.Length > 0 && codes.All(code => code == "ImageNotFound"),
+                "Only exact binary HTTP 404 ImageNotFound establishes absence; other failures remain blockers.");
+            ledger.PhotoAbsenceConfirmations.Add(new(sourceClock.GetUtcNow(), reason, target, read.Attempts[^1].ClaimId));
+            ledger.Reads[ledger.Reads.IndexOf(read)] = read with { State = "completed" };
+            return ledger;
+        });
+    }
+
+    private static bool HasConfirmedPhotoAbsence(SourceLedger ledger, string id)
+    {
+        var target = $"/users/{id}/photo/$value";
+        return ledger.PhotoAbsenceConfirmations.Any(confirmation => confirmation.Target == target
+            && ledger.Reads.Any(read => read.Kind == "photo" && read.Target == target && read.State == "completed"
+                && read.Attempts.LastOrDefault()?.ClaimId == confirmation.SourceClaimId));
     }
 
     private static bool IsDeferredMetadata(SourceLedger ledger, SourceRead read)

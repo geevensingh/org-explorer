@@ -270,7 +270,11 @@ public sealed partial class ExportSession : IDisposable
         return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
     }
 
-    public object CachedPhotos(string idsFile) => Read<string[]>(idsFile).Select(ReusePhoto).ToArray();
+    public object CachedPhotos(string idsFile)
+    {
+        var sources = SourceStatus();
+        return Read<string[]>(idsFile).Select(id => ReusePhoto(id, sources)).ToArray();
+    }
 
     public sealed record PhotoInput(string DirectoryId, string ResponseFile);
     public object Photos(string inputsFile) => Read<PhotoInput[]>(inputsFile)
@@ -379,10 +383,12 @@ public sealed partial class ExportSession : IDisposable
     private static bool MatchesPerson(Observation observation, Person person)
         => observation.DirectoryId == person.Id && observation.Email.Equals(person.Email, StringComparison.OrdinalIgnoreCase);
 
-    public object ReusePhoto(string id)
+    public object ReusePhoto(string id) => ReusePhoto(id, SourceStatus());
+
+    private object ReusePhoto(string id, SourceLedger sources)
     {
         var metadata = PhotoMetadata(id);
-        if (NoPhoto(metadata)) return new { reused = false, unavailable = true };
+        if (NoPhoto(metadata) || HasConfirmedPhotoAbsence(sources, id)) return new { reused = false, unavailable = true };
         Success(metadata, "Photo metadata");
         var etag = Text(metadata["data"]!.AsObject(), "@odata.mediaEtag");
         if (etag.Length == 0) return new { reused = false };
@@ -426,6 +432,7 @@ public sealed partial class ExportSession : IDisposable
     {
         FreshPayload(input);
         var metadata = PhotoMetadata(id);
+        Require(!HasConfirmedPhotoAbsence(SourceStatus(), id), "Confirmed binary photo absence cannot be replaced by an uncorrelated download.");
         Success(metadata, "Photo metadata");
         var body = Read<JsonObject>(input);
         Success(body, "Photo binary download");
@@ -485,6 +492,8 @@ public sealed partial class ExportSession : IDisposable
             ApplyOffice(item, Text(person.Directory, "officeLocation"), warnings, person.Email);
             var metadata = PhotoMetadata(person.Id);
             if (NoPhoto(metadata)) warnings.Add(person.Email + ": directory photo unavailable; photoPath omitted.");
+            else if (HasConfirmedPhotoAbsence(sources, person.Id))
+                warnings.Add(person.Email + ": confirmed binary ImageNotFound supersedes earlier photo metadata; photoPath omitted.");
             else
             {
                 Success(metadata, "Photo metadata");

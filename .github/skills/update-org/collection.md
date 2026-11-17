@@ -40,6 +40,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-recover-503 RUN REASON` | Coordinator only, with explicit user authorization: records an additional recovery of currently failed, first-attempt HTTP 503 reads after the ordinary pass was consumed. |
 | `source-defer-photo-503 RUN REASON` | Coordinator only, when the user requests collecting unread entries despite exhausted HTTP 503 photo metadata: records that deferral without clearing the failure or enabling publication. |
 | `source-recover-profile-open RUN DIRECTORY-ID REASON` | Coordinator only, after explicit user approval for that one lookup: records one retry of a supported unclassified profile-read failure described below. |
+| `source-confirm-photo-absence RUN DIRECTORY-ID REASON` | Coordinator only, with explicit user approval: accepts an exact retained binary HTTP 404 `ImageNotFound` as sourced absence without repeating the read or changing its original attempt. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
 | `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
@@ -240,7 +241,8 @@ Record all partial successes and errors, then ingest complete structured batches
 including failed receipts; materialize only successful profile/photo results
 through the existing helper commands. A completed search with no evidence
 is a success with explicit uncertainty; a failed search cannot become unknown.
-Failed binary downloads cannot become `ImageNotFound`.
+Failed binary downloads cannot become `ImageNotFound` except through the exact,
+explicitly authorized confirmation below.
 
 The coordinator pauses dispatch on failure, awaits active calls, then runs
 `source-recover` once if recovery is appropriate. This snapshots eligible transient
@@ -305,6 +307,28 @@ not cover the other. Even with broader approval, record each identity's
 authorization separately through the gate. A failed second
 attempt still blocks publication.
 
+### User-authorized binary photo absence
+
+If a binary photo read returns HTTP 404 with the exact code `ImageNotFound`
+despite earlier successful metadata, preserve the original result and pause.
+After explicit user approval and all active claims settle, the coordinator may run
+`source-confirm-photo-absence RUN DIRECTORY-ID REASON`. Approval covering future
+identical responses in this invocation also covers later confirmations; record
+each lookup separately. Workers do not confirm or retry these responses themselves.
+
+The command requires the retained Person's completed successful metadata and
+original binary HTTP 404 result. Every returned status must be 404 and every
+nonempty error code must be exactly `ImageNotFound`; mixed statuses, other codes,
+missing evidence and denials remain blockers. It appends a
+`photoAbsenceConfirmations` entry bound to the exact source claim and marks that
+lookup completed as sourced absence. Original attempts, errors, metadata, retry
+limits and recovery consumption stay unchanged. No source call is repeated.
+
+`cached-photos` then reports that Person unavailable without reusing stale bytes.
+Publication omits `photoPath` and flags that binary evidence superseded earlier
+metadata, preserving any existing Workspace image. Unrelated failures, including
+deferred HTTP 503 photo metadata, still block publication.
+
 ### Denials and stopped-worker handoff
 
 Nested authentication/access/policy denials or forbidden responses persist a
@@ -353,6 +377,8 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    `cached-photos`; download only cache misses whose fresh metadata succeeded.
    Confirmed `ImageNotFound` needs no binary call and omits `photoPath`. Other 404s,
    nulls, denied reads and service errors are not photo absence.
+   An exact binary HTTP 404 `ImageNotFound` requires the coordinator's authorized
+   confirmation above before it counts as absence.
 4. Claim and capture remaining `/users/{exact-directory-id}/photo/$value` reads through
    WorkIQ's configured `fetch_blob` tool using the shared capture sequence.
    Keep supplied image resolution; pass captured response files to `photo`/`photos`.
