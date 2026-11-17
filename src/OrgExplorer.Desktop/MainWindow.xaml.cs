@@ -75,7 +75,7 @@ public partial class MainWindow : Window
     }
     private void ChooseImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(forImport: true)) return;
         var dialog = new OpenFileDialog { Filter = "Import JSON|*.json", Title = "Choose a version-1 Import batch" };
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
@@ -83,7 +83,7 @@ public partial class MainWindow : Window
     {
         SettingsPanel.Visibility = Visibility.Collapsed;
         UpdateMainViews();
-        if (workflow.IsImportOpen || !TryLeaveLocalEdits()) return;
+        if (workflow.IsImportOpen || !TryLeaveLocalEdits(forImport: true)) return;
         if (!workflow.TryOpenImport())
         {
             ShowNavigationBlocked("Navigation blocked: " + workflow.Status);
@@ -195,7 +195,7 @@ public partial class MainWindow : Window
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(forImport: true)) return;
         preview = null;
         ApplyButton.IsEnabled = false;
         try
@@ -216,7 +216,7 @@ public partial class MainWindow : Window
     }
     private async void ApplyImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(forImport: true)) return;
         if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…", isImport: true);
         ApplyButton.IsEnabled = false;
         preview = null;
@@ -512,7 +512,7 @@ public partial class MainWindow : Window
         SearchQuery.Focus();
     }
 
-    private bool TryLeaveLocalEdits(bool browsing = false)
+    private bool TryLeaveLocalEdits(bool browsing = false, bool forImport = false)
     {
         if (browsing) return true;
         if (workPending)
@@ -521,7 +521,7 @@ public partial class MainWindow : Window
             return false;
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
-        if (workflow.LocalSaveError is { } independentError)
+        if (workflow.LocalSaveError is { } independentError && !(forImport && workflow.CanEnterImport))
         {
             ShowNavigationBlocked("Navigation blocked: " + independentError +
                 " Retry or discard the independent unsaved writing before leaving.", retainedFailure: true);

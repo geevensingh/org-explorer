@@ -210,6 +210,8 @@ internal static partial class Program
                     VerifyRecoveredCopyContract(type, Path.Combine(settings, "cr")));
                 HarnessRuntime.Run("compiled-independent-note-leave", () =>
                     VerifyIndependentNoteLeaveContract(type, Path.Combine(settings, "il")));
+                HarnessRuntime.Run("compiled-import-recovery-admission", () =>
+                    VerifyImportRecoveryAdmission(type, Path.Combine(settings, "ir")));
                 HarnessRuntime.Run("compiled-manager-choice-demand", () =>
                     VerifyManagerChoiceDemand(type, Path.Combine(settings, "mc")));
                 HarnessRuntime.Run("compiled-ordinary-fixture-state", () =>

@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -259,16 +260,43 @@ internal static partial class Program
         foreach (var mode in ExitProcessCases)
         {
             var root = Path.Combine(settings, ".test-workspaces", "exit-" + mode);
+            var fixtureStartedAt = Stopwatch.GetTimestamp();
             using var process = StartWorkspaceExitFixture(executable, root, mode, native: false);
+            var stderr = new StringBuilder();
+            var stderrGate = new object();
+            process.ErrorDataReceived += (_, data) =>
+            {
+                if (data.Data is not { } line) return;
+                lock (stderrGate)
+                    if (stderr.Length < 4096)
+                        stderr.AppendLine(line[..Math.Min(line.Length, 4096 - stderr.Length)]);
+            };
+            process.BeginErrorReadLine();
             try
             {
                 if (!process.WaitForExit(10000))
-                    throw new TimeoutException($"Exit anyway did not terminate the owned {mode} process.");
-                var error = process.StandardError.ReadToEnd();
+                {
+                    string partialError;
+                    lock (stderrGate) partialError = stderr.ToString();
+                    throw new TimeoutException($"Exit anyway did not terminate the owned {mode} process. " +
+                        $"Fixture-start-before-launch={fixtureStartedAt}; timeout-observed={Stopwatch.GetTimestamp()}; " +
+                        $"frequency={Stopwatch.Frequency}. The existing wait includes fixture seeding/startup/preparation; force intent is a separate host stage. " +
+                        $"Actual bounded host stages before cleanup: {ReadExitHostObservation(root)}; " +
+                        $"bounded asynchronous stderr (possibly incomplete): {partialError}");
+                }
+                var processExitedObservedAt = Stopwatch.GetTimestamp();
+                string error;
+                lock (stderrGate) error = stderr.ToString();
                 if (process.ExitCode != 0 || !File.Exists(Path.Combine(root, "decision.json")) ||
                     File.Exists(Path.Combine(root, "force-returned")) || File.Exists(Path.Combine(root, "closed")))
                     throw new InvalidOperationException($"Owned {mode} did not terminate through the compiled force action: {process.ExitCode}; {error}");
                 VerifyExitedWorkspace(root, mode);
+                Console.WriteLine("OWNED-EXIT-PROCESS-OBSERVATION " + JsonSerializer.Serialize(new
+                {
+                    mode, fixtureStartedAt, processExitedObservedAt, frequency = Stopwatch.Frequency,
+                    hostObservation = ReadExitHostObservation(root),
+                    boundary = "Parent start is before owned fixture launch and includes seed/startup/preparation/induced fault/close. Actual force intent is the separate child stage; observed process exit is an upper bound, not direct force-only latency."
+                }));
                 Console.WriteLine($"PASS: owned invisible compiled Exit anyway terminated PID {process.Id}: {mode}; actual durable recovery/republication verified.");
             }
 
@@ -276,6 +304,25 @@ internal static partial class Program
             {
                 if (!process.HasExited) { process.Kill(true); process.WaitForExit(5000); }
             }
+        }
+
+    }
+
+    private static string ReadExitHostObservation(string root)
+    {
+        var path = Path.Combine(root, "host-observation.json");
+        try
+        {
+            if (!File.Exists(path)) return "No host observation was written.";
+            using var reader = new StreamReader(File.Open(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete));
+            var buffer = new char[8192];
+            var count = reader.ReadBlock(buffer, 0, buffer.Length);
+            return new string(buffer, 0, count) + (count == buffer.Length ? " [bounded; possibly truncated]" : "");
+        }
+        catch (Exception observationError) when (observationError is IOException or UnauthorizedAccessException)
+        {
+            return "Host observation could not be read: " + observationError.Message[..Math.Min(observationError.Message.Length, 2048)];
         }
     }
 

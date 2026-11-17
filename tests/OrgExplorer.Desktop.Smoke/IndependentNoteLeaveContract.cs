@@ -59,7 +59,8 @@ internal static partial class Program
         finally { descriptor.RemoveValueChanged(Control<TextBlock>("WorkflowActivity"), changed); }
         var feedback = Control<TextBlock>("StatusText").Text;
         var blockedBeforeWork = activity.Count == 0;
-        if (!blockedBeforeWork || !feedback.Contains("Navigation blocked:", StringComparison.Ordinal) ||
+        if (!blockedBeforeWork || model.LocalSaveError != retained.Error ||
+            Control<FrameworkElement>("OperationalNotice").Visibility != Visibility.Visible ||
             model.GetRetainedNoteDraft(NoteScope.Person, note.Id)?.Title != retained.Title ||
             model.GetRetainedNoteDraft(NoteScope.Person, note.Id)?.Markdown != retained.Markdown ||
             model.GetRetainedNoteDraft(NoteScope.Person, note.Id)?.Error != retained.Error ||

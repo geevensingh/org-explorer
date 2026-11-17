@@ -921,7 +921,7 @@ whose unresolved receipt must refuse cached Ready until explicit recovery.
 
 The combined hosted follow-up also runs focused actual compiled
 `--verify-cutover-recovery-copy`, `--verify-independent-note-leave`,
-`--verify-manager-choice-demand` and
+`--verify-import-recovery-admission`, `--verify-manager-choice-demand` and
 `--verify-cutover-ordinary-fixture-state` checks in that full selection.
 Healthy recovered storage becomes quiet once no unsaved writing remains;
 clipboard retry cannot dismiss an independent fault. Profile-only Discard does
@@ -929,6 +929,12 @@ not authorize a protected mutation/replacement past an independent note error.
 The shared guard is tested through actual nonmodal replacement controls and
 real SQLite, without invoking private product methods or opening native dialogs.
 Browse-only navigation still bypasses that mutation guard.
+Import's own failed Apply is different from independent writing: its picker,
+entry, Preview and Apply reuse the workflow's existing scoped `CanEnterImport`
+admission. The actual compiled Apply-failure/reconcile/People/reentry/Preview/
+Apply loop retains the original error until successful explicit retry and
+independently reopens the reviewed result. A separate invalid note still
+prevents that admission; no fault is cleared to enter Import.
 The ordinary fixture-state loop distinguishes a discarded uncommitted creation
 from an existing note: restore assertions first independently establish the
 exact saved owner/id/title/body. Paused failed Edit retains readable writing

@@ -44,6 +44,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyRecoveredCopyContract);
             if (args.Length == 2 && args[1] == "--verify-independent-note-leave")
                 return VerifyHostedCutoverContracts(executable, VerifyIndependentNoteLeaveContract);
+            if (args.Length == 2 && args[1] == "--verify-import-recovery-admission")
+                return VerifyHostedCutoverContracts(executable, VerifyImportRecoveryAdmission);
             if (args.Length == 2 && args[1] == "--diagnose-rich-navigation")
                 return VerifyHostedCutoverContracts(executable, DiagnoseCompiledRichNavigation);
             if (args.Length == 2 && args[1] == "--verify-manager-choice-demand")
