@@ -24,6 +24,211 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
 
+    [Fact]
+    public async Task Normal_exit_freshly_verifies_an_already_published_head_without_revalidating_or_exporting_it()
+    {
+        var observer = new ExitPublicationObserver();
+        using var first = Create("first", observer);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var revision = first.Synchronization.LocalRevision;
+        var artifact = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        var bytes = File.ReadAllBytes(artifact);
+        using var remote = Create("remote");
+        Assert.True(remote.ConfigureSynchronizationFolder(Local("outgoing"), true), remote.Synchronization.Error);
+        Assert.True(remote.SyncNow(), remote.Synchronization.Error);
+        Assert.True(remote.EditPreferredName("report@example.com", "Incoming adoption is not required merely to quit"), remote.Status);
+        Assert.True(remote.SyncNow(), remote.Synchronization.Error);
+        var incoming = Directory.GetFiles(Local("outgoing"), "*.oesnapshot")
+            .Single(file => file != artifact);
+        var incomingBytes = File.ReadAllBytes(incoming);
+        Assert.True(first.ExitStatus.CanClose);
+        observer.ValidationWrites = 0;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await first.PrepareForExitAsync(timeout.Token);
+
+        Assert.True(first.ExitStatus.CanClose);
+        Assert.Equal(0, observer.ValidationWrites);
+        Assert.True(observer.PublicationReads > 0);
+        Assert.Equal(revision, first.Synchronization.PublishedRevision);
+        Assert.Equal(revision, first.Synchronization.LocalRevision);
+        Assert.Null(first.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.Equal(bytes, File.ReadAllBytes(artifact));
+        Assert.Equal(incomingBytes, File.ReadAllBytes(incoming));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Normal_exit_reloads_a_real_sibling_local_commit_after_cached_ready_and_confirms_that_exact_head(bool siblingPublishes)
+    {
+        var observer = new ExitPublicationObserver();
+        using var first = Create("first", observer);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var cached = first.Synchronization.LocalRevision;
+        using var sibling = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(sibling.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), sibling.Status);
+        Assert.True(sibling.EditPreferredName("report@example.com", "Exact sibling commit after cached Ready"), sibling.Status);
+        var latest = sibling.Synchronization.LocalRevision;
+        if (siblingPublishes) Assert.True(sibling.SyncNow(), sibling.Synchronization.Error);
+        Assert.NotEqual(cached, latest);
+        Assert.Equal(cached, first.Synchronization.LocalRevision);
+        Assert.True(first.ExitStatus.CanClose);
+        observer.ValidationWrites = 0;
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await first.PrepareForExitAsync(timeout.Token);
+
+        Assert.True(first.ExitStatus.CanClose);
+        Assert.Equal(latest, first.Synchronization.LocalRevision);
+        Assert.Equal(latest, first.Synchronization.PublishedRevision);
+        if (siblingPublishes) Assert.Equal(0, observer.ValidationWrites);
+        else Assert.True(observer.ValidationWrites > 0);
+        using var receiving = Create("receiver");
+        Assert.True(receiving.ConfigureSynchronizationFolder(Local("outgoing"), true), receiving.Synchronization.Error);
+        Assert.True(receiving.SyncNow(), receiving.Synchronization.Error);
+        Assert.Equal(latest, receiving.Synchronization.LocalRevision);
+        Assert.Equal("Exact sibling commit after cached Ready", receiving.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
+    [Theory]
+    [InlineData("folder-unavailable")]
+    [InlineData("artifact-unavailable")]
+    [InlineData("corrupt-envelope")]
+    [InlineData("changed-receipted-content")]
+    public async Task Normal_exit_refuses_unavailable_or_mutated_publication_after_cached_ready_and_retains_evidence(string failure)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var revision = first.Synchronization.LocalRevision;
+        var artifact = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        Assert.True(first.ExitStatus.CanClose);
+        FileStream? held = null;
+        if (failure == "folder-unavailable") Directory.Move(Local("outgoing"), Local("unavailable"));
+        if (failure == "artifact-unavailable") held = new FileStream(artifact, FileMode.Open, FileAccess.Read, FileShare.None);
+        if (failure == "corrupt-envelope") File.WriteAllText(artifact, """{"format":"incomplete delivery"}""");
+        if (failure == "changed-receipted-content")
+            RewriteSnapshot(artifact, content => content["resolvedRevisions"] = new JsonArray(Guid.NewGuid().ToString("D")));
+        var retained = failure == "folder-unavailable"
+            ? Path.Combine(Local("unavailable"), Path.GetFileName(artifact)) : artifact;
+        var bytes = held is null ? File.ReadAllBytes(retained) : null;
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            await AwaitSnapshot(() => closing.IsCompleted || first.Synchronization.Error is not null && !first.IsSynchronizing);
+            Assert.False(closing.IsCompleted);
+            Assert.False(first.ExitStatus.CanClose);
+            Assert.False(first.ExitStatus.HasUnsavedChanges);
+            Assert.True(first.CanEditLocalWorkspace);
+            Assert.Equal(revision, first.Synchronization.LocalRevision);
+            Assert.Equal("Report", first.GetRelationships("report@example.com")!.Person.DirectoryName);
+            if (bytes is not null) Assert.Equal(bytes, File.ReadAllBytes(retained));
+        }
+        finally
+        {
+            cancel.Cancel();
+            held?.Dispose();
+            try { await closing.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+            await AwaitSnapshot(() => !first.IsSynchronizing);
+        }
+    }
+
+    [Fact]
+    public async Task Normal_exit_local_head_probe_failure_pauses_local_edits_instead_of_reporting_only_a_remote_outage()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        Assert.True(first.ExitStatus.CanClose);
+        var database = Path.Combine(Local("first"), "workspace.sqlite");
+        var retained = database + ".unavailable";
+        File.Move(database, retained);
+        var bytes = File.ReadAllBytes(retained);
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            await AwaitSnapshot(() => closing.IsCompleted || first.LocalSave.EditsPaused);
+            Assert.False(closing.IsCompleted);
+            Assert.False(first.ExitStatus.CanClose);
+            Assert.False(first.IsWorkspaceCurrent);
+            Assert.False(first.CanEditLocalWorkspace);
+            Assert.Null(first.Synchronization.Error);
+            Assert.Equal(LocalSavePhase.Failed, first.LocalSave.Phase);
+            Assert.Equal(bytes, File.ReadAllBytes(retained));
+        }
+        finally
+        {
+            cancel.Cancel();
+            try { await closing.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+            File.Move(retained, database);
+        }
+        Assert.True(first.ReconcileLocalSaves(), first.Status);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await first.PrepareForExitAsync(timeout.Token);
+        Assert.True(first.ExitStatus.CanClose);
+    }
+
+    [Fact]
+    public async Task Normal_exit_refuses_an_actual_unresolved_sibling_transaction_even_after_cached_ready()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var sibling = ApplicationWorkflow.CreateFileBacked(fileObserver: new ExitLocalCommitObserver(entered, release));
+        Assert.True(sibling.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), sibling.Status);
+        var saving = Task.Run(() => sibling.EditPreferredName("report@example.com", "Exact real sibling transaction"));
+        using var cancel = new CancellationTokenSource();
+        Task? closing = null;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(first.ExitStatus.CanClose);
+            closing = first.PrepareForExitAsync(cancel.Token);
+            await AwaitSnapshot(() => closing.IsCompleted || first.LocalSave.HasUnresolvedOutcome);
+            Assert.False(closing.IsCompleted);
+            Assert.False(first.ExitStatus.CanClose);
+            Assert.False(first.CanEditLocalWorkspace);
+            var fault = first.LocalSave;
+            Assert.Equal(LocalSavePhase.Indeterminate, fault.Phase);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(1)));
+            release.Set();
+            Assert.True(await saving.WaitAsync(TimeSpan.FromSeconds(10)), sibling.Status);
+            Assert.Equal(fault, first.LocalSave);
+        }
+        finally
+        {
+            cancel.Cancel();
+            release.Set();
+            await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            if (closing is not null)
+                try { await closing.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+        }
+        Assert.True(first.ReconcileLocalSaves(), first.Status);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await first.PrepareForExitAsync(timeout.Token);
+        Assert.True(first.ExitStatus.CanClose);
+        using var reading = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+        Assert.Equal("Exact real sibling transaction", reading.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.False(reading.Synchronization.HasUnpublishedChanges);
+    }
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
@@ -810,7 +1015,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Fact]
-    public void Genuine_divergence_preserves_both_complete_versions_and_pauses_new_edits_across_restart()
+    public async Task Genuine_divergence_preserves_both_complete_versions_and_pauses_new_edits_across_restart()
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
@@ -839,6 +1044,26 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(reopened.NavigatePerson("report@example.com"), reopened.Status);
         Assert.Equal("Second private version", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.False(reopened.SyncNow());
+        var review = reopened.GetWorkspaceVersionReview()!;
+        var retained = Directory.GetFiles(Path.Combine(Local("second"), "snapshot-conflicts"), "*.oesnapshot")
+            .ToDictionary(file => file, File.ReadAllBytes);
+        using var cancel = new CancellationTokenSource();
+        var closing = reopened.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            await AwaitSnapshot(() => !reopened.IsSynchronizing);
+            Assert.False(closing.IsCompleted);
+            Assert.True(reopened.ExitStatus.HasConflict);
+            Assert.False(reopened.ExitStatus.CanClose);
+            Assert.Equal(review.Id, reopened.GetWorkspaceVersionReview()!.Id);
+            foreach (var (file, bytes) in retained) Assert.Equal(bytes, File.ReadAllBytes(file));
+        }
+        finally
+        {
+            cancel.Cancel();
+            try { await closing.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+        }
     }
 
     [Fact]
@@ -2094,6 +2319,30 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.Equal("Exact prepared owner draft", second.ProfileEdit!.Draft.JobTitle);
             Assert.Same(draftBasis, second.ProfileEdit.Basis);
             Assert.Equal("Incoming after prepared controls", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        }
+    }
+
+    private sealed class ExitPublicationObserver : IWorkspaceFileObserver
+    {
+        public int ValidationWrites, PublicationReads;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name == "snapshot.validate-write" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+                Interlocked.Increment(ref ValidationWrites);
+            if (phase.Name == "exit.publication-read" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+                Interlocked.Increment(ref PublicationReads);
+        }
+    }
+
+    private sealed class ExitLocalCommitObserver(ManualResetEventSlim entered, ManualResetEventSlim release) : IWorkspaceFileObserver
+    {
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name != "local-sqlite-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("The real sibling commit was not released.");
         }
     }
 

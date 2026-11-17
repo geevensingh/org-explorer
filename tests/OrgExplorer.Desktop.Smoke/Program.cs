@@ -28,6 +28,18 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
+            if (args.Length == 2 && args[1] == "--verify-cutover-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedPublicationContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-note-modes")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedNoteModeContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-acknowledgment")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedAcknowledgmentContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-failure-feedback")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedMutationFeedbackContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-incoming")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedIncomingContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-close-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedClosePublicationContracts);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-exit") return VerifyCompiledXaml(executable, verifyExit: true);
             if (args.Length == 2 && args[1] == "--verify-exit-host-startup")
@@ -178,8 +190,7 @@ internal static partial class Program
     private static void PickWorkspaceFolder(AutomationElement window, string? folder,
         string action = "OpenWorkspace", Action? observePicker = null)
     {
-        if (folder is not null && !Directory.Exists(folder))
-            throw new InvalidOperationException("The scenario must explicitly prepare a selectable folder before opening the native picker: " + folder);
+        RequireSmokeSelectableFolder(folder);
         ControlReadiness.AwaitPattern(() => Find(window, action),
             control => control.Current.IsEnabled && !control.Current.IsOffscreen,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
@@ -206,6 +217,12 @@ internal static partial class Program
         }
         Click(picker!, folder is null ? "2" : "1", ControlType.Button);
         Await(() => FindPicker() is null);
+    }
+
+    private static void RequireSmokeSelectableFolder(string? folder)
+    {
+        if (folder is not null && !Directory.Exists(folder))
+            throw new InvalidOperationException("The scenario must explicitly prepare a selectable folder before opening the native picker: " + folder);
     }
 
     private static void ShowTechnicalSettings(AutomationElement window)

@@ -43,6 +43,13 @@ internal static partial class Program
     private static string SmokeSnapshotFolder(string workspace) =>
         Path.Combine(Path.GetDirectoryName(workspace)!, Path.GetFileName(workspace) + "-snapshots");
 
+    private static void ConfigureSmokeSnapshotFolder(string workspace, Action<string> chooseFolder)
+    {
+        var folder = SmokeSnapshotFolder(workspace);
+        Directory.CreateDirectory(folder);
+        chooseFolder(folder);
+    }
+
     private static void ClosePublishedWorkspace(Process process, string workspace)
     {
         var window = Window(process);
@@ -55,7 +62,8 @@ internal static partial class Program
         SetSettingsVisible(window, true);
         var transport = SmokeSnapshotFolder(workspace);
         if (Find(window, "SynchronizationFolder").Current.Name != transport)
-            PickWorkspaceFolder(window, transport, "ConfigureSynchronizationFolder");
+            ConfigureSmokeSnapshotFolder(workspace,
+                folder => PickWorkspaceFolder(window, folder, "ConfigureSynchronizationFolder"));
         Await(() => Find(window, "SynchronizationFolder").Current.Name == transport);
         Click(window, "SyncNow");
         Await(() => Find(window, "SyncNow").Current.IsEnabled &&
@@ -68,6 +76,23 @@ internal static partial class Program
         Click(window, "NoticeRetry");
         Await(() => !Activity(window).Contains("Editing is paused", StringComparison.Ordinal) &&
             !Activity(window).Contains("Reconciling", StringComparison.Ordinal));
+    }
+
+    private static bool IsSmokeRejectedSave(string feedback, string localState) =>
+        localState == "Local save: Failed; outcome: NotCommitted" &&
+        feedback.Contains("NOT saved", StringComparison.Ordinal);
+
+    private static bool IsSmokeImportDiscardComplete(bool discardVisible, bool applyEnabled) =>
+        !discardVisible && !applyEnabled;
+
+    private static bool SmokeImportDiscardComplete(AutomationElement window)
+    {
+        var discard = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "DiscardImport"));
+        var apply = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ApplyImport"));
+        return IsSmokeImportDiscardComplete(discard is not null && !discard.Current.IsOffscreen,
+            apply is not null && apply.Current.IsEnabled && !apply.Current.IsOffscreen);
     }
 
     private sealed class SmokeSnapshotPeer : IDisposable
@@ -130,6 +155,7 @@ internal static partial class Program
                 source.EditTeamNote(ownedId, "Owned context", "# External owned Team context") &&
                 source.EditTeamNote(inheritedId, "Manager context", "# External inherited Team context") &&
                 source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Changed manager role"));
+            PublishSmokeWorkspace(window, folder);
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
@@ -147,6 +173,7 @@ internal static partial class Program
             using (var file = File.Create(photo)) encoder.Save(file);
             File.SetLastWriteTimeUtc(photo, timestamp);
             peer.Publish(source => source.EditPhoto("avery@example.com", photo));
+            PublishSmokeWorkspace(window, folder);
             var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
             Await(() =>
