@@ -340,21 +340,38 @@ adds native profile draft/Preferred-name navigation, Save/Cancel, photo pixels,
 favorite/archival/reactivation, Manager/frozen history and process reopening.
 Capture details must remain separately collapsed, read-only and fully copyable;
 later current note writing cannot rewrite frozen reading.
-Its `*-sqlite-person-saves.json` schema 2 binds revision/run/attempt/product
+Its `*-sqlite-person-saves.json` schema 3 binds revision/run/attempt/product
 hash, editing/reopened processes, exact Person values/photo hash/capture/note
 version, twenty native Save-to-independent-reopen samples (nearest-rank p95
 at most 1000 ms), and a native Person-selection sample while a real SQLite
 writer holds the profile. The single held sample is explicitly diagnostic,
 not a per-case 100-ms release deadline or a p95 estimate. Like held-Import
 browsing, `heldSaveNavigation` retains unadjusted `samplesMs`, marks
-`timingUse` as `diagnostic` and has no `budgetMs` field. Before/after evidence
-requires the same submitted owner, actual pending profile-save activity and
-real held SQLite transaction; the original single Select and exact usable,
-visible Person predicate remain. A completed/failed save, released writer,
-different owner or wrong destination fails independently of elapsed time.
-Independent reopen still rejects partial profile/photo publication before
-release. Focused runner negatives and the invisible compiled held-profile
-selection exercise those structural guards, not native timing acceptance.
+`timingUse` as `diagnostic` and has no `budgetMs` field. Read-only Save-pattern
+preparation precedes the held interval. The single original Save/Select requests
+retain their submitted owner, real physical hold before/after selection, and
+exact usable visible destination. Independent readers must see the exact
+original profile/no photo while held and the exact intended profile/photo after
+release and the existing completion observation. A failed/missing commit,
+released writer, different submitted owner or wrong destination fails.
+UI activity/status text is diagnostic presentation, never save identity or an
+additional pending-operation criterion. The invisible compiled loop exercises
+the same physical-hold/old-state/new-state proof without claiming native
+visibility; runner negatives reject incorrect lifecycle/storage outcomes.
+`*-sqlite-person-held-navigation.json` schema 1 and `HELD-PROFILE-NAVIGATION`
+retain stage, expected/submitted save owner, last actually observed destination
+email/heading/visibility, actual before/after activity/status/hold,
+single raw sample, invocation/destination/original-state/committed-state
+outcomes and exception type/HResult, bound to candidate/run/attempt/process/
+executable hash. Metadata text is bounded to 512 characters. This partial
+evidence is written even when the later Person manifest is not reached; it
+does not claim the full journey passed. Evidence-write failure cannot replace
+an existing primary exception, and a failure on an otherwise successful path
+remains an error. The actual owned PID/executable hash is captured before held
+work; final sidecar emission performs no process/window lookup, so an already
+exited app cannot replace the original failure or prevent writing its evidence.
+A real owned no-window child regression verifies that lifetime boundary and
+primary exception identity. Historical missing fields are not reconstructed.
 The ordinary 42-sample navigation workload still enforces p95 at most 100 ms.
 Named retained/committed/history/
 reopened captures carry actual desktop pixels and matching metadata.
