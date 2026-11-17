@@ -1,9 +1,40 @@
+using System.Diagnostics;
+using System.IO;
+using System.Security.Cryptography;
+
 namespace OrgExplorer.Desktop.Smoke;
 
 internal static class LocalWorkObservation
 {
     internal sealed record Control(string Id, string Name = "", string Feedback = "", bool Offscreen = false);
     internal sealed record ProfileSaveHold(string OwnerEmail, string Activity, bool WriterHeld, string Status = "");
+    internal sealed record OwnedProcessIdentity(int ProcessId, string ExecutableSha256);
+
+    internal static void WithOwnedProcessEvidence(Process owned, Action action,
+        Action<OwnedProcessIdentity, Exception?> write)
+    {
+        var executablePath = owned.MainModule?.FileName
+            ?? throw new InvalidOperationException("The owned executable must be identified before held-profile work starts.");
+        OwnedProcessIdentity identity;
+        using (var executable = File.OpenRead(executablePath))
+            identity = new(owned.Id, Convert.ToHexString(SHA256.HashData(executable)));
+        Exception? primary = null;
+        try { action(); }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            try
+            {
+                write(identity, primary);
+            }
+            catch (Exception error) when (primary is not null && error is IOException or UnauthorizedAccessException or
+                InvalidOperationException or System.ComponentModel.Win32Exception or System.Text.Json.JsonException)
+            {
+                Console.Error.WriteLine("HELD-PROFILE-EVIDENCE-FAULT " + error.GetType().FullName +
+                    "; original failure remains " + primary.GetType().FullName + ".");
+            }
+        }
+    }
 
     internal static void RequireSameHeldProfile(ProfileSaveHold before, ProfileSaveHold after, string expectedOwner)
     {

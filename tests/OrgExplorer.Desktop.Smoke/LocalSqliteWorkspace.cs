@@ -342,7 +342,7 @@ internal static partial class Program
                     CaptureVisualEvidence(window, "sqlite-initial-import-browsing");
                     savedNotes = HarnessRuntime.Run("native-sqlite-notes", () => RunLocalNoteAutosaveJourney(window, local));
                     personJourney = HarnessRuntime.Run("native-sqlite-profile",
-                        () => RunLocalPersonSaveJourney(window, local, root, savedNotes[NoteScope.Team]));
+                        () => RunLocalPersonSaveJourney(window, process, local, root, savedNotes[NoteScope.Team]));
                     savedNotes = savedNotes.ToDictionary(pair => pair.Key, pair => pair.Key == NoteScope.Team
                         ? (pair.Value.Id, pair.Value.Title, pair.Value.Markdown + "\nLater current-only writing") : pair.Value);
                     SelectTreePerson(window, "avery@example.com");
@@ -547,7 +547,7 @@ internal static partial class Program
     private sealed record LocalPersonJourney(int EditingProcessId, Guid CaptureId, Guid NoteId, string FrozenVersion,
         string PhotoSha256, IReadOnlyList<double> ProfileSaveMs, object HeldNavigation);
 
-    private static LocalPersonJourney RunLocalPersonSaveJourney(AutomationElement window, string local, string root,
+    private static LocalPersonJourney RunLocalPersonSaveJourney(AutomationElement window, Process ownedProcess, string local, string root,
         (Guid Id, string Title, string Markdown) team)
     {
         static string BoundedContext(string value) => value[..Math.Min(value.Length, 512)];
@@ -645,8 +645,7 @@ internal static partial class Program
         var committedStateAfterRelease = false;
         string? independentReadStatus = null;
         var stage = "prepared";
-        Exception? heldFailure = null;
-        try
+        LocalWorkObservation.WithOwnedProcessEvidence(ownedProcess, () =>
         {
             using (var connection = new SqliteConnection($"Data Source={Path.Combine(local, "workspace.sqlite")};Pooling=False"))
             {
@@ -700,44 +699,31 @@ internal static partial class Program
             heldNavigation = LocalWorkObservation.HeldProfileNavigationEvidence(navigation.ToArray(), before, after,
                 "avery@example.com", destinationReady, originalStateDuringHold, committedStateAfterRelease);
             stage = "complete";
-        }
-        catch (Exception error) { heldFailure = error; throw; }
-        finally
+        }, (ownedIdentity, heldFailure) =>
         {
-            try
+            var context = new
             {
-                using var capturedProcess = Process.GetProcessById(window.Current.ProcessId);
-                using var executable = File.OpenRead(capturedProcess.MainModule!.FileName);
-                var context = new
-                {
-                    schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
-                    runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
-                    runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
-                    executableSha256 = Convert.ToHexString(SHA256.HashData(executable)),
-                    editingProcessId = window.Current.ProcessId, stage, submittedOwner, expectedOwner = "avery@example.com",
-                    expectedDestination = "morgan@example.com", lastObservedEmail, lastObservedHeading, lastEmailVisible,
-                    metadataCharacterLimit = 512,
-                    before, after,
-                    saveRequestStarted, saveRequestReturned, destinationReady, originalStateDuringHold,
-                    committedStateAfterRelease, independentReadStatus,
-                    samplesMs = navigation, timingUse = "diagnostic",
-                    exceptionType = heldFailure?.GetType().FullName, hResult = heldFailure?.HResult
-                };
-                var json = JsonSerializer.Serialize(context, new JsonSerializerOptions
-                    { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                Console.WriteLine("HELD-PROFILE-NAVIGATION " + json);
-                var proofPath = Path.Combine(Path.GetDirectoryName(diagnostics)!,
-                    Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-person-held-navigation.json");
-                if (File.Exists(proofPath)) throw new IOException("Held profile proof evidence already exists.");
-                File.WriteAllText(proofPath, json);
-            }
-            catch (Exception error) when (heldFailure is not null && error is IOException or UnauthorizedAccessException or
-                InvalidOperationException or ElementNotAvailableException or System.ComponentModel.Win32Exception)
-            {
-                Console.Error.WriteLine("HELD-PROFILE-EVIDENCE-FAULT " + error.GetType().FullName +
-                    "; original failure remains " + heldFailure.GetType().FullName + ".");
-            }
-        }
+                schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+                executableSha256 = ownedIdentity.ExecutableSha256,
+                editingProcessId = ownedIdentity.ProcessId, stage, submittedOwner, expectedOwner = "avery@example.com",
+                expectedDestination = "morgan@example.com", lastObservedEmail, lastObservedHeading, lastEmailVisible,
+                metadataCharacterLimit = 512,
+                before, after,
+                saveRequestStarted, saveRequestReturned, destinationReady, originalStateDuringHold,
+                committedStateAfterRelease, independentReadStatus,
+                samplesMs = navigation, timingUse = "diagnostic",
+                exceptionType = heldFailure?.GetType().FullName, hResult = heldFailure?.HResult
+            };
+            var json = JsonSerializer.Serialize(context, new JsonSerializerOptions
+                { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            Console.WriteLine("HELD-PROFILE-NAVIGATION " + json);
+            var proofPath = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+                Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-person-held-navigation.json");
+            if (File.Exists(proofPath)) throw new IOException("Held profile proof evidence already exists.");
+            File.WriteAllText(proofPath, json);
+        });
         AssertTeamNameReading(window, null);
         Browse("avery@example.com");
         AssertProfileValue(window, "OfficeNumber", "008C");

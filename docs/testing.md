@@ -367,7 +367,11 @@ executable hash. Metadata text is bounded to 512 characters. This partial
 evidence is written even when the later Person manifest is not reached; it
 does not claim the full journey passed. Evidence-write failure cannot replace
 an existing primary exception, and a failure on an otherwise successful path
-remains an error. Historical missing fields are not reconstructed.
+remains an error. The actual owned PID/executable hash is captured before held
+work; final sidecar emission performs no process/window lookup, so an already
+exited app cannot replace the original failure or prevent writing its evidence.
+A real owned no-window child regression verifies that lifetime boundary and
+primary exception identity. Historical missing fields are not reconstructed.
 The ordinary 42-sample navigation workload still enforces p95 at most 100 ms.
 Named retained/committed/history/
 reopened captures carry actual desktop pixels and matching metadata.

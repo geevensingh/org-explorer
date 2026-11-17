@@ -13,6 +13,42 @@ public sealed class AutomaticHostLifecycleTests : IDisposable
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Held_profile_sidecar_survives_actual_owned_process_exit_and_preserves_the_primary_exception()
+    {
+        using var child = new OwnedChild(root);
+        var expectedPid = child.Process.Id;
+        var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            File.ReadAllBytes(child.Process.MainModule!.FileName)));
+        var evidence = Path.Combine(root, "held-profile.json");
+        var primary = new InvalidOperationException("Original held-profile assertion.");
+        var thrown = Assert.Throws<InvalidOperationException>(() => LocalWorkObservation.WithOwnedProcessEvidence(
+            child.Process,
+            () =>
+            {
+                child.Release.Set();
+                Assert.True(child.Process.WaitForExit(5000), "The owned no-window process did not exit.");
+                Assert.Equal(0, child.Process.ExitCode);
+                throw primary;
+            },
+            (identity, failure) =>
+            {
+                Assert.True(child.Process.HasExited);
+                Assert.Same(primary, failure);
+                File.WriteAllText(evidence, JsonSerializer.Serialize(new
+                {
+                    editingProcessId = identity.ProcessId, executableSha256 = identity.ExecutableSha256,
+                    exceptionType = failure!.GetType().FullName
+                }));
+            }));
+        Assert.Same(primary, thrown);
+        using var json = JsonDocument.Parse(File.ReadAllText(evidence));
+        Assert.Equal(expectedPid, json.RootElement.GetProperty("editingProcessId").GetInt32());
+        Assert.Equal(expectedHash, json.RootElement.GetProperty("executableSha256").GetString());
+        Assert.Equal(primary.GetType().FullName, json.RootElement.GetProperty("exceptionType").GetString());
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Successful_body_with_real_output_failure_cannot_pass_the_scenario_after_actual_normal_exit()
     {
         using var child = new OwnedChild(root);
