@@ -6,6 +6,41 @@ namespace OrgExplorer.Core.Tests;
 public sealed class LocalWorkObservationTests
 {
     [Fact]
+    public void Held_profile_navigation_keeps_slow_raw_time_diagnostic_without_inventing_a_per_case_budget()
+    {
+        var held = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", true);
+        var result = LocalWorkObservation.HeldProfileNavigationEvidence([154.1758], held, held, held.OwnerEmail, true);
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(result);
+        Assert.Equal(154.1758, json.GetProperty("samplesMs")[0].GetDouble());
+        Assert.Equal("diagnostic", json.GetProperty("timingUse").GetString());
+        Assert.False(json.TryGetProperty("budgetMs", out _));
+        Assert.False(json.TryGetProperty("p95Ms", out _));
+    }
+
+    [Theory]
+    [InlineData(false, true, "Saving complete profile\u2026", true)]
+    [InlineData(true, false, "Saving complete profile\u2026", true)]
+    [InlineData(true, true, "Ready", true)]
+    [InlineData(true, true, "Local save failed; NOT saved.", true)]
+    [InlineData(true, true, "Saving complete profile\u2026", false)]
+    public void Held_profile_navigation_rejects_released_writers_completed_saves_and_wrong_destinations(
+        bool heldBefore, bool heldAfter, string afterActivity, bool exactDestinationReady)
+    {
+        var before = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", heldBefore);
+        var after = before with { WriterHeld = heldAfter, Activity = afterActivity };
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalWorkObservation.HeldProfileNavigationEvidence([10], before, after, before.OwnerEmail, exactDestinationReady));
+    }
+
+    [Fact]
+    public void Held_profile_navigation_rejects_a_different_save_owner()
+    {
+        var held = new LocalWorkObservation.ProfileSaveHold("avery@example.com", "Saving complete profile\u2026", true);
+        Assert.Throws<InvalidOperationException>(() => LocalWorkObservation.HeldProfileNavigationEvidence(
+            [10], held, held with { OwnerEmail = "morgan@example.com" }, held.OwnerEmail, true));
+    }
+
+    [Fact]
     public void One_fresh_snapshot_serves_each_poll_without_reusing_another_owners_feedback()
     {
         IReadOnlyList<LocalWorkObservation.Control> controls =

@@ -438,6 +438,7 @@ internal static partial class Program
         var photo = Path.Combine(root, "sqlite-profile-photo.png");
         CreatePhotoFixture(photo);
         workflow.StageProfilePhoto(photo);
+        var submittedProfile = workflow.ProfileEdit!;
         using (var connection = new SqliteConnection(
             $"Data Source={Path.Combine(workflow.Compatibility.WorkspacePath!, "workspace.sqlite")};Pooling=False"))
         {
@@ -445,10 +446,20 @@ internal static partial class Program
             using var held = connection.BeginTransaction();
             Invoke("SaveProfileButton");
             PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Saving complete profile…");
+            var before = new LocalWorkObservation.ProfileSaveHold(submittedProfile.Basis.Email,
+                Control<TextBlock>("WorkflowActivity").Text, held.Connection == connection);
             select("morgan@example.com");
             arrange();
-            if (workflow.CanSafelyClose || Control<TextBlock>("Email").Text != "morgan@example.com")
+            var after = new LocalWorkObservation.ProfileSaveHold(submittedProfile.Basis.Email,
+                Control<TextBlock>("WorkflowActivity").Text, held.Connection == connection);
+            LocalWorkObservation.RequireSameHeldProfile(before, after, "avery@example.com");
+            if (workflow.CanSafelyClose || workflow.LocalSave.Phase != LocalSavePhase.Pending ||
+                workflow.LocalSave.OutstandingRequests == 0 || Control<TextBlock>("Email").Text != "morgan@example.com")
                 throw new InvalidOperationException("Compiled browsing waited behind or falsely acknowledged an uncommitted profile.");
+            using (var unchanged = ApplicationWorkflow.CreateFileBacked())
+                if (!unchanged.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
+                    unchanged.GetRelationships(submittedProfile.Basis.Email)!.Person != submittedProfile.Basis)
+                    throw new InvalidOperationException("Compiled held profile Save changed its committed owner's data before release.");
             held.Commit();
             PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
         }
@@ -526,7 +537,7 @@ internal static partial class Program
     }
 
     private sealed record LocalPersonJourney(int EditingProcessId, Guid CaptureId, Guid NoteId, string FrozenVersion,
-        string PhotoSha256, IReadOnlyList<double> ProfileSaveMs, IReadOnlyList<double> NavigationMs);
+        string PhotoSha256, IReadOnlyList<double> ProfileSaveMs, object HeldNavigation);
 
     private static LocalPersonJourney RunLocalPersonSaveJourney(AutomationElement window, string local, string root,
         (Guid Id, string Title, string Markdown) team)
@@ -592,15 +603,23 @@ internal static partial class Program
             email.GetUpdatedCache(cache).Cached is { Name: var actual, IsOffscreen: false } && actual == expectedEmail &&
             heading.GetUpdatedCache(cache).Cached.Name == expectedHeading;
         var navigation = new List<double>();
+        object? heldNavigation = null;
+        var submittedOwner = CurrentPersonEmail(window);
         using (var connection = new SqliteConnection($"Data Source={Path.Combine(local, "workspace.sqlite")};Pooling=False"))
         {
             connection.Open();
             using var held = connection.BeginTransaction();
             Click(window, "SaveProfile");
+            var before = new LocalWorkObservation.ProfileSaveHold(submittedOwner, Activity(window), held.Connection == connection);
+            LocalWorkObservation.RequireSameHeldProfile(before, before, "avery@example.com");
             var elapsed = Stopwatch.StartNew();
             managerSelection.Select();
-            ObserveNoteLatency(() => PersonReady("morgan@example.com", "Morgan Example"));
+            var destinationReady = false;
+            ObserveNoteLatency(() => destinationReady = PersonReady("morgan@example.com", "Morgan Example"));
             navigation.Add(elapsed.Elapsed.TotalMilliseconds);
+            var after = new LocalWorkObservation.ProfileSaveHold(submittedOwner, Activity(window), held.Connection == connection);
+            heldNavigation = LocalWorkObservation.HeldProfileNavigationEvidence(navigation.ToArray(), before, after,
+                "avery@example.com", destinationReady);
             using var reading = ApplicationWorkflow.CreateFileBacked();
             if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
                 reading.GetRelationships("avery@example.com")!.Person.OfficeNumber != "007B" ||
@@ -688,7 +707,7 @@ internal static partial class Program
         var photoHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(photo)));
         File.Delete(photo);
         return new(window.Current.ProcessId, frozen.Id, team.Id, frozen.TeamNotes.Single(note => note.Id == team.Id).Version,
-            photoHash, saves, navigation);
+            photoHash, saves, heldNavigation ?? throw new InvalidOperationException("Held profile navigation evidence is missing."));
     }
 
     private static void WriteLocalPersonJourneyEvidence(AutomationElement window, LocalPersonJourney journey)
@@ -701,7 +720,7 @@ internal static partial class Program
         var p95 = journey.ProfileSaveMs.Order().ElementAt((int)Math.Ceiling(journey.ProfileSaveMs.Count * .95) - 1);
         File.WriteAllText(path, JsonSerializer.Serialize(new
         {
-            schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            schemaVersion = 2, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
@@ -716,14 +735,13 @@ internal static partial class Program
             profileDurability = new { boundary = "Native explicit Save Invoke through independently reopened exact complete profile and decoded photo; includes dispatch/queueing/commit.",
                 samplesMs = journey.ProfileSaveMs, p95Ms = p95, budgetMs = 1000,
                 percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based." },
-            heldSaveNavigation = new { boundary = "Native Person Select request through exact visible email and usable heading while a real SQLite writer holds the profile commit.",
-                samplesMs = journey.NavigationMs, budgetMs = 100 },
+            heldSaveNavigation = journey.HeldNavigation,
             captures = new[] { "sqlite-profile-retained-after-browse", "sqlite-person-history-capture-details",
                 "sqlite-person-saves-committed", "sqlite-person-saves-reopened" },
             scope = "Focused two-Person native edit/browse/photo/history/archive/reopen journey; not rich 10,000-Person or background-export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
-        if (p95 > 1000 || journey.NavigationMs.Any(sample => sample > 100))
-            throw new InvalidOperationException("Hosted SQLite Person save/navigation latency budget failed. See " + path);
+        if (p95 > 1000)
+            throw new InvalidOperationException("Hosted SQLite Person save latency budget failed. See " + path);
         Console.WriteLine("PASS: hosted SQLite Person saves: native retained profile/Preferred-name drafts, exact durable photo/favorite/archival/Manager history, frozen capture disclosure and process reopening; candidate-bound evidence: " + path);
     }
 
