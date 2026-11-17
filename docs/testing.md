@@ -673,10 +673,18 @@ the continued-typing sequence completes.
 `continuedEditRequestStartedMs` and `continuedEditRequestCompletedMs` retain the
 fixed plan and all 21 by 20 actual action timings. Each original
 `typingCompletedMs` equals the corresponding final request completion.
-The shared fixed sequence also drives a real-storage regression in both scopes:
-a controlled 450-ms reader delay must not outlast the sustained edits, actual
-committed owner/writing is observed before typing ends, and exact final writing
-reopens. `NOTE-SUSTAINED-TYPING` retains those action/observation timings.
+The shared fixed sequence also drives a real-storage regression in both scopes.
+Under the owner-approved non-UI policy correction (2026-11-16), its controlled
+450-ms first-reader delay and fixed 20 edits/60-ms spacing remain, but the
+independent observer must find the exact final intended title/writing, note
+identity, scope and Person owner within its existing 20-second observation
+window. It does so before the existing final draft drain; no added Flush or
+wait makes the observation succeed. Wrong-owner access remains absent on reopen.
+`NOTE-SUSTAINED-TYPING-REOPEN` retains raw action/observation times and whether
+observation happened before typing ended as diagnostics only, not an additional
+per-case deadline. The historical late-observation failure remains causally
+unattributed. This non-UI correctness policy does not alter native p95 budgets,
+request-start boundaries or during-typing sample/flag requirements above.
 Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
 `successfulReadStartedMs` retain actual worker/reader timing beside the original
 21 raw totals. Queueing and read/validation are included, never deducted; these
