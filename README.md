@@ -163,8 +163,8 @@ Preferred name normally appears as the primary name. Its adjacent pencil
 (**Edit preferred name**, or **Add preferred name** when unset) reveals its
 compact anchored editor. Only **Save** or **Enter** submits that entry; typing,
 blur, navigation, Settings and update draining never save it implicitly.
-**Cancel** or **Escape** cancels only this entry. Navigation or clicking outside
-hides its retained owner-specific draft without submitting it.
+**Cancel**, **Escape**, or clicking outside the open popup cancels only this
+entry. Navigation does not submit retained owner-specific writing.
 A failed save retains its input and local error for explicit Save retry against
 the original displayed base. Empty clears the name; whitespace alone is invalid.
 Cancellation cannot undo already-submitted I/O or reconcile unknown storage
