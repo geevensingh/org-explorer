@@ -13,7 +13,7 @@ internal static partial class Program
 {
     private static void VerifyHostedIncomingContract(Type windowType, string root)
     {
-        var workspace = Path.Combine(root, "incoming-workspace");
+        var workspace = Path.Combine(root, "incoming");
         using var store = ApplicationWorkflow.CreateFileBacked();
         if (!store.OpenWorkspace(workspace) ||
             !store.ApplyImport(store.PreviewImport("""

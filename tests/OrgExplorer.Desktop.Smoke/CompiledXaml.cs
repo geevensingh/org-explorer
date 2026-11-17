@@ -195,17 +195,17 @@ internal static partial class Program
             if (verifyProfileRefresh)
             {
                 HarnessRuntime.Run("compiled-cutover-publication", () =>
-                    VerifyHostedPublicationContract(type, Path.Combine(settings, "cutover-publication")));
+                    VerifyHostedPublicationContract(type, Path.Combine(settings, "cp")));
                 HarnessRuntime.Run("compiled-cutover-note-modes", () =>
-                    VerifyHostedNoteModeContracts(type, Path.Combine(settings, "cutover-note-modes")));
+                    VerifyHostedNoteModeContracts(type, Path.Combine(settings, "cm")));
                 HarnessRuntime.Run("compiled-cutover-acknowledgment", () =>
-                    VerifyHostedAcknowledgmentContract(type, Path.Combine(settings, "cutover-acknowledgment")));
+                    VerifyHostedAcknowledgmentContract(type, Path.Combine(settings, "ca")));
                 HarnessRuntime.Run("compiled-cutover-failure-feedback", () =>
-                    VerifyHostedMutationFeedbackContracts(type, Path.Combine(settings, "cutover-failure-feedback")));
+                    VerifyHostedMutationFeedbackContracts(type, Path.Combine(settings, "cf")));
                 HarnessRuntime.Run("compiled-cutover-incoming", () =>
-                    VerifyHostedIncomingContract(type, Path.Combine(settings, "cutover-incoming")));
+                    VerifyHostedIncomingContract(type, Path.Combine(settings, "ci")));
                 HarnessRuntime.Run("compiled-cutover-close-publication", () =>
-                    VerifyHostedClosePublicationContracts(type, Path.Combine(settings, "cutover-close-publication")));
+                    VerifyHostedClosePublicationContracts(type, Path.Combine(settings, "cc")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
