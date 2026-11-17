@@ -2,8 +2,6 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
-    private bool TryLeaveNotes() => PersonNotes.TryLeave() && TeamNotes.TryLeave();
-
     private void AttachTeamNotes()
     {
         TeamNotes.Attach(workflow, () =>

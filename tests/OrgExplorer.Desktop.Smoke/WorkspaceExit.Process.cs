@@ -90,7 +90,7 @@ internal static partial class Program
                     foreach (var file in Directory.GetFiles(folder, "*.oesnapshot"))
                         File.Copy(file, Path.Combine(incoming, Path.GetFileName(file)));
                     using var other = ApplicationWorkflow.CreateFileBacked();
-                    if (!other.OpenWorkspace(Path.Combine(root, "other"), WorkspaceOpenMode.CreateLocalSqlite) ||
+                    if (!other.OpenWorkspace(Path.Combine(root, "other"), WorkspaceOpenMode.OpenOrCreate) ||
                         !other.ConfigureSynchronizationFolder(incoming, true) || !other.SyncNow() ||
                         !other.EditPreferredName("avery@example.com", "Other complete version") || !other.SyncNow())
                         throw new InvalidOperationException(other.Status);

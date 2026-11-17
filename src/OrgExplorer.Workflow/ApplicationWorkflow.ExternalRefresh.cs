@@ -1,30 +1,21 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
 {
     private readonly object workspaceGate = new();
-    private readonly object watcherGate = new();
-    private FileSystemWatcher? watcher;
-    private Timer? refreshTimer;
     private bool disposed;
     private bool workspaceCurrent;
-    private long refreshNotBefore;
     private string? saveErrorSnapshot;
     private bool failedImportSnapshot;
-    private bool pendingStorageMaintenanceSnapshot;
-    private bool navigationBlockedSnapshot;
     private readonly IDictionary<string, string> failedSaves = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
     public bool IsWorkspaceCurrent => Volatile.Read(ref workspaceCurrent);
     public bool CanSafelyClose => !LocalSave.EditsPaused && LocalSave.OutstandingRequests == 0 &&
         Volatile.Read(ref saveErrorSnapshot) is null && unsavedNoteBases.IsEmpty &&
         !HasUnsavedProfiles && !HasRetainedPersonTextDrafts;
-    public bool CanNavigatePeople => localSqlite || !Volatile.Read(ref navigationBlockedSnapshot) && unsavedNoteBases.IsEmpty &&
-        ProfileEdit is not { IsDirty: true } && GetWorkspaceConflicts().Count == 0;
+    public bool CanNavigatePeople => true;
     public bool CanEnterImport
     {
         get
@@ -37,7 +28,6 @@ public sealed partial class ApplicationWorkflow
     }
     public string? LocalSaveError => Volatile.Read(ref saveErrorSnapshot);
     public bool HasFailedImport => Volatile.Read(ref failedImportSnapshot);
-    public bool HasPendingStorageMaintenance => Volatile.Read(ref pendingStorageMaintenanceSnapshot);
 
     public void DiscardImportChanges()
     {
@@ -80,7 +70,7 @@ public sealed partial class ApplicationWorkflow
             }
             else
             {
-                foreach (var key in failedSaves.Keys.Where(key => key is not ("storage-maintenance" or "publication-conflict")).ToArray())
+                foreach (var key in failedSaves.Keys.ToArray())
                     failedSaves.Remove(key);
                 unsavedNoteBases.Clear();
             }
@@ -94,89 +84,6 @@ public sealed partial class ApplicationWorkflow
         return Fail(message);
     }
     public event EventHandler? WorkspaceChanged;
-
-    private void StartWatching()
-    {
-        refreshTimer = new Timer(_ => RefreshAfterFolderEvent(), null, Timeout.Infinite, Timeout.Infinite);
-        watcher = new FileSystemWatcher(workspace!)
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size
-        };
-        watcher.Changed += ScheduleRefresh;
-        watcher.Created += ScheduleRefresh;
-        watcher.Deleted += ScheduleRefresh;
-        watcher.Renamed += ScheduleRefresh;
-        watcher.Error += (_, _) => ScheduleRefresh(null, null!);
-        watcher.EnableRaisingEvents = true;
-    }
-
-    private void ScheduleRefresh(object? sender, FileSystemEventArgs e)
-    {
-        if (e is not null && workspace is { } root && (IsWorkspacePublicationFile(root, e.FullPath) ||
-            e.FullPath.StartsWith(Path.Combine(root, "recovery") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) return;
-        lock (watcherGate)
-            if (!disposed)
-            {
-                Volatile.Write(ref refreshNotBefore, Environment.TickCount64 + 100);
-                refreshTimer?.Change(100, Timeout.Infinite);
-            }
-    }
-
-    private void StopWatching()
-    {
-        FileSystemWatcher? stoppedWatcher;
-        Timer? stoppedTimer;
-        lock (watcherGate)
-        {
-            stoppedWatcher = watcher;
-            watcher = null;
-            stoppedTimer = refreshTimer;
-            refreshTimer = null;
-        }
-        stoppedWatcher?.Dispose();
-        stoppedTimer?.Dispose();
-    }
-
-    private void RefreshAfterFolderEvent()
-    {
-        // Timer callbacks must not occupy pool workers behind synchronous publication.
-        bool changed;
-        if (!Monitor.TryEnter(workspaceGate))
-        {
-            DeferBusyRefresh();
-            return;
-        }
-        try
-        {
-            if (disposed || workspace is null) return;
-            var remaining = Volatile.Read(ref refreshNotBefore) - Environment.TickCount64;
-            if (remaining > 0)
-            {
-                refreshTimer?.Change(remaining, Timeout.Infinite);
-                return;
-            }
-            using var access = memory ? null : TryCoordinateWorkspaceIo(workspace);
-            if (!memory && access is null)
-            {
-                DeferBusyRefresh();
-                return;
-            }
-            var previousRevision = revision;
-            var previousStatus = Status;
-            var valid = RefreshWorkspaceCore();
-            changed = revision != previousRevision || Status != previousStatus;
-            if (!valid) refreshTimer?.Change(300, Timeout.Infinite);
-        }
-        finally { Monitor.Exit(workspaceGate); }
-        if (changed) WorkspaceChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void DeferBusyRefresh()
-    {
-        lock (watcherGate)
-            if (!disposed) refreshTimer?.Change(100, Timeout.Infinite);
-    }
 
     public bool RefreshWorkspace()
     {
@@ -194,24 +101,15 @@ public sealed partial class ApplicationWorkflow
         return valid;
     }
 
-    private bool RefreshWorkspaceCore()
+    private bool RefreshWorkspaceCore(bool onlyIfRevisionChanged = false)
     {
         if (workspace is null) return Fail("Open a Workspace before refreshing.");
         if (memory) return true;
         try
         {
-            if (localSqlite)
-            {
-                OpenLocalSqlite(create: false);
-                Status = "Workspace refreshed from committed local SQLite data.";
-                return true;
-            }
-            using var access = CoordinateWorkspaceIo(workspace);
-            LoadPublicationConflicts();
-            if (workspaceCurrent && WorkspaceFingerprint() == revision) return true;
-            ReadAndAcceptWorkspace(protectAcceptedDelivery: true);
-            pending = null;
-            Status = "Workspace refreshed from validated local files.";
+            if (onlyIfRevisionChanged && workspaceCurrent && LocalSqliteRevision() == revision) return true;
+            OpenLocalSqlite(create: false);
+            Status = "Workspace refreshed from committed local SQLite data.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
@@ -224,14 +122,8 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void ReadAndAcceptWorkspace(bool protectAcceptedDelivery = false)
+    private void OpenInMemoryWorkspace()
     {
-        using var access = memory ? null : CoordinateWorkspaceIo(workspace!);
-        if (!memory)
-        {
-            OpenIncrementalWorkspace(protectAcceptedDelivery);
-            return;
-        }
         people = new(StringComparer.OrdinalIgnoreCase);
         batches = [];
         personNotes = [];
@@ -245,7 +137,8 @@ public sealed partial class ApplicationWorkflow
         revision = null;
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            "Current Workspace. Settings remain available.", workspace, 3);
+            "Current Workspace. Settings remain available.", workspace, 3)
+        { SupportsNonblockingNoteAutosave = true };
     }
 
     private static void ValidateAcceptedSource(JsonElement source)
@@ -259,9 +152,9 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private static PersonProfile ReadPersonRecord(JsonElement root, int workspaceVersion)
+    private static PersonProfile ReadPersonRecord(JsonElement root)
     {
-        CheckRecordVersion(root, "Person", workspaceVersion);
+        RequireVersion(root, "Person", [2]);
         CheckProperties(root, ["schemaVersion", "email", "directoryName", "preferredName", "alias", "jobTitle", "department",
             "officeBuilding", "officeNumber", "officeState", "officeCountry", "linkedInProfileUrl",
             "managerEmail", "archived", "isFavorite", "photoPath", "heading", "teamName"], "Person");
@@ -297,30 +190,12 @@ public sealed partial class ApplicationWorkflow
             throw new IOException("Workspace data must be ordinary local files, not links: " + Path.GetFileName(path));
     }
 
-    private static byte[] ReadWorkspaceBytes(string path)
-    {
-        if (workspaceReadSnapshot.Value is not { } snapshot) return ReadWorkspaceBytesUncached(path);
-        return snapshot.TryGetValue(path, out var bytes) ? bytes
-            : throw new IOException("Workspace delivery changed while reading: " + Path.GetFileName(path));
-    }
-
-    private static string ReadWorkspaceText(string path)
-    {
-        // Provider delivery must not be blocked by a reader, including clients
-        // waiting on an incompatible/incomplete Workspace. Byte fingerprints
-        // and whole-state validation, not read leases, establish a stable view.
-        using Stream file = new MemoryStream(ReadWorkspaceBytes(path), false);
-        using var text = new StreamReader(file, new UTF8Encoding(false, true));
-        return text.ReadToEnd();
-    }
-
     public void Dispose()
     {
         lock (workspaceGate)
         {
             disposed = true;
             localRequests.Dispose();
-            StopWatching();
         }
     }
 }

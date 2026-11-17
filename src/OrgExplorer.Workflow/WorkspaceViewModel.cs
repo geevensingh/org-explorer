@@ -12,11 +12,12 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     private readonly object personTextDraftGate = new();
     private readonly Dictionary<(string Email, PersonTextField Field), RetainedPersonTextDraft> personTextDrafts = [];
     private bool HasLocalPersonTextDrafts { get { lock (personTextDraftGate) return personTextDrafts.Count != 0; } }
-    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null, TimeProvider? timeProvider = null)
+    public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null, TimeProvider? timeProvider = null,
+        TimeProvider? synchronizationTimeProvider = null)
     {
         this.workflow = workflow;
         this.settings = settings;
-        synchronizationClock = timeProvider ?? TimeProvider.System;
+        synchronizationClock = synchronizationTimeProvider ?? timeProvider ?? TimeProvider.System;
         localSaveRequests = new(timeProvider ?? TimeProvider.System, NotifyLocalNoteDrafts);
         workflow.WorkspaceChanged += ForwardWorkspaceChange;
         UpdateSynchronizationSchedule();
@@ -30,7 +31,6 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public bool CanEnterImport => !LocalSave.HasUnresolvedOutcome && !HasLocalNoteDrafts &&
         !HasLocalPersonTextDrafts && workflow.CanEnterImport;
     public bool HasFailedImport => workflow.HasFailedImport;
-    public bool HasPendingStorageMaintenance => workflow.HasPendingStorageMaintenance;
     public bool LastWorkspaceOpenWasRejected { get; private set; }
     public bool RestartWhenSafe(Action<string?> restart) => Observe(() =>
     {
@@ -227,13 +227,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanNavigatePeople)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanEnterImport)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasFailedImport)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasPendingStorageMaintenance)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastWorkspaceOpenWasRejected)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalSaveError)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Synchronization)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSynchronizing)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExitStatus)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PublicationOutcome)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProfileEdit)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsImportOpen)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PersonNotesView)));

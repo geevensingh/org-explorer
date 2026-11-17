@@ -99,34 +99,37 @@ public sealed class SearchFavoriteTests
     }
 
     [Fact]
-    public void Rejected_overlay_search_retains_owner_exact_note_editor_browsing_and_actionable_explanation()
+    public async Task Overlay_search_and_browsing_retain_the_exact_owner_note_draft_without_a_navigation_veto()
     {
         using var app = (WorkspaceViewModel)Open();
         var note = app.CreatePersonNote("avery@example.com", "Exact secondary", "Saved")!;
         app.CreatePersonNote("avery@example.com", "Other", "Untouched");
         Assert.True(app.NavigatePerson(note.OwnerEmail));
         Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id, editing: true));
-        var basis = app.BeginNoteDraft(NoteScope.Person, note.OwnerEmail, note.Id)!;
-        app.RetainNoteDraft(basis);
+        app.UpdateNoteDraft(NoteScope.Person, note.Id, note.Title, "Retained owner writing");
         app.RememberPeopleBrowsing(["morgan@example.com"], 9, 24, 500);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("alex@example");
         var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
-        Assert.False(app.NavigateSearchResult(result));
-        Assert.False(app.NavigatePerson("morgan@example.com"));
-        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.True(app.NavigateSearchResult(result));
+        Assert.Equal("alex@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.False(app.PeopleNavigation.OverlayOpen);
+        Assert.True(app.NavigatePerson("morgan@example.com"));
+        Assert.True(app.NavigatePerson(note.OwnerEmail));
         Assert.Equal(note.OwnerEmail, app.PeopleNavigation.SelectedEmail);
-        Assert.Null(app.PeopleNavigation.SelectedResult);
         Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.True(app.PersonNotesView.IsEditing);
-        Assert.Contains("retry or discard", app.Status);
+        Assert.Equal("Retained owner writing", app.PersonNotesView.SelectedNote.Markdown);
+        Assert.Equal("Saved", app.GetPersonNotes(note.OwnerEmail).Single(saved => saved.Id == note.Id).Markdown);
+        Assert.False(app.CanSafelyClose);
         app.ChangePeopleQuery("");
         Assert.Equal(9, app.PeopleNavigation.BrowseOffset);
         Assert.Equal(24, app.PeopleNavigation.BrowseHorizontalOffset);
         Assert.Equal(500, app.PeopleNavigation.BrowseExtentWidth);
         Assert.Equal(["morgan@example.com"], app.PeopleNavigation.ExpandedPeople);
-        Assert.Contains("retry or discard", app.Status);
-        Assert.NotNull(app.SaveNoteDraft(basis, note.Title, "Saved deliberately"));
+        Assert.Equal("Retained owner writing", app.GetRetainedNoteDraft(NoteScope.Person, note.Id)!.Markdown);
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        Assert.Equal("Retained owner writing", app.GetPersonNotes(note.OwnerEmail).Single(saved => saved.Id == note.Id).Markdown);
         Assert.True(app.NavigatePerson("alex@example.com"));
         Assert.False(app.PeopleNavigation.OverlayOpen);
     }

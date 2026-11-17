@@ -9,14 +9,12 @@ public partial class MainWindow
     private bool externalRefreshPending;
     private TaskCompletionSource? workCompleted;
 
-    internal bool HasPendingWork => workPending;
     internal void MarkDraftPending()
     {
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        System.Windows.Controls.UserControl? noteDraft = null, bool isImport = false,
-        bool ordinarySave = false)
+        bool isImport = false, bool ordinarySave = false)
     {
         workPending = true;
         localImportPending = isImport && RetainsPersonDrafts;
@@ -27,8 +25,7 @@ public partial class MainWindow
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
         var localSave = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
-        PersonNotes.IsEnabled = localImportPending || localSave || ReferenceEquals(noteDraft, PersonNotes);
-        TeamNotes.IsEnabled = localImportPending || localSave || ReferenceEquals(noteDraft, TeamNotes);
+        PersonNotes.IsEnabled = TeamNotes.IsEnabled = localImportPending || localSave;
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;

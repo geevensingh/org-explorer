@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -79,21 +80,23 @@ internal static partial class Program
             Set(window, "TeamNoteMarkdown", "# Pine\nNew current Team writing");
 
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
-            using (new FileStream(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Click(window, "ToggleFavorite");
                 Await(() => Status(window).Contains("NOT saved"));
                 if (Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
                     throw new InvalidOperationException("Failed favorite save falsely showed a saved star.");
-                QueryAndSelect(window, "alex@example", "alex@example.com", "Current", "Profile:", expectNavigation: false);
-                if (Find(window, "Email").Current.Name != "avery@example.com")
-                    throw new InvalidOperationException("Search discarded an unsaved favorite action.");
+                QueryAndSelect(window, "alex@example", "alex@example.com", "Current", "Profile:", allowPendingLocalWork: true);
+                QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:", allowPendingLocalWork: true);
+                if (Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
+                    throw new InvalidOperationException("Browsing fabricated a committed favorite action.");
                 CaptureVisualEvidence(window, "search-rejected-favorite-writing-retained");
                 process.CloseMainWindow();
                 Await(() => ExitDecisionVisible(window) && Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 Click(window, "CancelExit");
                 Await(() => !ExitDecisionVisible(window));
             }
+            ReconcileSmokeLocalSaves(window);
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Unmark favorite");
             AssertPreferredNameReading(window, "Ave Preferred", "Edit");
@@ -121,7 +124,8 @@ internal static partial class Program
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             CaptureVisualEvidence(window, "search-archived-person-frozen-note");
             if (listener.Pending()) throw new InvalidOperationException("Search or selected current/frozen Markdown fetched remote content.");
-            var beforeReopen = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
+            PublishSmokeWorkspace(window, workspace);
+            var beforeReopen = WorkspaceFixtures.Bytes(workspace);
             Close(process);
 
             process = Launch(executable);
@@ -137,7 +141,7 @@ internal static partial class Program
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: actual WPF exact search, retained writing, invalid-target startup recovery, deliberate archived access and reopen proportions.");
         }
         finally
@@ -171,9 +175,9 @@ internal static partial class Program
         """;
 
     private static void QueryAndSelect(AutomationElement window, string query, string email, string context,
-        string source, string? owner = null, bool expectNavigation = true)
+        string source, string? owner = null, bool expectNavigation = true, bool allowPendingLocalWork = false)
     {
-        if (expectNavigation) AwaitLocalWorkIdle(window);
+        if (expectNavigation && !allowPendingLocalWork) AwaitLocalWorkIdle(window);
         Set(window, "SearchQuery", query);
         AutomationElement? result = null;
         Await(() =>

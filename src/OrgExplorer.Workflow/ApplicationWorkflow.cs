@@ -31,7 +31,7 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
 public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
-public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly, CreateLocalSqlite }
+public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly }
 
 public partial interface IApplicationWorkflow : IDisposable
 {
@@ -41,7 +41,6 @@ public partial interface IApplicationWorkflow : IDisposable
     bool CanNavigatePeople { get; }
     bool CanEnterImport { get; }
     bool HasFailedImport { get; }
-    bool HasPendingStorageMaintenance { get; }
     string? LocalSaveError { get; }
     string? OperationError { get; }
     void DiscardUnsavedChanges(Guid? noteId = null);
@@ -145,12 +144,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             Volatile.Write(ref operationErrorSnapshot, null);
             var error = failedSaves.Count == 0 ? null : string.Join("\n", failedSaves.Values.Distinct());
             Volatile.Write(ref failedImportSnapshot, failedSaves.ContainsKey("import"));
-            Volatile.Write(ref pendingStorageMaintenanceSnapshot, failedSaves.ContainsKey("storage-maintenance"));
-            Volatile.Write(ref navigationBlockedSnapshot,
-                failedSaves.Keys.Any(operation => operation is not ("import" or "storage-maintenance")));
             Volatile.Write(ref saveErrorSnapshot, error);
-            if (storageReclamationDeferred && !value.Contains("Storage reclamation deferred", StringComparison.Ordinal))
-                value += "\nStorage reclamation deferred for preserved unretired transactions.";
             Volatile.Write(ref statusSnapshot, error is not null && !value.Contains(error, StringComparison.Ordinal)
                 ? value + "\n" + error : value);
         }
@@ -164,15 +158,11 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     private bool OpenWorkspaceCore(string path, WorkspaceOpenMode mode)
     {
         if (disposed) return Fail("The Workspace workflow is closed.");
-        if (workspaceConflicts.Count != 0 && !string.Equals(path, workspace, StringComparison.OrdinalIgnoreCase))
-            return Fail("Resolve retained publication conflicts before switching Workspaces.");
         if (HasUnsavedProfiles)
             return Fail("Unsaved profile: Save, Discard or Stay before switching Workspaces.");
         CancelProfileEdit();
         lock (profileDraftGate) localProfileEdits.Clear();
-        StopWatching();
         workspaceCurrent = false;
-        storageReclamationDeferred = false;
         pending = null;
         workspace = null;
         localSqlite = false;
@@ -185,16 +175,12 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         try
         {
             if (!Enum.IsDefined(mode)) throw new ArgumentException("Choose a supported Workspace opening mode.");
-            if (memory && mode == WorkspaceOpenMode.CreateLocalSqlite)
-                throw new IOException("Local SQLite creation requires the real-storage workflow.");
             var fullPath = Path.GetFullPath(path);
             if (fullPath.StartsWith(@"\\", StringComparison.Ordinal))
                 throw new IOException("Choose an ordinary local Workspace, not a network share.");
             if (!memory && fullPath.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
                 throw new IOException("Choose a Workspace outside the application installation.");
-            localSqlite = !memory && (mode == WorkspaceOpenMode.CreateLocalSqlite ||
-                File.Exists(Path.Combine(fullPath, SqliteDiscriminator)) ||
-                File.Exists(Path.Combine(fullPath, SqliteDatabase)));
+            localSqlite = !memory;
             if (localSqlite) RequireLocalSqliteLocation(fullPath);
             if (!memory)
             {
@@ -208,15 +194,14 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             workspace = fullPath;
             if (localSqlite)
             {
-                OpenLocalSqlite(mode == WorkspaceOpenMode.CreateLocalSqlite);
-                Status = mode == WorkspaceOpenMode.CreateLocalSqlite
+                var create = mode == WorkspaceOpenMode.OpenOrCreate && !Directory.EnumerateFileSystemEntries(fullPath).Any();
+                OpenLocalSqlite(create);
+                Status = create
                     ? "SQLite Workspace created and saved locally."
                     : "Local SQLite Workspace opened.";
                 return true;
             }
-            if (!memory) LoadPublicationConflicts();
-            ReadAndAcceptWorkspace();
-            if (!memory) StartWatching();
+            OpenInMemoryWorkspace();
             Status = "Workspace opened.";
             return true;
         }
@@ -233,7 +218,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             teamContextRevisions.Clear();
             photos.Clear();
             InvalidateProjections();
-            if (!memory && !localSqlite && mode != WorkspaceOpenMode.ExistingOnly && workspace is not null && Directory.Exists(workspace)) StartWatching();
             return Fail("Workspace could not be opened: " + ex.Message);
         }
     }
@@ -378,10 +362,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     {
         try
         {
-            EnsureWorkspaceWritable(allowSqliteImport: true);
+            EnsureWorkspaceWritable();
             if (pending is null || pending.Preview.Id != previewId) return Fail("Preview is missing or stale. Preview again.");
             if ((importPath is not null && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(importPath))) != importHash) ||
-                (!memory && (localSqlite ? LocalSqliteRevision() : WorkspaceFingerprint()) != revision) || !PhotoResourcesUnchanged(pending.Resources))
+                (!memory && LocalSqliteRevision() != revision) || !PhotoResourcesUnchanged(pending.Resources))
             {
                 pending = null;
                 return Fail("Workspace or import file changed. Reopen and preview again before applying.");
@@ -473,23 +457,6 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             complete.UnionWith(path);
         }
     }
-    private string WorkspaceFingerprint(bool includePersonNotes = true,
-        IReadOnlyDictionary<string, byte[]>? snapshot = null)
-    {
-        using var access = CoordinateWorkspaceIo(workspace!);
-        snapshot ??= CaptureWorkspaceBytes();
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in snapshot.Keys
-            .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase) &&
-                (includePersonNotes || !p.StartsWith(Path.Combine(workspace!, "notes") + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase) && !p.StartsWith(Path.Combine(workspace!, "team-notes") + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase))).Order())
-        {
-            hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(workspace!, path)));
-            hash.AppendData(snapshot is null ? ReadWorkspaceBytesUncached(path) : snapshot[path]);
-        }
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
         string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
@@ -506,8 +473,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             failedSaves.Remove(operation);
             return true;
         }
-        return SaveIncrementally(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
-            nextTeamContexts, nextHistoricalContexts, operation, resources);
+        throw new InvalidOperationException("No local Workspace authority is open.");
     }
     private void WriteDurablyBytes(string path, byte[] bytes)
     {
@@ -517,28 +483,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         file.Flush(true);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Flush, path));
     }
-    private void PublishWorkspaceFile(string staged, string destination, string? backup,
-        WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
-    {
-        filePublisher.Publish(staged, destination, backup, mode);
-        fileObserver?.Observe(new(WorkspaceFileEffectKind.Publish, staged, Destination: destination, Backup: backup));
-    }
     private void DeleteWorkspaceFile(string path)
     {
         File.Delete(path);
         fileObserver?.Observe(new(WorkspaceFileEffectKind.Delete, path));
-    }
-    private static void RunBoundedFileIo<T>(IEnumerable<T> values, Action<T> write)
-    {
-        try
-        {
-            Parallel.ForEach(values, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) }, write);
-        }
-        catch (AggregateException error) when (error.Flatten().InnerExceptions.All(StorageError))
-        {
-            throw new IOException("Workspace file I/O failed: " +
-                error.Flatten().InnerExceptions[0].Message, error);
-        }
     }
     private static string? Text(JsonElement value, string field, bool nullable = true)
     {

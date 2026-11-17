@@ -31,13 +31,12 @@ public sealed partial class ApplicationWorkflow
     private readonly object profileDraftGate = new();
     private readonly Dictionary<string, ProfileEditSession> localProfileEdits = new(StringComparer.OrdinalIgnoreCase);
     private int localProfileRequests;
-    private object ProfileDraftGate => localSqlite ? profileDraftGate : workspaceGate;
+    private object ProfileDraftGate => profileDraftGate;
     public ProfileEditSession? ProfileEdit => Volatile.Read(ref profileEdit);
     private bool HasUnsavedProfiles
     {
         get
         {
-            if (!localSqlite) return ProfileEdit is { IsDirty: true };
             lock (profileDraftGate) return Volatile.Read(ref localProfileRequests) != 0 ||
                 localProfileEdits.Values.Any(edit => edit.IsDirty);
         }
@@ -45,14 +44,13 @@ public sealed partial class ApplicationWorkflow
 
     public void SelectProfilePerson(string email)
     {
-        if (!localSqlite) return;
         lock (profileDraftGate) profileEdit = localProfileEdits.GetValueOrDefault(email);
     }
 
     private void SetProfileEdit(ProfileEditSession edit)
     {
         profileEdit = edit;
-        if (localSqlite) localProfileEdits[edit.Basis.Email] = edit;
+        localProfileEdits[edit.Basis.Email] = edit;
     }
 
     public bool BeginProfileEdit(string email)
@@ -60,9 +58,8 @@ public sealed partial class ApplicationWorkflow
         lock (ProfileDraftGate)
         {
             if (!AllowLocalDraftEdit()) return false;
-            if (!localSqlite && profileEdit is { IsDirty: true }) return Fail("Unsaved profile: Save, Discard or Stay before leaving.");
             if (!workspaceCurrent || GetRelationships(email)?.Person is not { } person) return Fail("Open a current Person first.");
-            SetProfileEdit(localSqlite && localProfileEdits.TryGetValue(email, out var retained) ? retained : new(person, person));
+            SetProfileEdit(localProfileEdits.TryGetValue(email, out var retained) ? retained : new(person, person));
             Status = "Editing profile. Changes are staged until Save; Cancel discards this profile draft only.";
             return true;
         }
@@ -136,22 +133,15 @@ public sealed partial class ApplicationWorkflow
 
     public void CancelProfileEdit()
     {
-        if (localSqlite)
-        {
-            lock (profileDraftGate)
-            {
-                if (Volatile.Read(ref localProfileRequests) != 0)
-                {
-                    Fail("Cancel cannot revoke an admitted profile write. Wait for its reconciled outcome; browsing remains available.");
-                    return;
-                }
-                CancelProfileEditCore();
-            }
-            return;
-        }
-        lock (workspaceGate)
         lock (profileDraftGate)
+        {
+            if (Volatile.Read(ref localProfileRequests) != 0)
+            {
+                Fail("Cancel cannot revoke an admitted profile write. Wait for its reconciled outcome; browsing remains available.");
+                return;
+            }
             CancelProfileEditCore();
+        }
     }
 
     private void CancelProfileEditCore()
@@ -160,7 +150,7 @@ public sealed partial class ApplicationWorkflow
         var owner = profileEdit.Basis.Email;
         localProfileEdits.Remove(owner);
         profileEdit = null;
-        failedSaves.Remove(localSqlite ? $"profile-session:{owner.ToLowerInvariant()}" : "profile-session");
+        failedSaves.Remove($"profile-session:{owner.ToLowerInvariant()}");
         Status = "Profile draft discarded. Independently saved personal context is retained.";
     }
 
@@ -170,7 +160,6 @@ public sealed partial class ApplicationWorkflow
     public bool SaveProfileEdit(ProfileEditSession edit)
     {
         if (!CanBeginLocalSave()) return false;
-        if (!localSqlite) return SaveProfileEditCore(edit);
         Interlocked.Increment(ref localProfileRequests);
         try { return TrackLocalSave(() => SaveProfileEditCore(edit)); }
         finally { Interlocked.Decrement(ref localProfileRequests); }
@@ -180,17 +169,13 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
-            var operation = localSqlite ? $"profile-session:{edit.Basis.Email.ToLowerInvariant()}" : "profile-session";
-            if (localSqlite)
-            {
-                lock (profileDraftGate)
-                    if (!localProfileEdits.TryGetValue(edit.Basis.Email, out var retained) || retained.Basis != edit.Basis)
-                        return SaveFailed(operation, "Profile NOT saved: the submitted draft was cancelled or already superseded.");
-            }
+            var operation = $"profile-session:{edit.Basis.Email.ToLowerInvariant()}";
+            lock (profileDraftGate)
+                if (!localProfileEdits.TryGetValue(edit.Basis.Email, out var retained) || retained.Basis != edit.Basis)
+                    return SaveFailed(operation, "Profile NOT saved: the submitted draft was cancelled or already superseded.");
             try
             {
-                using var access = memory || localSqlite ? null : CoordinateWorkspaceIo(workspace!);
-                if (!RefreshWorkspaceCore())
+                if (!RefreshWorkspaceCore(onlyIfRevisionChanged: true))
                     return SaveFailed(operation, "Profile NOT saved. Restore valid local delivery and retry. " + Status);
                 if (!people.TryGetValue(edit.Basis.Email, out var current) || current != edit.Basis)
                     return SaveFailed(operation,
@@ -241,12 +226,10 @@ public sealed partial class ApplicationWorkflow
                 profileHistory = history;
                 InvalidateProjections();
                 pending = null;
-                if (localSqlite) CompleteLocalProfileEdit(edit, next);
-                else profileEdit = null;
+                CompleteLocalProfileEdit(edit, next);
                 bool remainingDrafts;
                 lock (ProfileDraftGate)
-                    remainingDrafts = localSqlite
-                        ? localProfileEdits.Values.Any(draft => draft.IsDirty) : ProfileEdit is { IsDirty: true };
+                    remainingDrafts = localProfileEdits.Values.Any(draft => draft.IsDirty);
                 Status = remainingDrafts ? "Submitted profile saved locally. Newer or other Person drafts remain unsaved." :
                     "Profile saved locally.";
                 return true;
@@ -279,29 +262,19 @@ public sealed partial class ApplicationWorkflow
 
     private void AcceptIndependentProfileChange(PersonProfile before, PersonProfile after)
     {
-        if (localSqlite)
+        lock (profileDraftGate)
         {
-            lock (profileDraftGate)
+            if (localProfileEdits.TryGetValue(before.Email, out var retained) && retained.Basis == before)
             {
-                if (localProfileEdits.TryGetValue(before.Email, out var retained) && retained.Basis == before)
+                var updated = retained with
                 {
-                    var updated = retained with
-                    {
-                        Basis = after,
-                        Draft = retained.Draft with { PreferredName = after.PreferredName, IsFavorite = after.IsFavorite }
-                    };
-                    localProfileEdits[before.Email] = updated;
-                    if (ReferenceEquals(profileEdit, retained)) profileEdit = updated;
-                }
+                    Basis = after,
+                    Draft = retained.Draft with { PreferredName = after.PreferredName, IsFavorite = after.IsFavorite }
+                };
+                localProfileEdits[before.Email] = updated;
+                if (ReferenceEquals(profileEdit, retained)) profileEdit = updated;
             }
-            return;
         }
-        if (profileEdit is { } edit && edit.Basis == before)
-            profileEdit = edit with
-            {
-                Basis = after,
-                Draft = edit.Draft with { PreferredName = after.PreferredName, IsFavorite = after.IsFavorite }
-            };
     }
 }
 

@@ -39,6 +39,10 @@ public sealed partial class ApplicationWorkflow
     private void OpenLocalSqlite(bool create)
     {
         RequireLocalSqliteLocation(workspace!);
+        if (File.Exists(Path.Combine(workspace!, "workspace.json")))
+            throw new UnsupportedWorkspaceFormat(
+                "Readable-file Workspaces are no longer supported. This app does not migrate them. " +
+                "Preserve this folder and create a new local Workspace in a new empty folder.");
         if (create)
         {
             if (Directory.EnumerateFileSystemEntries(workspace!).Any())
@@ -76,8 +80,6 @@ public sealed partial class ApplicationWorkflow
         if (!File.Exists(Path.Combine(workspace!, SqliteDiscriminator)) ||
             File.ReadAllText(Path.Combine(workspace!, SqliteDiscriminator)) != SqliteFormat)
             throw new FormatException("Incompatible local SQLite Workspace discriminator. No migration or fallback is performed.");
-        if (File.Exists(Path.Combine(workspace!, "workspace.json")))
-            throw new FormatException("A Workspace cannot contain both SQLite and legacy persistence authorities.");
         var loaded = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
         var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
         var accepted = new Dictionary<string, AcceptedBatch>();
@@ -104,7 +106,7 @@ public sealed partial class ApplicationWorkflow
             using var reader = command.ExecuteReader();
             if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace exists. Creation did not complete.");
             version = reader.GetInt32(0);
-            if (version is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            if (version != 3) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
             if (!Guid.TryParseExact(reader.GetString(1), "D", out var identity) || identity == Guid.Empty ||
                 !Guid.TryParseExact(reader.GetString(2), "D", out var commit) || commit == Guid.Empty)
                 throw new FormatException("Invalid local SQLite Workspace identity or revision.");
@@ -117,10 +119,9 @@ public sealed partial class ApplicationWorkflow
                     if (JsonNode.Parse(profiles.GetString(1)) is not JsonObject json)
                         throw new FormatException("Invalid local Person record.");
                     json.Add("schemaVersion", 2);
-                    var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json), 2);
+                    var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json));
                     if (!profiles.GetString(0).Equals(person.Email, StringComparison.OrdinalIgnoreCase) ||
-                        !loaded.TryAdd(person.Email, person) ||
-                        version < 3 && (person.PhotoPath is not null || person.TeamName is not null))
+                        !loaded.TryAdd(person.Email, person))
                         throw new FormatException("Unsupported or inconsistent local Person data. Nothing is partially opened.");
                 }
             ValidateGraph(loaded);
@@ -155,7 +156,6 @@ public sealed partial class ApplicationWorkflow
                     if (change.PreviousEvidence is { } prior) RequireAcceptedEvidence(prior);
                 }
             }
-            if (version >= 2)
             {
                 command.CommandText = "SELECT scope, id, owner_email, metadata, markdown FROM notes;";
                 using (var notes = command.ExecuteReader())
@@ -195,7 +195,6 @@ public sealed partial class ApplicationWorkflow
                     contexts.Add(context.GetString(0), contextRevision);
                 }
             }
-            if (version >= 3)
             {
                 command.CommandText = "SELECT email, contexts FROM historical_team_context;";
                 using (var captures = command.ExecuteReader())
@@ -229,7 +228,7 @@ public sealed partial class ApplicationWorkflow
                     loadedPhotos.Add(reference, bytes);
                 }
             }
-            foreach (var reference in RequiredIncrementalPhotos(loaded, history, historical))
+            foreach (var reference in RequiredPhotos(loaded, history, historical))
             {
                 ValidateHistoryValue("photoPath", JsonSerializer.SerializeToElement(reference));
                 if (!loadedPhotos.ContainsKey(reference))
@@ -274,7 +273,7 @@ public sealed partial class ApplicationWorkflow
         command.CommandText = "SELECT format_version, revision FROM workspace WHERE singleton=1;";
         using var reader = command.ExecuteReader();
         if (!reader.Read()) throw new FormatException("No committed local SQLite Workspace revision exists.");
-        if (reader.GetInt32(0) is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
+        if (reader.GetInt32(0) != 3) throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
         return reader.GetString(1);
     }
 
@@ -322,15 +321,13 @@ public sealed partial class ApplicationWorkflow
         {
             if (!reader.Read()) throw new FormatException("No committed local Workspace exists.");
             version = reader.GetInt32(0);
-            if (version is not (1 or 2 or 3)) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
+            if (version != 3) throw new UnsupportedWorkspaceVersion("SQLite Workspace", version);
             if (reader.GetString(1) != revision)
                 throw new IOException("Local Workspace changed. Reopen to reconcile the note before retrying.");
         }
         ValidateNoteDraft(scope, metadata.Id);
         ValidateNoteMetadata(metadata, scope, people, "Local note");
         using var evidence = BeginLocalWrite();
-        // A staged format-1 store acquires note support atomically with its first note.
-        if (version == 1) CreateLocalNoteSchema(command);
         command.CommandText = """
             INSERT INTO notes VALUES ($scope, $id, $owner, $metadata, $markdown)
             ON CONFLICT(scope, id) DO UPDATE SET metadata=excluded.metadata, markdown=excluded.markdown;
@@ -341,7 +338,7 @@ public sealed partial class ApplicationWorkflow
         command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize(metadata, metadata.GetType(), JsonOptions));
         command.Parameters.AddWithValue("$markdown", markdown);
         command.ExecuteNonQuery();
-        var next = AdvanceLocalRevision(command, Math.Max(version, 2), evidence.Intent.NextRevision);
+        var next = AdvanceLocalRevision(command, 3, evidence.Intent.NextRevision);
         CommitLocalWrite(transaction, evidence);
         AcceptLocalRevision(next);
     }
@@ -365,14 +362,14 @@ public sealed partial class ApplicationWorkflow
             using (var reader = command.ExecuteReader())
             {
                 if (!reader.Read()) throw new FormatException("No committed local Workspace exists.");
-                if (reader.GetInt32(0) is not (1 or 2 or 3))
+                if (reader.GetInt32(0) != 3)
                     throw new UnsupportedWorkspaceVersion("SQLite Workspace", reader.GetInt32(0));
                 if (reader.GetString(1) != revision)
                     throw new IOException("Local Workspace changed. Reopen to reconcile before retrying.");
             }
             ValidateGraph(proposed);
             foreach (var person in proposed.Values) ValidateProfileHistory(history[person.Email], person);
-            foreach (var reference in RequiredIncrementalPhotos(proposed, history, nextHistorical))
+            foreach (var reference in RequiredPhotos(proposed, history, nextHistorical))
                 if (!proposedPhotos.ContainsKey(reference))
                     throw new IOException("Required current or retained Profile photo is unavailable. Nothing saved.");
             using var evidence = BeginLocalWrite();

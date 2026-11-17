@@ -84,7 +84,6 @@ public sealed partial class WorkspaceViewModel
     public bool OpenOwnedNotes(NoteScope scope, string? ownerEmail) => Observe(() =>
     {
         if (string.Equals(NoteViewFor(scope).Owner, ownerEmail, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!TryLeaveOwnedNote(scope, changingOwner: true)) return false;
         if (ownerEmail is not null && workflow.GetRelationships(ownerEmail) is null)
         {
             noteViews[scope] = NoteViewFor(scope) with { Error = "That Person is unavailable. No replacement was opened." };
@@ -103,7 +102,6 @@ public sealed partial class WorkspaceViewModel
     public bool OpenOwnedNote(NoteScope scope, Guid id, bool editing = false) => Observe(() =>
     {
         var view = NoteViewFor(scope);
-        if (view.Selected != id && !TryLeaveOwnedNote(scope)) return false;
         var note = OwnedNotes(scope, view.Owner).FirstOrDefault(n => n.Id == id);
         if (note is null)
         {
@@ -117,7 +115,6 @@ public sealed partial class WorkspaceViewModel
 
     public bool OpenOngoingNote(NoteScope scope) => Observe(() =>
     {
-        if (!TryLeaveOwnedNote(scope)) return false;
         var view = NoteViewFor(scope);
         var notes = OwnedNotes(scope, view.Owner);
         var id = OngoingId(scope, view.Owner, notes);
@@ -157,7 +154,6 @@ public sealed partial class WorkspaceViewModel
 
     private string? PrepareOngoingDesignation(NoteScope scope, Guid id)
     {
-        if (!TryLeaveOwnedNote(scope)) return null;
         var view = NoteViewFor(scope);
         if (view.Owner is null || !OwnedNotes(scope, view.Owner).Any(n => n.Id == id && !n.Archived))
         {
@@ -188,15 +184,4 @@ public sealed partial class WorkspaceViewModel
         return true;
     }
 
-    private bool TryLeaveOwnedNote(NoteScope scope, bool changingOwner = false)
-    {
-        if (Compatibility.SupportsNonblockingNoteAutosave) return true;
-        var id = GetOwnedNotesView(scope).SelectedNote?.Id ?? NoteViewFor(scope).Selected;
-        if (changingOwner ? workflow.CanNavigatePeople : id is null || !workflow.HasUnsavedNoteDraft(scope, id.Value))
-            return true;
-        const string message = "Navigation blocked: local writing is pending or was NOT saved. Retry or discard the draft before leaving or changing the ongoing note.";
-        noteViews[scope] = NoteViewFor(scope) with { Error = message };
-        navigationError = message;
-        return false;
-    }
 }

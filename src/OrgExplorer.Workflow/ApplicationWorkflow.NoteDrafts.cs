@@ -41,6 +41,7 @@ public partial interface IApplicationWorkflow
 
 public sealed partial class ApplicationWorkflow
 {
+    private sealed class StaleNoteDraftException(string message) : FormatException(message);
     private readonly ConcurrentDictionary<(NoteScope Scope, Guid Id), NoteDraft> unsavedNoteBases = new();
 
     // Typing must not wait behind the workspace lock held by an in-flight save.
@@ -96,7 +97,7 @@ public sealed partial class ApplicationWorkflow
         {
             RetainNoteDraft(draft);
             try { ValidateNoteDraft(draft.Scope, draft.Id); }
-            catch (IOException error)
+            catch (StaleNoteDraftException error)
             {
                 SaveFailed(NoteSaveKey(draft.Scope, draft.Id),
                     $"{draft.Scope} note save failed; changes are NOT saved locally: " + error.Message);
@@ -159,7 +160,7 @@ public sealed partial class ApplicationWorkflow
         if (!ReferenceEquals(draft.Workflow, this) ||
             !string.Equals(draft.Workspace, workspace, StringComparison.OrdinalIgnoreCase) ||
             !people.ContainsKey(draft.OwnerEmail) || !matches)
-            throw new IOException($"{scope} note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
+            throw new StaleNoteDraftException($"{scope} note changed externally while a draft was unsaved. Discard the draft before editing the delivered version.");
     }
 
     private void AcceptNoteSave(NoteScope scope, Guid id)

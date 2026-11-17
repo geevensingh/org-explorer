@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -12,7 +13,8 @@ internal static partial class Program
 {
     private static void VerifyLegacySaveFeedback(Type windowType, string settings, Func<Window, string?> chooseFolder)
     {
-        var path = Path.Combine(settings, "legacy-rejected-leave-save");
+        // Keep the required companion selection, exercising only the normal SQLite save path.
+        var path = Path.Combine(settings, "sqlite-rejected-leave-save");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
             if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport("""
                 {"schemaVersion":1,"batchId":"95000000-0000-4000-8000-000000000091",
@@ -20,7 +22,7 @@ internal static partial class Program
                  {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
                  {"email":"casey@example.com","displayName":"Casey","managerEmail":null}]}
                 """).Id))
-                throw new InvalidOperationException("Could not prepare the real legacy rejection fixture: " + seed.Status);
+                throw new InvalidOperationException("Could not prepare the real SQLite rejection fixture: " + seed.Status);
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
             [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -35,16 +37,14 @@ internal static partial class Program
                 new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
             Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Control<TextBox>("OfficeNumber").Text = "Retained legacy room";
-            using (File.Open(Path.Combine(path, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(path))
             {
-                // Replay the real leave handler's save/feedback continuation without opening its native modal dialog.
+                // Exercise the real compiled save continuation without opening a native modal dialog.
                 async Task RejectLeaveSave()
                 {
                     var saving = (Task<bool>)windowType.GetMethod("SaveProfileSessionAsync",
                         BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null)!;
-                    if (await saving) throw new InvalidOperationException("A locked legacy leave-save unexpectedly committed.");
-                    windowType.GetMethod("ShowNavigationBlocked", BindingFlags.Instance | BindingFlags.NonPublic)!
-                        .Invoke(window, ["Navigation blocked: " + workflow.Status, false]);
+                    if (await saving) throw new InvalidOperationException("A locked SQLite leave-save unexpectedly committed.");
                 }
                 var rejected = RejectLeaveSave();
                 PumpUntil(() => rejected.IsCompleted);
@@ -53,26 +53,26 @@ internal static partial class Program
                 window.Dispatcher.BeginInvoke(() => idle = true, DispatcherPriority.ApplicationIdle);
                 PumpUntil(() => idle);
                 var status = Control<TextBlock>("StatusText").Text;
-                if (!status.StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) ||
-                    !status.Contains("NOT saved", StringComparison.Ordinal) ||
-                    !Control<TextBlock>("WorkflowActivity").Text.StartsWith("Pending local edits", StringComparison.Ordinal) ||
-                    !Control<Button>("SaveProfileButton").IsEnabled ||
+                if (!status.Contains("NOT saved", StringComparison.Ordinal) ||
+                    !Control<TextBlock>("WorkflowActivity").Text.Contains("browsing remains available", StringComparison.Ordinal) ||
                     workflow.ProfileEdit?.Basis.Email != "avery@example.com" ||
                     workflow.ProfileEdit.Draft.OfficeNumber != "Retained legacy room" ||
-                    workflow.LocalSave.Phase != LocalSavePhase.Ready || !workflow.CanEditLocalWorkspace ||
-                    workflow.CanNavigatePeople || workflow.CanSafelyClose)
-                    throw new InvalidOperationException("Compiled legacy leave-save feedback was overwritten or its owner/Save policy changed: " +
+                    !workflow.LocalSave.EditsPaused || workflow.CanEditLocalWorkspace ||
+                    !workflow.CanNavigatePeople || workflow.CanSafelyClose)
+                    throw new InvalidOperationException("Compiled rejected SQLite leave-save feedback was overwritten or its owner/edit policy changed: " +
                         $"status='{status}'; activity='{Control<TextBlock>("WorkflowActivity").Text}'; " +
                         $"saveEnabled={Control<Button>("SaveProfileButton").IsEnabled}; phase={workflow.LocalSave.Phase}.");
             }
+            if (!workflow.ReconcileLocalSaves())
+                throw new InvalidOperationException(workflow.Status);
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("The legacy feedback replay created a native window.");
-            Console.WriteLine("PASS: invisible compiled legacy rejected leave-save retains its navigation feedback, enabled Save, exact owner/draft and legacy guards after dispatcher refresh settlement; no native modal or pixels claimed.");
+            Console.WriteLine("PASS: invisible compiled SQLite rejected leave-save retains feedback and exact owner/draft, pauses edits but not browsing, and requires reconciliation; no native modal or pixels claimed.");
         }
         finally
         {
             workflow.CancelProfileEdit();
-            window.Close();
+            ClosePublishedCompiledWindow(window);
         }
     }
 }

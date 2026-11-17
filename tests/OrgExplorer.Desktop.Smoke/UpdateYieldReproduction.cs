@@ -37,7 +37,7 @@ internal static partial class Program
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible) Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         var original = WorkspaceFixtures.Bytes(folder);
@@ -100,14 +100,13 @@ internal static partial class Program
         if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible)
             Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         var tree = Control<TreeView>("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         var notes = Control<FrameworkElement>("PersonNotes");
         if (!preferredName) ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("EditTab");
         var editor = preferredName ? Control<TextBox>("PreferredName") : (TextBox)notes.FindName("MarkdownEditor");
-        var file = preferredName ? Path.Combine(folder, "workspace.json") : Path.Combine(folder, "notes", noteId + ".md");
-        var original = File.ReadAllBytes(file);
+        var file = Path.Combine(folder, "workspace.sqlite");
         var finalWriting = preferredName ? "Explicit Preferred name queued in the update yield" : "Final private writing queued in the update yield";
 
         using var configuration = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtureDirectory, "trust.json")));
@@ -151,7 +150,7 @@ internal static partial class Program
                         Invoke("SavePreferredNameButton");
                     else noteSave = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
                     if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
-                        throw new InvalidOperationException("The queued explicit name/note save did not reach the held real-file publisher.");
+                        throw new InvalidOperationException("The queued explicit name/note save did not reach the held local SQLite transaction.");
                 }
                 catch (Exception error) { experimentFailure = error; }
                 window.Dispatcher.BeginInvoke(() =>
@@ -162,7 +161,10 @@ internal static partial class Program
                         noEarlyHandoff = !File.Exists(handoff);
                         importBlockedAtObservation = !Control<Button>("OpenImportButton").IsEnabled;
                         heldAtObservation = publisher.Entered.IsSet && !publisher.Release.IsSet && SavePending();
-                        bytesUnchanged = File.ReadAllBytes(file).SequenceEqual(original);
+                        using var saved = OpenSmokeWorkspace(folder);
+                        bytesUnchanged = preferredName
+                            ? saved.GetRelationships("avery@example.com")!.Person.PreferredName is null
+                            : saved.GetPersonNotes("avery@example.com").Single(note => note.Id == noteId).Markdown == "Before the update";
                     }
                     catch (Exception error) { experimentFailure = error; }
                     finally
@@ -189,7 +191,7 @@ internal static partial class Program
             PumpUntil(() => !SavePending() && Control<Button>("CheckForUpdatesButton").IsEnabled);
             if (noteSave is not null && !noteSave.GetAwaiter().GetResult() || !intercepted || !heldAtObservation ||
                 !bytesUnchanged || !updatePendingAtObservation || !noEarlyHandoff || !importBlockedAtObservation)
-                throw new InvalidOperationException("The experiment did not preserve the intended yield/publication barriers.");
+                throw new InvalidOperationException("The experiment did not preserve the intended yield/local-commit barriers.");
         }
         finally
         {
@@ -201,7 +203,7 @@ internal static partial class Program
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         if (!reopened.OpenWorkspace(folder)) throw new InvalidOperationException(reopened.Status);
         var durable = preferredName ? reopened.GetRelationships("avery@example.com")!.Person.PreferredName == finalWriting :
-            File.ReadAllText(file).Contains(finalWriting, StringComparison.Ordinal);
+            reopened.GetPersonNotes("avery@example.com").Single(note => note.Id == noteId).Markdown == finalWriting;
         var handedOff = File.Exists(handoff);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The update-yield experiment must never show a window or create its native handle.");

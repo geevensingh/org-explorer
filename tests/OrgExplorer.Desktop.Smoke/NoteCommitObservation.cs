@@ -47,13 +47,14 @@ internal sealed class NoteCommitObservation : IDisposable
     internal int ReadCount { get; private set; }
     internal double ReadMs { get; private set; }
 
-    internal (double[] RequestStartedMs, double[] RequestCompletedMs) ContinueTyping(Action<int> edit)
+    internal (double[] RequestStartedMs, double[] RequestCompletedMs) ContinueTyping(Action<int> edit,
+        int editCount = ContinuedEditCount, int spacingMs = ContinuedEditSpacingMs)
     {
-        var started = new double[ContinuedEditCount];
+        var started = new double[editCount];
         var completed = new double[started.Length];
         for (var index = 0; index < started.Length; index++)
         {
-            if (index != 0) Thread.Sleep(ContinuedEditSpacingMs);
+            if (index != 0) Thread.Sleep(spacingMs);
             started[index] = elapsed.Elapsed.TotalMilliseconds;
             edit(index);
             completed[index] = elapsed.Elapsed.TotalMilliseconds;

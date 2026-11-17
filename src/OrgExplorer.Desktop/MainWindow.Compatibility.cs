@@ -8,47 +8,7 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
-    private Workflow.WorkspaceConflictReview? publicationConflictReview;
     private string? retainedWritingNavigationFeedback;
-
-    private async void ReviewPublicationConflicts(object sender, RoutedEventArgs e)
-    {
-        if (workPending || updateHandoffPending) return;
-        await RunWorkflowAsync(() =>
-        {
-            publicationConflictReview = workflow.ReviewWorkspaceConflicts();
-            return publicationConflictReview is not null;
-        }, "Reviewing current files and retained conflict evidence...");
-        ShowStatus();
-    }
-
-    private async void ResolvePublicationConflicts(object sender, RoutedEventArgs e)
-    {
-        if (workPending || updateHandoffPending || publicationConflictReview is not { } review) return;
-        if (MessageBox.Show(this,
-            "Have you compared the retained local candidate and captured external evidence, and resolved the current files externally?\n" +
-            "Acknowledgement does not restore or merge files. Unobserved external versions may be unavailable. " +
-            "Only the reviewed conflict IDs and exact current revision can be acknowledged.",
-            "Acknowledge external conflict resolution", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-        if (await RunWorkflowAsync(() => workflow.ResolveWorkspaceConflicts(review), "Acknowledging the reviewed external resolution..."))
-            publicationConflictReview = null;
-        RefreshExternalWorkspace();
-    }
-
-    private void ShowPublicationConflicts()
-    {
-        var conflicts = workflow.GetWorkspaceConflicts();
-        PublicationConflictDetails.Text = string.Join("\n", conflicts.Select(value =>
-            $"{value.Id}: {value.Outcome}. Capture {(value.CaptureComplete ? "completed for observed bytes only" : "incomplete")}.\n" +
-            $"Retained transaction/local candidate: {System.IO.Path.Combine(workflow.Compatibility.WorkspacePath!, "transactions", value.Id.ToString("N"))}\n" +
-            string.Join("\n", value.LocalWritingPaths.Select(path => $"Retained local writing: {path}")) + "\n" +
-            string.Join("\n", value.Evidence.Select(evidence => $"Captured {evidence.OriginalPath}: {evidence.Path}"))));
-        ReviewPublicationConflictsButton.IsEnabled = !workPending && !updateHandoffPending && conflicts.Count != 0;
-        ResolvePublicationConflictsButton.IsEnabled = !workPending && !updateHandoffPending &&
-            conflicts.Count != 0 && publicationConflictReview is not null;
-        ReviewPublicationConflictsButton.Visibility = ResolvePublicationConflictsButton.Visibility =
-            conflicts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
 
     private void InitializeOperationalNotices()
     {
@@ -78,15 +38,6 @@ public partial class MainWindow
             messages.Add("Workspace unavailable. Showing last validated information, if any.");
         if (error is not null)
         {
-            var publication = workflow.PublicationOutcome switch
-            {
-                Workflow.WorkspacePublicationOutcome.PublishedConflict =>
-                    "Saved locally with a publication conflict. External resolution is required; closing is blocked.",
-                Workflow.WorkspacePublicationOutcome.Indeterminate =>
-                    "Publication outcome is unknown. Preserve the evidence and resolve externally; closing is blocked.",
-                _ => null
-            };
-            if (publication is not null) messages.Add(publication);
             foreach (var line in retainedErrors)
             {
                 var separator = line.IndexOf(": ", StringComparison.Ordinal);
@@ -102,10 +53,10 @@ public partial class MainWindow
         NoticeSummary.Text = string.Join("\n", messages.Distinct());
         LocalWritingDetails.Text = workflow.LocalSaveError ?? "";
         OperationalNotice.Visibility = messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        NoticeRetryButton.Visibility = workflow.GetWorkspaceConflicts().Count == 0 &&
+        NoticeRetryButton.Visibility =
             (failedWorkspaceOpen is not null || !workflow.IsWorkspaceCurrent &&
                 workflow.Compatibility.State != Workflow.WorkspaceCompatibilityState.NotOpened ||
-                workflow.HasPendingStorageMaintenance || workflow.LocalSave.EditsPaused)
+                workflow.LocalSave.EditsPaused)
             ? Visibility.Visible : Visibility.Collapsed;
         NoticeRetryButton.IsEnabled = RetryWorkspaceButton.IsEnabled = !workPending && !updateHandoffPending &&
             workflow.LocalSave.OutstandingRequests == 0;
@@ -166,8 +117,6 @@ public partial class MainWindow
             return;
         }
         await RunWorkflowAsync(workflow.RefreshWorkspace, "Validating Workspace…");
-        if (workflow.IsWorkspaceCurrent)
-            await RunWorkflowAsync(workflow.RetryStorageMaintenance, "Completing storage maintenance…");
         RefreshExternalWorkspace();
     }
 }

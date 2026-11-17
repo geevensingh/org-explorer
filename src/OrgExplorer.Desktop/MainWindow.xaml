@@ -432,12 +432,12 @@
                       Style="{StaticResource PrimaryButton}"
                       AutomationProperties.AutomationId="OpenWorkspace" AutomationProperties.Name="Open Workspace..."
                       Click="OpenWorkspace"/>
-              <Button x:Name="CreateLocalSqliteWorkspaceButton" Content="Create local Workspace (preview)"
-                      AutomationProperties.AutomationId="CreateLocalSqliteWorkspace" Visibility="Collapsed"
+              <Button x:Name="CreateLocalSqliteWorkspaceButton" Content="Create new local Workspace"
+                      AutomationProperties.AutomationId="CreateLocalSqliteWorkspace"
                       Click="CreateLocalSqliteWorkspace"/>
             </WrapPanel>
-            <TextBlock x:Name="SqlitePreviewGuidance" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,16"
-                      Text="SQLite preview: Person profiles, photos, Team names, note autosave, reviewed Imports and explicit snapshot synchronization. The existing Workspace is preserved."/>
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,16"
+                       Text="Workspaces save to local SQLite storage outside synchronized folders. Configure a separate synchronization folder below to exchange complete snapshots. Older readable-file Workspaces are unsupported: preserve the old folder and create a new Workspace; no migration is performed."/>
             <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0"/>
             <TextBlock Text="Import" FontSize="20" FontWeight="SemiBold" Margin="0,24,0,8"/>
             <TextBlock Text="Review the proposed changes before applying them." TextWrapping="Wrap"
@@ -509,16 +509,8 @@
                       AutomationProperties.AutomationId="TechnicalDetails" IsExpanded="False" Margin="0,20,0,12">
               <StackPanel Margin="0,12,0,0">
                 <TextBlock x:Name="SettingsGuidance" AutomationProperties.AutomationId="SettingsGuidance" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                <Button x:Name="RetryWorkspaceButton" Content="Retry Workspace validation / storage maintenance"
+                <Button x:Name="RetryWorkspaceButton" Content="Retry local Workspace validation / recovery"
                         AutomationProperties.AutomationId="RetryWorkspace" Click="RetryWorkspace" HorizontalAlignment="Left"/>
-                <TextBlock x:Name="PublicationConflictDetails" AutomationProperties.AutomationId="PublicationConflictDetails"
-                           TextWrapping="Wrap" Margin="0,8"/>
-                <WrapPanel>
-                  <Button x:Name="ReviewPublicationConflictsButton" Content="Review publication conflicts"
-                          AutomationProperties.AutomationId="ReviewPublicationConflicts" Click="ReviewPublicationConflicts"/>
-                  <Button x:Name="ResolvePublicationConflictsButton" Content="Acknowledge external resolution"
-                          AutomationProperties.AutomationId="ResolvePublicationConflicts" Click="ResolvePublicationConflicts" Margin="8,0"/>
-                </WrapPanel>
                 <TextBlock x:Name="StartupUpdateStatus" AutomationProperties.AutomationId="StartupUpdateStatus" TextWrapping="Wrap" Margin="0,16,0,8"/>
                 <TextBlock x:Name="UpdateGuidance" AutomationProperties.AutomationId="UpdateGuidance" TextWrapping="Wrap" Margin="0,0,0,8"/>
                 <TextBlock Text="Authorized updates download automatically and restart only after local saves and Import application finish. Failed writing blocks restart. Project-key authorization is not Windows publisher verification and does not remove installer warnings."
@@ -1124,7 +1116,11 @@
             <Setter Property="Foreground" Value="#8A3B12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Style.Triggers>
-              <Trigger Property="Text" Value="Workspace opened.">
+              <Trigger Property="Text" Value="Local SQLite Workspace opened.">
+                <Setter Property="Foreground" Value="DimGray"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+              </Trigger>
+              <Trigger Property="Text" Value="SQLite Workspace created and saved locally.">
                 <Setter Property="Foreground" Value="DimGray"/>
                 <Setter Property="FontWeight" Value="Normal"/>
               </Trigger>

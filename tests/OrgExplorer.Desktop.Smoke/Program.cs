@@ -17,7 +17,7 @@ internal static partial class Program
         {
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
                 return RunLocalSaveRecoveryFixture(args);
-            if (args.Length > 0 && args[0] == "--automatic-snapshot-fixture")
+            if (args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--rich-scale-snapshot-fixture")
                 return RunAutomaticSnapshotFixture(args);
             if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
                 return RunWorkspaceExitFixture(args);
@@ -36,6 +36,9 @@ internal static partial class Program
                 return VerifyCompiledXaml(executable, verifySnapshotAdoption: true);
             if (args.Length == 2 && args[1] == "--verify-legacy-save-feedback")
                 return VerifyCompiledXaml(executable, verifyLegacySaveFeedback: true);
+            if (args.Length == 2 && args[1] == "--verify-profile-note-refresh")
+                return HarnessRuntime.Run("compiled-profile-note-refresh",
+                    () => VerifyCompiledXaml(executable, verifyProfileNoteRefresh: true));
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
                 return HarnessRuntime.Run("compiled-profile-refresh",
                     () => VerifyCompiledXaml(executable, verifyProfileRefresh: true));

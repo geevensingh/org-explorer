@@ -17,7 +17,7 @@ internal static partial class Program
     {
         var path = Path.Combine(settings, "automatic-input-scroll");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
-            if (!seed.OpenWorkspace(path, WorkspaceOpenMode.CreateLocalSqlite) ||
+            if (!seed.OpenWorkspace(path, WorkspaceOpenMode.OpenOrCreate) ||
                 !seed.ApplyImport(seed.PreviewImport(RecoveryPeople).Id))
                 throw new InvalidOperationException(seed.Status);
         var clock = new SnapshotClock();

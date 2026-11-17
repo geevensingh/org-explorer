@@ -36,7 +36,8 @@ internal static partial class Program
 
     private static int RunAutomaticSnapshotFixture(string[] args)
     {
-        if (args.Length != 8 || !Path.GetFullPath(args[2]).Contains(
+        if (args.Length != 8 && !(args.Length == 11 && args[0] == "--rich-scale-snapshot-fixture") ||
+            !Path.GetFullPath(args[2]).Contains(
             Path.DirectorySeparatorChar + ".test-workspaces" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new ArgumentException("The automatic snapshot host requires its owned isolated test Workspace.");
         Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
@@ -45,6 +46,9 @@ internal static partial class Program
         using var entered = EventWaitHandle.OpenExisting(args[5]);
         using var release = EventWaitHandle.OpenExisting(args[6]);
         using var ended = EventWaitHandle.OpenExisting(args[7]);
+        using var profileHold = args.Length == 11 ? EventWaitHandle.OpenExisting(args[8]) : null;
+        using var profileEntered = args.Length == 11 ? EventWaitHandle.OpenExisting(args[9]) : null;
+        using var profileRelease = args.Length == 11 ? EventWaitHandle.OpenExisting(args[10]) : null;
         var clock = new SnapshotClock();
         var registration = ThreadPool.RegisterWaitForSingleObject(advance,
             (_, _) => clock.Advance(TimeSpan.FromSeconds(60)), null, Timeout.Infinite, false);
@@ -58,10 +62,12 @@ internal static partial class Program
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
-                () => release.WaitOne(TimeSpan.FromSeconds(30)), () => ended.Set());
+                () => release.WaitOne(TimeSpan.FromSeconds(args[0] == "--rich-scale-snapshot-fixture" ? 180 : 30)),
+                () => ended.Set());
             var window = (Window)Activator.CreateInstance(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
                 BindingFlags.Instance | BindingFlags.NonPublic, null,
-                [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher),
+                [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
+                    fileObserver: profileHold is null ? null : new RichScaleCommitBoundary(profileHold, profileEntered!, profileRelease!)),
                     (Func<Window, string?>)(_ => args[2]), (Action<string>)(_ => { }), clock], null)!;
             application.Run(window);
             return 0;
@@ -86,13 +92,13 @@ internal static partial class Program
                 File.Copy(file, Path.Combine(to, Path.GetFileName(file)), true);
         }
         using var first = ApplicationWorkflow.CreateFileBacked();
-        if (!first.OpenWorkspace(source, WorkspaceOpenMode.CreateLocalSqlite) ||
+        if (!first.OpenWorkspace(source, WorkspaceOpenMode.OpenOrCreate) ||
             !first.ApplyImport(first.PreviewImport(RecoveryPeople).Id) ||
             !first.ConfigureSynchronizationFolder(outgoing) || !first.SyncNow())
             throw new InvalidOperationException(first.Status);
         Deliver(outgoing, incoming);
         using (var seed = ApplicationWorkflow.CreateFileBacked())
-            if (!seed.OpenWorkspace(target, WorkspaceOpenMode.CreateLocalSqlite) ||
+            if (!seed.OpenWorkspace(target, WorkspaceOpenMode.OpenOrCreate) ||
                 !seed.ConfigureSynchronizationFolder(incoming, true) || !seed.SyncNow())
                 throw new InvalidOperationException(seed.Status);
         var settings = Path.Combine(root, "automatic-settings");

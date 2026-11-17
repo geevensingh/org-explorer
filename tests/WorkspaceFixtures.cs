@@ -1,8 +1,8 @@
 using System.IO;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Data.Sqlite;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.TestFixtures;
@@ -15,7 +15,7 @@ internal static class WorkspaceFixtures
             ".test-workspaces", "current-fixture-" + Guid.NewGuid().ToString("N")));
         try
         {
-            ExportCurrent(root);
+            CreateCurrent(root);
             return Bytes(root);
         }
         finally
@@ -34,141 +34,116 @@ internal static class WorkspaceFixtures
         }
     }
 
-    private static void ExportCurrent(string destination)
+    private static void CreateCurrent(string destination)
     {
-        using var archive = System.IO.Compression.ZipFile.OpenRead(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "workspace-v2.zip"));
-        var selector = archive.Entries.Single(entry => entry.FullName == "workspace.json");
-        using var selectorStream = selector.Open();
-        var generation = JsonNode.Parse(selectorStream)!["generation"]!.GetValue<string>();
-        var documents = new Dictionary<string, Dictionary<string, byte[]>>();
-        foreach (var entry in archive.Entries.Where(e => e.Length > 0))
-        {
-            using var stream = entry.Open();
-            using var buffer = new MemoryStream();
-            stream.CopyTo(buffer);
-            var bytes = buffer.ToArray();
-            var parts = entry.FullName.Split(['/', '\\']);
-            if (parts[0] is "notes" or "team-notes")
-            {
-                var path = Path.Combine(destination, parts[0], parts[^1]);
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.WriteAllBytes(path, bytes);
-                continue;
-            }
-            if (parts[0] != "generations" || parts[1] != generation) continue;
-            var family = parts[2] switch
-            {
-                "profile-history" => "profileHistory",
-                "historical-team-context" => "historicalTeamContext",
-                "batches.json" => "acceptedBatches",
-                "team-context.json" => "teamContext",
-                _ => parts[2]
-            };
-            if (!documents.TryGetValue(family, out var records)) documents[family] = records = [];
-            if (family == "photos") records[parts[^1]] = bytes;
-            else
-            {
-                var data = JsonNode.Parse(bytes)!;
-                if (family is "acceptedBatches" or "teamContext")
-                    foreach (var pair in data.AsObject())
-                        records[pair.Key] = JsonSerializer.SerializeToUtf8Bytes(
-                            new JsonObject { [pair.Key] = pair.Value!.DeepClone() });
-                else records[data["email"]!.GetValue<string>().ToLowerInvariant()] = bytes;
-            }
-        }
-        WriteCurrent(destination, documents);
-    }
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Require(app.OpenWorkspace(destination));
+        Require(app.ApplyImport(app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"14000000-0000-4000-8000-000000000001",
+             "observedAt":"2026-11-01T17:00:00Z","producer":"Fictitious legacy fixture","people":[
+             {"email":"avery@example.com","displayName":"Avery Example","preferredName":"Ave","alias":"avery",
+              "jobTitle":"Engineer","department":"Research","officeBuilding":"North","officeNumber":"007B",
+              "officeState":"WA","officeCountry":"US","linkedInProfileUrl":"https://www.linkedin.com/in/fictitious-avery",
+              "managerEmail":"morgan@example.com","isFavorite":true},
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com","isFavorite":true},
+             {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
+             {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
+             {"email":"former@example.com","displayName":"Former Example","managerEmail":null,"archived":true,"isFavorite":true}]}
+            """).Id));
+        var photo = Path.Combine(destination, "fixture-source.png");
+        File.WriteAllBytes(photo, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC"));
+        try { Require(app.EditPhoto("avery@example.com", photo)); }
+        finally { File.Delete(photo); }
+        Require(app.CreatePersonNote("avery@example.com", "Private Person context", "# Person writing\n**Preserved** café.") is not null);
+        var archived = app.CreatePersonNote("former@example.com", "Archived writing", "Retained, not deleted.");
+        Require(archived is not null);
+        Require(app.ArchivePersonNote(archived!.Id));
+        var team = app.CreateTeamNote("morgan@example.com", "Former team", "# Frozen team\nOld team writing.");
+        Require(team is not null);
+        Require(app.CreateTeamNote("casey@example.com", "Ancestor team", "All-ancestor writing.") is not null);
+        Require(app.ApplyImport(app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"14000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-03T17:00:00Z","producer":"Fictitious transfer","people":[
+             {"email":"avery@example.com","managerEmail":"alex@example.com","officeNumber":"0009C"}]}
+            """).Id));
+        Require(app.EditTeamNote(team!.Id, team.Title, "Later writing must not rewrite frozen history."));
 
-    internal static void WriteCurrent(string destination, Dictionary<string, Dictionary<string, byte[]>> documents,
-        IWorkspaceFileObserver? fileObserver = null, Action<string, Action>? measure = null)
-    {
-        void Run(string name, Action action)
+        void Require(bool succeeded)
         {
-            if (measure is null) action();
-            else measure(name, action);
-        }
-        void Write(string path, byte[] bytes)
-        {
-            File.WriteAllBytes(path, bytes);
-            fileObserver?.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
-        }
-        Directory.CreateDirectory(destination);
-        var roots = new JsonObject();
-        Run("fixture-current-files-and-indexes", () =>
-        {
-            foreach (var family in new[] { "people", "profileHistory", "acceptedBatches", "photos", "teamContext", "historicalTeamContext" })
-            {
-                var entries = new Dictionary<string, string>();
-                foreach (var (key, bytes) in documents.GetValueOrDefault(family) ?? [])
-                {
-                    var extension = family == "photos" ? Path.GetExtension(key) : ".json";
-                    var relative = Path.Combine("documents", family, Guid.NewGuid().ToString("N") + extension);
-                    var path = Path.Combine(destination, relative);
-                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                    Write(path, bytes);
-                    entries.Add(key, relative);
-                }
-                roots[family] = entries.Count == 0 ? null : WriteIndex(family, entries, 0);
-            }
-            Write(Path.Combine(destination, "workspace.json"), System.Text.Encoding.UTF8.GetBytes(new JsonObject
-            {
-                ["schemaVersion"] = 3,
-                ["storageProtocol"] = 1,
-                ["commit"] = Guid.NewGuid(),
-                ["roots"] = roots,
-                ["recordVersions"] = JsonSerializer.SerializeToNode(new
-                {
-                    people = 2,
-                    profileHistory = 2,
-                    acceptedBatches = 1,
-                    personNotes = 1,
-                    teamNotes = 1,
-                    photos = 1,
-                    teamContext = 1,
-                    historicalTeamContext = 1
-                })
-            }.ToJsonString()));
-        });
-        using var workflow = ApplicationWorkflow.CreateFileBacked(fileObserver: fileObserver);
-        Run("fixture-open-validation", () =>
-        {
-            if (!workflow.OpenWorkspace(destination)) throw new InvalidOperationException(workflow.Status);
-        });
-        Run("fixture-independent-recovery", () =>
-        {
-            if (!workflow.RetryStorageMaintenance()) throw new InvalidOperationException(workflow.Status);
-        });
-
-        string WriteIndex(string family, Dictionary<string, string> entries, int depth)
-        {
-            Dictionary<string, string>? children = null;
-            if (entries.Count > 16)
-                children = entries.GroupBy(pair => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(pair.Key)))
-                    .ToLowerInvariant()[depth].ToString()).ToDictionary(group => group.Key,
-                        group => WriteIndex(family, group.ToDictionary(), depth + 1));
-            var relative = Path.Combine("index", Guid.NewGuid().ToString("N") + ".json");
-            Directory.CreateDirectory(Path.Combine(destination, "index"));
-            Write(Path.Combine(destination, relative), JsonSerializer.SerializeToUtf8Bytes(new
-            {
-                schemaVersion = 1,
-                family,
-                entries = children is null ? entries : null,
-                children
-            }));
-            return relative;
+            if (!succeeded) throw new InvalidOperationException(app.Status);
         }
     }
 
-    internal static void CopyVersionOne(string destination)
+    internal static IDisposable LockLocalStore(string root)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(root, "workspace.sqlite"),
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+            DefaultTimeout = 1
+        }.ToString());
+        try
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "BEGIN IMMEDIATE;";
+            command.ExecuteNonQuery();
+            return connection;
+        }
+        catch { connection.Dispose(); throw; }
+    }
+
+    internal static void JoinSnapshot(IApplicationWorkflow source, IApplicationWorkflow receiver, string transport)
+    {
+        if (!source.ConfigureSynchronizationFolder(transport) || !source.SyncNow())
+            throw new InvalidOperationException(source.Synchronization.Error);
+        if (!receiver.ConfigureSynchronizationFolder(transport, joinExistingWorkspace: true) || !receiver.SyncNow())
+            throw new InvalidOperationException(receiver.Synchronization.Error);
+    }
+
+    internal static void DeliverSnapshot(IApplicationWorkflow source, IApplicationWorkflow receiver)
+    {
+        if (!source.SyncNow()) throw new InvalidOperationException(source.Synchronization.Error);
+        if (!receiver.SyncNow()) throw new InvalidOperationException(receiver.Synchronization.Error);
+    }
+
+    internal static void RewriteSnapshot(string path, Action<JsonObject> change)
+    {
+        var envelope = JsonNode.Parse(File.ReadAllBytes(path))!.AsObject();
+        var content = JsonNode.Parse(Convert.FromBase64String(envelope["content"]!.GetValue<string>()))!.AsObject();
+        change(content);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(content);
+        envelope["content"] = Convert.ToBase64String(bytes);
+        envelope["sha256"] = Convert.ToHexString(SHA256.HashData(bytes));
+        File.WriteAllText(path, envelope.ToJsonString());
+    }
+
+    internal static string LatestSnapshot(IApplicationWorkflow app) =>
+        Path.Combine(app.Synchronization.Folder!,
+            $"{app.Synchronization.WorkspaceId:D}-{app.Synchronization.LocalRevision:D}.oesnapshot");
+
+    internal static void EditSnapshotRow(JsonObject content, string family, string key, Action<JsonNode> change)
+    {
+        var row = content[family]!.AsArray().Single(row => row!["key"]!.GetValue<string>() == key)!;
+        var value = JsonNode.Parse(row["value"]!.GetValue<string>())!;
+        change(value);
+        row["value"] = value.ToJsonString();
+    }
+
+    internal static void CopyVersionOne(string destination) => CopyVersion(1, destination);
+
+    internal static void CopyVersion(int version, string destination)
     {
         System.IO.Compression.ZipFile.ExtractToDirectory(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "workspace-v1.zip"), destination);
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", $"workspace-v{(version == 3 ? 2 : version)}.zip"), destination);
+        if (version != 3) return;
+        var path = Path.Combine(destination, "workspace.json");
+        var selector = JsonNode.Parse(File.ReadAllBytes(path))!;
+        selector["schemaVersion"] = 3;
+        File.WriteAllText(path, selector.ToJsonString());
     }
-
-    internal static void CopyVersion(int version, string destination) =>
-        System.IO.Compression.ZipFile.ExtractToDirectory(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", $"workspace-v{version}.zip"), destination);
 
     internal static void Copy(string source, string destination)
     {
@@ -185,37 +160,4 @@ internal static class WorkspaceFixtures
         Directory.GetFiles(root, "*", SearchOption.AllDirectories)
             .Where(p => !p.EndsWith(".workspace.lock", StringComparison.OrdinalIgnoreCase))
             .ToDictionary(p => Path.GetRelativePath(root, p), File.ReadAllBytes);
-
-    internal static Dictionary<string, string> IndexedDocuments(string root)
-    {
-        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "workspace.json")))!;
-        return IndexedDocuments(root, pointer["roots"]!.AsObject());
-    }
-
-    internal static Dictionary<string, string> RecoveryDocuments(string root)
-    {
-        var recovery = Path.Combine(root, "recovery");
-        var pointer = JsonNode.Parse(File.ReadAllText(Path.Combine(recovery, "current.json")))!;
-        var roots = pointer["workspace"]!["roots"]!.AsObject().DeepClone().AsObject();
-        foreach (var family in pointer["noteRoots"]!.AsObject()) roots.Add(family.Key, family.Value?.DeepClone());
-        return IndexedDocuments(recovery, roots);
-    }
-
-    private static Dictionary<string, string> IndexedDocuments(string root, JsonObject roots)
-    {
-        var result = new Dictionary<string, string>();
-        foreach (var family in roots)
-            if (family.Value is not null) Visit(family.Key, family.Value.GetValue<string>());
-        return result;
-
-        void Visit(string family, string relative)
-        {
-            var node = JsonNode.Parse(File.ReadAllText(Path.Combine(root, relative)))!;
-            if (node["entries"] is JsonObject entries)
-                foreach (var entry in entries) result.Add(family + ":" + entry.Key, Path.Combine(root, entry.Value!.GetValue<string>()));
-            else
-                foreach (var child in node["children"]!.AsObject()) Visit(family, child.Value!.GetValue<string>());
-        }
-    }
-
 }

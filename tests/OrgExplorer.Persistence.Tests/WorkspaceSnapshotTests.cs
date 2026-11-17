@@ -43,7 +43,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             }
         };
         using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
-        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), first.Status);
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         var original = first.Synchronization.LocalRevision;
@@ -127,7 +127,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         var publisher = new SnapshotPublisher { Hold = true };
         using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
-        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), first.Status);
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.NavigatePerson("report@example.com"));
@@ -182,11 +182,44 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task Injected_synchronization_clock_does_not_freeze_or_advance_the_save_request_deadline()
+    {
+        var savingClock = new SnapshotClock();
+        var synchronizationClock = new SnapshotClock();
+        var core = ApplicationWorkflow.CreateFileBacked();
+        using var first = new WorkspaceViewModel(core, timeProvider: savingClock,
+            synchronizationTimeProvider: synchronizationClock);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        using var holder = new SqliteConnection($"Data Source={Path.Combine(Local("first"), "workspace.sqlite")};Pooling=False");
+        holder.Open();
+        using var held = holder.BeginTransaction();
+        var saving = first.RunLocalSaveAsync(() => first.EditFavorite("report@example.com", true));
+        try
+        {
+            await AwaitSnapshot(() => core.LocalSave.OutstandingRequests != 0);
+            synchronizationClock.Advance(TimeSpan.FromSeconds(60));
+            Assert.Equal(LocalSavePhase.Pending, first.LocalSave.Phase);
+            savingClock.Advance(TimeSpan.FromSeconds(3));
+            Assert.Equal(LocalSavePhase.Stalled, first.LocalSave.Phase);
+            Assert.True(first.LocalSave.HasUnresolvedOutcome);
+            Assert.True(first.NavigatePerson("manager@example.com"), first.Status);
+        }
+        finally { held.Rollback(); }
+        Assert.True(await saving, first.Status);
+        Assert.True(await first.SynchronizeAsync(), first.Synchronization.Error);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.True(reopened.GetRelationships("report@example.com")!.Person.IsFavorite);
+    }
+
+    [Fact]
     public async Task Automatic_cadence_publishes_continuous_edits_without_waiting_for_idle()
     {
         var clock = new SnapshotClock();
         using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
-        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), first.Status);
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         for (var edit = 1; edit <= 5; edit++)
@@ -236,7 +269,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             }
         };
         using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher), timeProvider: clock);
-        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), first.Status);
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         var original = first.Synchronization.LocalRevision;
@@ -300,7 +333,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Deliver("outgoing", "incoming");
         var clock = new SnapshotClock();
         using var second = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson("report@example.com"), second.Status);
@@ -386,7 +419,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var first = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), first.Status);
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.EditPreferredName("report@example.com", "One committed edit"), first.Status);
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
@@ -623,7 +656,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Guid? committed;
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher)))
         {
-            Assert.True(app.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
             Assert.True(app.ConfigureSynchronizationFolder(Local("outgoing")), app.Synchronization.Error);
             committed = app.Synchronization.LocalRevision;
@@ -713,7 +746,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     {
         var publisher = new SnapshotPublisher { Hold = true };
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
-        Assert.True(app.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Local("first"), WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.ConfigureSynchronizationFolder(Local("outgoing")), app.Synchronization.Error);
         var exporting = app.Synchronization.LocalRevision;
@@ -1088,7 +1121,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
@@ -1187,7 +1220,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Local("stalled-input"), WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Local("stalled-input"), WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var owner = scope == NoteScope.Team ? "manager@example.com" : "report@example.com";
         var note = app.SaveNoteDraft(app.BeginNoteDraft(scope, owner)!, "Exact stalled owner", "Original note")!;
@@ -1259,7 +1292,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         using var second = new WorkspaceViewModel(proxy, timeProvider: new UnadvancedSaveClock());
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
@@ -1473,7 +1506,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         var clock = new UnadvancedSaveClock();
         using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
@@ -1628,7 +1661,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         using var second = new WorkspaceViewModel(proxy);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
@@ -1740,7 +1773,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         var clock = new SnapshotClock();
         using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson("report@example.com"), second.Status);
@@ -1796,7 +1829,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         var clock = new UnadvancedSaveClock();
         using var second = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson("report@example.com"), second.Status);
@@ -1931,7 +1964,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var second = new WorkspaceViewModel(proxy, timeProvider: new UnadvancedSaveClock());
-        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.CreateLocalSqlite), second.Status);
+        Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.OpenOrCreate), second.Status);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         using var syncAdmitted = new ManualResetEventSlim();
@@ -2156,7 +2189,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     private WorkspaceViewModel Create(string name, IWorkspaceFileObserver? observer = null)
     {
         var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
-        Assert.True(app.OpenWorkspace(Local(name), WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Local(name), WorkspaceOpenMode.OpenOrCreate), app.Status);
         return app;
     }
 

@@ -117,7 +117,6 @@ public partial class MainWindow
     {
         ExplorerPanel.IsEnabled = WorkspaceControls.IsEnabled = OpenImportButton.IsEnabled = WorkspaceStartupPanel.IsEnabled =
             ImportControls.IsEnabled = ImportPreviewPanel.IsEnabled = enabled;
-        ShowPublicationConflicts();
         ShowOperationalNotice();
     }
 

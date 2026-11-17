@@ -65,7 +65,7 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
-            if (localSqlite && !RefreshWorkspaceCore())
+            if (localSqlite && !RefreshWorkspaceCore(onlyIfRevisionChanged: true))
             {
                 SaveFailed($"profile:{basis.Email.ToLowerInvariant()}:{field}",
                     "Profile field NOT saved. Draft retained; restore local storage and retry. " + Status);

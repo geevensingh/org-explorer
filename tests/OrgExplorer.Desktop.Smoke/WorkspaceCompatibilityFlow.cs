@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
 
@@ -37,18 +36,17 @@ internal static partial class Program
                 throw new InvalidOperationException("Current profile lost its Directory name.");
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
-            Set(entry, "PreferredName", "Indexed UI edit");
+            Set(entry, "PreferredName", "SQLite UI edit");
             Click(entry, "SavePreferredName");
             Await(() => Status(window) == "Saved locally.");
-            AssertPreferredNameReading(window, "Indexed UI edit", "Edit");
-            var pointer = Path.Combine(workspace, "workspace.json");
-            var compatible = File.ReadAllBytes(pointer);
-            var data = JsonNode.Parse(compatible)!;
-            data["schemaVersion"] = 99;
-            data["futureRequiredField"] = "Must not discard";
-            File.WriteAllText(pointer, data.ToJsonString());
-            var before = WorkspaceFixtures.Bytes(workspace);
-            Await(() => Status(window).Contains("Upgrade"));
+            AssertPreferredNameReading(window, "SQLite UI edit", "Edit");
+            var unsupported = Path.Combine(root, "future-readable-format");
+            WorkspaceFixtures.CopyVersion(99, unsupported);
+            var before = WorkspaceFixtures.Bytes(unsupported);
+            SetSettingsVisible(window, true);
+            PickWorkspaceFolder(window, unsupported);
+            Await(() => Status(window).Contains("does not migrate"));
+            SetSettingsVisible(window, false);
             var mutationState = "";
             try
             {
@@ -60,37 +58,37 @@ internal static partial class Program
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ToggleFavorite"));
                     mutationState = $"Preferred name: present={edit is not null}, enabled={edit?.Current.IsEnabled}; " +
                         $"Favorite: present={favorite is not null}, enabled={favorite?.Current.IsEnabled}.";
-                    return edit is not null && favorite is not null &&
-                        !edit.Current.IsEnabled && !favorite.Current.IsEnabled;
+                    return edit?.Current.IsEnabled != true && favorite?.Current.IsEnabled != true;
                 });
             }
             catch (TimeoutException error)
             {
-                throw new TimeoutException("Incompatible external Workspace did not present disabled mutation controls. " +
+                throw new TimeoutException("Unsupported readable-file Workspace did not present disabled mutation controls. " +
                     mutationState, error);
             }
-            if (CurrentPersonEmail(window) != "avery@example.com" ||
-                Find(window, "ProfileHeading").Current.Name != "Indexed UI edit")
-                throw new InvalidOperationException("Incompatible external delivery discarded the last validated Person.");
+            if (CurrentPersonEmail(window).Length != 0)
+                throw new InvalidOperationException("Unsupported readable-file Workspace fabricated a Person.");
             OpenImportView(window);
             if (Find(window, "ApplyImport").Current.IsEnabled)
                 throw new InvalidOperationException("Incompatible external Workspace left Import application enabled.");
             ReturnToPeople(window);
             ShowTechnicalSettings(window);
-            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Upgrade"));
+            Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("does not migrate") &&
+                Find(window, "SettingsGuidance").Current.Name.Contains("empty folder"));
             AssertNoFakeUpdater(window);
             Click(window, "RetryWorkspace");
-            Await(() => Status(window).Contains("Upgrade"));
-            AssertWorkspaceBytes(workspace, before);
-            File.WriteAllBytes(pointer, compatible);
+            Await(() => Status(window).Contains("does not migrate"));
+            AssertWorkspaceBytes(unsupported, before);
+            PickWorkspaceFolder(window, workspace);
             SetSettingsVisible(window, false);
-            Await(() => Find(window, "EditPreferredName").Current.IsEnabled);
+            OpenPerson(window, "casey@example.com", "alex@example.com");
+            AssertPreferredNameReading(window, "SQLite UI edit", "Edit");
             Click(window, "EditPreferredName");
             entry = PreferredNameEntry(window);
             if (!Find(entry, "PreferredName").Current.IsEnabled || !Find(entry, "SavePreferredName").Current.IsEnabled)
                 throw new InvalidOperationException("Validated Workspace did not restore explicit Preferred-name editing.");
             Click(entry, "CancelPreferredName");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
         }
         finally
         {
@@ -138,7 +136,7 @@ internal static partial class Program
             AwaitRestoredWorkspace(window, recoveryWorkspace);
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009C");
-            Close(recovery);
+            ClosePublishedWorkspace(recovery, recoveryWorkspace);
         }
         finally
         {
@@ -167,7 +165,7 @@ internal static partial class Program
                 Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
                 AssertProfileValue(window, "OfficeNumber", "0009C");
                 AssertPreferredNameReading(window, "Ave", "Edit");
-                Close(retry);
+                ClosePublishedWorkspace(retry, workspace);
             }
             finally { StopApplication(retry); }
         }
@@ -205,7 +203,7 @@ internal static partial class Program
                 SetSettingsVisible(window, true);
                 PickWorkspaceFolder(window, alternate, "ChooseAnotherWorkspace");
                 AwaitRestoredWorkspace(window, alternate);
-                Close(choose);
+                ClosePublishedWorkspace(choose, alternate);
             }
             finally { StopApplication(choose); }
         }
@@ -218,7 +216,7 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             AssertPreferredNameReading(window, "Ave", "Edit");
-            Close(reopened);
+            ClosePublishedWorkspace(reopened, alternate);
         }
         finally { StopApplication(reopened); }
     }

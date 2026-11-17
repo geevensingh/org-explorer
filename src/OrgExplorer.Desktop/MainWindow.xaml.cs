@@ -34,11 +34,8 @@ public partial class MainWindow : Window
     {
         this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         this.writeClipboard = writeClipboard;
-        workflow = new(application, workspaceSettings, synchronizationClock);
+        workflow = new(application, workspaceSettings, synchronizationTimeProvider: synchronizationClock);
         InitializeComponent();
-        CreateLocalSqliteWorkspaceButton.Visibility =
-            Environment.GetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES") == "1"
-                ? Visibility.Visible : Visibility.Collapsed;
         InitializeProfileCopyFeedback();
         InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
@@ -443,8 +440,6 @@ public partial class MainWindow : Window
         WorkspacePath.Text = path ?? "No Workspace open";
         WorkspacePathLabel.Text = workflow.IsWorkspaceCurrent || path is null
             ? "Current Workspace folder" : "Workspace folder (unavailable)";
-        SqlitePreviewGuidance.Visibility = CreateLocalSqliteWorkspaceButton.Visibility == Visibility.Visible ||
-            !workflow.Compatibility.SupportsOrdinaryEdits ? Visibility.Visible : Visibility.Collapsed;
         System.Windows.Automation.AutomationProperties.SetName(WorkspacePath, WorkspacePath.Text);
         UpdateMainViews();
         RefreshSearchAndFavorites();
@@ -453,13 +448,8 @@ public partial class MainWindow : Window
             $"Local save: {workflow.LocalSave.Phase}; outcome: {workflow.LocalSave.Outcome}");
         if (workflow.LocalSave.EditsPaused) WorkflowActivity.Text = workflow.LocalSave.Message;
         else if (!workPending)
-            WorkflowActivity.Text = workflow.GetWorkspaceConflicts().Count != 0
-                ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
-                    ? "Publication outcome unknown - external resolution required"
-                    : "Saved locally - external conflict resolution required"
-                : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
+            WorkflowActivity.Text = HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
-        ShowPublicationConflicts();
         ShowSynchronizationStatus();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
@@ -524,14 +514,13 @@ public partial class MainWindow : Window
 
     private bool TryLeaveLocalEdits(bool browsing = false)
     {
-        if (browsing && workflow.Compatibility.SupportsNonblockingNoteAutosave) return true;
+        if (browsing) return true;
         if (workPending)
         {
             ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");
             return false;
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
-        if (!TryLeaveNotes()) return false;
         if (!HasPreferredNameDraft && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;

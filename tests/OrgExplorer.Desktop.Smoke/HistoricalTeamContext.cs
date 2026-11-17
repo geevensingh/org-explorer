@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -88,28 +89,30 @@ internal static partial class Program
                 throw new InvalidOperationException("Team search redirected a secondary note to the ongoing note.");
             AssertEmptyDocument(window, "Team");
             CaptureVisualEvidence(window, "search-exact-empty-other-team-note");
-            var secondaryFile = Directory.GetFiles(Path.Combine(workspace, "team-notes"), "*.md")
-                .Single(path => File.ReadAllText(path).Contains("Secondary empty Team note", StringComparison.Ordinal));
-            var savedSecondary = File.ReadAllBytes(secondaryFile);
+            var secondaryIdValue = SmokeNoteId(workspace, "casey@example.com", "Secondary empty Team note", team: true);
+            var savedSecondary = ReadSmokeTeamNote(workspace, secondaryIdValue);
             SelectTab(window, "TeamNoteEditTab");
-            using (File.Open(secondaryFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Set(window, "TeamNoteMarkdown", "Retained secondary Team writing");
                 Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("NOT saved"));
                 Click(window, "OpenOngoingTeamNote");
-                Await(() => Find(window, "TeamNoteStatus").Current.Name.Contains("before leaving or closing"));
+                Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
+                SelectTeamNote(window, "Secondary empty Team note", allowPendingLocalWork: true);
+                SelectTab(window, "TeamNoteEditTab");
                 AssertValue(window, "TeamNoteMarkdown", "Retained secondary Team writing");
                 AssertNoteView(window, "Team", editing: true);
                 if (Find(window, "TeamNoteHeading").Current.Name != "Secondary empty Team note" ||
-                    !savedSecondary.SequenceEqual(File.ReadAllBytes(secondaryFile)))
+                    savedSecondary != ReadSmokeTeamNote(workspace, secondaryIdValue))
                     throw new InvalidOperationException("Ongoing Team navigation changed a failed secondary draft or saved writing.");
                 AssertNoEmptyInvitation(window, "Team");
                 CaptureVisualEvidence(window, "team-note-retained-secondary-save-failure");
             }
+            ReconcileSmokeLocalSaves(window);
             Click(window, "DiscardTeamNoteDraft");
             AwaitLocalWorkIdle(window);
             AssertEmptyDocument(window, "Team");
-            if (!savedSecondary.SequenceEqual(File.ReadAllBytes(secondaryFile)))
+            if (savedSecondary != ReadSmokeTeamNote(workspace, secondaryIdValue))
                 throw new InvalidOperationException("Discard changed the saved secondary Team note.");
             AssertNoteView(window, "Team", editing: false);
             var preferences = Path.Combine(root, "app-settings", "workspace-settings.json");
@@ -177,12 +180,14 @@ internal static partial class Program
             Set(window, "PersonNoteTitle", " ");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
             ReviewInheritedTeamNote(window, "morgan@example.com", "Morgan context");
-            Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+            Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
+            SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
+            SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", " ");
             AssertValue(window, "PersonNoteMarkdown", "Everyday individual writing");
             if (Find(window, "Email").Current.Name != "avery@example.com")
-                throw new InvalidOperationException("Inherited review bypassed the selected Person's retained writing.");
-            CaptureVisualEvidence(window, "team-owner-review-rejected-independent-person-draft");
+                throw new InvalidOperationException("Inherited review navigation lost the original Person's retained writing.");
+            CaptureVisualEvidence(window, "team-owner-review-retained-independent-person-draft");
             Click(window, "DiscardPersonNoteDraft");
             AwaitLocalWorkIdle(window);
             if (Find(window, "PersonNoteHeading").Current.Name != "Primary Person context" ||
@@ -277,7 +282,7 @@ internal static partial class Program
             SelectTreePerson(window, "casey@example.com");
             SelectTeamNote(window, "Secondary empty Team note");
             var secondaryId = Find(window, "TeamNoteHeading").Current.HelpText;
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "casey@example.com");
@@ -305,7 +310,7 @@ internal static partial class Program
                 Find(window, "TeamNoteKind").Current.Name != "Ongoing Team note")
                 throw new InvalidOperationException("The reopened owned Team designation cannot be changed explicitly.");
             if (listener.Pending()) throw new InvalidOperationException("Team Markdown fetched remote content.");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: exact secondary owned-Team GUID restored before deliberate navigation, with frozen/current context retained.");
         }
         finally { if (process is not null) StopApplication(process); }
@@ -356,9 +361,9 @@ internal static partial class Program
                 throw new InvalidOperationException($"People view still displays Import control {id}.");
         }
     }
-    private static void SelectTeamNote(AutomationElement window, string title)
+    private static void SelectTeamNote(AutomationElement window, string title, bool allowPendingLocalWork = false)
     {
-        AwaitLocalWorkIdle(window);
+        if (!allowPendingLocalWork) AwaitLocalWorkIdle(window);
         ExpandSection(window, "OtherTeamNotes");
         AutomationElement? item = null;
         Await(() => (item = Find(window, "TeamNotes").FindFirst(TreeScope.Descendants,
