@@ -7,6 +7,46 @@ public sealed class ControlReadinessTests
 {
     [Theory]
     [Trait("Category", "Runner")]
+    [InlineData("", false, "")]
+    [InlineData("", true, "open")]
+    [InlineData("orchid", true, "clear,open")]
+    public void Browsing_preparation_waits_for_query_discovery_without_repeating_clear_or_open(
+        string query, bool needsOverlay, string expectedActions)
+    {
+        var queryReads = 0;
+        var treeReads = 0;
+        var actions = new List<string>();
+
+        ControlReadiness.PreparePeopleBrowsing(
+            () => ++queryReads == 1
+                ? throw new InvalidOperationException("Missing actual UI control: SearchQuery")
+                : query,
+            () => actions.Add("clear"),
+            () => needsOverlay,
+            () => actions.Add("open"),
+            () => ++treeReads > 1, AwaitReady);
+
+        Assert.Equal(2, queryReads);
+        Assert.Equal(expectedActions, string.Join(",", actions));
+        Assert.Equal(2, treeReads);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_query_fails_bounded_preparation_before_any_clear_or_open()
+    {
+        var actions = 0;
+        Assert.Throws<TimeoutException>(() => ControlReadiness.PreparePeopleBrowsing(
+            () => throw new InvalidOperationException("Missing actual UI control: SearchQuery"),
+            () => actions++,
+            () => { actions++; return true; },
+            () => actions++,
+            () => { actions++; return true; }, AwaitReady));
+        Assert.Equal(0, actions);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
     [InlineData(true)]
     [InlineData(false)]
     public void Team_name_reading_waits_for_post_cancel_resize_discovery_without_repeating_an_action(bool initiallyMissing)

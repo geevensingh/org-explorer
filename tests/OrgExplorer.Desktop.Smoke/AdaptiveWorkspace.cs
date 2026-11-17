@@ -557,12 +557,11 @@ internal static partial class Program
         window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element &&
         !element.Current.IsOffscreen;
 
-    private static void EnsurePeopleBrowsing(AutomationElement window)
-    {
-        if (Value(window, "SearchQuery").Length > 0) Set(window, "SearchQuery", "");
-        if (IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation")) Click(window, "OpenPeople");
-        Await(() => IsVisible(window, "People"));
-    }
+    private static void EnsurePeopleBrowsing(AutomationElement window) =>
+        ControlReadiness.PreparePeopleBrowsing(
+            () => Value(window, "SearchQuery"), () => Set(window, "SearchQuery", ""),
+            () => IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation"),
+            () => Click(window, "OpenPeople"), () => IsVisible(window, "People"), Await);
 
     private static void AssertResponsiveProfileForm(AutomationElement window)
     {
