@@ -1743,10 +1743,9 @@ internal static partial class Program
             FocusManager.SetFocusedElement(window, Control<TextBox>("SearchQuery"));
             Enter(Control<TextBox>("SearchQuery"));
             Layout();
-            Measure("query-enter-focus");
+            Measure("query-enter-rejected");
             results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == "casey@example.com");
             var highlighted = results.SelectedItem;
-            Enter(results);
             PumpUntil(() => Control<TextBlock>("StatusText").Text.Contains("Retry or discard", StringComparison.Ordinal));
             Layout();
             Measure("rejected-search");
@@ -1856,23 +1855,37 @@ internal static partial class Program
         // Force cold realization rather than letting an invisible host premeasure the entire small fixture.
         VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
         Layout(false);
-        Control<TextBox>("SearchQuery").Text = "orchid";
-        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
-        void Enter(UIElement target)
+        void Press(UIElement target, Key key)
         {
-            target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+            target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, key)
                 { RoutedEvent = Keyboard.PreviewKeyDownEvent });
         }
-        Enter(Control<TextBox>("SearchQuery"));
+        void Enter(UIElement target) => Press(target, Key.Enter);
+        var queryField = Control<TextBox>("SearchQuery");
+        var queryResults = Control<ListBox>("SearchResults");
+        queryField.Text = "browse";
+        PumpUntil(() => queryResults.Items.Count == 40);
+        FocusManager.SetFocusedElement(window, queryField);
+        Press(queryField, Key.Up);
+        if (queryResults.SelectedItem is not PersonSearchResult { Person.Email: "browse01@example.com" })
+            throw new InvalidOperationException("Query Up must clamp at the automatically highlighted first Person.");
+        Press(queryField, Key.Down);
+        if (queryResults.SelectedItem is not PersonSearchResult { Person.Email: "browse02@example.com" } ||
+            !ReferenceEquals(FocusManager.GetFocusedElement(window), queryField))
+            throw new InvalidOperationException("Query Down must choose the next Person without transferring logical typing focus.");
+        queryField.Text = "unmatched-query";
+        PumpUntil(() => queryResults.Items.Count == 0);
+        Enter(queryField);
+        if (queryResults.SelectedItem is not null || queryField.Text != "unmatched-query" || Control<TextBlock>("Email").Text != "")
+            throw new InvalidOperationException("No-result query Enter must not activate a stale Person or dismiss search.");
+        queryField.Text = "orchid";
+        PumpUntil(() => queryResults.Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
         if (Control<TextBlock>("Email").Text != "" ||
-            !ReferenceEquals(FocusManager.GetFocusedElement(window), Control<ListBox>("SearchResults")))
-            throw new InvalidOperationException("Query Enter must focus results without opening the first Person.");
-        Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>()
-            .Single(r => r.Person.Email == "avery@example.com");
-        if (Control<TextBlock>("Email").Text != "")
-            throw new InvalidOperationException("Selecting a result must not navigate before explicit activation.");
-        Enter(Control<ListBox>("SearchResults"));
-        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+            Control<ListBox>("SearchResults").SelectedItem is not PersonSearchResult { Person.Email: "avery@example.com" })
+            throw new InvalidOperationException("The first Person must be highlighted without opening a profile.");
+        Enter(Control<TextBox>("SearchQuery"));
+        PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
+            Control<TextBox>("SearchQuery").Text == "");
         void Activate(string query, Func<PersonSearchResult, bool> predicate)
         {
             var results = Control<ListBox>("SearchResults");
@@ -1880,14 +1893,14 @@ internal static partial class Program
             PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(r => r.Person.Email == "alex@example.com"));
             results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(r => r.Person.Email == "alex@example.com");
             Enter(results);
-            PumpUntil(() => Control<TextBlock>("Email").Text == "alex@example.com");
+            PumpUntil(() => Control<TextBlock>("Email").Text == "alex@example.com" && Control<TextBox>("SearchQuery").Text == "");
             Control<TextBox>("SearchQuery").Text = query;
             PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(predicate));
             results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(predicate);
             Enter(results);
-            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" && Control<TextBox>("SearchQuery").Text == "");
         }
-        Activate("avery", r => r.Person.Email == "avery@example.com");
+        Control<TextBox>("SearchQuery").Text = "avery";
         PumpUntil(() => Control<ListBox>("SearchResults").Items.Count == 1);
         Layout(false);
         var grouped = (PersonSearchResult)Control<ListBox>("SearchResults").Items[0];
@@ -1900,7 +1913,6 @@ internal static partial class Program
             throw new InvalidOperationException("Profile search must open ordinary reading without selecting a matching field.");
         Control<Expander>("HistoryAccess").IsExpanded = false;
         Activate("cedar", r => r.Person.Email == "avery@example.com" && r.Matches.Any(m => m.Source == SearchSource.HistoricalTeamNote));
-        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.Source == SearchSource.HistoricalTeamNote)));
         if (Control<Expander>("HistoryAccess").IsExpanded)
             throw new InvalidOperationException("Historical search must not automatically navigate History.");
         Control<Expander>("HistoryAccess").IsExpanded = true;
@@ -1925,6 +1937,23 @@ internal static partial class Program
         if (!currentText.Contains("Pine current writing", StringComparison.Ordinal) ||
             !currentText.Contains("morgan@example.com", StringComparison.Ordinal))
             throw new InvalidOperationException("Ordinary inherited context lost the owner's current writing.");
+        queryField.Text = "browse40";
+        PumpUntil(() => queryResults.SelectedItem is PersonSearchResult { Person.Email: "browse40@example.com" });
+        Enter(queryField);
+        PumpUntil(() => queryField.Text == "" && Control<TextBlock>("Email").Text == "browse40@example.com");
+        Settle(false);
+        var acceptedRow = VisualDescendants(tree).OfType<TreeViewItem>().Single(item =>
+            item.DataContext is ReportingNode { Person.Email: "browse40@example.com" });
+        var treeViewport = tree.TransformToAncestor(root).TransformBounds(new Rect(tree.RenderSize));
+        var acceptedBounds = acceptedRow.TransformToAncestor(root).TransformBounds(new Rect(acceptedRow.RenderSize));
+        if (!acceptedRow.IsSelected || acceptedBounds.Left < treeViewport.Left || acceptedBounds.Left >= treeViewport.Right ||
+            acceptedBounds.Top < treeViewport.Top || acceptedBounds.Bottom > treeViewport.Bottom ||
+            !ReferenceEquals(FocusManager.GetFocusedElement(window), acceptedRow))
+            throw new InvalidOperationException("Accepted search must realize/select/reveal its offscreen row, not restore the previous browsing offset. " +
+                $"selected={acceptedRow.IsSelected}; viewport={treeViewport}; row={acceptedBounds}; " +
+                $"focus={(FocusManager.GetFocusedElement(window) as FrameworkElement)?.Name}; focusedRow={ReferenceEquals(FocusManager.GetFocusedElement(window), acceptedRow)}; " +
+                $"status={Control<TextBlock>("StatusText").Text}");
+        Activate("007b", r => r.Person.Email == "avery@example.com");
         Control<TextBox>("SearchQuery").Clear();
         Settle(false);
         foreach (var compact in new[] { false, true })

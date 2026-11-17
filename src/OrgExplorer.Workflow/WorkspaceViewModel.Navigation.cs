@@ -3,7 +3,8 @@ namespace OrgExplorer.Workflow;
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
     IReadOnlyList<string> ExpandedPeople, double BrowseOffset, RememberedView? LastValidView = null,
-    double BrowseHorizontalOffset = 0, double BrowseExtentWidth = 0)
+    double BrowseHorizontalOffset = 0, double BrowseExtentWidth = 0, PersonSearchResult? HighlightedResult = null,
+    bool ArchivedPeopleVisible = false)
 {
     public bool IsBrowsing => string.IsNullOrWhiteSpace(Query);
 }
@@ -133,13 +134,39 @@ public sealed partial class WorkspaceViewModel
 
     public void ChangePeopleQuery(string query)
     {
-        PeopleNavigation = PeopleNavigation with { Query = query };
+        if (query == PeopleNavigation.Query) return;
+        PeopleNavigation = PeopleNavigation with { Query = query, HighlightedResult = workflow.SearchPeople(query).FirstOrDefault() };
+        Notify();
+    }
+
+    public void MoveSearchHighlight(int direction)
+    {
+        if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
+        var results = workflow.SearchPeople(PeopleNavigation.Query);
+        var index = results.ToList().FindIndex(r =>
+            r.Person.Email.Equals(PeopleNavigation.HighlightedResult?.Person.Email, StringComparison.OrdinalIgnoreCase));
+        PeopleNavigation = PeopleNavigation with
+        {
+            HighlightedResult = results.Count == 0 ? null : results[Math.Clamp(index + direction, 0, results.Count - 1)]
+        };
+        Notify();
+    }
+
+    public void HighlightSearchResult(PersonSearchResult? result)
+    {
+        PeopleNavigation = PeopleNavigation with { HighlightedResult = result };
         Notify();
     }
 
     public void ShowPeopleOverlay(bool open)
     {
         PeopleNavigation = PeopleNavigation with { OverlayOpen = open };
+        Notify();
+    }
+
+    public void ShowArchivedPeople(bool show)
+    {
+        PeopleNavigation = PeopleNavigation with { ArchivedPeopleVisible = show };
         Notify();
     }
 
@@ -204,7 +231,23 @@ public sealed partial class WorkspaceViewModel
         bool accepted;
         try { accepted = NavigatePeopleCore(current.Person.Email, null, requireNavigation: true); }
         finally { changingDestination = false; }
-        if (accepted) RememberCurrentView();
+        if (accepted)
+        {
+            var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var context = workflow.GetRelationships(current.Person.Email);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (context is not null && visited.Add(context.Person.Email))
+            {
+                if (context.ImportedReports.Count > 0) expanded.Add(context.Person.Email);
+                context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
+            }
+            PeopleNavigation = PeopleNavigation with
+            {
+                Query = "", HighlightedResult = null, ExpandedPeople = expanded.ToArray(),
+                ArchivedPeopleVisible = current.Person.Archived || PeopleNavigation.ArchivedPeopleVisible
+            };
+            RememberCurrentView();
+        }
         return accepted;
     });
 

@@ -168,10 +168,11 @@ and a complete company directory.
 ### Person-level search
 
 This approved design supersedes the destination-level search behavior described
-in the implemented slices below. Delivery remains in progress: #107 implements
-grouped Person results, distinct-Person counts and guarded ordinary-profile
-activation. Automatic highlighting, query-field keyboard interaction and accepted
-clear/reveal/focus remain in #108. Hosted acceptance remains pending.
+in the implemented slices below. The #107/#108 implementation covers grouped
+Person results, distinct-Person counts, independent highlighting, query-field
+keyboard interaction and guarded ordinary-profile activation with accepted
+clear/reveal/focus. Complete-candidate hosted acceptance remains pending; deliver
+the combined implementation and this documentation together.
 
 - Show one result per Person, using the existing email identity, across matching
   profile fields, Person/Team notes and history. Different people with the same
@@ -286,8 +287,9 @@ People becomes a labelled overlay, not a squeezed column. Escape/Close returns
 focus to People; accepted destinations close the overlay, while rejected
 navigation retains its panel, owner, exact writing and actionable feedback.
 The implemented search replaces Favorites/tree with a full-height result list.
-Clearing restores their in-session expansion and scroll position, including
-after overlay use. Person-level results retain current, archived and frozen
+Manual clearing restores their in-session expansion and scroll position, including
+after overlay use. Accepted activation instead reveals the chosen browsing row.
+Person-level results retain current, archived and frozen
 distinctions in match explanations instead of separate destination rows.
 
 The #77 slice adds single-line reporting names with modest guide-line indentation,
@@ -302,9 +304,13 @@ activation. Click or selected-row Enter uses the existing draft/profile/navigati
 guards and opens ordinary profile/ongoing-note reading, never an arbitrary
 matching destination. Other notes and secondary current context/History retain
 their independent access. Rejection retains the highlighted row, overlay, query
-and exact failed editor. Query-field keyboard behavior and accepted search
-dismissal/revelation/focus still require #108. These implementation and invisible
-replay checks do not claim hosted input/layout or owner visual acceptance.
+and exact failed editor. The first result is highlighted without activation;
+query-field Up/Down keep typing focus and clamp at either boundary. One Enter
+accepts that highlight. Success clears search and realizes/selects/reveals the
+current tree row or retained archived-list row; wide mode focuses that row.
+Compact success closes People and focuses its button, retaining revelation for
+the next People opening. These implementation and invisible replay checks do
+not claim hosted input/layout or owner visual acceptance.
 
 The numeric implementation choices are:
 

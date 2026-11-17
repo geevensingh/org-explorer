@@ -21,15 +21,38 @@ public partial class MainWindow
     private string? matchedProfileHelp;
     private Paragraph? matchedFormerFact;
 
-    private void ConfirmSearchQuery(object sender, KeyEventArgs e)
+    private async void ConfirmSearchQuery(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter) return;
-        e.Handled = true;
-        if (workflow.PeopleNavigation.IsBrowsing) return;
-        if (!wideWorkspace) workflow.ShowPeopleOverlay(true);
-        UpdatePeopleNavigation();
-        FocusManager.SetFocusedElement(this, SearchResults);
-        if (IsVisible) SearchResults.Focus();
+        if (Keyboard.Modifiers != ModifierKeys.None || workflow.PeopleNavigation.IsBrowsing) return;
+        if (e.Key is Key.Up or Key.Down)
+        {
+            e.Handled = true;
+            workflow.MoveSearchHighlight(e.Key == Key.Down ? 1 : -1);
+            ShowSearchHighlight();
+        }
+        else if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            if (workflow.PeopleNavigation.HighlightedResult is { } result) await ActivateSearchResult(result);
+        }
+    }
+
+    private void HighlightSearchResult(object sender, SelectionChangedEventArgs e)
+    {
+        if (!refreshingQueries) workflow.HighlightSearchResult(SearchResults.SelectedItem as PersonSearchResult);
+    }
+
+    private void ShowSearchHighlight()
+    {
+        var wasRefreshing = refreshingQueries;
+        refreshingQueries = true;
+        try
+        {
+            SearchResults.SelectedItem = SearchResults.Items.Cast<PersonSearchResult>().FirstOrDefault(r =>
+                workflow.PeopleNavigation.HighlightedResult is { } highlighted && SameSearchPerson(r, highlighted));
+            if (SearchResults.SelectedItem is { } selected) SearchResults.ScrollIntoView(selected);
+        }
+        finally { refreshingQueries = wasRefreshing; }
     }
 
     private async void ActivateSearchWithKeyboard(object sender, KeyEventArgs e)
@@ -62,7 +85,11 @@ public partial class MainWindow
         workflow.ChangePeopleQuery(SearchQuery.Text);
         if (!wideWorkspace && !workflow.PeopleNavigation.IsBrowsing) workflow.ShowPeopleOverlay(true);
         UpdatePeopleNavigation();
-        if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing) RestorePeopleBrowsing();
+        if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing)
+        {
+            if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+            else RestorePeopleBrowsing();
+        }
         if (workflow.PeopleNavigation.IsBrowsing)
         {
             refreshingQueries = true;
@@ -85,7 +112,6 @@ public partial class MainWindow
             refreshingQueries = false;
             return;
         }
-        var sameQuery = lastQuery == query;
         queryDirty = false;
         lastQuery = query;
         var request = ++queryRequest;
@@ -96,9 +122,11 @@ public partial class MainWindow
         try
         {
             var results = snapshot.Results;
-            var highlighted = sameQuery ? SearchResults.SelectedItem as PersonSearchResult : null;
+            var highlighted = workflow.PeopleNavigation.HighlightedResult;
             SearchResults.ItemsSource = results;
-            SearchResults.SelectedItem = results.FirstOrDefault(r => highlighted is not null && SameSearchPerson(r, highlighted));
+            var selected = results.FirstOrDefault(r => highlighted is not null && SameSearchPerson(r, highlighted));
+            workflow.HighlightSearchResult(selected ?? results.FirstOrDefault());
+            ShowSearchHighlight();
             SearchCount.Text = string.IsNullOrWhiteSpace(SearchQuery.Text) ? "Enter text to search local information." :
                 $"People found: {results.Count} — local profiles and notes";
             if (selectedMatch is not null)
@@ -160,6 +188,14 @@ public partial class MainWindow
             PersonNotes.RefreshExternalWorkspace();
             TeamNotes.RefreshExternalWorkspace();
             ClearSearchContext();
+            SearchQuery.Clear();
+            ShowArchivedPeople.IsChecked = workflow.PeopleNavigation.ArchivedPeopleVisible;
+            expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
+            pendingSearchRevealEmail = result.Person.Email;
+            peopleBrowseRequest++;
+            UpdatePeopleNavigation();
+            if (wideWorkspace) RevealAcceptedSearchPerson();
+            else FocusPeopleEntry();
             ShowStatus();
         }
         finally { activatingSearch = false; }

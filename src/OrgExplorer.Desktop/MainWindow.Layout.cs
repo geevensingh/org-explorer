@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
 
@@ -16,6 +17,8 @@ public partial class MainWindow
     private bool wideWorkspace;
     private bool arrangingPanes;
     private bool draggingPane;
+    private string? pendingSearchRevealEmail;
+    private int peopleBrowseRequest;
 
     private void ResizeWorkspace(object sender, SizeChangedEventArgs e) => ArrangeWorkspace();
     private void ResizePersonBody(object sender, SizeChangedEventArgs e) => ArrangePersonBody();
@@ -47,7 +50,11 @@ public partial class MainWindow
             PeopleDivider.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
             ClosePeopleButton.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
             UpdatePeopleNavigation();
-            if (transition && wide && workflow.PeopleNavigation.IsBrowsing) RestorePeopleBrowsing();
+            if (transition && wide && workflow.PeopleNavigation.IsBrowsing)
+            {
+                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                else RestorePeopleBrowsing();
+            }
         }
         finally { arrangingPanes = false; }
         ArrangePersonBody();
@@ -122,7 +129,11 @@ public partial class MainWindow
         UpdatePeopleNavigation();
         if (workflow.PeopleNavigation.OverlayOpen)
         {
-            if (workflow.PeopleNavigation.IsBrowsing) RestorePeopleBrowsing();
+            if (workflow.PeopleNavigation.IsBrowsing)
+            {
+                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                else RestorePeopleBrowsing();
+            }
             Dispatcher.BeginInvoke(() =>
             {
                 if (!workflow.PeopleNavigation.OverlayOpen) return;
@@ -199,16 +210,102 @@ public partial class MainWindow
 
     private void RestorePeopleBrowsing()
     {
+        var request = ++peopleBrowseRequest;
         // Retain accepted Person selections made while search hid the tree.
         expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
         RestoreRealizedTreeState(PeopleList);
         Dispatcher.BeginInvoke(() =>
         {
-            if (workflow.PeopleNavigation.IsBrowsing && FindScrollViewer(PeopleList) is { } scroll)
+            if (request == peopleBrowseRequest && workflow.PeopleNavigation.IsBrowsing && FindScrollViewer(PeopleList) is { } scroll)
             {
                 scroll.ScrollToHorizontalOffset(workflow.PeopleNavigation.BrowseHorizontalOffset);
                 scroll.ScrollToVerticalOffset(workflow.PeopleNavigation.BrowseOffset);
             }
         }, DispatcherPriority.Loaded);
+    }
+
+    private void RevealAcceptedSearchPerson()
+    {
+        var email = pendingSearchRevealEmail;
+        var request = ++peopleBrowseRequest;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
+                !workflow.PeopleNavigation.IsBrowsing || PeoplePanel.Visibility != Visibility.Visible) return;
+            FrameworkElement? row;
+            if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
+            {
+                ShowArchivedPeople.IsChecked = true;
+                RefreshArchivedPeople();
+                var item = ArchivedPeopleList.Items.Cast<PersonProfile>().Single(p =>
+                    p.Email.Equals(person.Email, StringComparison.OrdinalIgnoreCase));
+                ArchivedPeopleList.ScrollIntoView(item);
+                ArchivedPeopleList.UpdateLayout();
+                row = ArchivedPeopleList.ItemContainerGenerator.ContainerFromItem(item) as ListBoxItem;
+            }
+            else
+            {
+                expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
+                row = RevealReportingRow(email);
+            }
+            if (row is null)
+            {
+                StatusText.Text = "The Person is open, but their People row could not be revealed. Reopen People to try again.";
+                return;
+            }
+            // Root rows can reserve a wider browsing extent; reveal the header's leading edge, not its trailing blank width.
+            row.BringIntoView(new Rect(0, 0, 1, Math.Min(28, row.ActualHeight)));
+            if (wideWorkspace)
+            {
+                FocusManager.SetFocusedElement(this, row);
+                if (IsVisible) row.Focus();
+            }
+            pendingSearchRevealEmail = null;
+            RememberPeopleBrowsing();
+        }, DispatcherPriority.Loaded);
+    }
+
+    private TreeViewItem? RevealReportingRow(string email)
+    {
+        var path = new Stack<string>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var context = workflow.GetRelationships(email); context is not null && visited.Add(context.Person.Email);
+            context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null)
+            path.Push(context.Person.Email);
+        ItemsControl parent = PeopleList;
+        TreeViewItem? row = null;
+        while (path.TryPop(out var person))
+        {
+            var index = parent.Items.Cast<ReportingNode>().ToList().FindIndex(n =>
+                n.Person.Email.Equals(person, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) return null;
+            parent.ApplyTemplate();
+            parent.UpdateLayout();
+            if (parent.ItemContainerGenerator.ContainerFromIndex(index) is not TreeViewItem)
+            {
+                FindItemsHost(parent, parent)?.BringIndexIntoViewPublic(index);
+                parent.UpdateLayout();
+            }
+            if (parent.ItemContainerGenerator.ContainerFromIndex(index) is not TreeViewItem container) return null;
+            var wasLoading = loading;
+            loading = true;
+            try
+            {
+                container.IsExpanded = expandedPeople.Contains(person);
+                container.IsSelected = path.Count == 0;
+            }
+            finally { loading = wasLoading; }
+            row = container;
+            parent = container;
+        }
+        return row;
+    }
+
+    private static VirtualizingPanel? FindItemsHost(DependencyObject root, ItemsControl owner)
+    {
+        if (root is VirtualizingPanel { IsItemsHost: true } panel && ItemsControl.GetItemsOwner(panel) == owner) return panel;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            if (FindItemsHost(VisualTreeHelper.GetChild(root, index), owner) is { } child) return child;
+        return null;
     }
 }

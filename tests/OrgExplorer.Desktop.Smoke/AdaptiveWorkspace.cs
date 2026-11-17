@@ -414,7 +414,6 @@ internal static partial class Program
         AssertWorkspaceBytes(workspace, bytes);
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
         QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
-        Click(window, "ClearSearch");
         Await(() => Value(window, "SearchQuery") == "" && IsVisible(window, "People") &&
             Find(window, "Email").Current.Name == "longread@example.com");
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,

@@ -115,6 +115,7 @@ public sealed class TeamNoteTests
         Assert.True(app.EditTeamNote(secondary.Id, "Later title", "Later current writing"));
         Assert.True(app.EditPreferredName(ongoing.OwnerEmail, "Later owner name"));
         Assert.True(app.EditPersonArchived(ongoing.OwnerEmail, true));
+        app.ChangePeopleQuery("Orchid");
         var person = Assert.Single(app.SearchPeople("Orchid"), r => r.Person.Email == "avery@example.com");
         Assert.True(app.NavigateSearchResult(person));
         Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);

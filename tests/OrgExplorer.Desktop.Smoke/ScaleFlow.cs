@@ -108,7 +108,7 @@ internal static partial class Program
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-                Click(window, "ClearSearch");
+                AwaitScale(() => Value(window, "SearchQuery") == "");
             });
             ScaleFixture.Measure("UI-photo-render", () => AssertScalePhotoVisible(window));
             ScaleFixture.Measure("UI-history-search", () =>
@@ -184,7 +184,7 @@ internal static partial class Program
             AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
-            Click(window, "ClearSearch");
+            AwaitScale(() => Value(window, "SearchQuery") == "");
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {
                 BeginProfileEditing(window);
@@ -269,7 +269,7 @@ internal static partial class Program
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
                 AssertProfileValue(window, "OfficeNumber", "0009U");
-                Click(window, "ClearSearch");
+                AwaitScale(() => Value(window, "SearchQuery") == "");
                 AssertScalePhotoVisible(window);
                 if (!Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"))
                     throw new InvalidOperationException("Durable scale reporting mutation was lost.");

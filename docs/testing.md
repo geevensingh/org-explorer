@@ -403,8 +403,26 @@ grouped results, mouse activation, exact/empty Other notes, current/frozen attri
 and rejected writing within those existing journeys. No scenario, population,
 deadline, required lane or explicit-scale selection is removed. These captures
 and hosted assertions still require execution for the complete candidate.
-Automatic highlighting, query-field arrow/Enter delivery and accepted
-clear/reveal/focus remain in #108; the full approved design is under construction.
+The #108 view-model cases observe initial/query-reset/empty highlighting,
+clamped navigation without leaving exact reading or unsaved profiles, and
+accepted versus rejected current/archived transitions. Manual clear retains
+both browsing axes and measured width; accepted activation instead expands the
+chosen path and reveals its row, never restoring an old offset over that choice.
+The existing search journeys now type through the focused query field with real
+keyboard input, retain typing focus during Up/Down, observe each highlighted row
+inside the results viewport, and check first/last clamping, continued typing,
+first/chosen-result Enter, no-result Enter and mouse equivalence.
+Accepted current and archived rows must be selected and visible, with their
+leading edge, full header height and clickable point inside the viewport.
+Reserved blank reporting-row extent can remain wider than that viewport.
+Wide mode requires actual row keyboard focus. Compact current/archived acceptance must
+dismiss People and focus its button, then retain the revealed selection on
+reopening. Archived access must show the retained list without reactivation or
+current-tree insertion. The responsive rejected-note journey uses the same
+query-field input and preserves exact failed writing, owner, highlight, overlay
+and geometry. No scenario, responsive matrix, deadline or scale contract changes.
+The complete #107/#108 candidate still needs hosted execution; authored assertions
+and invisible replays are not native keyboard/layout acceptance.
 
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
@@ -496,8 +514,8 @@ An isolated compiled retained-draft probe records post-resize, settled,
 overlay-open and rejected-selection viewport/notice geometry. A failed note's
 already reported guard does not add another global notice line and move the
 underlay; new pending work, retries and independent errors remain distinct.
-The same real-control probe continues through query entry, query Enter/focus,
-one explicit rejected result activation and clearing. It records toolbar,
+The same real-control probe continues through query entry, immediate rejected
+query Enter and manual clearing. It records toolbar,
 search/clear desired and arranged bounds, logical focus and the original
 absolute Person viewport. Empty-query Clear is hidden while retaining its
 measured footprint, so its appearance cannot grow the toolbar or move the

@@ -11,7 +11,11 @@ public partial class MainWindow
     private bool? unsavedArchived;
     private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedFavorite.HasValue;
 
-    private void ChangeArchivedFilter(object sender, RoutedEventArgs e) => RefreshArchivedPeople();
+    private void ChangeArchivedFilter(object sender, RoutedEventArgs e)
+    {
+        workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
+        RefreshArchivedPeople();
+    }
 
     private void RefreshArchivedPeople()
     {

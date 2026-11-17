@@ -35,7 +35,8 @@ where they differ, specifically:
 The later [Person-level search amendment](ui-design.md#person-level-search)
 supersedes this pass's exact-destination search and focus-only query Enter.
 Grouped results and ordinary-profile activation are implemented in #107;
-the remaining interaction slice (#108) and hosted acceptance are still pending.
+#108 adds highlighting, query-field keyboard input and accepted clear/reveal/focus.
+Complete-candidate hosted acceptance remains pending.
 
 The existing ongoing-note, exact-restoration, ownership, import, profile-draft,
 external-change, history, and storage-safety contracts remain the baseline.
@@ -279,14 +280,15 @@ position and hierarchy depth.
 
 Keep live search across existing profile/note information and current,
 archived, and historical distinctions. Search temporarily replaces Favorites
-and the reporting tree; clearing it restores the prior browsing position.
+and the reporting tree; manual clearing restores the prior browsing position.
+Accepted activation clears search and instead reveals the chosen browsing row.
 Results show one Person per email identity, with name, email, attributed sources
 and a relevant excerpt. Explicit activation opens their ordinary profile through
 the existing guards. Other notes and current/frozen context remain accessible
 through normal reading surfaces; there is no generic Selected search context
 inspector. The later Person-level amendment owns highlighting, query-field
-keyboard behavior and accepted clear/reveal/focus; those interactions remain
-under construction in #108.
+keyboard behavior and accepted clear/reveal/focus, implemented in #108 with
+complete-candidate hosted acceptance still pending.
 
 ## Editing and keyboard behavior
 
@@ -330,7 +332,7 @@ nothing committed, or permission to clear another unresolved error.
 | Context | Enter behavior |
 |---|---|
 | Preferred-name entry | Save that single-purpose entry. |
-| Search field | Activate the highlighted Person (approved amendment; #108 pending). |
+| Search field | Activate the highlighted Person immediately, then clear/reveal only on acceptance. |
 | Explicitly selected result | Open the ordinary guarded Person profile. |
 | Full-profile text field | Do not submit the whole profile. |
 | Multiline note editor | Insert a newline. |
