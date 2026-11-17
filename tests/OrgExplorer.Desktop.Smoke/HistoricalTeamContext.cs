@@ -194,6 +194,7 @@ internal static partial class Program
             CaptureVisualEvidence(window, "team-owner-review-retained-independent-person-draft");
             Click(window, "DiscardPersonNoteDraft");
             AwaitLocalWorkIdle(window);
+            SelectTab(window, "PersonNoteReadTab");
             if (Find(window, "PersonNoteHeading").Current.Name != "Primary Person context" ||
                 !ReadingText(window).Contains("Everyday individual writing"))
                 throw new InvalidOperationException("Discard did not restore the exact saved Person note for reading.");

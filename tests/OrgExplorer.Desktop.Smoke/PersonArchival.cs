@@ -180,6 +180,7 @@ internal static partial class Program
             AssertSelectionMatchesProfile(window);
             Click(window, "DiscardPersonNoteDraft");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Retained individual");
+            SelectTab(window, "PersonNoteReadTab");
             AssertNoteView(window, "Person", editing: false);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNameReading(window, null);

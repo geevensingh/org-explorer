@@ -250,7 +250,10 @@ internal static partial class Program
             }
             BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
-            SaveProfileEditing(window);
+            PersonProfile submittedLinkProfile;
+            using (var saved = OpenSmokeWorkspace(workspace))
+                submittedLinkProfile = saved.GetRelationships("avery@example.com")!.Person with { LinkedInProfileUrl = link };
+            SaveProfileEditing(window, submittedLinkProfile);
             Await(() => Find(window, "OpenLinkedIn").Current.IsEnabled);
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
@@ -938,11 +941,42 @@ internal static partial class Program
         AssertMissingCopy(window, Find(window, "LinkedInProfileUrlValue"));
     }
 
-    private static void SaveProfileEditing(AutomationElement window)
+    private static readonly (string Control, Func<PersonProfile, string?> Read)[] SmokeProfileTextFields =
+    [
+        ("DirectoryNameEditor", person => person.DirectoryName),
+        ("Alias", person => person.Alias),
+        ("JobTitle", person => person.JobTitle),
+        ("Department", person => person.Department),
+        ("OfficeBuilding", person => person.OfficeBuilding),
+        ("OfficeNumber", person => person.OfficeNumber),
+        ("OfficeState", person => person.OfficeState),
+        ("OfficeCountry", person => person.OfficeCountry),
+        ("LinkedInProfileUrl", person => person.LinkedInProfileUrl)
+    ];
+
+    private static bool IsSmokeExplicitProfileSaveComplete(string submittedOwner, string displayedOwner,
+        bool editing, bool canEdit) =>
+        submittedOwner == displayedOwner && !editing && canEdit;
+
+    private static void SaveProfileEditing(AutomationElement window, PersonProfile? submittedProfile = null)
     {
+        var owner = Find(window, "Email").Current.Name;
+        var workspace = Find(window, "WorkspaceName").Current.HelpText;
+        var submittedText = SmokeProfileTextFields.Select(field =>
+            (field.Control, Value: Value(window, field.Control) is { Length: > 0 } value ? value : null)).ToArray();
+        var hasTeamName = IsVisible(window, "TeamNameEditor");
+        var submittedTeamName = hasTeamName && Value(window, "TeamNameEditor") is { Length: > 0 } name ? name : null;
+        if (submittedProfile is not null && submittedProfile.Email != owner)
+            throw new InvalidOperationException("The explicit profile Save expectation belongs to a different owner.");
         Click(window, "SaveProfile");
-        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
-            Status(window).StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        Await(() => IsSmokeExplicitProfileSaveComplete(owner, Find(window, "Email").Current.Name,
+            IsVisible(window, "ProfileEditingState"), Find(window, "EditProfile").Current.IsEnabled));
+        using var saved = OpenSmokeWorkspace(workspace);
+        var committed = saved.GetRelationships(owner)?.Person;
+        if (committed is null || submittedProfile is not null && committed != submittedProfile ||
+            hasTeamName && committed.TeamName != submittedTeamName ||
+            SmokeProfileTextFields.Where((field, index) => field.Read(committed) != submittedText[index].Value).Any())
+            throw new InvalidOperationException("The accepted explicit profile Save did not independently reopen its exact submitted owner/text/profile.");
     }
 
     private static void CancelProfileEditing(AutomationElement window)

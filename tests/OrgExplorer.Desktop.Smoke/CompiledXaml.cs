@@ -218,6 +218,10 @@ internal static partial class Program
                     VerifyHostedOrdinaryFixtureStateContracts(type, Path.Combine(settings, "os")));
                 HarnessRuntime.Run("compiled-current-search-storage", () =>
                     VerifyCurrentSearchStorage(type, Path.Combine(settings, "cs")));
+                HarnessRuntime.Run("compiled-note-read-demand", () =>
+                    VerifyNoteReadDemand(type, Path.Combine(settings, "nd")));
+                HarnessRuntime.Run("compiled-actual39-functional", () =>
+                    VerifyActual39FunctionalContracts(type, Path.Combine(settings, "af")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
@@ -907,7 +911,7 @@ internal static partial class Program
             var priorPhotoBytes = priorPhoto?.Bytes.ToArray();
             var priorDraft = workflow.GetRetainedNoteDraft(NoteScope.Person, noteId);
             var priorNoteError = workflow.LocalSaveError;
-            var priorTitle = NoteControl<TextBox>("NoteTitle").Text;
+            var priorTitle = workflow.PersonNotesView.SelectedNote?.Title;
             var priorMode = NoteControl<TabControl>("Views").SelectedItem;
             bool ProfileAccepted() => workflow.PeopleNavigation.SelectedEmail == submitted.Basis.Email &&
                 Control<TextBlock>("Email").Text == submitted.Basis.Email &&
@@ -982,8 +986,14 @@ internal static partial class Program
                     throw new InvalidOperationException("Profile Save changed the independently reopened photo.");
             }
             var expected = dirtyNote ? "# Retained unsaved note" : delivered;
-            if (NoteControl<TextBox>("MarkdownEditor").Text != expected ||
-                NoteControl<TextBox>("NoteTitle").Text != priorTitle ||
+            var reading = NoteControl<FlowDocumentScrollViewer>("Reading").Document;
+            var readText = new TextRange(reading.ContentStart, reading.ContentEnd).Text;
+            var exactContent = priorMode == NoteControl<TabItem>("EditTab")
+                ? NoteControl<TextBox>("MarkdownEditor").Text == expected && NoteControl<TextBox>("NoteTitle").Text == priorTitle
+                : NoteControl<TextBlock>("NoteHeading").Text == priorTitle &&
+                    expected.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .All(line => readText.Contains(line.TrimStart('#', ' '), StringComparison.Ordinal));
+            if (!exactContent || workflow.PersonNotesView.SelectedNote?.Markdown != expected ||
                 NoteControl<TabControl>("Views").SelectedItem != priorMode ||
                 workflow.PersonNotesView.SelectedNote?.Id != noteId ||
                 workflow.PersonNotesView.SelectedNote?.OwnerEmail != submitted.Basis.Email ||
@@ -2909,7 +2919,9 @@ internal static partial class Program
         if (Control<Expander>("OtherNotes").IsExpanded || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("Designated Team writing must open directly in Read without a permanent title list.");
         Select("Secondary Team");
-        if (Control<TextBox>("MarkdownEditor").Text != "" || Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
+        var emptyReading = Control<FlowDocumentScrollViewer>("Reading").Document;
+        if (!string.IsNullOrWhiteSpace(new TextRange(emptyReading.ContentStart, emptyReading.ContentEnd).Text) ||
+            Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("An empty secondary Team note must remain an exact, Read-first destination.");
         if (notes.FindName("EmptyBody") is not TextBlock { Visibility: Visibility.Visible } ||
             Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
@@ -2933,7 +2945,7 @@ internal static partial class Program
             Control<TextBox>("MarkdownEditor").Text = "Retained secondary Team draft";
             PumpUntil(() => Control<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
             Invoke("OngoingButton");
-            PumpUntil(() => Control<TextBox>("NoteTitle").Text == "Continuing Team");
+            PumpUntil(() => Control<TextBlock>("NoteHeading").Text == "Continuing Team");
             Select("Secondary Team");
             Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
             if (Control<TextBox>("MarkdownEditor").Text != "Retained secondary Team draft" ||
@@ -2946,7 +2958,8 @@ internal static partial class Program
         Invoke("RetryButton");
         Saved(secondaryId, "Secondary Team", "Retained secondary Team draft");
         Invoke("OngoingButton");
-        if (Control<TextBox>("MarkdownEditor").Text != "Saved Team writing" ||
+        var ongoingReading = Control<FlowDocumentScrollViewer>("Reading").Document;
+        if (!new TextRange(ongoingReading.ContentStart, ongoingReading.ContentEnd).Text.Contains("Saved Team writing", StringComparison.Ordinal) ||
             Control<TabControl>("Views").SelectedItem != notes.FindName("ReadTab"))
             throw new InvalidOperationException("Explicit ongoing navigation did not return to saved Team reading after retry.");
         Invoke("DesignateButton");
@@ -2988,10 +3001,17 @@ internal static partial class Program
             source.EditTeamNote(id, title, "Delivered secondary writing"));
         if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
         notes.GetType().GetMethod("RefreshExternalWorkspace")!.Invoke(notes, null);
-        if (Control<TextBox>("MarkdownEditor").Text != "Delivered secondary writing")
+        var deliveredReading = Control<FlowDocumentScrollViewer>("Reading").Document;
+        if (!new TextRange(deliveredReading.ContentStart, deliveredReading.ContentEnd).Text.Contains("Delivered secondary writing", StringComparison.Ordinal) ||
+            workflow.GetOwnedNotesView(scope).SelectedNote?.Markdown != "Delivered secondary writing")
             throw new InvalidOperationException("Clean note reading did not accept the complete delivered snapshot.");
         Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
+        if (Control<TextBox>("MarkdownEditor").Text != "Delivered secondary writing" ||
+            Control<TextBox>("NoteTitle").Text != title || workflow.GetRetainedNoteDraft(scope, id) is not null)
+            throw new InvalidOperationException("Actual Edit did not populate the same complete delivered title/body without retaining it.");
         Control<TextBox>("MarkdownEditor").Text = "Writing after snapshot delivery";
+        if (workflow.GetRetainedNoteDraft(scope, id)?.Basis.Markdown != "Delivered secondary writing")
+            throw new InvalidOperationException("Actual editing combined delivered presentation with a different immutable note base.");
         var flush = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
         PumpUntil(() => flush.IsCompleted);
         if (!flush.GetAwaiter().GetResult() ||

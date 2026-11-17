@@ -54,6 +54,10 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyManagerChoiceDemand);
             if (args.Length == 2 && args[1] == "--verify-current-search-storage")
                 return VerifyHostedCutoverContracts(executable, VerifyCurrentSearchStorage);
+            if (args.Length == 2 && args[1] == "--verify-actual39-functional")
+                return VerifyHostedCutoverContracts(executable, VerifyActual39FunctionalContracts);
+            if (args.Length == 2 && args[1] == "--verify-note-read-demand")
+                return VerifyHostedCutoverContracts(executable, VerifyNoteReadDemand);
             if (args.Length == 2 && args[1] == "--verify-person-search-integration")
                 return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
             if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")

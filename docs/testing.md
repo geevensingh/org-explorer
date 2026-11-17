@@ -1170,6 +1170,35 @@ that permission. The obsolete query/refresh/Workspace publication and stale
 eligibility negatives remain. `--verify-current-search-storage` and the narrower
 `--verify-person-search-integration` expose these existing public/BAML checks
 without running unrelated suites or claiming native input/focus acceptance.
+The compiled note surfaces render current Read title/body directly from their
+immutable presentation snapshot; hidden edit TextBoxes are populated only for
+actual Edit, creation or retained Edit restoration. This projection neither
+retains writing nor acknowledges local durability. `--verify-note-read-demand`
+observes zero hidden TextChanged assignments during Read navigation, complete
+current Read and actual Edit, unchanged revision/retention on mode switching,
+exact retained owner/base/error and independently saved writing in both scopes.
+The existing profile-note-refresh replay also verifies incoming Read and then
+actual Edit against the same delivered immutable note base before saving.
+Read assertions observe the rendered document/heading, not stale hidden inputs.
+Both this check and `--verify-actual39-functional` remain in the full compiled
+selection. The latter preserves independent note failure while explicitly saving
+a whole profile, and exact saved note/review/history context after discard and
+the actual Read action in current and Archived views. Native profile Save
+completion observes the accepted same-owner Edit-to-View transition and
+independently reopened submitted values; unrelated retained writing may
+legitimately leave global activity Pending. Outside Preferred-name dismissal
+cancels only an entry still editing; programmatic Finish/owner navigation closes
+it after ending editing. Invisible checks preserve Save/Cancel/newer-entry
+invariants but cannot deliver a native outside-click Popup.Closed event.
+The explicit `--diagnose-rich-navigation` diagnostic keeps all 42 selections,
+20 Team plus one Person Add, full rich population, per-sample independent
+reopens and real 60-second synchronization during sampling. Managed
+dispatch/layout, observation milestones, allocations and independent reopen work
+are separate raw observations, never additive or subtracted from native timing.
+Only fixture-owned future timers stop after sampling; its own publication and
+callbacks must finish before actual Closed and cleanup. This is not a required
+lane or native acceptance, and changes no editor/navigation/durability target,
+deadline, workload or existing scale selection.
 The native manual-clear replay waits read-only for the queried Person's current
 Person-note evidence before selecting once; hidden browsing controls alone do
 not establish result readiness. The existing bounded wait and exact row/pixel

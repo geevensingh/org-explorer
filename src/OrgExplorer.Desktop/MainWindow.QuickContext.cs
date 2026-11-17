@@ -153,11 +153,8 @@ public partial class MainWindow
 
     private void PreferredNameDismissed(object sender, EventArgs e)
     {
-        if (!PreferredNamePopup.IsOpen)
-        {
-            if (RetainsPersonDrafts) FinishPreferredNameEntry();
-            else CancelPreferredNameEntry();
-        }
+        if (!PreferredNamePopup.IsOpen && preferredNameEditing)
+            CancelPreferredNameEntry();
     }
 
     private async void PreferredNameKeyDown(object sender, KeyEventArgs e)
