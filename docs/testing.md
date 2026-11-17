@@ -874,7 +874,23 @@ The existing named invisible `--verify-legacy-save-feedback` command is retained
 for runner compatibility, not a legacy engine. It now uses actual SQLite
 noncommit/reconciliation, exact retained owner writing, paused edits and available
 browsing, followed by complete snapshot publication before normal cleanup close.
+It invokes the enabled compiled `SaveProfileButton` Click connector, not a private
+save method, and observes failed local completion and retained profile writing.
 It remains part of the compiled profile-refresh selection.
+
+The invisible `--verify-preferred-name-retention` check also runs in that existing
+profile-refresh selection. It holds the real SQLite commit through the shared
+save-boundary observer, drives enabled compiled Save/Cancel and pending A-B-A
+Person selection, and requires exact newer writing to survive the older
+completion until its own Save or Cancel. Returning before completion must use
+the exact accepted base for the next explicit Save, both with and without
+earlier Cancel or newer typing during the held write. Independent SQLite reopen
+checks the actual saved owner/value and excludes implicit submission of newer
+text. A genuine other-client same-field change must still reject the stale
+entry and retain its exact writing/error without overwriting external data.
+These checks use the existing bounded dispatcher/commit observations and never
+show a window or create a native main-window handle; they are not hosted
+interaction or latency acceptance.
 
 ### Retired-engine coverage reconciliation (#100)
 
