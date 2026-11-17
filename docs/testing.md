@@ -161,6 +161,9 @@ clearing the retained Import error or claiming safe close. Independent note,
 quick-action and dirty-profile writing still block entry. A real-folder case holds
 the publication lock, rejects Apply, returns to People, releases the lock, reenters
 Import and explicitly previews/applies again before checking durable values.
+The compiled replay also awaits the actual reenabled Open control after each
+foreground operation: its view-model outcome can precede WPF work cleanup and
+does not yet authorize a competing Settings/Import action.
 The explicit Import-only discard clears the rejected batch and review without
 clearing independent Person/Team-note errors, Preferred-name errors or profile
 drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
