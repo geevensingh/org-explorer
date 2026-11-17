@@ -1812,6 +1812,13 @@ desktop-pixel check still proves rendering.
 Exact clipboard-copy observation uses the existing bounded STA dispatcher pump,
 servicing the harness's own OLE clipboard-owner messages while another process copies.
 The real clipboard equality and 20-second bound remain; no copied-text effect is faked.
+Only a read-side `COMException` with `0x800401D0 (CLIPBRD_E_CANT_OPEN)` remains
+pending within that same wait. It never substitutes empty text, repeats a copy
+gesture/write, or restarts the deadline. Timeout records the last read's availability
+or text mismatch and preserves both the wait failure and latest cannot-open exception;
+unexpected read errors propagate. Runner-category `ClipboardObservationTests` drive
+the same tooling observer with a controlled external reader and bounded wait, without
+accessing the local clipboard or opening a window. Actual native proof stays hosted.
 Bounded `DIAGNOSTIC: harness-runtime` JSON lines investigate ordinary-lane
 runtime without changing the workload or acceptance clocks. Every native scenario
 and compiled profile-refresh/update invocation emits a start/end record; compiled
