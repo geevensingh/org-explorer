@@ -40,6 +40,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-recover-503 RUN REASON` | Coordinator only, with explicit user authorization: records an additional recovery of currently failed, first-attempt HTTP 503 reads after the ordinary pass was consumed. |
 | `source-defer-photo-503 RUN REASON` | Coordinator only, when the user requests collecting unread entries despite exhausted HTTP 503 photo metadata: records that deferral without clearing the failure or enabling publication. |
 | `source-recover-profile-open RUN DIRECTORY-ID REASON` | Coordinator only, after explicit user approval for that one lookup: records one retry of a supported unclassified profile-read failure described below. |
+| `source-defer-profile RUN DIRECTORY-ID REASON` | Coordinator only, after an explicit request to fetch unread entries: retains a twice-failed identical code-less profile lookup as unresolved while allowing unrelated reads, never publication. |
 | `source-confirm-photo-absence RUN DIRECTORY-ID REASON` | Coordinator only, with explicit user approval: accepts an exact retained binary HTTP 404 `ImageNotFound` as sourced absence without repeating the read or changing its original attempt. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
@@ -306,6 +307,27 @@ failures of that diagnostic in this invocation; approval for one diagnostic does
 not cover the other. Even with broader approval, record each identity's
 authorization separately through the gate. A failed second
 attempt still blocks publication.
+
+### Collecting unread entries despite an exhausted profile
+
+When the user explicitly requests fetching unread entries after a retained
+Person's profile fails its one retry, settle all active claims. The coordinator
+may run `source-defer-profile RUN DIRECTORY-ID REASON` for that exact identity.
+Both retained attempts must establish the same supported code-less profile
+diagnostic above. Structured errors, differing diagnostics, denials, first
+failures and missing original results do not qualify.
+
+The command records the reason, time and latest failed claim in
+`profileDeferrals`; both attempts and the failed state stay unchanged. It permits
+unrelated first reads but refuses another attempt of that target. Returned retry
+delays still apply, and later failures need their normal recovery decision.
+Approval to retry future identical errors is not approval to defer their failures.
+
+Keep the Person in the reporting population and the affected job explicitly
+blocked after its other assigned reads finish. A failed profile is not an unknown
+observation, omission of that Person, or a completed job. `publish` still requires
+every source read and profile observation, so both this failure and any existing
+metadata deferral remain export blockers.
 
 ### User-authorized binary photo absence
 

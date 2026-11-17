@@ -17,11 +17,13 @@ public sealed partial class ExportSession
         public string? StopReason { get; set; }
         public List<ServiceRecoveryAuthorization> ServiceRecoveries { get; set; } = [];
         public List<MetadataDeferral> MetadataDeferrals { get; set; } = [];
+        public List<ProfileDeferral> ProfileDeferrals { get; set; } = [];
         public List<PhotoAbsenceConfirmation> PhotoAbsenceConfirmations { get; set; } = [];
     }
     public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
     public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record MetadataDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
+    public sealed record ProfileDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record PhotoAbsenceConfirmation(DateTimeOffset ConfirmedAt, string Reason, string Target, Guid SourceClaimId);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
@@ -62,10 +64,12 @@ public sealed partial class ExportSession
             if (pending.Length == 0) return Blocked("These source reads are already completed.");
             if (pending.Any(read => IsDeferredMetadata(ledger, read)))
                 return Blocked("Deferred photo metadata remains unresolved; its retry limit cannot reset.");
+            if (pending.Any(read => IsDeferredProfile(ledger, read)))
+                return Blocked("Deferred profile evidence remains unresolved; its retry limit cannot reset.");
             var active = ledger.Reads.Where(read => read.State == "active").ToArray();
             if (active.Any(read => read.Attempts[^1].Worker == worker) || pending.Any(read => read.State == "active"))
                 return Blocked("A requested read or this worker already has an active claim.");
-            if (ledger.Reads.Any(read => !IsDeferredMetadata(ledger, read)
+            if (ledger.Reads.Any(read => !IsDeferredSource(ledger, read)
                 && (read.State == "failed" || read.RecoveryEligible && read.State != "completed")))
             {
                 if (!ledger.RecoveryConsumed)
@@ -142,7 +146,7 @@ public sealed partial class ExportSession
             Require(ledger.StopReason is null, ledger.StopReason ?? "");
             Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
             Require(ledger.Reads.All(read => read.State != "active"), "Stop dispatch and settle or interrupt all active workers first.");
-            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredMetadata(ledger, read)).ToArray();
+            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredSource(ledger, read)).ToArray();
             Require(failures.Length > 0 && failures.All(read => read.Attempts.Count == 1
                 && read.Attempts[^1].Retryable && !read.RecoveryEligible),
                 "Only first-attempt failures can receive additional HTTP 503 recovery; existing recovery cannot reset.");
@@ -162,7 +166,7 @@ public sealed partial class ExportSession
         {
             Require(ledger.StopReason is null, ledger.StopReason ?? "");
             Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before deferring metadata.");
-            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredMetadata(ledger, read)).ToArray();
+            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredSource(ledger, read)).ToArray();
             Require(failures.Length > 0 && failures.All(read => read.Kind == "structured"
                 && read.Target.Split('?')[0].EndsWith("/photo", StringComparison.Ordinal)
                 && read.Attempts.Count == 2 && read.Attempts[^1].Retryable),
@@ -187,17 +191,32 @@ public sealed partial class ExportSession
                 ?? throw new InvalidOperationException("The authorized profile lookup is not in this run.");
             Require(read.State == "failed" && read.Attempts.Count == 1 && !read.RecoveryEligible,
                 "Only the authorized first-attempt profile-read failure can receive one retry.");
-            var resultFile = read.Attempts[^1].ResultFile
-                ?? throw new InvalidOperationException("Profile-read recovery requires retained original source results.");
-            var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
-            var objects = SourceObjects(result.Response).ToArray();
-            Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
-                && objects.All(obj => SourceText(obj["code"]).Length == 0)
-                && objects.Any(obj => ProfileReadDiagnostic(obj["message"]) || ProfileReadDiagnostic(obj["error"])),
-                "Only a supported unclassified profile-read failure qualifies; structured failures and denials remain blockers.");
+            RequireProfileReadFailure(read.Attempts[^1], read.Target);
             ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason,
                 [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
             ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
+            return ledger;
+        });
+    }
+
+    public SourceLedger DeferProfile(string id, string reason)
+    {
+        id = SourceTarget("profile", id);
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit request to continue with this profile unresolved.");
+        Require(Complete().People.Any(person => person.Id == id), "Only a retained Person's profile can be deferred.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before deferring a profile.");
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id)
+                ?? throw new InvalidOperationException("The profile lookup is not in this run.");
+            Require(read.State == "failed" && read.Attempts.Count == 2 && !IsDeferredProfile(ledger, read),
+                "Only this twice-failed profile lookup can be deferred without another retry.");
+            var diagnostics = read.Attempts.Select(attempt => RequireProfileReadFailure(attempt, id)).ToArray();
+            Require(diagnostics[0] == diagnostics[1], "Both attempts must retain the same supported code-less profile diagnostic.");
+            ledger.ProfileDeferrals.Add(new(sourceClock.GetUtcNow(), reason,
+                [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
             return ledger;
         });
     }
@@ -245,7 +264,30 @@ public sealed partial class ExportSession
             deferral.Targets.Any(target => target.Kind == read.Kind && target.Target == read.Target
                 && target.FailedClaimId == read.Attempts[^1].ClaimId));
 
-    private static bool ProfileReadDiagnostic(JsonNode? value)
+    private static bool IsDeferredProfile(SourceLedger ledger, SourceRead read)
+        => read.Kind == "profile" && read.State == "failed" && read.Attempts.Count == 2
+            && ledger.ProfileDeferrals.Any(deferral => deferral.Targets.Any(target =>
+                target.Kind == read.Kind && target.Target == read.Target && target.FailedClaimId == read.Attempts[^1].ClaimId));
+
+    private static bool IsDeferredSource(SourceLedger ledger, SourceRead read)
+        => IsDeferredMetadata(ledger, read) || IsDeferredProfile(ledger, read);
+
+    private string RequireProfileReadFailure(SourceAttempt attempt, string target)
+    {
+        var resultFile = attempt.ResultFile
+            ?? throw new InvalidOperationException("Profile-read handling requires retained original source results.");
+        var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == target);
+        var objects = SourceObjects(result.Response).ToArray();
+        var diagnostics = objects.SelectMany(obj => new[]
+            { ProfileReadDiagnostic(obj["message"]), ProfileReadDiagnostic(obj["error"]) })
+            .OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+        Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
+            && objects.All(obj => SourceText(obj["code"]).Length == 0) && diagnostics.Length == 1,
+            "Only a supported unclassified profile-read failure qualifies; structured failures and denials remain blockers.");
+        return diagnostics[0];
+    }
+
+    private static string? ProfileReadDiagnostic(JsonNode? value)
     {
         string[] diagnostics =
         [
@@ -253,9 +295,9 @@ public sealed partial class ExportSession
             "Profile details couldn't be retrieved for this person right now."
         ];
         var text = SourceText(value).Trim();
-        return diagnostics.Contains(text, StringComparer.Ordinal)
-            || text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n')
-                .Any(line => diagnostics.Any(diagnostic => line.Trim() == "- **snippet:** " + diagnostic));
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        return diagnostics.FirstOrDefault(diagnostic => text == diagnostic
+            || lines.Any(line => line.Trim() == "- **snippet:** " + diagnostic));
     }
 
     private void Require503SourceResult(SourceRead read)

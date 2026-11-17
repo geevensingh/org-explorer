@@ -248,7 +248,7 @@ public sealed partial class ExportSession : IDisposable
         var sources = SourceStatus();
         var jobs = new List<string>();
         if (collection.Pending.Length == 0 && collection.Errors.Length == 0
-            && sources.StopReason is null && sources.Reads.All(read => read.State != "failed" || IsDeferredMetadata(sources, read)))
+            && sources.StopReason is null && sources.Reads.All(read => read.State != "failed" || IsDeferredSource(sources, read)))
             foreach (var group in collection.People.Chunk(16))
             {
                 var name = System.IO.Path.Combine(path, "workers", group[0].Id + ".json");

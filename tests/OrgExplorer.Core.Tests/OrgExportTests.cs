@@ -1563,6 +1563,128 @@ public sealed class OrgExportTests : IDisposable
         Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
     }
 
+    [Theory]
+    [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("Profile details couldn't be retrieved for this person right now.")]
+    public async Task Explicit_profile_deferral_allows_unread_entries_but_keeps_the_failed_person_and_publication_block(string diagnostic)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        CompleteSource(session, "profile", AltId, Ok(new JsonObject()));
+        var metadataTarget = ExportSession.PhotoPath(ChildId);
+        FinishSource(session, session.ClaimSource("initial", "structured", [metadataTarget]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("initial-retry", "structured", [metadataTarget]), new JsonObject { ["statusCode"] = 503 });
+        session.Defer503PhotoMetadata("User requested unread entries while metadata remains unresolved.");
+        JsonObject Failure() => new() { ["error"] = new JsonObject { ["message"] = diagnostic } };
+        FinishSource(session, session.ClaimSource("profile", "profile", [RootId]), Failure());
+        const string reason = "User requested unread profiles while retaining this exhausted lookup as unresolved.";
+        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, reason)).ExitCode);
+        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
+        var retry = session.ClaimSource("profile-retry", "profile", [RootId]);
+        FinishSource(session, retry, new JsonObject { ["error"] = diagnostic });
+        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
+            ExportSession.Json);
+        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, "")).ExitCode);
+        Assert.Empty(JsonSerializer.SerializeToNode(session.Jobs())!["jobFiles"]!.AsArray());
+
+        var deferred = await RunCli("source-defer-profile", path, RootId, reason);
+
+        Assert.True(deferred.ExitCode == 0, deferred.Error);
+        var audit = Assert.Single(JsonNode.Parse(deferred.Output)!["profileDeferrals"]!.AsArray())!;
+        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
+        var target = Assert.Single(audit["targets"]!.AsArray())!;
+        Assert.Equal("profile", target["kind"]!.GetValue<string>());
+        Assert.Equal(RootId, target["target"]!.GetValue<string>());
+        Assert.Equal(retry.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
+        var failed = session.SourceStatus().Reads.Single(read => read.Target == RootId);
+        Assert.Equal("failed", failed.State);
+        Assert.Equal(original, JsonSerializer.Serialize(failed.Attempts, ExportSession.Json));
+        Assert.True(session.SourceStatus().RecoveryConsumed);
+        Assert.Single(session.SourceStatus().MetadataDeferrals);
+        Assert.Equal("failed", session.SourceStatus().Reads.Single(read => read.Target == metadataTarget).State);
+        Assert.Single(JsonSerializer.SerializeToNode(session.Jobs())!["jobFiles"]!.AsArray());
+        Assert.False(File.Exists(Path.Combine(path, "profiles", RootId + ".json")));
+        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, reason)).ExitCode);
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
+        Assert.Null(session.ClaimSource("mixed", "profile", [RootId, ChildId]).ClaimId);
+        var unread = session.ClaimSource("unread", "profile", [AltId, ChildId]);
+        Assert.Equal([ChildId], unread.Targets);
+        FinishSource(session, unread, Ok(new JsonObject()));
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
+    [Theory]
+    [InlineData(403, null, "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(404, null, "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(503, null, "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(null, "PolicyDenied", "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(null, null, "Another source failure.")]
+    [InlineData(null, null, "Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData(null, null, "Earlier diagnostic: Profile details couldn't be retrieved for this person right now.")]
+    public async Task Profile_deferral_rejects_denied_structured_changed_and_unrelated_second_failures(
+        int? status, string? code, string diagnostic)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        FinishSource(session, session.ClaimSource("initial", "profile", [AltId]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AltId]), Ok(new JsonObject()));
+        FinishSource(session, session.ClaimSource("profile", "profile", [RootId]), new JsonObject
+        {
+            ["error"] = "Profile details couldn't be retrieved for this person right now."
+        });
+        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
+        var response = new JsonObject { ["error"] = new JsonObject { ["message"] = diagnostic } };
+        if (status is not null) response["statusCode"] = status;
+        if (code is not null) response["error"]!["code"] = code;
+        FinishSource(session, session.ClaimSource("profile-retry", "profile", [RootId]), response);
+        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
+            ExportSession.Json);
+
+        var result = await RunCli("source-defer-profile", path, RootId, "User requested unread entries.");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(session.SourceStatus().ProfileDeferrals);
+        Assert.Equal(original, JsonSerializer.Serialize(
+            session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts, ExportSession.Json));
+        Assert.Null(session.ClaimSource("unread", "profile", [ChildId]).ClaimId);
+    }
+
+    [Fact]
+    public void Profile_deferral_requires_settled_calls_and_preserves_returned_delays()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        FinishSource(session, session.ClaimSource("initial", "profile", [AccountId]), new JsonObject { ["statusCode"] = 503 });
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AccountId]), Ok(new JsonObject()));
+        JsonObject Failure() => new() { ["error"] = "Open '' Failure: Unable to open, Exception Caught." };
+        var first = session.ClaimSource("first", "profile", [RootId]);
+        var other = session.ClaimSource("other", "profile", [AltId]);
+        FinishSource(session, first, Failure());
+        FinishSource(session, other, Failure());
+        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
+        session.BeginProfileOpenRecovery(AltId, "User approved one retry.");
+        var retry = session.ClaimSource("first-retry", "profile", [RootId]);
+        var otherRetry = session.ClaimSource("other-retry", "profile", [AltId]);
+        var response = Failure();
+        response["retryAfterSeconds"] = 450;
+        FinishSource(session, retry, response);
+        Assert.Throws<InvalidOperationException>(() => session.DeferProfile(RootId, "User requested unread entries."));
+        FinishSource(session, otherRetry, Ok(new JsonObject()));
+        var retryAt = session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts[^1].RetryAt;
+
+        session.DeferProfile(RootId, "User requested unread entries.");
+
+        Assert.NotNull(retryAt);
+        var blocked = session.ClaimSource("unread", "profile", [ChildId]);
+        Assert.Null(blocked.ClaimId);
+        Assert.Equal(retryAt, blocked.RetryAt);
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
+    }
+
     [Fact]
     public async Task Explicit_metadata_deferral_allows_unread_entries_but_preserves_the_failed_lookup_and_publication_block()
     {
