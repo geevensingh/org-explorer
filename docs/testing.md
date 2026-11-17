@@ -909,6 +909,14 @@ no automatic check at synchronization-clock second 59, adoption at 60, and
 immediate manual reception of the next complete version. Save-request and
 three-second clocks remain real; the existing automatic hosted journey remains.
 These are focused causal regressions, not hosted/native or rich-scale acceptance.
+The compiled local-recovery fixture uses a separate synchronization scheduling
+clock, releases and joins its own admitted local save, then publishes through
+the shared real lifecycle and waits for actual normal Closed before returning.
+`--verify-local-recovery-cleanup` and the full selection reject a leftover logical
+window/exit intent. A bare Close on an unpublished fixture is not cleanup: normal
+exit correctly remains pending and can keep reading its local head during
+directory removal. Production timer/disposal and forced nonjoining exit semantics
+are unchanged; actual save-request and three-second clocks remain real.
 The close-publication selector drives actual Closing/Closed and decision/Cancel
 controls. Fresh exact published heads avoid candidate-validation/export replay;
 real sibling-advanced heads reload and publish, with independent joined-data
@@ -918,6 +926,44 @@ export/newer writing/repeated/canceled-intent compiled regression remains.
 Public real-store tests additionally cover changed receipt bytes, locked/corrupt
 artifacts, unavailable local storage and an actual pre-Commit sibling transaction
 whose unresolved receipt must refuse cached Ready until explicit recovery.
+
+The combined hosted follow-up also runs focused actual compiled
+`--verify-cutover-recovery-copy`, `--verify-independent-note-leave`,
+`--verify-import-recovery-admission`, `--verify-manager-choice-demand` and
+`--verify-cutover-ordinary-fixture-state` checks in that full selection.
+Healthy recovered storage becomes quiet once no unsaved writing remains;
+clipboard retry cannot dismiss an independent fault. Profile-only Discard does
+not authorize a protected mutation/replacement past an independent note error.
+The shared guard is tested through actual nonmodal replacement controls and
+real SQLite, without invoking private product methods or opening native dialogs.
+Browse-only navigation still bypasses that mutation guard.
+Import's own failed Apply is different from independent writing: its picker,
+entry, Preview and Apply reuse the workflow's existing scoped `CanEnterImport`
+admission. The actual compiled Apply-failure/reconcile/People/reentry/Preview/
+Apply loop retains the original error until successful explicit retry and
+independently reopens the reviewed result. A separate invalid note still
+prevents that admission; no fault is cleared to enter Import.
+The ordinary fixture-state loop distinguishes a discarded uncommitted creation
+from an existing note: restore assertions first independently establish the
+exact saved owner/id/title/body. Paused failed Edit retains readable writing
+with disabled inputs/mutations; healthy Edit still requires writable inputs.
+After failed-profile owner browsing, a clean note returns Read and its actual
+Edit action realizes the Value provider before inspecting writing. Active search
+selection is checked through its own exact selected-Person result, not a hidden
+archived toggle or an inherited note owner's incidental email; query, overlay,
+viewport and complete native size matrices remain.
+
+Ordinary reading does not construct or clear the hidden whole-population Manager
+picker. Actual profile Edit and retained-owner restore still build all current
+choices with the exact current draft/base; visible editing continues through
+the existing refresh path, without a stale cross-head cache. Staging and Cancel
+retain their original relationship/history semantics.
+The explicit `--diagnose-rich-navigation` command is a separate, nonaccepting
+actual-BAML investigation at the complete rich population: 42 action-to-layout
+observations during 21 notes with six nominal 250-ms inputs apiece, raw managed
+allocations and picker work, followed by full independent owner/writing/resource
+verification. It never replaces native action-to-usable observations, changes the
+100-ms p95 target, subtracts observer time or runs as another required scale lane.
 
 The invisible `--verify-preferred-name-retention` check also runs in that existing
 profile-refresh selection. It holds the real SQLite commit through the shared
@@ -992,7 +1038,8 @@ assertions, not WPF evidence or a second profile-mode policy.
 Person-note presentation is observed through `WorkspaceViewModel.PersonNotesView`
 and the shared owned-note commands, not a control-specific test adapter.
 Person-note cases cover explicit ambiguous designation, a changed choice without
-note mutation, exact Other notes/search targets (including empty bodies), direct
+note mutation, exact Other notes targets (including empty bodies), grouped
+Person search with ordinary-profile activation, direct
 Read versus new-note editing, observable secondary access, independent profile
 writing and rejected retained-draft navigation. `WorkspaceStartupTests` extends
 the real settings/reopen seam with version-1 preference compatibility, canonical
@@ -1072,29 +1119,83 @@ It also retains the measured content width. Root reporting rows reserve that
 width while unseen wide labels are virtualized, keeping the bookmarked horizontal
 offset reachable instead of clamping it to zero. This minimum applies only to
 root containers, not recursively to descendants or the outer People pane.
-Existing accepted/rejected exact-note tests retain both axes and measured width.
+Existing accepted/rejected navigation tests retain both axes and measured width.
 `WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
 canonical per-Workspace identity, interleaved designation/startup writes, unchanged
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
-The #77 search extension exercises live, query-relevant excerpts without navigation
-or mutation of the complete note body. The invisible compiled replay distinguishes
-query Enter, row selection and explicit result Enter, then observes the real matched
-fact and current/frozen owner-correct document sections. It retains the full cold
-two-axis browsing replay and exact-row criterion; logical focus without a native
-window is not proof of actual keyboard delivery.
-Existing normal/responsive search and scale callers now explicitly focus/select
-and activate a result rather than relying on selection to navigate. Query Enter
-must preserve the current Person and exact note before focusing results. Hosted
-search checks observe actual matched-field focus, real note Read surfaces and
-exact document/capture identities, not a duplicate generic inspector. The existing
-responsive draft journey also rejects search activation with overlay/query, exact
-failed editor and unchanged Person bounds retained. Unique visual captures cover
-matched facts, mouse activation, exact/empty Other notes, current/frozen attribution
+The #107 search slice groups the existing `Search` evidence through `SearchPeople`
+at the shared workflow/view-model seam. Cases retain every source and attribution,
+equal-name/different-email identities, first-match order, archived eligibility and
+exact unsaved writing, including accepted same-Person browsing without rebasing.
+Clean ordinary activation uses the ongoing-note Read view; an exactly selected
+unsaved secondary note retains its owner/Edit/identity/base and writing.
+Exact Other notes and legacy remembered-note
+restoration remain independently covered.
+The invisible compiled replay observes grouped rows, rendered email bindings,
+distinct-Person counts, non-activating row selection and guarded explicit result
+Enter. Current/frozen owner-correct documents remain available through their normal
+disclosures. It retains the full cold two-axis manual-clear browsing replay and
+exact-row criterion; logical focus without a native window is not keyboard evidence.
+Existing normal/responsive search and scale callers explicitly select and activate
+a Person rather than relying on selection to navigate. Hosted search checks observe
+ordinary profile/note Read state, with independent Other notes and History access,
+not matched-field focus or a duplicate generic inspector. The existing
+responsive draft journey also browses through valid search and returns to the
+exact failed owner editor without changing its Person viewport. Invalid/stale
+destination rejection still retains the active query and highlight.
+Unique visual captures cover
+grouped results, mouse activation, exact/empty Other notes, current/frozen attribution
 and rejected writing within those existing journeys. No scenario, population,
 deadline, required lane or explicit-scale selection is removed. These captures
-and hosted assertions still require execution for the complete candidate.
+and hosted assertions must run for each complete candidate.
+The #108 view-model cases observe initial/query-reset/empty highlighting,
+clamped navigation without leaving exact reading or unsaved profiles, and
+accepted versus rejected current/archived transitions. Manual clear retains
+both browsing axes and measured width; accepted activation instead expands the
+chosen path and reveals its row, never restoring an old offset over that choice.
+Query input defers matching to background publication; highlight movement reuses
+that published result list instead of rebuilding excerpts. Bounded allocation
+cases use a warmed long-note fixture, and publication cases reject older query,
+refresh and Workspace requests. The compiled replay also sends Enter immediately
+after query input, before pumping publication, to retain single-Enter acceptance.
+The SQLite integration additionally holds an actual explicit profile transaction
+while single-Enter search navigates away and back, distinguishing its submitted
+durable value from newer unsaved writing and the original immutable base. Both
+note scopes retain an unsaved secondary selection through same-owner search.
+Only the existing ordinary-local-save classification and existing local-Import
+kind permit search during foreground work; Workspace replacement cannot inherit
+that permission. The obsolete query/refresh/Workspace publication and stale
+eligibility negatives remain. `--verify-current-search-storage` and the narrower
+`--verify-person-search-integration` expose these existing public/BAML checks
+without running unrelated suites or claiming native input/focus acceptance.
+The native manual-clear replay waits read-only for the queried Person's current
+Person-note evidence before selecting once; hidden browsing controls alone do
+not establish result readiness. The existing bounded wait and exact row/pixel
+restoration assertion are unchanged.
+The existing search journeys now type through the focused query field with real
+keyboard input, retain typing focus during Up/Down, observe each highlighted row
+inside the results viewport, and check first/last clamping, continued typing,
+first/chosen-result Enter, no-result Enter and mouse equivalence.
+Population readiness uses the rendered distinct-Person count, not the number
+of simultaneously realized UI Automation rows. The complete-candidate hosted
+failure exposed only seven/nine realized rows for forty matches at the two
+viewport sizes. Every native Down step must still reveal the exact next
+Person, selected and wholly inside the results viewport with query focus;
+neither a displayed total nor invisible logical focus proves that traversal.
+Accepted current and archived rows must be selected and visible, with their
+leading edge, full header height and clickable point inside the viewport.
+Reserved blank reporting-row extent can remain wider than that viewport.
+Wide mode requires actual row keyboard focus. Compact current/archived acceptance must
+dismiss People and focus its button, then retain the revealed selection on
+reopening. Archived access must show the retained list without reactivation or
+current-tree insertion. The responsive retained-note journey uses the same
+query-field input and preserves exact failed writing and geometry on owner return;
+accepted activation clears search, while a separately unaccepted query retains
+its highlight and overlay. No scenario, responsive matrix, deadline or scale contract changes.
+The complete #107/#108 candidate requires exact-candidate hosted execution;
+authored assertions and invisible replays are not native keyboard/layout acceptance.
 
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
@@ -1164,28 +1265,37 @@ Post-resize collapsed-context assertions wait only for read-only UIA discovery
 within the existing bounded wait. An expanded section still fails immediately;
 the helper never collapses it, and permanently missing sections still fail.
 Runner coverage replays the observed missing-then-present context provider.
+People-browsing preparation also observes the query value inside the existing
+bounded readiness wait before any conditional Clear or overlay-open action.
+Its runner replay covers missing-then-present query discovery after Clear,
+without repeating either action; a permanently missing query still fails.
+The later exact-row restoration assertion and its 20-second bound are unchanged.
 The invisible compiled replay additionally drives the 44-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
-available viewport geometry, exact-note search/clear and wide/compact
+available viewport geometry, grouped-result highlighting/manual clear and wide/compact
 restoration, including recycled tree-item load events. Compact replay establishes
 a real 39-DIP horizontal offset, then drops the cached measurement and invalidates
 the tree's measure while browsing is hidden, retaining all People and expansion.
 This reproduces the lost horizontal range that clamps even a correctly retained
-offset. Every original row must return to the same horizontal and vertical
+offset. The manual-clear fixture preserves the original selected Person while
+expanding its Manager, verifies that People is open before recording the baseline,
+and invokes the real clear action. Every original row must return to the same horizontal and vertical
 position; offset-only restoration goes red, while reserving the captured width
 keeps that position reachable. It does not reproduce
 native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
 failures retain the exact-row/visibility assertion and capture the
 before/failure pixels, viewport percentages, bounds and focus without corrective
 actions or a longer deadline.
-The high-resolution `responsive-draft-navigation` journey additionally rejects one compact People destination
-with the exact failed Person-note editor retained and actionable feedback.
+The high-resolution `responsive-draft-navigation` journey additionally browses
+through compact People destinations with exact failed Person-note writing retained.
 An isolated compiled retained-draft probe records post-resize, settled,
-overlay-open and rejected-selection viewport/notice geometry. A failed note's
+overlay-open and owner-return viewport/notice geometry. A failed note's
 already reported guard does not add another global notice line and move the
 underlay; new pending work, retries and independent errors remain distinct.
-The same real-control probe continues through query entry, query Enter/focus,
-one explicit rejected result activation and clearing. It records toolbar,
+The same real-control probe continues through query entry, highlighted-Person
+Enter, accepted query clearing and retained-owner return. Its grouped query can
+also match a report's Manager field, so it deliberately highlights the intended
+Person instead of assuming they are the first match. It records toolbar,
 search/clear desired and arranged bounds, logical focus and the original
 absolute Person viewport. Empty-query Clear is hidden while retaining its
 measured footprint, so its appearance cannot grow the toolbar or move the
@@ -1730,13 +1840,13 @@ without changing its display. They cover:
   no-fetch assertion, failed local transaction, usable retained-draft browsing,
   Workspace replacement/close decision, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
-  ongoing/Other designation and exact secondary search, Read-first owned notes,
+  ongoing/Other designation, grouped Person search and independent exact secondary access, Read-first owned notes,
   direct New-note editing and empty-body accessibility, visible preference/save
   failures and collapsed attributed warnings at the ordinary desktop size,
   exact owner review navigation/confirmation with retained writing and archive/restore,
   secondary History with confirmations/observations, actual current/frozen
   reading and honest historical dates through a representative
-  ancestor move, exact frozen search and reopen.
+  ancestor move, historical-source Person search, ordinary History access and reopen.
   Capture details additionally exposes complete transition/note evidence
   separately from frozen Markdown, with keyboard expansion/collapse and
   nonmutation checks. Named actual-pixel states retain the collapsed capture

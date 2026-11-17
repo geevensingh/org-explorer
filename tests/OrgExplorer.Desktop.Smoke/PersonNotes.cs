@@ -96,13 +96,19 @@ internal static partial class Program
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
             var noteId = SmokeNoteId(workspace, "avery@example.com", "Private meeting");
+            var savedBeforeFailure = ReadSmokePersonNote(workspace, noteId);
             using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Set(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-                Click(window, "UseAsOngoingPersonNote");
+                if (Find(window, "UseAsOngoingPersonNote").Current.IsEnabled)
+                    throw new InvalidOperationException("A real local failure did not pause ongoing-note mutation.");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                AssertNoteView(window, "Person", editing: true);
+                AssertNoteView(window, "Person", editing: true, writable: false);
+                if (Find(window, "PersonNoteHeading").Current.HelpText != noteId.ToString() ||
+                    !Find(window, "PersonNoteKind").Current.Name.Contains("Ongoing Person note") ||
+                    ReadSmokePersonNote(workspace, noteId) != savedBeforeFailure)
+                    throw new InvalidOperationException("Paused mutation changed the exact saved note, ongoing choice or retained owner.");
                 Click(window, "NavigateManager");
                 Await(() => Find(window, "Email").Current.Name == "casey@example.com");
                 SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
@@ -135,7 +141,7 @@ internal static partial class Program
                 Await(() => ExitDecisionVisible(window) &&
                     Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 Await(() => !IsVisible(window, "SettingsTitle"));
-                AssertNoteView(window, "Person", editing: true);
+                AssertNoteView(window, "Person", editing: true, writable: false);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
                 CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
                 Click(window, "CancelExit");
@@ -161,17 +167,21 @@ internal static partial class Program
             Click(window, "UseAsOngoingPersonNote");
             AssertOtherPersonNotesCollapsed(window);
             QueryAndSelect(window, "Secondary empty note", "avery@example.com", "Current", "Person note");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
+            AssertOtherPersonNotesCollapsed(window);
+            SelectNote(window, "Secondary empty note");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Secondary empty note");
             AssertNoteView(window, "Person", editing: false);
             if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
-                throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
+                throw new InvalidOperationException("Ordinary Other notes access lost the secondary note.");
             AssertEmptyDocument(window, "Person");
-            CaptureVisualEvidence(window, "search-exact-empty-other-person-note");
+            CaptureVisualEvidence(window, "search-person-then-other-person-note");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");
             if (!Find(window, "PersonNoteOwnership").Current.Name.Contains("casey@example.com"))
                 throw new InvalidOperationException("Manager navigation inherited the report's private Person notes.");
+            TypeSearchQuery(window, "casey");
             Await(() => !Find(window, "ImportedReports").Current.IsOffscreen);
             var ownerReport = Find(window, "ImportedReports").FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
@@ -283,7 +293,7 @@ internal static partial class Program
     private static void SelectTab(AutomationElement window, string id) =>
         ((SelectionItemPattern)Find(window, id).GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
 
-    private static void AssertNoteView(AutomationElement window, string kind, bool editing)
+    private static void AssertNoteView(AutomationElement window, string kind, bool editing, bool writable = true)
     {
         Await(() =>
         {
@@ -293,7 +303,8 @@ internal static partial class Program
             {
                 var editor = window.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Note{suffix}"));
-                if (editing ? editor is null || !editor.Current.IsEnabled : editor is not null && !editor.Current.IsOffscreen)
+                if (editing ? editor is null || editor.Current.IsEnabled != writable :
+                    editor is not null && !editor.Current.IsOffscreen)
                     return false;
             }
             return true;

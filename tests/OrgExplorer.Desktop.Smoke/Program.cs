@@ -40,6 +40,27 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyHostedIncomingContract);
             if (args.Length == 2 && args[1] == "--verify-cutover-close-publication")
                 return VerifyHostedCutoverContracts(executable, VerifyHostedClosePublicationContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-recovery-copy")
+                return VerifyHostedCutoverContracts(executable, VerifyRecoveredCopyContract);
+            if (args.Length == 2 && args[1] == "--verify-local-recovery-cleanup")
+                return VerifyHostedCutoverContracts(executable, VerifyLocalRecoveryCleanup);
+            if (args.Length == 2 && args[1] == "--verify-independent-note-leave")
+                return VerifyHostedCutoverContracts(executable, VerifyIndependentNoteLeaveContract);
+            if (args.Length == 2 && args[1] == "--verify-import-recovery-admission")
+                return VerifyHostedCutoverContracts(executable, VerifyImportRecoveryAdmission);
+            if (args.Length == 2 && args[1] == "--diagnose-rich-navigation")
+                return VerifyHostedCutoverContracts(executable, DiagnoseCompiledRichNavigation);
+            if (args.Length == 2 && args[1] == "--verify-manager-choice-demand")
+                return VerifyHostedCutoverContracts(executable, VerifyManagerChoiceDemand);
+            if (args.Length == 2 && args[1] == "--verify-current-search-storage")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrentSearchStorage);
+            if (args.Length == 2 && args[1] == "--verify-person-search-integration")
+                return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
+            if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
+                return VerifyHostedCutoverContracts(executable,
+                    (type, root) => VerifyPersonSearchIntegration(type, root, retainedOnly: true));
+            if (args.Length == 2 && args[1] == "--verify-cutover-ordinary-fixture-state")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedOrdinaryFixtureStateContracts);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
             if (args.Length == 2 && args[1] == "--verify-exit") return VerifyCompiledXaml(executable, verifyExit: true);
             if (args.Length == 2 && args[1] == "--verify-exit-host-startup")

@@ -58,7 +58,7 @@ internal static partial class Program
             if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Visible || workflow.IsImportOpen)
                 throw new InvalidOperationException("Back to People waited behind the held local Import instead of exposing usable browsing.");
             Control<TextBox>("SearchQuery").Text = "morgan";
-            PumpUntil(() => Control<ListBox>("SearchResults").Items.OfType<SearchResult>()
+            PumpUntil(() => Control<ListBox>("SearchResults").Items.OfType<PersonSearchResult>()
                 .Any(result => result.Person.Email == "morgan@example.com"));
             Control<TextBox>("SearchQuery").Clear();
             SelectWhileHeld("morgan@example.com");

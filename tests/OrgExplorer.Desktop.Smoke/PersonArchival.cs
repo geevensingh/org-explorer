@@ -318,13 +318,22 @@ internal static partial class Program
         var overlayClosed = IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation");
         if (overlayClosed) Click(window, "OpenPeople");
         var email = Find(window, "Email").Current.Name;
-        var showArchivedPeople = ((TogglePattern)Find(window, "ShowArchivedPeople")
-            .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
-        PersonSelection.AssertMatchesProfile(email, showArchivedPeople, list =>
-            Find(window, list).FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
-                .Where(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
-                    ((SelectionItemPattern)selected).Current.IsSelected)
-                .Select(element => element.Current.AutomationId));
-        if (overlayClosed) Click(window, "ClosePeople");
+        var query = Value(window, "SearchQuery");
+        try
+        {
+            var searching = IsVisible(window, "SearchResults");
+            var heading = Find(window, "ProfileHeading").Current.Name;
+            AssertOrdinaryNavigationSelection(email, searching,
+                () => ((TogglePattern)Find(window, "ShowArchivedPeople")
+                    .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On,
+                list => Find(window, list).FindAll(TreeScope.Descendants, Condition.TrueCondition).Cast<AutomationElement>()
+                    .Where(element => element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selected) &&
+                        ((SelectionItemPattern)selected).Current.IsSelected)
+                    .Select(element => list == "SearchResults"
+                        ? OrdinarySearchSelectionIdentity(element.Current.Name, heading, email) : element.Current.AutomationId));
+            if (Find(window, "Email").Current.Name != email || Value(window, "SearchQuery") != query)
+                throw new InvalidOperationException("Selection observation changed the displayed Person or exact search query.");
+        }
+        finally { if (overlayClosed) Click(window, "ClosePeople"); }
     }
 }

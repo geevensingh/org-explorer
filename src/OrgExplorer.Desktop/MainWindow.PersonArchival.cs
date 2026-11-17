@@ -21,7 +21,11 @@ public partial class MainWindow
     }
     private bool HasUnsavedRelationship => unsavedArchived.HasValue || unsavedFavorite.HasValue;
 
-    private void ChangeArchivedFilter(object sender, RoutedEventArgs e) => RefreshArchivedPeople();
+    private void ChangeArchivedFilter(object sender, RoutedEventArgs e)
+    {
+        workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
+        RefreshArchivedPeople();
+    }
 
     private void RefreshArchivedPeople()
     {
@@ -58,6 +62,7 @@ public partial class MainWindow
         ArchivePersonMenuItem.Visibility = person.Archived ? Visibility.Collapsed : Visibility.Visible;
         ReactivatePersonMenuItem.Visibility = person.Archived ? Visibility.Visible : Visibility.Collapsed;
         ManagerEditor.IsEnabled = CanEditCurrentWorkspace;
+        if (workflow.ProfileEdit is null) return;
         var choices = new List<ManagerChoice> { new(null, "(explicit no-Manager — clear relationship)") };
         choices.AddRange(workflow.People.Where(p => !string.Equals(p.Email, person.Email, StringComparison.OrdinalIgnoreCase))
             .Select(p => new ManagerChoice(p.Email, $"{p.Heading} ({p.Email})" + (p.Archived ? " — Archived" : ""))));

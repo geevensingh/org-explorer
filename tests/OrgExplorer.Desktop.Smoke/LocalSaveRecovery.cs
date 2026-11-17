@@ -9,6 +9,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -51,9 +52,13 @@ internal static partial class Program
         var observer = new RecoveryCommitGate(() => hold, entered.Set, () => release.Wait(TimeSpan.FromSeconds(15)));
         var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [app, (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue())], null)!;
+            [app, (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue()), (Action<string>)(_ => { }),
+                new SnapshotClock()], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+        var closed = false;
+        var completed = false;
+        window.Closed += (_, _) => closed = true;
         Guid? pendingNote = null;
         var surface = Control<UserControl>("TeamNotes");
         T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
@@ -136,6 +141,7 @@ internal static partial class Program
                 window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Compiled late completion lost durable writing or created a native window.");
             Console.WriteLine("PASS: invisible compiled local recovery: failed/stalled non-idle caller selection, retained profile fault/draft, explicit 3-second stall, disabled edits, exact retained note owner/newer writing, and independently reopened late commit. No pixels or native latency claimed.");
+            completed = true;
         }
         catch (Exception error)
         {
@@ -152,7 +158,17 @@ internal static partial class Program
             hold = false;
             release.Set();
             PumpUntil(() => pendingNote is not { } id || workflow.GetRetainedNoteDraft(NoteScope.Team, id)?.IsSaving != true);
-            window.Close();
+            if (completed)
+            {
+                ClosePublishedCompiledWindow(window);
+                PumpUntil(() => closed);
+            }
+            else
+            {
+                window.Close();
+                Control<Button>("CancelExitButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                workflow.Dispose();
+            }
         }
     }
 
@@ -234,6 +250,7 @@ internal static partial class Program
             Set(window, "TeamNameEditor", "Retained recovery label");
             Set(window, "Department", "Retained recovery department");
             ((SelectionItemPattern)Find(window, "PersonNoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            var independentNoteId = Find(window, "PersonNoteHeading").Current.HelpText;
             string failed;
             string failedNotice;
             using (File.Open(Path.Combine(path, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
@@ -248,6 +265,11 @@ internal static partial class Program
                 SelectRecoveryPerson(window, "morgan@example.com", "Morgan Example", LocalSavePhase.Failed, LocalSaveOutcome.NotCommitted);
                 AssertValue(window, "TeamNameEditor", "Retained recovery label");
                 AssertValue(window, "Department", "Retained recovery department");
+                SelectTab(window, "PersonNoteEditTab");
+                AssertNoteView(window, "Person", editing: true, writable: false);
+                if (Find(window, "PersonNoteHeading").Current.HelpText != independentNoteId ||
+                    !Find(window, "PersonNoteOwnership").Current.Name.Contains("morgan@example.com"))
+                    throw new InvalidOperationException("Explicit Edit after failed-profile browsing lost the exact clean note owner/id.");
                 AssertValue(window, "PersonNoteMarkdown", "Independent exact recovery writing");
                 if (!Find(window, "NoticeSummary").Current.Name.Contains("NOT saved", StringComparison.Ordinal))
                     throw new InvalidOperationException("The native failure notice did not explain unsaved local writing.");
