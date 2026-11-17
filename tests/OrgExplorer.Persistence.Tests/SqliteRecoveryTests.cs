@@ -9,6 +9,62 @@ namespace OrgExplorer.Persistence.Tests;
 
 public sealed partial class SqliteWorkspaceTests
 {
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Canceling_exit_during_a_stalled_real_transaction_preserves_exact_drafts_fault_and_browsing(NoteScope scope)
+    {
+        var clock = new SaveClock();
+        using var boundary = new CommitBoundary();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: boundary), timeProvider: clock);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.ConfigureSynchronizationFolder(Path.Combine(root, "sync")), app.Synchronization.Error);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        boundary.Hold = true;
+        var note = app.CreateOwnedNoteDraft(scope, "manager@example.com")!;
+        app.UpdateNoteDraft(scope, note.Id, "Exact close title", "Exact close writing");
+        using var cancel = new CancellationTokenSource();
+        var closing = app.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            Assert.True(boundary.Entered.Wait(TimeSpan.FromSeconds(5)));
+            app.UpdateNoteDraft(scope, note.Id, "Exact close title", "Exact newer close writing");
+            clock.Advance(TimeSpan.FromSeconds(3));
+            Assert.Equal(LocalSavePhase.Stalled, app.LocalSave.Phase);
+            Assert.True(app.NavigatePerson("report@example.com"));
+            var selection = app.PeopleNavigation;
+            var draft = app.GetRetainedNoteDraft(scope, note.Id);
+            var fault = app.LocalSave;
+            Assert.True(app.ExitStatus.HasUnsavedChanges);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.Equal(selection, app.PeopleNavigation);
+            Assert.Equal(draft, app.GetRetainedNoteDraft(scope, note.Id));
+            Assert.Equal(fault, app.LocalSave);
+            Assert.True(app.NavigatePerson("manager@example.com"));
+            Assert.Equal("Exact newer close writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            boundary.Hold = false;
+            boundary.Release.Set();
+            Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(scope, note.Id)?.IsSaving != true &&
+                !app.LocalSave.EditsPaused, TimeSpan.FromSeconds(5)));
+            Assert.True(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10)), app.Status);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await app.PrepareForExitAsync(timeout.Token);
+            using var reading = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal("Exact newer close writing", reading.BeginNoteDraft(scope, "manager@example.com", note.Id)!.Markdown);
+            Assert.False(reading.Synchronization.HasUnpublishedChanges);
+        }
+        finally
+        {
+            boundary.Hold = false;
+            boundary.Release.Set();
+            await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await app.SynchronizeAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     [Fact]
     public async Task Reconciliation_resolves_expired_queued_requests_without_losing_or_replaying_independent_drafts()
     {

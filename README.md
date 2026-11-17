@@ -50,8 +50,8 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
-The new exit interaction is not available yet; unsupported actions are rejected,
-never sent to the legacy writer. Original and later exact Import replay remain
+Unsupported actions are rejected, never sent to the legacy writer.
+Original and later exact Import replay remain
 no-ops after subsequent changes.
 For cross-computer use, open **Settings -> Synchronization**, configure
 a separate provider-carried folder and choose **Sync now**. On a second computer,
@@ -73,7 +73,18 @@ without waiting for typing to stop. **Sync now** requests the same lifecycle
 immediately. Local saves and browsing continue during export or a folder outage;
 status distinguishes local durability, latest publication and unknown provider
 delivery. Committed but unpublished work resumes on the cadence after reopening.
-Redesigned exit remains a later slice.
+Normal close immediately requests publication, drains autosaved notes and waits
+for the latest committed version, not delivery to another computer. A nonmodal
+decision distinguishes locally unsaved writing that may be lost from committed,
+unpublished work that stays on this computer. Browsing remains available.
+**Cancel** withdraws that close request without discarding drafts or resolving
+errors/conflicts. **Exit anyway** terminates immediately, even during stalled
+writes, failed exports or divergence; it does not promise to preserve unsaved
+buffers. Explicit profile and Preferred-name drafts still require their own
+Save/Cancel and are never implicitly submitted by close. Committed unpublished
+work is rediscovered after restart without replaying edits. With no configured
+synchronization folder, normal publication cannot finish; configure one or make
+the informed Exit anyway choice.
 
 Failed local saves retain exact owner drafts and pause editing, not Person
 browsing. An ordinary save outstanding for three seconds (including its queue)
@@ -103,7 +114,7 @@ are shown only in the dedicated Import view. Changing the file path or returning
 to people requires a fresh preview before Apply.
 If Apply fails, retry from Import or choose **Discard failed Import (not other
 drafts)** to abandon that batch. This does not discard notes, Preferred-name
-changes or a profile draft; any other unsaved writing still blocks close/restart.
+changes or a profile draft; any other unsaved writing still blocks normal close/restart.
 Expand/collapse the **Imported reporting population**, select
 a Person, or navigate to their Manager and imported reports beside the profile.
 Report counts describe this selected population, not full-company coverage.
@@ -176,12 +187,15 @@ Loading, validation and local writes run off the desktop dispatcher. Rapid
 Markdown typing is coalesced after a short quiet interval. Preferred-name input
 stays editable while its explicit save completes; newer input needs another
 explicit Save. Pending/newer drafts are **not yet saved** and block unsafe
-close/restart until saved or deliberately cancelled/discarded. Cancellation
+normal close/restart until saved or deliberately cancelled/discarded. An informed
+Exit anyway overrides close, not the updater's safe-restart contract. Cancellation
 does not bypass an already-admitted save. A failed write still requires retry
 or deliberate cancellation/discard. Preferred name,
 Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
-profile through navigation, Import, archival, workspace switching or closing
+profile through navigation, Import, archival or workspace switching
 offers **Save / Discard / Stay**. A failed Save retains its owner and draft.
+Closing instead shows the nonmodal Exit anyway / Cancel decision without
+implicitly saving the profile.
 A profile changed externally since entering Edit cannot be overwritten by Save
 or retry; discard that draft before editing the delivered version. Changes
 already incorporated before editing and changes only to other people do not
@@ -295,7 +309,7 @@ change is later reverted. Review on the owner's profile: **Confirm still
 applies**, edit the autosaved Markdown (which confirms current applicability), or
 **Archive Team note** to retain but stop inheriting the writing. Restoring an
 archived note does not silently confirm it. Failed review saves retain the warning
-and saved writing; unsaved drafts block navigation/close and offer retry/discard.
+and saved writing; unsaved drafts block navigation/normal close and offer retry/discard.
 
 Secondary **History** access retains the structured Profile timeline,
 field-specific confirmations, source observations and read-only **Historical team
@@ -338,7 +352,7 @@ Omitted people/Boolean fields stay unchanged; ordinary edits/imports of archived
 profiles never reactivate them. Only explicit `archived: false` does so, after
 whole-graph validation. Failed status/Manager saves retain the committed profile,
 photo, notes, and history; retry or discard the unsaved local action before leaving
-or closing.
+or normal closing.
 
 **Local search** finds stored profile attributes and Person/Team note titles and
 Markdown text without a network connection. Search is case-insensitive and uses
@@ -362,7 +376,7 @@ omission preserves the star and false removes it. Favorite-only edits do not
 create reporting history. Queries and favorite views rebuild from validated
 Workspace state after local/external changes, not a canonical index or hosted
 backend. Stale delivery is labeled; failed favorite saves retain the saved state
-and require retry/discard before navigation or close.
+and require retry/discard before navigation or normal close.
 
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or

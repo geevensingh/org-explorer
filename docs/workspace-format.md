@@ -99,8 +99,8 @@ permission to replay the mutation. OS/device durability limits still apply.
 The staged path supports browsing, startup restoration and accepted-batch replay.
 It still explicitly rejects legacy recovery export. An unconfirmed Import remains
 an error requiring reopening/reconciliation, not a saved state. No missing family
-is silently written through the legacy engine. Redesigned exit is not implemented
-by these slices. Never synchronize a live database or journal.
+is silently written through the legacy engine. Never synchronize a live database
+or journal.
 
 ### Complete logical snapshots (interchange 1)
 
@@ -187,8 +187,7 @@ Publication errors remain separate from local-save recovery; folder failure,
 invalid delivery and lost synchronization returns remain visible and retryable
 without pausing ordinary local editing. Reopening derives pending publication
 from durable revision metadata and resumes the cadence without replaying edits.
-Closing/disposal stops future timer requests; it does not invent a successful
-publication or implement the later informed-exit policy.
+Disposal stops future timer requests without awaiting an active export.
 Ordinary Person save returns and explicit reconciliation also retain admission
 leases through their full view-model lifetime. Reconciled committed notes release
 their own lease only after the latest generation is accepted; newer or uncertain
@@ -235,7 +234,30 @@ checked before deletion; changed/provider bytes are preserved and cleanup report
 an error. Interrupted retirement may retain extra evidence rather than risk data.
 This does not serialize a noncooperating provider or establish remote delivery.
 Local `snapshot-*` validation directories are disposable staging, not accepted
-recovery or another Workspace authority. Redesigned exit remains a separate slice.
+recovery or another Workspace authority.
+
+### Close and determined exit
+
+The #99 view-model close preparation drains autosaved note generations and
+immediately requests the shared synchronization lifecycle. Completion requires
+current local writing to be committed, no unresolved local/conflict state, and
+the current local revision to equal the published revision. A successful older
+export/task is not a receipt for a newer commit. No provider-delivery receipt
+is requested or implied.
+
+The compiled window exposes a nonmodal, live Exit anyway / Cancel decision while
+normal preparation continues. Cancel invalidates that exact intent; late saves
+and exports can update truthful status but cannot close the canceled window.
+Newer writing requires its own commit and publication. Explicit profile and
+Preferred-name drafts are not submitted by generic close.
+
+Confirmed Exit anyway terminates the process directly, without running secondary
+window/editor/update vetoes or awaiting worker disposal. It does not modify
+storage to manufacture success: incomplete SQLite transactions roll back and
+committed data/transaction evidence remain subject to normal validation and
+reconciliation on restart. Unsaved buffers may be lost. Durable revision metadata
+rediscovers unpublished work without mutation replay; unresolved divergence and
+its complete retained versions remain paused for explicit review.
 
 ## Readable-file version 3
 

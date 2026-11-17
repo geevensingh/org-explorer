@@ -55,10 +55,10 @@ internal static partial class Program
     }
 
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false,
-        bool verifyLegacySaveFeedback = false, bool verifySnapshotAdoption = false)
+        bool verifyLegacySaveFeedback = false, bool verifySnapshotAdoption = false, bool verifyExit = false)
     {
         AssertDisplayInterop();
-        if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
@@ -75,7 +75,7 @@ internal static partial class Program
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption)
+            if (verifyProfileRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
@@ -175,6 +175,11 @@ internal static partial class Program
                 }
             }
             if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+            if (verifyExit || verifyProfileRefresh)
+            {
+                HarnessRuntime.Run("compiled-workspace-exit", () => VerifyCompiledWorkspaceExit(type, settings));
+                HarnessRuntime.Run("owned-workspace-exit", () => VerifyOwnedExitProcesses(executable, settings));
+            }
             if (verifySnapshotAdoption)
             {
                 HarnessRuntime.Run("compiled-automatic-input-scroll", () => VerifyCompiledAutomaticInputScroll(type, settings, chooseFolder));
@@ -221,7 +226,11 @@ internal static partial class Program
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
-            if (verifyUpdateYield) VerifyUpdateYield(window, settings, heldPublisher!);
+            if (verifyUpdateYield)
+            {
+                VerifyUpdateYield(window, settings, heldPublisher!);
+                VerifyOwnedUpdateExit(executable, settings);
+            }
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("The compiled-XAML check must never show the window or create its native handle.");
             window.Close();
@@ -1227,6 +1236,7 @@ internal static partial class Program
                     finally { window.Closing -= observe; }
                     if (!rejected || Control<Button>("OpenWorkspaceButton").IsEnabled)
                         throw new InvalidOperationException("Cancel falsely enabled close before admitted Preferred-name I/O completed.");
+                    Invoke("CancelExitButton");
                 }
                 else editor.Text = "Newer retained value";
             }
@@ -2968,12 +2978,14 @@ internal static partial class Program
                 NoteControl<TextBox>("MarkdownEditor").Text != "Retained failing update draft" ||
                 NoteControl<TextBox>("NoteTitle").Text != retainedTitle ||
                 NoteControl<TextBlock>("Ownership").Text != retainedOwner ||
-                !NoteControl<TextBlock>("NoteStatus").Text.Contains("before leaving or closing", StringComparison.Ordinal) ||
+                !NoteControl<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal) ||
+                !((TextBlock)window.FindName("ExitRisk")).Text.Contains("may be lost", StringComparison.Ordinal) ||
                 !File.ReadAllBytes(file).SequenceEqual(saved))
                 throw new InvalidOperationException("Close must be rejected with its exact retained Person-note draft, failure text and unchanged saved writing.");
             if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Collapsed ||
                 ((FrameworkElement)window.FindName("ExplorerPanel")).Visibility != Visibility.Visible)
                 throw new InvalidOperationException("Close was correctly rejected and its draft/error retained, but Settings still hides the Person-note editor.");
+            ((Button)window.FindName("CancelExitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         }
         NoteControl<Button>("RetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         WaitForSave();

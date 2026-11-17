@@ -19,6 +19,8 @@ internal static partial class Program
                 return RunLocalSaveRecoveryFixture(args);
             if (args.Length > 0 && args[0] == "--automatic-snapshot-fixture")
                 return RunAutomaticSnapshotFixture(args);
+            if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
+                return RunWorkspaceExitFixture(args);
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
                 return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
@@ -27,6 +29,7 @@ internal static partial class Program
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
+            if (args.Length == 2 && args[1] == "--verify-exit") return VerifyCompiledXaml(executable, verifyExit: true);
             if (args.Length == 2 && args[1] == "--verify-snapshot-adoption")
                 return VerifyCompiledXaml(executable, verifySnapshotAdoption: true);
             if (args.Length == 2 && args[1] == "--verify-legacy-save-feedback")

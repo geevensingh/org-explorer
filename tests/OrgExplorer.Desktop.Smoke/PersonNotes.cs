@@ -127,11 +127,14 @@ internal static partial class Program
                 CaptureVisualEvidence(window, "settings-open-rejected-retained-note");
                 SetSettingsVisible(window, true);
                 process.CloseMainWindow();
-                Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+                Await(() => ExitDecisionVisible(window) &&
+                    Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 Await(() => !IsVisible(window, "SettingsTitle"));
                 AssertNoteView(window, "Person", editing: true);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
                 CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
+                Click(window, "CancelExit");
+                Await(() => !ExitDecisionVisible(window));
             }
             Click(window, "RetryPersonNoteSave");
             Await(() => NoteFeedback(window, "Person").Contains("saved locally"));

@@ -24,6 +24,163 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
 
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Normal_exit_drains_current_writing_and_requires_its_latest_publication_not_an_older_export(NoteScope scope)
+    {
+        using var latestEntered = new ManualResetEventSlim();
+        using var releaseLatest = new ManualResetEventSlim();
+        var exports = 0;
+        var publisher = new SnapshotPublisher
+        {
+            Hold = true,
+            BeforeSnapshot = () =>
+            {
+                if (Interlocked.Increment(ref exports) != 2) return;
+                latestEntered.Set();
+                if (!releaseLatest.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Latest export was not released.");
+            }
+        };
+        using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        var original = first.Synchronization.LocalRevision;
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)));
+            var owner = scope == NoteScope.Person ? "report@example.com" : "manager@example.com";
+            var note = first.CreateOwnedNoteDraft(scope, owner)!;
+            first.UpdateNoteDraft(scope, note.Id, "Latest exit writing", "Exact owner writing after close request");
+            Assert.True(first.NavigatePerson(owner == "report@example.com" ? "manager@example.com" : "report@example.com"));
+            Assert.True(await first.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(5)), first.Status);
+            Assert.True(first.ExitStatus.HasUnpublishedChanges);
+            Assert.False(closing.IsCompleted);
+            publisher.Release.Set();
+            Assert.True(latestEntered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.Equal(original, first.Synchronization.PublishedRevision);
+            Assert.False(first.ExitStatus.CanClose);
+            Assert.False(closing.IsCompleted);
+            releaseLatest.Set();
+            await closing.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(first.ExitStatus.CanClose);
+            using var reading = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+            Assert.Equal("Exact owner writing after close request", reading.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+            Assert.False(reading.Synchronization.HasUnpublishedChanges);
+            Deliver("outgoing", "incoming");
+            using var second = Create("second");
+            Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
+            Assert.True(second.SyncNow(), second.Synchronization.Error);
+            Assert.Equal("Exact owner writing after close request", second.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        }
+        finally
+        {
+            cancel.Cancel();
+            publisher.Release.Set();
+            releaseLatest.Set();
+            try { await closing.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested) { }
+            await AwaitSnapshot(() => !first.IsSynchronizing);
+        }
+    }
+
+    [Fact]
+    public async Task Canceling_exit_preserves_explicit_profile_and_Preferred_name_drafts_without_implicitly_saving_them()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.SyncNow(), first.Synchronization.Error);
+        var revision = first.Synchronization.LocalRevision;
+        var person = first.GetRelationships("report@example.com")!.Person;
+        first.RetainPersonTextDraft(person, PersonTextField.PreferredName, "Unsubmitted exact name");
+        Assert.True(first.BeginProfileEdit("manager@example.com"));
+        Assert.True(first.StageProfileText(PersonTextField.Department, "Unsubmitted exact department"));
+        Assert.True(first.NavigatePerson("report@example.com"));
+        var selection = first.PeopleNavigation;
+        var profile = first.ProfileEdit;
+        var name = first.GetPersonTextDraft(person.Email, PersonTextField.PreferredName);
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        await AwaitSnapshot(() => !first.IsSynchronizing);
+        Assert.True(first.ExitStatus.HasUnsavedChanges);
+        Assert.False(first.ExitStatus.HasUnpublishedChanges);
+        Assert.Contains("may be lost", first.ExitStatus.Message);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Equal(selection, first.PeopleNavigation);
+        Assert.Equal(profile, first.ProfileEdit);
+        Assert.Equal(name, first.GetPersonTextDraft(person.Email, PersonTextField.PreferredName));
+        Assert.Equal(revision, first.Synchronization.LocalRevision);
+        using var reading = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reading.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reading.Status);
+        Assert.Null(reading.GetRelationships(person.Email)!.Person.PreferredName);
+        Assert.Null(reading.GetRelationships("manager@example.com")!.Person.Department);
+    }
+
+    [Fact]
+    public async Task Missing_publication_is_not_local_data_loss_and_cancel_does_not_wait_for_a_hung_export()
+    {
+        var publisher = new SnapshotPublisher { Hold = true };
+        using var first = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(filePublisher: publisher));
+        Assert.True(first.OpenWorkspace(Local("first"), WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Assert.True(first.NavigatePerson("report@example.com"));
+        var selection = first.PeopleNavigation;
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)));
+            Assert.False(first.ExitStatus.HasUnsavedChanges);
+            Assert.True(first.ExitStatus.HasUnpublishedChanges);
+            Assert.Contains("remains on this computer", first.ExitStatus.Message);
+            Assert.DoesNotContain("may be lost", first.ExitStatus.Message);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.True(first.IsSynchronizing);
+            Assert.Equal(selection, first.PeopleNavigation);
+            Assert.True(first.NavigatePerson("manager@example.com"));
+            publisher.Release.Set();
+            await AwaitSnapshot(() => !first.IsSynchronizing);
+            Assert.True(first.ExitStatus.CanClose);
+            Assert.True(cancel.IsCancellationRequested);
+        }
+        finally { publisher.Release.Set(); await AwaitSnapshot(() => !first.IsSynchronizing); }
+    }
+
+    [Fact]
+    public async Task Failed_publication_remains_truthful_after_cancel_and_a_fresh_exit_retries_without_replaying_edits()
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
+        Directory.Move(Local("outgoing"), Local("unavailable"));
+        var revision = first.Synchronization.LocalRevision;
+        using (var cancel = new CancellationTokenSource())
+        {
+            var closing = first.PrepareForExitAsync(cancel.Token);
+            await AwaitSnapshot(() => first.Synchronization.Error is not null && !first.IsSynchronizing);
+            var state = first.Synchronization;
+            Assert.False(first.ExitStatus.CanClose);
+            Assert.False(first.ExitStatus.HasUnsavedChanges);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.Equal(state, first.Synchronization);
+            Assert.Equal(revision, first.Synchronization.LocalRevision);
+        }
+        Directory.Move(Local("unavailable"), Local("outgoing"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await first.PrepareForExitAsync(timeout.Token);
+        Assert.True(first.ExitStatus.CanClose);
+        Assert.Equal(revision, first.Synchronization.LocalRevision);
+    }
+
     [Fact]
     public async Task Automatic_cadence_publishes_continuous_edits_without_waiting_for_idle()
     {

@@ -21,6 +21,7 @@ public partial class TeamNotesControl : UserControl
     private bool LocalAutosave => workflow?.Compatibility.SupportsNonblockingNoteAutosave == true;
     private bool HasRetainedDraft => LocalAutosave
         ? selected is { } id && workflow!.HasUnsavedNoteDraft(NoteScope.Team, id) : draft.HasUnsavedChanges;
+    internal bool HasUnsavedChanges => HasRetainedDraft;
     public event Action<Guid>? OwnerRequested;
     internal FlowDocumentScrollViewer InheritedNoteReading => InheritedReading;
     internal FlowDocumentScrollViewer NoteReading => Reading;
@@ -56,11 +57,6 @@ public partial class TeamNotesControl : UserControl
     {
         workflow = application;
         changed = onChanged;
-        Loaded += (_, _) =>
-        {
-            if (Window.GetWindow(this) is { } window)
-                window.Closing += (_, e) => { if (!TryLeave()) e.Cancel = true; };
-        };
     }
 
     public bool TryLeave()
