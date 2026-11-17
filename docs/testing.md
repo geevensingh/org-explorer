@@ -1225,6 +1225,10 @@ owner/id/Markdown, independent preference/profile/note data, retained immutable
 bases and mode-only nonmutation remain asserted. This companion also runs in
 the existing full compiled selection; the passing Person-archival journey,
 product presentation, observation budgets and responsive matrix are unchanged.
+Its continuing path also covers archived Team Read, exact confirmed review,
+restore and writable Edit without a mode-only save or frozen-history change.
+Recovery evidence records an absent healthy notice explicitly with nullable
+notice fields; an actual visible warning must still supply its normal fields.
 The explicit `--diagnose-rich-navigation` diagnostic keeps all 42 selections,
 20 Team plus one Person Add, full rich population, per-sample independent
 reopens and real 60-second synchronization during sampling. Managed

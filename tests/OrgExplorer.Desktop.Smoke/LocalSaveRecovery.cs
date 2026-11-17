@@ -43,7 +43,8 @@ internal static partial class Program
     }
 
     private static void VerifyCompiledLocalSaveRecovery(Type windowType, string settings,
-        Action<Window, WorkspaceViewModel, Guid>? observeLateCommit = null)
+        Action<Window, WorkspaceViewModel, Guid>? observeLateCommit = null,
+        Action<string, Window, WorkspaceViewModel>? observeAttention = null)
     {
         var path = Path.Combine(settings, "compiled-local-recovery");
         SeedRecoveryWorkspace(path);
@@ -105,6 +106,7 @@ internal static partial class Program
                     Control<TextBox>("TeamNameEditor").Text != "Compiled retained recovery label" ||
                     Control<TextBox>("Department").Text != "Compiled retained recovery department")
                     throw new InvalidOperationException("Compiled failed browsing lost its exact profile owner/draft or fault.");
+                observeAttention?.Invoke("failed", window, workflow);
             }
             PumpUntil(() => Control<Button>("NoticeRetryButton").IsEnabled);
             Control<Button>("NoticeRetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -128,6 +130,7 @@ internal static partial class Program
                 !Control<Button>("EditProfileButton").IsEnabled);
             if (workflow.ReconcileLocalSaves())
                 throw new InvalidOperationException("Compiled recovery accepted an unresolved admitted transaction.");
+            observeAttention?.Invoke("stalled", window, workflow);
             var stalledDraft = workflow.GetRetainedNoteDraft(NoteScope.Team, id)!;
             Select("avery@example.com", PersonSelection.Mode.Recovery);
             Select("morgan@example.com", PersonSelection.Mode.Recovery);
@@ -195,6 +198,14 @@ internal static partial class Program
     private static bool IsSmokeLateNoteCommitComplete(bool sameOwner, bool sameNote, bool editorEnabled,
         bool retainedDraft, bool committedExact, bool editorExact) =>
         sameOwner && sameNote && editorEnabled && !retainedDraft && committedExact && editorExact;
+
+    private sealed record SmokeRecoveryFeedback(bool NoticePresent, string? ItemStatus, string? Summary,
+        string Activity, string Status);
+
+    private static SmokeRecoveryFeedback CaptureSmokeRecoveryFeedback(bool noticePresent,
+        Func<string> readNoticeStatus, Func<string> readNoticeSummary, string activity, string status) =>
+        new(noticePresent, noticePresent ? readNoticeStatus() : null,
+            noticePresent ? readNoticeSummary() : null, activity, status);
 
     private static int RunLocalSaveRecoveryFixture(string[] args)
     {
@@ -347,6 +358,11 @@ internal static partial class Program
             using var assembly = File.OpenRead(Path.ChangeExtension(executable, ".dll"));
             var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
                 Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-local-recovery.json");
+            var recoveredNotice = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OperationalNotice"));
+            var recoveredFeedback = CaptureSmokeRecoveryFeedback(recoveredNotice is not null,
+                () => recoveredNotice!.Current.ItemStatus,
+                () => Find(window, "NoticeSummary").Current.Name, Activity(window), Status(window));
             File.WriteAllText(evidence, JsonSerializer.Serialize(new
             {
                 schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
@@ -359,8 +375,10 @@ internal static partial class Program
                 productAssemblySha256 = Convert.ToHexString(SHA256.HashData(assembly)),
                 host = "Actual compiled product MainWindow in the owned smoke host; real SQLite, with only the public storage-observation commit boundary held. Not the ordinary executable startup/latency journey.",
                 failed, failedNotice, stalled, stalledNotice,
-                recovered = Find(window, "OperationalNotice").Current.ItemStatus,
-                recoveredNotice = Find(window, "NoticeSummary").Current.Name,
+                recovered = recoveredFeedback.ItemStatus, recoveredNotice = recoveredFeedback.Summary,
+                recoveredNoticePresent = recoveredFeedback.NoticePresent,
+                recoveredNoticeVisible = recoveredNotice is not null && !recoveredNotice.Current.IsOffscreen,
+                recoveryActivity = recoveredFeedback.Activity, recoveryStatus = recoveredFeedback.Status,
                 owner = "morgan@example.com", noteId = id,
                 retainedTitle = "Retained stalled Team title", retainedMarkdown = "Newer exact stalled Team writing",
                 captures = new[] { "sqlite-recovery-failed-browsing", "sqlite-recovery-stalled-retained-owner", "sqlite-recovery-late-commit" },

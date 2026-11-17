@@ -45,9 +45,28 @@ internal static partial class Program
                 Team<TextBox>("NoteTitle").Text == "Compiled retained title" &&
                 Team<TextBox>("MarkdownEditor").Text == "Compiled newer exact writing"))
                 failures.Add("c38 late recovery: exact same-owner current editor and independently saved complete document did not establish completion.");
+            PumpUntil(() => model.CanSafelyClose &&
+                Control<FrameworkElement>("OperationalNotice").Visibility == Visibility.Collapsed);
+            var feedback = CaptureCompiled5faRecoveryFeedback(window);
+            var serialized = JsonSerializer.Serialize(feedback);
+            var reopened = JsonSerializer.Deserialize<SmokeRecoveryFeedback>(serialized);
+            if (reopened != feedback || feedback.NoticePresent || feedback.ItemStatus is not null ||
+                feedback.Summary is not null || feedback.Activity != Control<TextBlock>("WorkflowActivity").Text ||
+                feedback.Status != Control<TextBlock>("StatusText").Text)
+                throw new InvalidOperationException("Quiet recovery evidence did not explicitly preserve absence and actual ordinary feedback.");
+            Console.WriteLine("ACTUAL5FA-CONTINUING " + serialized);
+        }, (stage, window, model) =>
+        {
+            var feedback = CaptureCompiled5faRecoveryFeedback(window);
+            if (!feedback.NoticePresent || feedback.ItemStatus !=
+                $"Local save: {model.LocalSave.Phase}; outcome: {model.LocalSave.Outcome}" ||
+                string.IsNullOrWhiteSpace(feedback.Summary) ||
+                stage == "failed" && !feedback.Summary.Contains("NOT saved", StringComparison.Ordinal) ||
+                stage == "stalled" && !feedback.Summary.Contains("3 seconds", StringComparison.Ordinal))
+                throw new InvalidOperationException("Genuine failed/stalled recovery evidence lost actual attention feedback.");
         });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine("PASS: actual c38 archived Person Read, repeated attributed inherited review and quiet late recovery preserve exact saved owner/id/writing, independent errors/profile, immutable retained bases and mode-only nonmutation; no native windows.");
+        Console.WriteLine("PASS: actual archived Person/Team Read, repeated inherited review, restore/Edit/frozen-history continuation and quiet recovery evidence preserve exact owner/id/writing/review, independent errors/profile, immutable bases and mode-only nonmutation; no native windows.");
     }
 
     private static void VerifyC38ArchivedPersonReading(Type windowType, string root, List<string> failures)
@@ -186,8 +205,109 @@ internal static partial class Program
                 fixture.Model.TeamNotesView.Feedback != preferenceError ||
                 !fixture.Model.GetTeamNotes(manager).Single(note => note.Id == teamId).NeedsReview)
                 throw new InvalidOperationException("Review/discard changed saved writing, history, review eligibility or independent preference failure.");
+            Verify5faTeamArchiveContinuation(fixture, teamId, failures);
         }
         finally { Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings); }
+    }
+
+    private static void Verify5faTeamArchiveContinuation(OrdinaryFixtureWindow fixture, Guid id, List<string> failures)
+    {
+        const NoteScope scope = NoteScope.Team;
+        const string owner = "morgan@example.com";
+        const string report = "avery@example.com";
+        const string title = "Morgan context";
+        const string markdown = "# Frozen direct\nOriginal direct";
+        void Act(string name)
+        {
+            if (!fixture.Note<Button>(scope, name).IsEnabled)
+                throw new InvalidOperationException("The continuing Team action is ineligible: " + name);
+            fixture.NoteButton(scope, name);
+        }
+        Act("DesignateButton");
+        PumpUntil(() => fixture.Model.TeamNotesView.OngoingNoteId == id &&
+            fixture.Model.LocalSave.OutstandingRequests == 0);
+        Act("ConfirmButton");
+        PumpUntil(() => !fixture.Model.GetTeamNotes(owner).Single(note => note.Id == id).NeedsReview &&
+            fixture.Model.LocalSave.OutstandingRequests == 0);
+        Act("ArchiveButton");
+        PumpUntil(() => fixture.Model.GetTeamNotes(owner, true).Single(note => note.Id == id).Archived &&
+            fixture.Model.TeamNotesView.SelectedNote is null);
+        fixture.Note<CheckBox>(scope, "IncludeArchived").IsChecked = true;
+        fixture.Note<ListBox>(scope, "NotesList").SelectedItem =
+            fixture.Note<ListBox>(scope, "NotesList").Items.Cast<OwnedNote>().Single(note => note.Id == id);
+        var savedGraph = fixture.ReadSavedGraph();
+        var revision = fixture.Model.Synchronization.LocalRevision;
+        var archived = fixture.Model.GetTeamNotes(owner, true).Single(note => note.Id == id);
+        fixture.Note<TabItem>(scope, "ReadTab").IsSelected = true;
+        fixture.Arrange();
+        var editor = fixture.Note<TextBox>(scope, "MarkdownEditor");
+        var reading = fixture.Note<FlowDocumentScrollViewer>(scope, "Reading");
+        CaptureC38(fixture, "5fa-archived-Team-Read", new
+        {
+            archived, revision, tab = (fixture.Note<TabControl>(scope, "Views").SelectedItem as TabItem)?.Name,
+            editorAttached = editor.IsDescendantOf(fixture.Control<UserControl>("TeamNotes")),
+            readingAttached = reading.IsDescendantOf(fixture.Control<UserControl>("TeamNotes"))
+        });
+        var peer = UIElementAutomationPeer.CreatePeerForElement(reading)!;
+        if (editor.IsDescendantOf(fixture.Control<UserControl>("TeamNotes")) ||
+            !reading.IsDescendantOf(fixture.Control<UserControl>("TeamNotes")) ||
+            peer.GetPattern(PatternInterface.Text) is not ITextProvider text ||
+            !text.DocumentRange.GetText(-1).Contains("Original direct", StringComparison.Ordinal))
+            failures.Add("5fa archived Team Read did not expose its saved document without an Edit Markdown provider.");
+        using (var independent = OpenSmokeWorkspace(fixture.Path))
+            if (independent.GetTeamNotes(owner, true).Single(note => note.Id == id) != archived ||
+                archived.OwnerEmail != owner || archived.Title != title || archived.Markdown != markdown ||
+                !archived.Archived || archived.NeedsReview || fixture.Model.TeamNotesView.SelectedNote?.Id != id ||
+                fixture.Model.TeamNotesView.IsEditing || fixture.ReadSavedGraph() != savedGraph ||
+                fixture.Model.Synchronization.LocalRevision != revision ||
+                fixture.Model.GetRetainedNoteDraft(scope, id) is not null)
+                throw new InvalidOperationException("Archived Team selection changed exact confirmed saved writing, identity, current Read or revision.");
+        Act("ArchiveButton");
+        PumpUntil(() => !fixture.Model.GetTeamNotes(owner, true).Single(note => note.Id == id).Archived &&
+            fixture.Model.TeamNotesView.SelectedNote?.Id == id && fixture.Model.LocalSave.OutstandingRequests == 0);
+        var restoredGraph = fixture.ReadSavedGraph();
+        var restoredRevision = fixture.Model.Synchronization.LocalRevision;
+        var restoredBasis = fixture.Model.BeginNoteDraft(scope, owner, id)!;
+        fixture.Note<TabItem>(scope, "EditTab").IsSelected = true;
+        fixture.Arrange();
+        if (!editor.IsDescendantOf(fixture.Control<UserControl>("TeamNotes")) || !editor.IsEnabled ||
+            editor.Text != markdown || fixture.Note<TextBox>(scope, "NoteTitle").Text != title ||
+            restoredBasis.Id != id || restoredBasis.OwnerEmail != owner || restoredBasis.Markdown != markdown ||
+            fixture.ReadSavedGraph() != restoredGraph || fixture.Model.Synchronization.LocalRevision != restoredRevision ||
+            fixture.Model.GetRetainedNoteDraft(scope, id) is not null)
+            throw new InvalidOperationException("Restored Team Edit did not realize exact current writable data/base without a mode-only write.");
+        fixture.Note<TabItem>(scope, "ReadTab").IsSelected = true;
+        fixture.Click("EditProfileButton");
+        fixture.Control<TextBox>("JobTitle").Text = "Senior director";
+        fixture.Click("SaveProfileButton");
+        PumpUntil(() => fixture.Model.ProfileEdit is null && fixture.Control<Button>("EditProfileButton").IsEnabled);
+        if (!fixture.Model.GetTeamNotes(owner).Single(note => note.Id == id).NeedsReview)
+            throw new InvalidOperationException("The continuing profile Save lost restored Team review eligibility.");
+        if (!fixture.Model.EditPersonManager(report, null))
+            throw new InvalidOperationException("Could not close the continuing report's actual former Team context: " + fixture.Model.Status);
+        var historical = JsonSerializer.Serialize(fixture.Model.GetHistoricalTeamContexts(report));
+        if (!fixture.Model.GetHistoricalTeamContexts(report).SelectMany(context => context.TeamNotes)
+            .Any(note => note.Id == id && note.OwnerEmail == owner && note.Markdown == markdown))
+            throw new InvalidOperationException("The continuing history did not freeze the exact restored Team writing.");
+        fixture.Note<TabItem>(scope, "EditTab").IsSelected = true;
+        fixture.Note<TextBox>(scope, "MarkdownEditor").Text = "# Later direct\nLater writing";
+        PumpUntil(() => fixture.Model.GetRetainedNoteDraft(scope, id) is null && fixture.Model.CanSafelyClose);
+        using var latest = OpenSmokeWorkspace(fixture.Path);
+        if (latest.GetTeamNotes(owner).Single(note => note.Id == id).Markdown != "# Later direct\nLater writing" ||
+            JsonSerializer.Serialize(latest.GetHistoricalTeamContexts(report)) != historical)
+            throw new InvalidOperationException("The continuing active Team edit changed frozen context or failed to save current writing.");
+    }
+
+    private static SmokeRecoveryFeedback CaptureCompiled5faRecoveryFeedback(Window window)
+    {
+        var notice = (FrameworkElement)window.FindName("OperationalNotice");
+        return CaptureSmokeRecoveryFeedback(notice.Visibility == Visibility.Visible, () =>
+        {
+            if (notice.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("Missing actual UI control: OperationalNotice");
+            return AutomationProperties.GetItemStatus(notice);
+        }, () => ((TextBlock)window.FindName("NoticeSummary")).Text,
+            ((TextBlock)window.FindName("WorkflowActivity")).Text, ((TextBlock)window.FindName("StatusText")).Text);
     }
 
     private static void CaptureC38(OrdinaryFixtureWindow fixture, string stage, object context)
