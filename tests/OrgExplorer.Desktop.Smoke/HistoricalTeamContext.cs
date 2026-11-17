@@ -204,6 +204,7 @@ internal static partial class Program
             // Archival feedback requires a recorded choice, not implicit sole-note reading.
             Click(window, "UseAsOngoingTeamNote");
             Await(() => Find(window, "TeamNoteKind").Current.Name == "Ongoing Team note");
+            var morganContextId = Guid.Parse(Find(window, "TeamNoteHeading").Current.HelpText);
             Click(window, "ConfirmTeamNote");
             Await(() => Find(window, "TeamNoteReview").Current.Name.Contains("Confirmed"));
             Click(window, "ArchiveTeamNote");
@@ -214,11 +215,23 @@ internal static partial class Program
             ExpandSection(window, "OtherTeamNotes");
             ((TogglePattern)Find(window, "ShowArchivedTeamNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectTeamNote(window, "Morgan context");
-            SelectTab(window, "TeamNoteEditTab");
-            AssertValue(window, "TeamNoteMarkdown", "# Frozen direct\nOriginal direct");
+            AssertNoteView(window, "Team", editing: false);
+            var archivedTeam = ReadSmokeTeamNote(workspace, morganContextId);
+            if (Find(window, "Email").Current.Name != "morgan@example.com" ||
+                Find(window, "TeamNoteHeading").Current.HelpText != morganContextId.ToString() ||
+                archivedTeam.OwnerEmail != "morgan@example.com" || archivedTeam.Title != "Morgan context" ||
+                !archivedTeam.Archived || archivedTeam.NeedsReview || archivedTeam.Markdown != "# Frozen direct\nOriginal direct")
+                throw new InvalidOperationException("Archived Team Read changed the exact saved identity, owner, confirmed review or Markdown.");
+            Await(() => TeamReadingText(window).Contains("Original direct"));
             Click(window, "ArchiveTeamNote");
             AwaitLocalWorkIdle(window);
             SelectTeamNote(window, "Morgan context");
+            AssertNoteView(window, "Team", editing: false);
+            var restoredTeam = ReadSmokeTeamNote(workspace, morganContextId);
+            if (Find(window, "TeamNoteHeading").Current.HelpText != morganContextId.ToString() ||
+                restoredTeam.Archived || restoredTeam.OwnerEmail != "morgan@example.com" ||
+                restoredTeam.Title != "Morgan context" || restoredTeam.Markdown != archivedTeam.Markdown)
+                throw new InvalidOperationException("Team restoration changed the exact saved owner/document before profile review.");
             BeginProfileEditing(window);
             Set(window, "JobTitle", "Senior director");
             SaveProfileEditing(window);
@@ -262,6 +275,8 @@ internal static partial class Program
             SelectTeamNote(window, "Morgan context");
             AssertNoteView(window, "Team", editing: false);
             SelectTab(window, "TeamNoteEditTab");
+            AssertNoteView(window, "Team", editing: true);
+            AssertValue(window, "TeamNoteMarkdown", "# Frozen direct\nOriginal direct");
             Set(window, "TeamNoteMarkdown", "# Later direct\nLater writing");
             OpenPerson(window, "alex@example.com", "morgan@example.com");
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
