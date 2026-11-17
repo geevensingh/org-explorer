@@ -194,8 +194,9 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.True(app.HasFailedImport);
         Assert.True(app.NavigatePerson("casey@example.com"), app.Status);
         app.ChangePeopleQuery("Review reading");
-        var match = Assert.Single(app.Search("Review reading"), r => r.Source == SearchSource.PersonNote);
+        var match = Assert.Single(app.SearchPeople("Review reading"));
         Assert.True(app.NavigateSearchResult(match), app.Status);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id));
         Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.True(app.HasFailedImport);
         Assert.Equal(error, app.LocalSaveError);
@@ -450,7 +451,7 @@ public sealed class WorkspaceStartupTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Reopened_search_note_keeps_its_inherited_or_frozen_owner_context_not_current_owned_writing(bool historical)
+    public void Legacy_remembered_note_keeps_its_inherited_or_frozen_owner_context_not_current_owned_writing(bool historical)
     {
         var workspace = Path.Combine(root, "workspace");
         WorkspaceFixtures.CopyCurrent(workspace);
@@ -470,9 +471,9 @@ public sealed class WorkspaceStartupTests : IDisposable
                 Assert.True(app.EditTeamNote(noteId, "Later title", "Later current writing"));
                 Assert.True(app.ArchiveTeamNote(noteId));
             }
-            app.ChangePeopleQuery("Cedar");
-            var result = Assert.Single(app.Search("Cedar"), r => r.Person.Email == "avery@example.com");
-            Assert.True(app.NavigateSearchResult(result));
+            Assert.True(settings.SetLastView(workspace, new RememberedView("avery@example.com",
+                historical ? SearchSource.HistoricalTeamNote : SearchSource.InheritedTeamNote,
+                noteId, "casey@example.com", captureId)));
         }
         var before = WorkspaceFixtures.Bytes(workspace);
         var restoredSettings = new WorkspaceSettings(Preferences);

@@ -98,7 +98,12 @@ public sealed class TeamNoteTests
         Assert.NotNull(app.ProfileEdit);
         app.CancelProfileEdit();
         app.ChangePeopleQuery("Orchid");
-        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("Orchid"), r => r.Source == SearchSource.OwnedTeamNote)));
+        Assert.True(app.NavigateSearchResult(Assert.Single(app.SearchPeople("Orchid"),
+            r => r.Person.Email == "manager@example.com")));
+        Assert.Equal(ongoing.Id, app.TeamNotesView.SelectedNote!.Id);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.False(app.TeamNotesView.OtherNotesOpen);
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, secondary.Id));
         Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
         Assert.False(app.TeamNotesView.IsEditing);
         Assert.False(app.TeamNotesView.IsOngoing);
@@ -110,9 +115,12 @@ public sealed class TeamNoteTests
         Assert.True(app.EditTeamNote(secondary.Id, "Later title", "Later current writing"));
         Assert.True(app.EditPreferredName(ongoing.OwnerEmail, "Later owner name"));
         Assert.True(app.EditPersonArchived(ongoing.OwnerEmail, true));
-        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("Orchid"), r => r.Source == SearchSource.HistoricalTeamNote)));
+        app.ChangePeopleQuery("Orchid");
+        var person = Assert.Single(app.SearchPeople("Orchid"), r => r.Person.Email == "avery@example.com");
+        Assert.True(app.NavigateSearchResult(person));
         Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
-        var result = app.PeopleNavigation.SelectedResult!;
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        var result = Assert.Single(person.Matches);
         Assert.Equal(capture.Id, result.HistoricalContextId);
         Assert.Equal(secondary.Id, result.NoteId);
         Assert.Equal("", result.MatchText);
