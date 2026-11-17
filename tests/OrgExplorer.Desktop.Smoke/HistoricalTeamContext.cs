@@ -496,6 +496,7 @@ internal static partial class Program
 
     private static void ReviewInheritedTeamNote(AutomationElement window, string owner, string title)
     {
+        ExpandCurrentTeamContext(window);
         ControlReadiness.AwaitPattern(() => window.FindFirst(TreeScope.Descendants, new AndCondition(
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
                 new PropertyCondition(AutomationElement.NameProperty, $"Read / review '{title}' - owner {owner}")))

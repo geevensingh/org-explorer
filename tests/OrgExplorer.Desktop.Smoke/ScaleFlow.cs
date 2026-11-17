@@ -188,6 +188,8 @@ internal static partial class Program
             AwaitScale(() => Value(window, "SearchQuery") == "");
             ScaleFixture.Measure("UI-ordinary-save-latency", () =>
                 RunLocalNoteAutosaveJourney(window, fixture.Workspace, fixture, executable, "normal-executable"));
+            ScaleFixture.Measure("UI-publish-before-held-export", () =>
+                PublishSmokeWorkspace(window, fixture.Workspace, fixture.SynchronizationFolder));
             ScaleFixture.Measure("UI-close-before-held-export", () => Close(process));
             process = null;
             ScaleFixture.Measure("UI-background-export-independence", () => RunRichBackgroundExport(executable, fixture));

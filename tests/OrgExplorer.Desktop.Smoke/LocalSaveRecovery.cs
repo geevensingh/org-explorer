@@ -42,7 +42,8 @@ internal static partial class Program
             throw new InvalidOperationException("Recovery fixture creation failed: " + seed.Status);
     }
 
-    private static void VerifyCompiledLocalSaveRecovery(Type windowType, string settings)
+    private static void VerifyCompiledLocalSaveRecovery(Type windowType, string settings,
+        Action<Window, WorkspaceViewModel, Guid>? observeLateCommit = null)
     {
         var path = Path.Combine(settings, "compiled-local-recovery");
         SeedRecoveryWorkspace(path);
@@ -109,7 +110,9 @@ internal static partial class Program
             Control<Button>("NoticeRetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => workflow.LocalSave.Phase == LocalSavePhase.Recovered &&
                 Control<TextBox>("Department").IsEnabled);
-            Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var profileSubmission = workflow.ProfileEdit!;
+            Control<Button>("SaveProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => workflow.ProfileEdit is null && Control<Button>("EditProfileButton").IsEnabled);
             hold = true;
             Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             pendingNote = workflow.TeamNotesView.SelectedNote!.Id;
@@ -125,10 +128,13 @@ internal static partial class Program
                 !Control<Button>("EditProfileButton").IsEnabled);
             if (workflow.ReconcileLocalSaves())
                 throw new InvalidOperationException("Compiled recovery accepted an unresolved admitted transaction.");
+            var stalledDraft = workflow.GetRetainedNoteDraft(NoteScope.Team, id)!;
             Select("avery@example.com", PersonSelection.Mode.Recovery);
             Select("morgan@example.com", PersonSelection.Mode.Recovery);
             if (workflow.TeamNotesView.SelectedNote?.Id != id ||
                 Note<TextBox>("MarkdownEditor").Text != "Compiled newer exact writing" ||
+                !ReferenceEquals(workflow.GetRetainedNoteDraft(NoteScope.Team, id)?.Basis, stalledDraft.Basis) ||
+                workflow.GetRetainedNoteDraft(NoteScope.Team, id)?.Error != stalledDraft.Error ||
                 Note<TextBox>("MarkdownEditor").IsEnabled)
                 throw new InvalidOperationException("Compiled read-only browsing lost the stalled note's owner or exact newer draft.");
             hold = false;
@@ -138,10 +144,13 @@ internal static partial class Program
             using var reading = ApplicationWorkflow.CreateFileBacked();
             if (!reading.OpenWorkspace(path, WorkspaceOpenMode.ExistingOnly) ||
                 reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", id)?.Markdown != "Compiled newer exact writing" ||
+                reading.GetRelationships("morgan@example.com")!.Person != profileSubmission.Draft ||
+                reading.GetPersonNotes("morgan@example.com").Single().Markdown != "Independent exact recovery writing" ||
                 window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Compiled late completion lost durable writing or created a native window.");
             Console.WriteLine("PASS: invisible compiled local recovery: failed/stalled non-idle caller selection, retained profile fault/draft, explicit 3-second stall, disabled edits, exact retained note owner/newer writing, and independently reopened late commit. No pixels or native latency claimed.");
             completed = true;
+            observeLateCommit?.Invoke(window, workflow, id);
         }
         catch (Exception error)
         {
@@ -182,6 +191,10 @@ internal static partial class Program
             !Find(window, "OperationalNotice").Current.IsOffscreen &&
             !Find(window, "NewPersonNote").Current.IsEnabled && !Find(window, "NewTeamNote").Current.IsEnabled);
     }
+
+    private static bool IsSmokeLateNoteCommitComplete(bool sameOwner, bool sameNote, bool editorEnabled,
+        bool retainedDraft, bool committedExact, bool editorExact) =>
+        sameOwner && sameNote && editorEnabled && !retainedDraft && committedExact && editorExact;
 
     private static int RunLocalSaveRecoveryFixture(string[] args)
     {
@@ -309,10 +322,15 @@ internal static partial class Program
             Await(() =>
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
-                return reading.OpenWorkspace(path, WorkspaceOpenMode.ExistingOnly) &&
-                    reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", id)?.Markdown == "Newer exact stalled Team writing" &&
-                    Find(window, "TeamNoteMarkdown").Current.IsEnabled &&
-                    Find(window, "OperationalNotice").Current.ItemStatus.Contains("Recovered", StringComparison.Ordinal);
+                var committed = reading.OpenWorkspace(path, WorkspaceOpenMode.ExistingOnly)
+                    ? reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", id) : null;
+                return IsSmokeLateNoteCommitComplete(CurrentPersonEmail(window) == "morgan@example.com",
+                    Find(window, "TeamNoteHeading").Current.HelpText == id.ToString(),
+                    Find(window, "TeamNoteMarkdown").Current.IsEnabled, IsVisible(window, "DiscardTeamNoteDraft"),
+                    committed is { OwnerEmail: "morgan@example.com", Title: "Retained stalled Team title",
+                        Markdown: "Newer exact stalled Team writing" } && committed.Id == id,
+                    Value(window, "TeamNoteTitle") == "Retained stalled Team title" &&
+                    Value(window, "TeamNoteMarkdown") == "Newer exact stalled Team writing");
             });
             using (var reading = ApplicationWorkflow.CreateFileBacked())
                 if (!reading.OpenWorkspace(path, WorkspaceOpenMode.ExistingOnly) ||

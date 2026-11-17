@@ -280,6 +280,9 @@ internal static partial class Program
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
             OpenImportView(window);
+            PublishSmokeWorkspace(window, workspace);
+            Await(() => !Find(window, "BackToPeople").Current.IsOffscreen &&
+                !Find(window, "PreviewImport").Current.IsOffscreen);
             process.CloseMainWindow();
             if (!process.WaitForExit(10000))
                 throw new TimeoutException("App did not close normally from Import.");

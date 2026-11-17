@@ -222,6 +222,10 @@ internal static partial class Program
                     VerifyNoteReadDemand(type, Path.Combine(settings, "nd")));
                 HarnessRuntime.Run("compiled-actual39-functional", () =>
                     VerifyActual39FunctionalContracts(type, Path.Combine(settings, "af")));
+                HarnessRuntime.Run("compiled-normal-close-publication-preparation", () =>
+                    VerifyNormalClosePublicationPreparation(type, Path.Combine(settings, "np")));
+                HarnessRuntime.Run("compiled-actualc38-note-readiness", () =>
+                    VerifyActualC38NoteReadinessContracts(type, Path.Combine(settings, "cn")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;

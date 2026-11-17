@@ -57,17 +57,29 @@ internal static partial class Program
         Close(process);
     }
 
-    private static void PublishSmokeWorkspace(AutomationElement window, string workspace)
+    private static void PublishSmokeWorkspace(AutomationElement window, string workspace, string? synchronizationFolder = null)
     {
+        Guid? identity, revision;
+        using (var before = OpenSmokeWorkspace(workspace))
+        {
+            identity = before.Synchronization.WorkspaceId;
+            revision = before.Synchronization.LocalRevision;
+        }
         SetSettingsVisible(window, true);
-        var transport = SmokeSnapshotFolder(workspace);
+        var transport = synchronizationFolder ?? SmokeSnapshotFolder(workspace);
         if (Find(window, "SynchronizationFolder").Current.Name != transport)
-            ConfigureSmokeSnapshotFolder(workspace,
-                folder => PickWorkspaceFolder(window, folder, "ConfigureSynchronizationFolder"));
+        {
+            Directory.CreateDirectory(transport);
+            PickWorkspaceFolder(window, transport, "ConfigureSynchronizationFolder");
+        }
         Await(() => Find(window, "SynchronizationFolder").Current.Name == transport);
         Click(window, "SyncNow");
         Await(() => Find(window, "SyncNow").Current.IsEnabled &&
             Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.", StringComparison.Ordinal));
+        using (var published = OpenSmokeWorkspace(workspace))
+            if (published.Synchronization.WorkspaceId != identity || published.Synchronization.LocalRevision != revision ||
+                published.Synchronization.PublishedRevision != revision || published.Synchronization.HasUnpublishedChanges)
+                throw new InvalidOperationException("Normal-close preparation did not publish the exact independently reopened local revision.");
         SetSettingsVisible(window, false);
     }
 

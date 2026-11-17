@@ -58,6 +58,10 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyActual39FunctionalContracts);
             if (args.Length == 2 && args[1] == "--verify-note-read-demand")
                 return VerifyHostedCutoverContracts(executable, VerifyNoteReadDemand);
+            if (args.Length == 2 && args[1] == "--verify-normal-close-publication-preparation")
+                return VerifyHostedCutoverContracts(executable, VerifyNormalClosePublicationPreparation);
+            if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")
+                return VerifyHostedCutoverContracts(executable, VerifyActualC38NoteReadinessContracts);
             if (args.Length == 2 && args[1] == "--verify-person-search-integration")
                 return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
             if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
