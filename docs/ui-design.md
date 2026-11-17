@@ -171,8 +171,9 @@ This approved design supersedes the destination-level search behavior described
 in the implemented slices below. The #107/#108 implementation covers grouped
 Person results, distinct-Person counts, independent highlighting, query-field
 keyboard interaction and guarded ordinary-profile activation with accepted
-clear/reveal/focus. Complete-candidate hosted acceptance remains pending; deliver
-the combined implementation and this documentation together.
+clear/reveal/focus. Exact-candidate hosted evidence is recorded in
+[integration PR #109](https://github.com/geevensingh/org-explorer/pull/109);
+deliver the combined implementation and this documentation together.
 
 - Show one result per Person, using the existing email identity, across matching
   profile fields, Person/Team notes and history. Different people with the same

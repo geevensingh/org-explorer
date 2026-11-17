@@ -36,7 +36,8 @@ The later [Person-level search amendment](ui-design.md#person-level-search)
 supersedes this pass's exact-destination search and focus-only query Enter.
 Grouped results and ordinary-profile activation are implemented in #107;
 #108 adds highlighting, query-field keyboard input and accepted clear/reveal/focus.
-Complete-candidate hosted acceptance remains pending.
+Exact-candidate hosted evidence belongs to
+[integration PR #109](https://github.com/geevensingh/org-explorer/pull/109).
 
 The existing ongoing-note, exact-restoration, ownership, import, profile-draft,
 external-change, history, and storage-safety contracts remain the baseline.
@@ -287,8 +288,8 @@ and a relevant excerpt. Explicit activation opens their ordinary profile through
 the existing guards. Other notes and current/frozen context remain accessible
 through normal reading surfaces; there is no generic Selected search context
 inspector. The later Person-level amendment owns highlighting, query-field
-keyboard behavior and accepted clear/reveal/focus, implemented in #108 with
-complete-candidate hosted acceptance still pending.
+keyboard behavior and accepted clear/reveal/focus, implemented in #108.
+Complete-candidate hosted acceptance remains a delivery gate.
 
 ## Editing and keyboard behavior
 

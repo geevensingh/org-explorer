@@ -358,41 +358,9 @@ internal static partial class Program
     private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false)
     {
         var compact = IsVisible(window, "OpenPeople");
-        try
-        {
-            Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
-                (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                    : IsVisible(window, "People") && IsVisible(window, "Favorites")));
-        }
-        catch (TimeoutException)
-        {
-            var details = new System.Text.StringBuilder($"[DEBUG-108-ACCEPT] {email}; archived={archived}; " +
-                $"compactAtEntry={compact}; compactNow={IsVisible(window, "OpenPeople")}");
-            foreach (var id in new[] { "SearchQuery", "OpenPeople", "PeopleNavigation", "People", "Favorites", "Email", "ProfileHeading",
-                "SaveProfile", "PersonNoteReadTab", "PersonNoteEditTab", "TeamNoteReadTab", "TeamNoteEditTab" })
-            {
-                var control = window.FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, id));
-                if (control is null) details.Append($"\n{id}: missing");
-                else
-                {
-                    details.Append($"\n{id}: name='{control.Current.Name}'; offscreen={control.Current.IsOffscreen}; " +
-                        $"enabled={control.Current.IsEnabled}; focus={control.Current.HasKeyboardFocus}");
-                    if (control.TryGetCurrentPattern(ValuePattern.Pattern, out var value))
-                        details.Append($"; value='{((ValuePattern)value).Current.Value}'");
-                    if (control.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selection))
-                        details.Append($"; selected={((SelectionItemPattern)selection).Current.IsSelected}");
-                }
-            }
-            var focused = AutomationElement.FocusedElement;
-            details.Append(focused?.Current.ProcessId == window.Current.ProcessId
-                ? $"\nFocused scenario control: {focused.Current.AutomationId}: {focused.Current.Name}"
-                : "\nKeyboard focus is outside the scenario process.");
-            Console.Error.WriteLine(details.ToString());
-            File.AppendAllText(diagnostics, details.ToString() + Environment.NewLine);
-            CaptureVisualEvidence(window, "search-accepted-state-timeout");
-            throw;
-        }
+        Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
+            (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
+                : IsVisible(window, "People") && IsVisible(window, "Favorites")));
         if (compact)
         {
             Click(window, "OpenPeople");

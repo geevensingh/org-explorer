@@ -402,7 +402,7 @@ failed editor and unchanged Person bounds retained. Unique visual captures cover
 grouped results, mouse activation, exact/empty Other notes, current/frozen attribution
 and rejected writing within those existing journeys. No scenario, population,
 deadline, required lane or explicit-scale selection is removed. These captures
-and hosted assertions still require execution for the complete candidate.
+and hosted assertions must run for each complete candidate.
 The #108 view-model cases observe initial/query-reset/empty highlighting,
 clamped navigation without leaving exact reading or unsaved profiles, and
 accepted versus rejected current/archived transitions. Manual clear retains
@@ -427,8 +427,8 @@ reopening. Archived access must show the retained list without reactivation or
 current-tree insertion. The responsive rejected-note journey uses the same
 query-field input and preserves exact failed writing, owner, highlight, overlay
 and geometry. No scenario, responsive matrix, deadline or scale contract changes.
-The complete #107/#108 candidate still needs hosted execution; authored assertions
-and invisible replays are not native keyboard/layout acceptance.
+The complete #107/#108 candidate requires exact-candidate hosted execution;
+authored assertions and invisible replays are not native keyboard/layout acceptance.
 
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
