@@ -465,6 +465,12 @@ current-tree insertion. An accepted-search timeout captures the actual failure
 frame and reports query, owner, profile readiness, navigation visibility and the
 actual keyboard-focus owner without retrying input or repairing focus. The same
 20-second assertion and current/archived matrix remain unchanged.
+Accepted-search layout discovery shares that bounded read-only observation:
+a transiently missing People entry must not freeze the wide-layout branch for
+the entire wait. A runner regression replays an initial layout observation that
+differs from the settled mode. Native query/profile, mode-specific visibility
+and focus, reopened selection and exact viewport assertions remain unchanged;
+the replay does not establish hosted focus or acceptance.
 The responsive rejected-note journey uses the same
 query-field input and preserves exact failed writing, owner, highlight, overlay
 and geometry. No scenario, responsive matrix, deadline or scale contract changes.

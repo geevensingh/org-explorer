@@ -359,12 +359,13 @@ internal static partial class Program
 
     private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false)
     {
-        var compact = IsVisible(window, "OpenPeople");
+        var compact = false;
         try
         {
-            Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
-                (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                    : IsVisible(window, "People") && IsVisible(window, "Favorites")));
+            ControlReadiness.AwaitSearchBrowsing(() => compact = IsVisible(window, "OpenPeople"),
+                isCompact => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
+                    (isCompact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
+                        : IsVisible(window, "People") && IsVisible(window, "Favorites")), Await);
         }
         catch (TimeoutException error)
         {
