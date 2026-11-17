@@ -1315,7 +1315,14 @@ drives the actual compiled controls' open/select/Save events on a bounded STA
 dispatcher with isolated real files, still without showing a window or creating
 its native handle. It observes note content at profile Save completion, before a
 later refresh could hide stale same-owner reading, and proves both clean
-delivery refresh and dirty-note retention. It does not run Loaded startup/update
+delivery refresh and dirty-note retention. Completion uses the actual submitted
+owner's View/controls and independently reopened whole profile, not a global
+English success message: a retained invalid note must keep its own Pending/error
+feedback even when the independent profile committed. Owned Team creation likewise
+requires exact committed note/review state rather than a retired writer's success
+phrase. `--verify-profile-note-refresh` focuses these same actual compiled/public
+real-store regressions for diagnosis; they remain included in the complete
+`--verify-profile-refresh` selection. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
