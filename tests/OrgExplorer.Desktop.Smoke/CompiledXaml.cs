@@ -56,10 +56,10 @@ internal static partial class Program
 
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false,
         bool verifyLegacySaveFeedback = false, bool verifySnapshotAdoption = false, bool verifyExit = false,
-        bool verifyExitStartup = false, bool verifyProfileNoteRefresh = false)
+        bool verifyExitStartup = false, bool verifyProfileNoteRefresh = false, bool verifyPreferredNameRetention = false)
     {
         AssertDisplayInterop();
-        if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
@@ -76,7 +76,7 @@ internal static partial class Program
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup)
+            if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
@@ -190,6 +190,8 @@ internal static partial class Program
             }
             if (verifyProfileRefresh || verifyLegacySaveFeedback)
                 HarnessRuntime.Run("compiled-legacy-save-feedback", () => VerifyLegacySaveFeedback(type, settings, chooseFolder));
+            if (verifyProfileRefresh || verifyPreferredNameRetention)
+                HarnessRuntime.Run("compiled-preferred-name-retention", () => VerifyPreferredNameRetention(type, settings, chooseFolder));
             if (verifyProfileRefresh)
             {
                 HarnessRuntime.Run("compiled-cutover-publication", () =>

@@ -874,13 +874,16 @@ The existing named invisible `--verify-legacy-save-feedback` command is retained
 for runner compatibility, not a legacy engine. It now uses actual SQLite
 noncommit/reconciliation, exact retained owner writing, paused edits and available
 browsing, followed by complete snapshot publication before normal cleanup close.
+It invokes the enabled compiled `SaveProfileButton` Click connector, not a private
+save method, and observes failed local completion and retained profile writing.
 It remains part of the compiled profile-refresh selection.
 
 The #100 hosted-failure regressions also run in that full selection. Focused
 `--verify-cutover-publication`, `--verify-cutover-note-modes`,
-`--verify-cutover-acknowledgment`, `--verify-cutover-failure-feedback` and
-`--verify-cutover-incoming` / `--verify-cutover-close-publication` selectors load actual BAML without showing a window
-or creating a native handle. They use public SQLite creation and complete
+`--verify-cutover-acknowledgment`, `--verify-cutover-failure-feedback`,
+`--verify-cutover-incoming` and `--verify-cutover-close-publication` selectors
+load actual BAML without showing a window or creating a native handle.
+They use public SQLite creation and complete
 snapshot transport, not canonical-file edits. The folder adapter creates the
 actual synchronization directory before the picker can select it. Clean note
 owner returns reopen Read; pending/failed writing returns Edit with its exact
@@ -908,6 +911,20 @@ export/newer writing/repeated/canceled-intent compiled regression remains.
 Public real-store tests additionally cover changed receipt bytes, locked/corrupt
 artifacts, unavailable local storage and an actual pre-Commit sibling transaction
 whose unresolved receipt must refuse cached Ready until explicit recovery.
+
+The invisible `--verify-preferred-name-retention` check also runs in that existing
+profile-refresh selection. It holds the real SQLite commit through the shared
+save-boundary observer, drives enabled compiled Save/Cancel and pending A-B-A
+Person selection, and requires exact newer writing to survive the older
+completion until its own Save or Cancel. Returning before completion must use
+the exact accepted base for the next explicit Save, both with and without
+earlier Cancel or newer typing during the held write. Independent SQLite reopen
+checks the actual saved owner/value and excludes implicit submission of newer
+text. A genuine other-client same-field change must still reject the stale
+entry and retain its exact writing/error without overwriting external data.
+These checks use the existing bounded dispatcher/commit observations and never
+show a window or create a native main-window handle; they are not hosted
+interaction or latency acceptance.
 
 ### Retired-engine coverage reconciliation (#100)
 

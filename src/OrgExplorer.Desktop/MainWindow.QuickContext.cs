@@ -47,6 +47,10 @@ public partial class MainWindow
 
     private void SetPreferredNameEditing(bool editing)
     {
+        // A restored entry is a new generation, not the entry an earlier Cancel dismissed.
+        if (editing && string.Equals(pendingPreferredNameCancellation?.Email, preferredNameOwner,
+                StringComparison.OrdinalIgnoreCase))
+            pendingPreferredNameCancellation = null;
         preferredNameEditing = editing;
         PreferredNameEditorPanel.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         // Invisible compiled-control checks must not create the Popup's native window.
@@ -95,17 +99,20 @@ public partial class MainWindow
         }
         finally { preferredNameSavePending = false; }
         var returnFocus = entry == preferredNameEntryVersion && accepted is not null && PreferredName.Text == text;
-        if (entry != preferredNameEntryVersion)
-        {
-            // Dismissal cannot revoke an admitted write or acknowledge its durable conflict.
-            if (!RetainsPersonDrafts) workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
-        }
-        else if (accepted is not null)
+        var currentEntry = entry == preferredNameEntryVersion;
+        var restoredOwner = RetainsPersonDrafts && preferredNameEditing &&
+            string.Equals(preferredNameOwner, basis.Email, StringComparison.OrdinalIgnoreCase);
+        if (accepted is not null && (currentEntry || restoredOwner))
         {
             preferredNameBasis = accepted;
             preferredNameSaveError = null;
-            if (PreferredName.Text == text) FinishPreferredNameEntry();
-            else preferredNameDirty = true;
+            if (currentEntry && PreferredName.Text == text) FinishPreferredNameEntry();
+            else preferredNameDirty = PreferredName.Text != (accepted.PreferredName ?? "");
+        }
+        else if (!currentEntry)
+        {
+            // Dismissal cannot revoke an admitted write or acknowledge its durable conflict.
+            if (!RetainsPersonDrafts) workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         }
         else preferredNameSaveError = workflow.Status;
         RefreshPeople();
