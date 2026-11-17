@@ -384,7 +384,7 @@ These do not prove WPF geometry.
 
 The #107 search slice groups the existing `Search` evidence through `SearchPeople`
 at the shared workflow/view-model seam. Cases retain every source and attribution,
-equal-name/different-email identities, first-match order, archived eligibility and
+equal-name/different-email identities, archived eligibility and
 exact unsaved writing, including rejected same-Person reloads. Ordinary activation
 uses the normal ongoing-note view; exact Other notes and legacy remembered-note
 restoration remain independently covered.
@@ -413,6 +413,21 @@ that published result list instead of rebuilding excerpts. Bounded allocation
 cases use a warmed long-note fixture, and publication cases reject older query,
 refresh and Workspace requests. The compiled replay also sends Enter immediately
 after query input, before pumping publication, to retain single-Enter acceptance.
+The #111 own-identity slice replaces first-match order at that same `SearchPeople`
+seam: complete Preferred/Directory names, Alias and email precede literal name
+words/phrases, word prefixes and incidental own-identity substrings. Cases cover
+punctuation/whitespace boundaries, multiple occurrences, archived parity,
+heading/email ties, stable same-tier evidence, strongest primary excerpts and
+unchanged literal membership. The Sachin regression publishes names before
+Kiran's incidental email and Manager-only matches, preserves secondary-note and
+historical attribution, and exercises ranked highlight/guarded acceptance without
+replacing unsaved writing. Referenced Managers must still exist; the existing
+invalid-reference rejection is unchanged, not bypassed for an unreachable fixture.
+Other evidence shares one lower tier in this slice; owned/inherited/historical
+context refinement remains a separate delivery prerequisite. These non-UI cases
+do not establish native query focus, viewport visibility or mouse/keyboard
+acceptance; the existing required hosted journeys remain required on the complete
+candidate, with no new desktop scenario or explicit-scale execution.
 The native manual-clear replay waits read-only for the queried Person's current
 Person-note evidence before selecting once; hidden browsing controls alone do
 not establish result readiness. The existing bounded wait and exact row/pixel
