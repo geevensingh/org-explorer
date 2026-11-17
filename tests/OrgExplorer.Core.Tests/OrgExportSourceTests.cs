@@ -297,6 +297,10 @@ public sealed class OrgExportSourceTests : IDisposable
     [InlineData(503, null, "Profile details couldn't be retrieved for this person right now.")]
     [InlineData(null, "PolicyDenied", "Profile details couldn't be retrieved for this person right now.")]
     [InlineData(null, null, "Earlier diagnostic: Profile details couldn't be retrieved for this person right now.")]
+    [InlineData(403, null, "Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData(503, null, "Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData(null, null, "Earlier diagnostic: Open '' Failure: Unable to open, Exception: Status code is .")]
     public void Profile_open_recovery_cannot_reclassify_structured_or_unrelated_failures(int? status, string? code, string message)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
@@ -319,6 +323,7 @@ public sealed class OrgExportSourceTests : IDisposable
     [Theory]
     [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
     [InlineData("Profile details couldn't be retrieved for this person right now.")]
+    [InlineData("Open '' Failure: Unable to open, Exception: Status code is .")]
     public void Profile_open_recovery_requires_settled_calls_and_preserves_returned_delays(string diagnostic)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);

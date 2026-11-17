@@ -292,7 +292,8 @@ public sealed partial class ExportSession
         string[] diagnostics =
         [
             "Open '' Failure: Unable to open, Exception Caught.",
-            "Profile details couldn't be retrieved for this person right now."
+            "Profile details couldn't be retrieved for this person right now.",
+            "Open '' Failure: Unable to open, Exception: Status code is ."
         ];
         var text = SourceText(value).Trim();
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');

@@ -291,12 +291,17 @@ deferred failure remains an export blocker, never confirmed photo absence.
 
 ### User-authorized profile-read retry
 
-A completed People retrieval can contain either exact per-identity diagnostic
-`Open '' Failure: Unable to open, Exception Caught.` or
-`Profile details couldn't be retrieved for this person right now.` without a source
-status or code. Preserve that as a failed profile read, not unknown geography or a
-service 503. If the ordinary recovery pass is consumed, the coordinator may ask the user
-to authorize one retry of that exact unresolved identity. With that approval and
+A completed People retrieval can contain these exact per-identity diagnostics
+without a source status or code:
+
+- `Open '' Failure: Unable to open, Exception Caught.`
+- `Profile details couldn't be retrieved for this person right now.`
+- `Open '' Failure: Unable to open, Exception: Status code is .`
+
+The last message does not establish an HTTP status. Preserve these as failed
+profile reads, not unknown geography or a service 503. If the ordinary recovery
+pass is consumed, the coordinator may ask the user to authorize one retry of that
+exact unresolved identity. With that approval and
 all active claims settled, run `source-recover-profile-open RUN DIRECTORY-ID REASON`
 and use the returned eligibility through the usual claim/capture/finish sequence.
 Record the authorization in `serviceRecoveries`; preserve the original error,

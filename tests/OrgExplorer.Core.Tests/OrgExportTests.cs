@@ -1515,6 +1515,9 @@ public sealed class OrgExportTests : IDisposable
     [InlineData("message", "Profile details couldn't be retrieved for this person right now.")]
     [InlineData("string", "Profile details couldn't be retrieved for this person right now.")]
     [InlineData("markdown", "Profile details couldn't be retrieved for this person right now.")]
+    [InlineData("message", "Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData("string", "Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData("markdown", "Open '' Failure: Unable to open, Exception: Status code is .")]
     public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(string envelope, string diagnostic)
     {
         var path = Seed();
@@ -1543,7 +1546,7 @@ public sealed class OrgExportTests : IDisposable
 
         var result = await RunCli("source-recover-profile-open", path, RootId, reason);
 
-        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ExitCode == 0, result.Error);
         Assert.Empty(result.Error);
         Assert.Equal(original, JsonSerializer.Serialize(
             session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts, ExportSession.Json));
@@ -1566,6 +1569,7 @@ public sealed class OrgExportTests : IDisposable
     [Theory]
     [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
     [InlineData("Profile details couldn't be retrieved for this person right now.")]
+    [InlineData("Open '' Failure: Unable to open, Exception: Status code is .")]
     public async Task Explicit_profile_deferral_allows_unread_entries_but_keeps_the_failed_person_and_publication_block(string diagnostic)
     {
         var path = Seed();
