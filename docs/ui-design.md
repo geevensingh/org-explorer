@@ -168,7 +168,10 @@ and a complete company directory.
 ### Person-level search
 
 This approved design supersedes the destination-level search behavior described
-in the implemented slices below. It still requires implementation.
+in the implemented slices below. Delivery remains in progress: #107 implements
+grouped Person results, distinct-Person counts and guarded ordinary-profile
+activation. Automatic highlighting, query-field keyboard interaction and accepted
+clear/reveal/focus remain in #108. Hosted acceptance remains pending.
 
 - Show one result per Person, using the existing email identity, across matching
   profile fields, Person/Team notes and history. Different people with the same
@@ -245,9 +248,8 @@ The Person-note host now opens its ongoing document directly and puts the
 collection behind Other notes. Multiple active candidates require explicit
 Use as ongoing; a sole active note may be read without recording a designation.
 Other notes opens the exact selected document in Read mode; new notes start
-editing. Search currently also opens exact documents; the approved
-[Person-level search](#person-level-search) design replaces that shortcut with
-Person-profile navigation. An unavailable or archived designated note keeps its
+editing. Search opens their ordinary Person profile; exact secondary documents
+remain available through Other notes. An unavailable or archived designated note keeps its
 recorded choice, gives visible recovery guidance and never selects replacement
 writing.
 
@@ -285,25 +287,23 @@ focus to People; accepted destinations close the overlay, while rejected
 navigation retains its panel, owner, exact writing and actionable feedback.
 The implemented search replaces Favorites/tree with a full-height result list.
 Clearing restores their in-session expansion and scroll position, including
-after overlay use. Its exact current, archived and frozen destinations remain
-distinct; the approved Person-level design above retains those distinctions
-in match explanations instead of separate result rows.
+after overlay use. Person-level results retain current, archived and frozen
+distinctions in match explanations instead of separate destination rows.
 
 The #77 slice adds single-line reporting names with modest guide-line indentation,
 quiet selection and starred Favorites. Full email/Directory-name identity remains
 available to accessibility and through row tooltips; virtualization and reporting
 depth are unchanged. Only root containers reserve the bookmarked measured width,
 so restoring a horizontal offset does not compound minimum widths down the tree.
-The existing destination-level results show name, source and a query-relevant
-excerpt. Query Enter focuses the results without opening a Person; selecting a
-row alone is not activation.
-Click or selected-row Enter uses the same draft/profile/navigation guards.
-Profile matches focus/highlight their actual field; exact owned notes open in
-Read, and inherited/frozen notes reveal their exact attributed section in current
-context/History. The duplicate generic search inspector is removed. Rejection
-retains the overlay, query and exact failed editor. The approved
-[Person-level search](#person-level-search) design supersedes these result,
-keyboard and destination-activation behaviors. These implementation and invisible
+Grouped results show name, email, distinct attributed matching fields/sources and
+a query-relevant excerpt. Full note ownership, titles and historical provenance
+remain in accessible help and the row tooltip. Selecting a row alone is not
+activation. Click or selected-row Enter uses the existing draft/profile/navigation
+guards and opens ordinary profile/ongoing-note reading, never an arbitrary
+matching destination. Other notes and secondary current context/History retain
+their independent access. Rejection retains the highlighted row, overlay, query
+and exact failed editor. Query-field keyboard behavior and accepted search
+dismissal/revelation/focus still require #108. These implementation and invisible
 replay checks do not claim hosted input/layout or owner visual acceptance.
 
 The numeric implementation choices are:
@@ -372,7 +372,7 @@ rewrite history as part of this layout change.
 ### Implemented owned-Team and secondary evidence slice
 
 Owned Team notes now reuse the Person ongoing/Other interaction, including
-explicit ambiguous choice, stable owner/scope/GUID preferences, exact search,
+explicit ambiguous choice, stable owner/scope/GUID preferences, Person-level search,
 Read-first existing notes, direct new-note editing and unavailable-choice
 guidance. Designating a Team note never filters inherited context or mutates
 writing. Preference updates preserve the adaptive host's pane proportions.
@@ -386,7 +386,8 @@ that navigation without replacing its editor.
 
 History starts collapsed and retains the structured Profile timeline, field
 confirmations, source observations and frozen former-chain writing. Current
-inheritance, frozen owner identity and exact historical search stay distinct.
+inheritance and frozen owner identity stay distinct in ordinary reading and
+grouped search evidence.
 The same surfaces live within the existing wide/compact adaptive host; headers
 wrap and Markdown retains its 600-DIP reading limit. Existing title/Markdown
 autosave, retry/discard, archive/restore and external-change protections remain.
@@ -407,8 +408,8 @@ identity and frozen note IDs, versions and update timestamps. Its read-only text
 can be selected and copied. These are capture metadata, not Team-note content.
 Each frozen note has a separate ruled reading section with its title, former
 owner and review state when captured outside that disclosure. Technical evidence
-is not repeated in the capture-count summary or note headings. Exact historical
-search still reveals the same immutable capture/note section; expanding evidence
+is not repeated in the capture-count summary or note headings. Historical search
+opens the Person; ordinary History exposes the immutable capture/note sections. Expanding evidence
 does not replace writing or introduce a second reading scroll.
 
 Workflow and real-file regressions cover secondary inheritance/navigation,
@@ -439,7 +440,8 @@ The shared observable People navigation now retains the last valid destination.
 Successful existing-only reopening resolves that destination against validated
 current Workspace data before presenting a Person. Existing secondary Person
 and owned Team notes override their ordinary ongoing default and reopen in Read
-mode. Other notes and search remain exact, and Open ongoing note is deliberate.
+mode. Other notes remains exact; search deliberately returns to ordinary
+Person/ongoing reading. Open ongoing note remains independently available.
 Same-Person navigation and compact/wide transitions do not substitute a different
 note or write over remembered pane proportions.
 

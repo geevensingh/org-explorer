@@ -152,12 +152,15 @@ internal static partial class Program
             Click(window, "UseAsOngoingPersonNote");
             AssertOtherPersonNotesCollapsed(window);
             QueryAndSelect(window, "Secondary empty note", "avery@example.com", "Current", "Person note");
+            Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
+            AssertOtherPersonNotesCollapsed(window);
+            SelectNote(window, "Secondary empty note");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Secondary empty note");
             AssertNoteView(window, "Person", editing: false);
             if (!Find(window, "PersonNoteKind").Current.Name.Contains("Other Person note"))
-                throw new InvalidOperationException("Search silently redirected a secondary note to the ongoing note.");
+                throw new InvalidOperationException("Ordinary Other notes access lost the secondary note.");
             AssertEmptyDocument(window, "Person");
-            CaptureVisualEvidence(window, "search-exact-empty-other-person-note");
+            CaptureVisualEvidence(window, "search-person-then-other-person-note");
             Click(window, "OpenOngoingPersonNote");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Private meeting");
             NavigateToManager(window, "casey@example.com");

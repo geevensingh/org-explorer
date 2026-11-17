@@ -19,21 +19,22 @@ public sealed record SearchResult(PersonProfile Person, SearchContext Context, S
     public string Excerpt { get; init; } = MatchText;
     public string Label => (IsWorkspaceCurrent ? "" : "STALE retained — ") + $"{Person.Heading} ({Person.Email}) — " + DestinationLabel;
     public string SourceLabel => (IsWorkspaceCurrent ? "" : "STALE retained — ") + DestinationLabel;
-    private string DestinationLabel =>
+    internal string AttributionLabel =>
         (Context == SearchContext.Historical ? "Historical" : Person.Archived ? "Archived person" :
             NoteArchived ? "Archived note — not current writing" : "Current") +
         (Context == SearchContext.Historical && Person.Archived ? " / Archived person" : "") +
-        (Person.Archived && NoteArchived ? " / Archived note — not current writing" : "") + " — " +
-        (Source switch
-        {
-            SearchSource.Profile => "Profile: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
-            SearchSource.PersonNote => "Person note",
-            SearchSource.OwnedTeamNote => "Owned Team note",
-            SearchSource.InheritedTeamNote => "Inherited Team note",
-            SearchSource.ProfileHistory => "Profile history: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
-            SearchSource.FormerReportingChain => "Former Reporting chain: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
-            _ => "Frozen Team note"
-        }) +
+        (Person.Archived && NoteArchived ? " / Archived note — not current writing" : "");
+    internal string MatchKindLabel => Source switch
+    {
+        SearchSource.Profile => "Profile: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
+        SearchSource.PersonNote => "Person note",
+        SearchSource.OwnedTeamNote => "Owned Team note",
+        SearchSource.InheritedTeamNote => "Inherited Team note",
+        SearchSource.ProfileHistory => "Profile history: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
+        SearchSource.FormerReportingChain => "Former Reporting chain: " + ApplicationWorkflow.ProfileFieldLabel(Field!),
+        _ => "Frozen Team note"
+    };
+    private string DestinationLabel => AttributionLabel + " — " + MatchKindLabel +
         (NoteTitle is null ? "" : $" '{NoteTitle}'") +
         (NoteOwner is null ? "" : $" — {(Source == SearchSource.FormerReportingChain ? "former Manager" : "owned by")} {NoteOwner.Heading} ({NoteOwner.Email})") +
         (CapturedAt is null ? "" : $" — captured locally {CapturedAt.Value:O}") +
@@ -41,13 +42,27 @@ public sealed record SearchResult(PersonProfile Person, SearchContext Context, S
         (NoteNeedsReview ? (Context == SearchContext.Historical ? " — Needed review when captured" : " — Needs review; writing retained") : "");
 }
 
+public sealed record PersonSearchResult(PersonProfile Person, IReadOnlyList<SearchResult> Matches)
+{
+    public string SourceLabel => (Matches[0].IsWorkspaceCurrent ? "" : "STALE retained — ") +
+        string.Join("; ", Matches.Select(match => $"{match.AttributionLabel} — {match.MatchKindLabel}").Distinct());
+    public string Excerpt => Matches[0].Excerpt;
+    public string Label => $"{Person.Heading} ({Person.Email}) — {SourceLabel}";
+    public string EvidenceDescription => string.Join("\n", Matches.Select(match => $"{match.SourceLabel}\n{match.Excerpt}"));
+}
+
 public partial interface IApplicationWorkflow
 {
     IReadOnlyList<SearchResult> Search(string query);
+    IReadOnlyList<PersonSearchResult> SearchPeople(string query);
 }
 
 public sealed partial class ApplicationWorkflow
 {
+    public IReadOnlyList<PersonSearchResult> SearchPeople(string query) =>
+        Search(query).GroupBy(match => match.Person.Email, StringComparer.OrdinalIgnoreCase)
+            .Select(matches => new PersonSearchResult(matches.First().Person, matches.ToArray())).ToArray();
+
     public IReadOnlyList<SearchResult> Search(string query)
     {
         if (queryView is { } view)

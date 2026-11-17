@@ -295,7 +295,8 @@ assertions, not WPF evidence or a second profile-mode policy.
 Person-note presentation is observed through `WorkspaceViewModel.PersonNotesView`
 and the shared owned-note commands, not a control-specific test adapter.
 Person-note cases cover explicit ambiguous designation, a changed choice without
-note mutation, exact Other notes/search targets (including empty bodies), direct
+note mutation, exact Other notes targets (including empty bodies), grouped
+Person search with ordinary-profile activation, direct
 Read versus new-note editing, observable secondary access, independent profile
 writing and rejected retained-draft navigation. `WorkspaceStartupTests` extends
 the real settings/reopen seam with version-1 preference compatibility, canonical
@@ -375,29 +376,35 @@ It also retains the measured content width. Root reporting rows reserve that
 width while unseen wide labels are virtualized, keeping the bookmarked horizontal
 offset reachable instead of clamping it to zero. This minimum applies only to
 root containers, not recursively to descendants or the outer People pane.
-Existing accepted/rejected exact-note tests retain both axes and measured width.
+Existing accepted/rejected navigation tests retain both axes and measured width.
 `WorkspaceStartupTests` uses real settings/files to prove percentage reopen,
 canonical per-Workspace identity, interleaved designation/startup writes, unchanged
 Workspace bytes and locked/corrupt/invalid-version/invalid-percentage rejection.
 These do not prove WPF geometry.
 
-The #77 search extension exercises live, query-relevant excerpts without navigation
-or mutation of the complete note body. The invisible compiled replay distinguishes
-query Enter, row selection and explicit result Enter, then observes the real matched
-fact and current/frozen owner-correct document sections. It retains the full cold
-two-axis browsing replay and exact-row criterion; logical focus without a native
-window is not proof of actual keyboard delivery.
-Existing normal/responsive search and scale callers now explicitly focus/select
-and activate a result rather than relying on selection to navigate. Query Enter
-must preserve the current Person and exact note before focusing results. Hosted
-search checks observe actual matched-field focus, real note Read surfaces and
-exact document/capture identities, not a duplicate generic inspector. The existing
+The #107 search slice groups the existing `Search` evidence through `SearchPeople`
+at the shared workflow/view-model seam. Cases retain every source and attribution,
+equal-name/different-email identities, first-match order, archived eligibility and
+exact unsaved writing, including rejected same-Person reloads. Ordinary activation
+uses the normal ongoing-note view; exact Other notes and legacy remembered-note
+restoration remain independently covered.
+The invisible compiled replay observes grouped rows, rendered email bindings,
+distinct-Person counts, non-activating row selection and guarded explicit result
+Enter. Current/frozen owner-correct documents remain available through their normal
+disclosures. It retains the full cold two-axis manual-clear browsing replay and
+exact-row criterion; logical focus without a native window is not keyboard evidence.
+Existing normal/responsive search and scale callers explicitly select and activate
+a Person rather than relying on selection to navigate. Hosted search checks observe
+ordinary profile/note Read state, with independent Other notes and History access,
+not matched-field focus or a duplicate generic inspector. The existing
 responsive draft journey also rejects search activation with overlay/query, exact
 failed editor and unchanged Person bounds retained. Unique visual captures cover
-matched facts, mouse activation, exact/empty Other notes, current/frozen attribution
+grouped results, mouse activation, exact/empty Other notes, current/frozen attribution
 and rejected writing within those existing journeys. No scenario, population,
 deadline, required lane or explicit-scale selection is removed. These captures
 and hosted assertions still require execution for the complete candidate.
+Automatic highlighting, query-field arrow/Enter delivery and accepted
+clear/reveal/focus remain in #108; the full approved design is under construction.
 
 Exact startup view uses the same observable People/owned-note state and real
 settings/files in `WorkspaceStartupTests`. Cases close/reopen secondary Person
@@ -469,12 +476,14 @@ the helper never collapses it, and permanently missing sections still fail.
 Runner coverage replays the observed missing-then-present context provider.
 The invisible compiled replay additionally drives the 44-Person/long-note
 fixture through real tree scrolling with cold virtualization and recorded
-available viewport geometry, exact-note search/clear and wide/compact
+available viewport geometry, grouped-result highlighting/manual clear and wide/compact
 restoration, including recycled tree-item load events. Compact replay establishes
 a real 39-DIP horizontal offset, then drops the cached measurement and invalidates
 the tree's measure while browsing is hidden, retaining all People and expansion.
 This reproduces the lost horizontal range that clamps even a correctly retained
-offset. Every original row must return to the same horizontal and vertical
+offset. The manual-clear fixture preserves the original selected Person while
+expanding its Manager, verifies that People is open before recording the baseline,
+and invokes the real clear action. Every original row must return to the same horizontal and vertical
 position; offset-only restoration goes red, while reserving the captured width
 keeps that position reachable. It does not reproduce
 native focus or establish that a hosted UIA timeout is fixed. Hosted browsing
@@ -991,13 +1000,13 @@ without changing its display. They cover:
   no-fetch assertion, failed filesystem save, restored tree selection,
   Workspace/close rejection, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
-  ongoing/Other designation and exact secondary search, Read-first owned notes,
+  ongoing/Other designation, grouped Person search and independent exact secondary access, Read-first owned notes,
   direct New-note editing and empty-body accessibility, visible preference/save
   failures and collapsed attributed warnings at the ordinary desktop size,
   protected owner review navigation/confirmation and archive/restore,
   secondary History with confirmations/observations, actual current/frozen
   reading and honest historical dates through a representative
-  ancestor move, exact frozen search and reopen.
+  ancestor move, historical-source Person search, ordinary History access and reopen.
   Capture details additionally exposes complete transition/note evidence
   separately from frozen Markdown, with keyboard expansion/collapse and
   nonmutation checks. Named actual-pixel states retain the collapsed capture

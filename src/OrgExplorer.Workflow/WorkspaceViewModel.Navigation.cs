@@ -191,9 +191,10 @@ public sealed partial class WorkspaceViewModel
         return accepted;
     });
 
-    public bool NavigateSearchResult(SearchResult result) => Observe(() =>
+    public bool NavigateSearchResult(PersonSearchResult result) => Observe(() =>
     {
-        var current = workflow.Search(PeopleNavigation.Query).FirstOrDefault(r => SameSearchDestination(r, result));
+        var current = workflow.SearchPeople(PeopleNavigation.Query).FirstOrDefault(r =>
+            string.Equals(r.Person.Email, result.Person.Email, StringComparison.OrdinalIgnoreCase));
         if (current is null)
         {
             navigationError = "That search match is no longer available in the validated Workspace. Search again; no replacement was opened.";
@@ -201,13 +202,13 @@ public sealed partial class WorkspaceViewModel
         }
         changingDestination = true;
         bool accepted;
-        try { accepted = NavigatePeopleCore(current.Person.Email, current); }
+        try { accepted = NavigatePeopleCore(current.Person.Email, null, requireNavigation: true); }
         finally { changingDestination = false; }
-        if (accepted) RememberCurrentView(result: current);
+        if (accepted) RememberCurrentView();
         return accepted;
     });
 
-    private bool NavigatePeopleCore(string email, SearchResult? result)
+    private bool NavigatePeopleCore(string email, SearchResult? result, bool requireNavigation = false)
     {
         var person = workflow.GetRelationships(email)?.Person;
         if (person is null)
@@ -215,7 +216,7 @@ public sealed partial class WorkspaceViewModel
             navigationError = "That Person is unavailable. No replacement was opened.";
             return false;
         }
-        if ((result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
+        if ((requireNavigation || result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
             !workflow.CanNavigatePeople)
         {
             navigationError = "Navigation blocked: local writing is pending or was NOT saved. Save, retry or discard the draft before leaving. " +
@@ -223,6 +224,11 @@ public sealed partial class WorkspaceViewModel
             return false;
         }
         if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
+        if (requireNavigation)
+        {
+            OpenOngoingNote(NoteScope.Person);
+            OpenOngoingNote(NoteScope.Team);
+        }
         if (result?.Source == SearchSource.PersonNote && result.NoteId is { } personNote &&
             !OpenOwnedNote(NoteScope.Person, personNote)) return false;
         if (result?.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote &&

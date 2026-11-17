@@ -1412,10 +1412,8 @@ internal static partial class Program
         foreach (var state in CompactIdentityStateCases)
         {
             Control<TextBox>("SearchQuery").Text = state.Email;
-            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
-                result.Person.Email == state.Email && result.Source == SearchSource.Profile));
-            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
-                result.Person.Email == state.Email && result.Source == SearchSource.Profile);
+            PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == state.Email));
+            results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == state.Email);
             results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
                 { RoutedEvent = Keyboard.PreviewKeyDownEvent });
             PumpUntil(() => Control<TextBlock>("Email").Text == state.Email);
@@ -1737,7 +1735,7 @@ internal static partial class Program
             Measure("before-query");
             Control<TextBox>("SearchQuery").Text = "casey@example";
             var results = Control<ListBox>("SearchResults");
-            PumpUntil(() => results.Items.Cast<SearchResult>().Any(result => result.Person.Email == "casey@example.com"));
+            PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == "casey@example.com"));
             Layout();
             Measure("after-query-before-activate");
             void Enter(UIElement target) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
@@ -1746,16 +1744,17 @@ internal static partial class Program
             Enter(Control<TextBox>("SearchQuery"));
             Layout();
             Measure("query-enter-focus");
-            results.SelectedItem = results.Items.Cast<SearchResult>().Single(result => result.Person.Email == "casey@example.com");
+            results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == "casey@example.com");
+            var highlighted = results.SelectedItem;
             Enter(results);
-            PumpUntil(() => results.SelectedItem is null);
+            PumpUntil(() => Control<TextBlock>("StatusText").Text.Contains("Retry or discard", StringComparison.Ordinal));
             Layout();
             Measure("rejected-search");
             if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
                 Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
                 Note<TextBox>("MarkdownEditor").Text != draft ||
                 System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")) != note ||
-                Control<TextBox>("SearchQuery").Text != "casey@example" ||
+                Control<TextBox>("SearchQuery").Text != "casey@example" || results.SelectedItem != highlighted ||
                 Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
                 Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
                 !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
@@ -1858,7 +1857,7 @@ internal static partial class Program
         VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(0));
         Layout(false);
         Control<TextBox>("SearchQuery").Text = "orchid";
-        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
         void Enter(UIElement target)
         {
             target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
@@ -1868,29 +1867,43 @@ internal static partial class Program
         if (Control<TextBlock>("Email").Text != "" ||
             !ReferenceEquals(FocusManager.GetFocusedElement(window), Control<ListBox>("SearchResults")))
             throw new InvalidOperationException("Query Enter must focus results without opening the first Person.");
-        Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
-            .Single(r => r.NoteId == noteId);
+        Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>()
+            .Single(r => r.Person.Email == "avery@example.com");
         if (Control<TextBlock>("Email").Text != "")
             throw new InvalidOperationException("Selecting a result must not navigate before explicit activation.");
         Enter(Control<ListBox>("SearchResults"));
         PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
-        void Activate(string query, Func<SearchResult, bool> predicate)
+        void Activate(string query, Func<PersonSearchResult, bool> predicate)
         {
-            Control<TextBox>("SearchQuery").Text = query;
             var results = Control<ListBox>("SearchResults");
-            PumpUntil(() => results.Items.Cast<SearchResult>().Any(predicate));
-            results.SelectedItem = results.Items.Cast<SearchResult>().Single(predicate);
+            Control<TextBox>("SearchQuery").Text = "alex@example.com";
+            PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(r => r.Person.Email == "alex@example.com"));
+            results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(r => r.Person.Email == "alex@example.com");
             Enter(results);
+            PumpUntil(() => Control<TextBlock>("Email").Text == "alex@example.com");
+            Control<TextBox>("SearchQuery").Text = query;
+            PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(predicate));
+            results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(predicate);
+            Enter(results);
+            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");
         }
-        Activate("007b", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.Profile);
-        PumpUntil(() => ReferenceEquals(FocusManager.GetFocusedElement(window), Control<TextBlock>("OfficeNumberValue")));
+        Activate("avery", r => r.Person.Email == "avery@example.com");
+        PumpUntil(() => Control<ListBox>("SearchResults").Items.Count == 1);
+        Layout(false);
+        var grouped = (PersonSearchResult)Control<ListBox>("SearchResults").Items[0];
+        if (grouped.Matches.Count < 2 || !Control<TextBlock>("SearchCount").Text.StartsWith("People found: 1", StringComparison.Ordinal) ||
+            !VisualDescendants(Control<ListBox>("SearchResults")).OfType<TextBlock>().Any(text => text.Text == "avery@example.com"))
+            throw new InvalidOperationException("Grouped results must render one named Person, their email and a distinct-Person count.");
+        Activate("007b", r => r.Person.Email == "avery@example.com");
         if (Control<TextBlock>("OfficeNumberValue").Text != "007B" ||
-            window.FindName("SearchContextPanel") is not null)
-            throw new InvalidOperationException("Profile search must reveal its actual matching field, not a generic inspector.");
-        Activate("cedar", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.HistoricalTeamNote);
-        PumpUntil(() => Control<Expander>("HistoryAccess").IsExpanded &&
-            Control<FlowDocumentScrollViewer>("HistoricalTeamReading").GetValue(
-                System.Windows.Automation.AutomationProperties.HelpTextProperty) is string text && text.Contains(teamId.ToString(), StringComparison.Ordinal));
+            System.Windows.Automation.AutomationProperties.GetHelpText(Control<TextBlock>("OfficeNumberValue")).Contains("Profile:", StringComparison.Ordinal))
+            throw new InvalidOperationException("Profile search must open ordinary reading without selecting a matching field.");
+        Control<Expander>("HistoryAccess").IsExpanded = false;
+        Activate("cedar", r => r.Person.Email == "avery@example.com" && r.Matches.Any(m => m.Source == SearchSource.HistoricalTeamNote));
+        PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.Source == SearchSource.HistoricalTeamNote)));
+        if (Control<Expander>("HistoryAccess").IsExpanded)
+            throw new InvalidOperationException("Historical search must not automatically navigate History.");
+        Control<Expander>("HistoryAccess").IsExpanded = true;
         var historical = Control<FlowDocumentScrollViewer>("HistoricalTeamReading");
         var frozen = historical.Document.Blocks.OfType<Section>().SelectMany(section => section.Blocks.OfType<Section>())
             .Single(section => Equals(section.Tag, teamId));
@@ -1900,27 +1913,24 @@ internal static partial class Program
             !frozenText.Contains("morgan@example.com", StringComparison.Ordinal))
             throw new InvalidOperationException("Historical search did not reveal the exact frozen owner's document.");
         Activate("morgan@example.com", r => r.Person.Email == "avery@example.com" &&
-            r.Source == SearchSource.FormerReportingChain && r.Field == "email");
-        PumpUntil(() => System.Windows.Automation.AutomationProperties.GetHelpText(historical)
-            .Contains("Former Reporting chain", StringComparison.Ordinal));
-        if (!new TextRange(historical.Document.ContentStart, historical.Document.ContentEnd).Text
-                .Contains("Former Reporting chain: email", StringComparison.Ordinal) ||
-            historical.Document.Blocks.OfType<Section>().SelectMany(section => section.Blocks.OfType<BlockUIContainer>())
-                .Select(block => (Expander)block.Child).Any(disclosure => disclosure.IsExpanded))
-            throw new InvalidOperationException("Former-chain search must reveal its exact captured fact without opening technical details.");
-        Activate("pine", r => r.Person.Email == "avery@example.com" && r.Source == SearchSource.InheritedTeamNote);
+            r.Matches.Any(m => m.Source == SearchSource.FormerReportingChain && m.Field == "email"));
+        if (new TextRange(historical.Document.ContentStart, historical.Document.ContentEnd).Text
+                .Contains("Former Reporting chain: email", StringComparison.Ordinal))
+            throw new InvalidOperationException("Grouped search must not insert a matched historical fact into ordinary History.");
+        Activate("pine", r => r.Person.Email == "avery@example.com" && r.Matches.Any(m => m.Source == SearchSource.InheritedTeamNote));
         var teams = Control<FrameworkElement>("TeamNotes");
-        PumpUntil(() => ((Expander)teams.FindName("CurrentTeamContext")).IsExpanded);
+        ((Expander)teams.FindName("CurrentTeamContext")).IsExpanded = true;
         var inherited = (FlowDocumentScrollViewer)teams.FindName("InheritedReading");
-        if (!System.Windows.Automation.AutomationProperties.GetHelpText(inherited).Contains(teamId.ToString(), StringComparison.Ordinal) ||
-            !new TextRange(inherited.Document.ContentStart, inherited.Document.ContentEnd).Text.Contains("Pine current writing", StringComparison.Ordinal))
-            throw new InvalidOperationException("Current inherited search did not reveal the owner's exact current document.");
+        var currentText = new TextRange(inherited.Document.ContentStart, inherited.Document.ContentEnd).Text;
+        if (!currentText.Contains("Pine current writing", StringComparison.Ordinal) ||
+            !currentText.Contains("morgan@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("Ordinary inherited context lost the owner's current writing.");
         Control<TextBox>("SearchQuery").Clear();
         Settle(false);
         foreach (var compact in new[] { false, true })
         {
             VirtualizingPanel.SetCacheLength(tree, new VirtualizationCacheLength(compact ? 1 : 0));
-            Layout(compact);
+            Settle(compact);
             if (compact) Invoke("OpenPeopleButton");
             Settle(compact);
             var manager = tree.Items.Cast<ReportingNode>().Single(n => n.Person.Email == "morgan@example.com");
@@ -1929,7 +1939,6 @@ internal static partial class Program
                 throw new InvalidOperationException("Compact reporting rows must retain exact accessible Person identity.");
             if (!compact)
             {
-                branch.IsSelected = true;
                 branch.IsExpanded = true;
             }
             Settle(compact);
@@ -1979,9 +1988,12 @@ internal static partial class Program
                         row.Bounds.Left, row.Bounds.Top)).ToArray();
                 return new(provider.VerticalScrollPercent, rows);
             }
+            if (Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("Browsing baseline requires the settled People panel to be open.");
             var originalPosition = ReadPosition();
+            var originalEmail = Control<TextBlock>("Email").Text;
             Control<TextBox>("SearchQuery").Text = "orchid";
-            PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<SearchResult>().Any(r => r.NoteId == noteId));
+            PumpUntil(() => Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
             Settle(compact);
             if (compact)
             {
@@ -1990,14 +2002,12 @@ internal static partial class Program
                 tree.InvalidateMeasure();
                 Settle(compact);
             }
-            Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<SearchResult>()
-                .Single(r => r.NoteId == noteId);
-            Enter(Control<ListBox>("SearchResults"));
-            PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com" &&
-                ((TextBlock)Control<FrameworkElement>("PersonNotes").FindName("NoteHeading")).Text == "Individual context");
+            Control<ListBox>("SearchResults").SelectedItem = Control<ListBox>("SearchResults").Items.Cast<PersonSearchResult>()
+                .Single(r => r.Person.Email == "avery@example.com");
+            if (Control<TextBlock>("Email").Text != originalEmail)
+                throw new InvalidOperationException("Highlighting grouped results must not open another Person.");
             Settle(compact);
-            Control<TextBox>("SearchQuery").Clear();
-            if (compact) Invoke("OpenPeopleButton");
+            Invoke("ClearSearchButton");
             Settle(compact);
             if (!TreeItemRealization.IsBrowsingPositionRestored(originalPosition, ReadPosition()) ||
                 Control<FrameworkElement>("BrowsingPanel").Visibility != Visibility.Visible)
@@ -2013,7 +2023,7 @@ internal static partial class Program
             if (!branch.IsExpanded)
                 throw new InvalidOperationException("Search/clear lost the expanded Manager branch after returning to the top.");
         }
-        Console.WriteLine("PASS: compiled wide/compact exact-note search restores the real tree scroll offset and expansion without a window/native handle.");
+        Console.WriteLine("PASS: compiled grouped Person search, ordinary profile activation and manual-clear browsing restoration without a window/native handle.");
     }
 
     private static IEnumerable<DependencyObject> VisualDescendants(DependencyObject parent)
@@ -2436,10 +2446,8 @@ internal static partial class Program
             throw new InvalidOperationException("A deliberate collapse of the selected Person must survive search/clear without a new Person selection.");
         Control<TextBox>("SearchQuery").Text = "avery";
         var results = Control<ListBox>("SearchResults");
-        PumpUntil(() => results.Items.Cast<SearchResult>().Any(result =>
-            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile));
-        results.SelectedItem = results.Items.Cast<SearchResult>().First(result =>
-            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile);
+        PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == "avery@example.com"));
+        results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == "avery@example.com");
         results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
             { RoutedEvent = Keyboard.PreviewKeyDownEvent });
         PumpUntil(() => Control<TextBlock>("Email").Text == "avery@example.com");

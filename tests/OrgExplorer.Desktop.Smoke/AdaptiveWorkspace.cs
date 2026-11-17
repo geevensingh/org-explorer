@@ -484,8 +484,13 @@ internal static partial class Program
             if (Find(window, "SearchResults").Current.BoundingRectangle.Height <
                 Find(window, "PeopleNavigation").Current.BoundingRectangle.Height - 150 * DpiScale(window))
                 throw new InvalidOperationException("Search did not replace browsing with a full-height result list.");
-            QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
-            if (compact) Await(() => !IsVisible(window, "PeopleNavigation"));
+            var beforeOwner = CurrentPersonEmail(window);
+            var result = Find(window, "SearchResults").FindFirst(TreeScope.Children,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"));
+            ((SelectionItemPattern)result.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            if (CurrentPersonEmail(window) != beforeOwner)
+                throw new InvalidOperationException("Highlighting grouped results changed the open Person.");
+            Click(window, "ClearSearch");
             EnsurePeopleBrowsing(window);
             var observedOffset = double.NaN;
             var favoritesVisible = false;

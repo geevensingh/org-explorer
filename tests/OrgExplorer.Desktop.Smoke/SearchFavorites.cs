@@ -31,12 +31,12 @@ internal static partial class Program
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
-            Await(() => Find(window, "OfficeNumberValue").Current.HasKeyboardFocus &&
-                Find(window, "OfficeNumberValue").Current.Name == "007B" && !Find(window, "OfficeNumberValue").Current.IsOffscreen);
+            AssertGroupedSearchResults(window);
+            Await(() => Find(window, "OfficeNumberValue").Current.Name == "007B");
             if (window.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "SearchContext")) is not null)
-                throw new InvalidOperationException("Profile search retained a duplicate generic inspector instead of revealing the actual field.");
-            CaptureVisualEvidence(window, "search-matched-office-number");
+                throw new InvalidOperationException("Person search retained a duplicate generic inspector.");
+            CaptureVisualEvidence(window, "search-grouped-person-profile");
             AssertMouseSearchActivation(window);
             if (responsive)
             {
@@ -51,7 +51,7 @@ internal static partial class Program
             AssertSearchReading(window, "Private Person writing");
             AssertSearchReading(window, "Image not loaded");
             AssertNoteView(window, "Person", editing: false);
-            CaptureVisualEvidence(window, "search-exact-person-note-read");
+            CaptureVisualEvidence(window, "search-ordinary-person-note-read");
             double? peopleBalance = null;
             if (responsive)
             {
@@ -62,15 +62,20 @@ internal static partial class Program
                 throw new InvalidOperationException("Search did not open the saved Person note for reading.");
             Click(window, "ArchivePersonNote");
             QueryAndSelect(window, "Individual context", "avery@example.com", "Archived note — not current writing", "Person note");
+            ExpandOtherPersonNotes(window);
+            var archivedNotes = (TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern);
+            if (archivedNotes.Current.ToggleState != ToggleState.On) archivedNotes.Toggle();
+            SelectNote(window, "Individual context");
             AssertSearchReading(window, "Private Person writing");
             if (((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
-                throw new InvalidOperationException("Archived-note search did not open the retained note.");
+                throw new InvalidOperationException("Ordinary Other notes access did not open the retained note.");
             Click(window, "ArchivePersonNote");
             NavigateToManager(window, "morgan@example.com");
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Former team");
             Set(window, "TeamNoteMarkdown", $"# Cedar\nFormer Team writing\n![remote]({remote}/team.png)");
             QueryAndSelect(window, "cedar", "avery@example.com", "Current", "Inherited Team note", "morgan@example.com");
+            ExpandCurrentTeamContext(window);
             AssertSearchReading(window, "Former Team writing", readingId: "InheritedTeamReading");
             CaptureVisualEvidence(window, "search-current-inherited-note");
             SelectTreePerson(window, "alex@example.com");
@@ -102,20 +107,24 @@ internal static partial class Program
             File.WriteAllText(import, SearchImport("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 3));
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
+            AssertOrdinarySearchProfile(window, "avery@example.com");
+            ExpandHistory(window);
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             AssertSearchReading(window, "Image not loaded", readingId: "HistoricalTeamReading");
             if (!HistoricalReadingText(window).Contains("Exact effective date unknown") ||
                 !HistoricalEvidenceText(window).Contains("effective date unknown") ||
-                !Find(window, "HistoricalTeamReading").Current.HelpText.Contains("morgan@example.com"))
+                !HistoricalReadingText(window).Contains("morgan@example.com"))
                 throw new InvalidOperationException("Historical search omitted frozen ownership/provenance.");
-            CaptureVisualEvidence(window, "search-exact-frozen-note-owner-capture");
+            CaptureVisualEvidence(window, "search-person-ordinary-frozen-history-access");
             QueryAndSelect(window, "pine", "avery@example.com", "Current", "Inherited Team note");
+            ExpandCurrentTeamContext(window);
             AssertSearchReading(window, "New current Team writing", readingId: "InheritedTeamReading");
             RequestPersonArchival(window, archived: true);
             QueryAndSelect(window, "007b", "avery@example.com", "Archived person", "Profile:");
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Archived match opened a current profile.");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical / Archived person", "Frozen Team note");
+            ExpandHistory(window);
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             CaptureVisualEvidence(window, "search-archived-person-frozen-note");
             if (listener.Pending()) throw new InvalidOperationException("Search or selected current/frozen Markdown fetched remote content.");
@@ -132,11 +141,12 @@ internal static partial class Program
             if (!Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"))
                 throw new InvalidOperationException("Persisted favorite did not reopen the Archived profile.");
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
+            ExpandHistory(window);
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
             Close(process);
-            Console.WriteLine("PASS: actual WPF exact search, retained writing, invalid-target startup recovery, deliberate archived access and reopen proportions.");
+            Console.WriteLine("PASS: actual WPF grouped Person search, ordinary profile/note/history access, retained writing, archived access and reopen proportions.");
         }
         finally
         {
@@ -172,38 +182,34 @@ internal static partial class Program
         string source, string? owner = null, bool expectNavigation = true)
     {
         if (expectNavigation) AwaitLocalWorkIdle(window);
+        var beforeEmail = CurrentPersonEmail(window);
+        string? PersonNoteIdentity() => window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNoteHeading"))?.Current.HelpText;
+        var beforeNote = PersonNoteIdentity();
         Set(window, "SearchQuery", query);
         AutomationElement? result = null;
         Await(() =>
         {
             result = Find(window, "SearchResults").FindAll(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Cast<AutomationElement>()
-                .FirstOrDefault(r => r.Current.Name.Contains($"({email}) — {context}") && r.Current.Name.Contains(source) &&
-                    (owner is null || r.Current.Name.Contains($"({owner})")));
+                .SingleOrDefault(r => r.Current.AutomationId == email && r.Current.Name.Contains($"({email})") &&
+                    r.Current.HelpText.Contains(context) && r.Current.HelpText.Contains(source) &&
+                    (owner is null || r.Current.HelpText.Contains($"({owner})")));
             return result is not null;
         });
-        var beforeEmail = CurrentPersonEmail(window);
-        string? PersonNoteIdentity() => window.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNoteHeading"))?.Current.HelpText;
-        var beforeNote = PersonNoteIdentity();
-        (string Name, string Identity)[] SelectedRows() =>
-            ((SelectionPattern)Find(window, "SearchResults").GetCurrentPattern(SelectionPattern.Pattern)).Current.GetSelection()
-                .Select(row => (row.Current.Name, row.Current.HelpText)).ToArray();
-        var beforeSelection = SelectedRows();
-        Find(window, "SearchQuery").SetFocus();
-        Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
-        PressCopyKey(0x0D);
-        Await(() => Find(window, "SearchResults").Current.HasKeyboardFocus ||
-            Find(window, "SearchResults").FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.HasKeyboardFocusProperty, true)) is not null);
-        if (CurrentPersonEmail(window) != beforeEmail || PersonNoteIdentity() != beforeNote ||
-            !beforeSelection.SequenceEqual(SelectedRows()))
-            throw new InvalidOperationException("Query Enter opened a Person or replaced exact note reading before result activation.");
-        var label = result!.Current.Name;
-        var identity = result.Current.HelpText;
+        ((SelectionItemPattern)result!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+        if (CurrentPersonEmail(window) != beforeEmail || PersonNoteIdentity() != beforeNote)
+            throw new InvalidOperationException("Typing or highlighting opened a Person or replaced exact note reading before activation.");
         ActivateSearchRow(result);
         if (expectNavigation)
-            Await(() => Find(window, "Email").Current.Name == email && SearchDestinationReady(window, source, label, identity));
+            Await(() => OrdinarySearchProfileReady(window, email));
+        else
+            Await(() => Status(window).Contains("Navigation blocked", StringComparison.OrdinalIgnoreCase) ||
+                Status(window).Contains("before leaving", StringComparison.OrdinalIgnoreCase));
+        if (!expectNavigation && (CurrentPersonEmail(window) != beforeEmail || PersonNoteIdentity() != beforeNote ||
+            Value(window, "SearchQuery") != query ||
+            !((SelectionItemPattern)result.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected))
+            throw new InvalidOperationException("Rejected search activation changed the owner, exact note, query or highlighted Person.");
     }
 
     private static void ActivateSearchRow(AutomationElement result, Action<Func<bool>>? awaitReady = null)
@@ -215,37 +221,45 @@ internal static partial class Program
         PressCopyKey(0x0D);
     }
 
-    private static bool SearchDestinationReady(AutomationElement window, string source, string label, string identity)
+    private static bool OrdinarySearchProfileReady(AutomationElement window, string email)
     {
-        if (source.StartsWith("Profile:", StringComparison.Ordinal))
-            return AutomationElement.FocusedElement?.Current.HelpText == label;
-        var reading = source switch
-        {
-            "Person note" => "PersonNoteReading",
-            "Owned Team note" => "TeamNoteReading",
-            "Inherited Team note" => "InheritedTeamReading",
-            _ => "HistoricalTeamReading"
-        };
-        var target = Find(window, reading);
-        if (target.Current.IsOffscreen) return false;
-        var ids = System.Text.RegularExpressions.Regex.Matches(identity, @"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
-        if (ids.Count == 0) throw new InvalidOperationException("The selected note result omitted its exact document identity.");
-        var observed = source switch
-        {
-            "Person note" => Find(window, "PersonNoteHeading").Current.HelpText,
-            "Owned Team note" => Find(window, "TeamNoteHeading").Current.HelpText,
-            _ => target.Current.HelpText
-        };
-        if (!ids.Cast<System.Text.RegularExpressions.Match>().All(id => observed.Contains(id.Value, StringComparison.OrdinalIgnoreCase)))
-            return false;
-        if (source is "Person note" or "Owned Team note")
-            return ((SelectionItemPattern)Find(window, source == "Person note" ? "PersonNoteReadTab" : "TeamNoteReadTab")
-                .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected;
-        return true;
+        return Find(window, "Email").Current.Name == email && IsVisible(window, "ProfileHeading") &&
+            !IsVisible(window, "SaveProfile") &&
+            (!IsVisible(window, "PersonNoteEditTab") ||
+                ((SelectionItemPattern)Find(window, "PersonNoteReadTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
+            (!IsVisible(window, "TeamNoteEditTab") ||
+                ((SelectionItemPattern)Find(window, "TeamNoteReadTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
+    }
+
+    private static void AssertOrdinarySearchProfile(AutomationElement window, string email)
+    {
+        Await(() => OrdinarySearchProfileReady(window, email));
+        if (((ExpandCollapsePattern)Find(window, "HistoryAccess").GetCurrentPattern(ExpandCollapsePattern.Pattern))
+            .Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+            throw new InvalidOperationException("A historical-source Person search automatically opened History.");
+    }
+
+    private static void AssertGroupedSearchResults(AutomationElement window)
+    {
+        Set(window, "SearchQuery", "avery");
+        Await(() => Find(window, "SearchCount").Current.Name == "People found: 1 — local profiles and notes");
+        var rows = Find(window, "SearchResults").FindAll(TreeScope.Children,
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Cast<AutomationElement>().ToArray();
+        if (rows.Length != 1 || rows[0].Current.AutomationId != "avery@example.com" ||
+            !rows[0].Current.Name.Contains("Ave Preferred") ||
+            !rows[0].Current.HelpText.Contains("Profile: email") || !rows[0].Current.HelpText.Contains("Directory name") ||
+            rows[0].FindFirst(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text),
+                new PropertyCondition(AutomationElement.NameProperty, "avery@example.com"))) is not { Current.IsOffscreen: false })
+            throw new InvalidOperationException("Multiple matching fields must render one named Person with visible email and retained field attribution.");
+        CaptureVisualEvidence(window, "search-one-person-multiple-fields");
     }
 
     private static void AssertMouseSearchActivation(AutomationElement window)
     {
+        EnsurePeopleBrowsing(window);
+        SelectTreePerson(window, "morgan@example.com");
+        Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         Set(window, "SearchQuery", "avhandle");
         AutomationElement? result = null;
         Await(() => (result = Find(window, "SearchResults").FindFirst(TreeScope.Children,
@@ -255,8 +269,8 @@ internal static partial class Program
             throw new InvalidOperationException("The hosted desktop could not position the search-result pointer.");
         mouse_event(2, 0, 0, 0, 0);
         mouse_event(4, 0, 0, 0, 0);
-        Await(() => Find(window, "AliasValue").Current.HasKeyboardFocus && Find(window, "AliasValue").Current.Name == "avhandle");
-        CaptureVisualEvidence(window, "search-mouse-matched-alias");
+        Await(() => OrdinarySearchProfileReady(window, "avery@example.com") && Find(window, "AliasValue").Current.Name == "avhandle");
+        CaptureVisualEvidence(window, "search-mouse-ordinary-profile");
     }
 
     private static void SelectFavorite(AutomationElement window, string email)

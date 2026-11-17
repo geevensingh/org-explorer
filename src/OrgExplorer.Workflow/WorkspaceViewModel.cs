@@ -40,6 +40,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;
     public IReadOnlyList<SearchResult> Search(string query) => workflow.Search(query);
+    public IReadOnlyList<PersonSearchResult> SearchPeople(string query) => workflow.SearchPeople(query);
     public IReadOnlyList<PersonProfile> FavoritePeople => workflow.FavoritePeople;
     public bool EditFavorite(string email, bool isFavorite) => Observe(() => workflow.EditFavorite(email, isFavorite));
     public IReadOnlyList<PersonProfile> ArchivedPeople => workflow.ArchivedPeople;

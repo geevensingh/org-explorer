@@ -6,6 +6,138 @@ namespace OrgExplorer.Core.Tests;
 public sealed class SearchFavoriteTests
 {
     [Fact]
+    public void People_search_groups_matching_fields_by_email_without_merging_equal_names_or_reranking()
+    {
+        using var app = Open();
+        Apply(app, """
+            {"email":"same-name@example.com","displayName":"Avery Directory","managerEmail":null}
+            """, 2);
+
+        var people = app.SearchPeople("avery");
+
+        Assert.Equal(["avery@example.com", "same-name@example.com"], people.Select(r => r.Person.Email));
+        Assert.Equal(["email", "displayName", "linkedInProfileUrl"],
+            people[0].Matches.Select(r => r.Field));
+        Assert.Equal(people[0].Person.DirectoryName, people[1].Person.DirectoryName);
+        Assert.Contains("avery@example.com", people[0].Label);
+        Assert.Contains("Current", people[0].SourceLabel);
+        Assert.Contains("Directory name", people[0].SourceLabel);
+        Assert.Empty(app.SearchPeople(" \t"));
+    }
+
+    [Fact]
+    public void People_results_retain_every_source_and_its_current_archived_or_frozen_attribution()
+    {
+        using var app = Open();
+        Assert.True(app.EditPreferredName("morgan@example.com", "Cedar manager"));
+        var frozenNote = app.CreateTeamNote("morgan@example.com", "Original", "Cedar frozen writing")!;
+        var secondary = app.CreatePersonNote("avery@example.com", "Cedar secondary", "Private writing")!;
+        var archivedNote = app.CreatePersonNote("avery@example.com", "Retained", "Cedar archived writing")!;
+        Assert.True(app.ArchivePersonNote(archivedNote.Id));
+        app.CreateTeamNote("avery@example.com", "Owned", "Cedar owned writing");
+        app.CreateTeamNote("alex@example.com", "Inherited", "Cedar current inherited writing");
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeBuilding, "Cedar old office"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeBuilding, "Willow"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.Department, "Cedar current department"));
+        Assert.True(app.EditPersonManager("avery@example.com", "alex@example.com"));
+        Assert.True(app.EditTeamNote(frozenNote.Id, "Later", "Willow later writing"));
+        Assert.True(app.EditPersonArchived("morgan@example.com", true));
+
+        var people = app.SearchPeople("cedar");
+        Assert.Equal(["alex@example.com", "avery@example.com", "morgan@example.com"], people.Select(r => r.Person.Email));
+        var person = people[1];
+        Assert.Equal(Enum.GetValues<SearchSource>().Order(), person.Matches.Select(m => m.Source).Distinct().Order());
+        Assert.Equal([SearchContext.Current, SearchContext.Archived, SearchContext.Historical],
+            person.Matches.Select(m => m.Context).Distinct());
+        Assert.Contains(person.Matches, m => m.NoteId == secondary.Id && m.NoteOwner!.Email == "avery@example.com");
+        Assert.Contains(person.Matches, m => m.NoteId == frozenNote.Id && m.Context == SearchContext.Historical &&
+            m.NoteOwner!.Heading == "Cedar manager" && m.MatchText == "Cedar frozen writing");
+        Assert.Contains("Archived note", person.EvidenceDescription);
+        Assert.Contains("Current — Inherited Team note", person.EvidenceDescription);
+        Assert.Contains("Historical — Frozen Team note", person.EvidenceDescription);
+        Assert.Contains("Historical — Former Reporting chain", person.EvidenceDescription);
+        Assert.Contains("Historical — Profile history", person.EvidenceDescription);
+        Assert.Contains("Archived person", people[2].EvidenceDescription);
+        Assert.Contains("Archived note", person.SourceLabel);
+        Assert.Contains("Current — Inherited Team note", person.SourceLabel);
+        Assert.Contains("Historical — Frozen Team note", person.SourceLabel);
+        Assert.Contains("Historical — Former Reporting chain", person.SourceLabel);
+    }
+
+    [Theory]
+    [InlineData("avery@example.com")]
+    [InlineData("morgan@example.com")]
+    public void Grouped_secondary_note_activation_opens_the_normal_profile_and_keeps_other_notes_available(string startingPerson)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var ongoing = app.CreatePersonNote("avery@example.com", "Continuing", "Ordinary writing")!;
+        var secondary = app.CreatePersonNote("avery@example.com", "Orchid secondary", "Orchid private writing")!;
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, ongoing.Id));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, secondary.Id, editing: true));
+        Assert.True(app.NavigatePerson(startingPerson));
+        app.ChangePeopleQuery("Orchid");
+        var result = Assert.Single(app.SearchPeople("Orchid"));
+        Assert.Equal(startingPerson, app.PeopleNavigation.SelectedEmail);
+
+        Assert.True(app.NavigateSearchResult(result), app.Status);
+
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        Assert.Equal(ongoing.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.PersonNotesView.OtherNotesOpen);
+        app.ShowOtherNotes(NoteScope.Person, true);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, secondary.Id));
+        Assert.Equal("Orchid private writing", app.PersonNotesView.SelectedNote!.Markdown);
+    }
+
+    [Theory]
+    [InlineData("avery@example.com")]
+    [InlineData("alex@example.com")]
+    public void Search_cannot_reload_even_the_current_Person_over_an_exact_unsaved_profile(string target)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.BeginProfileEdit("avery@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "  Exact unsaved writing\r\n"));
+        app.ShowPeopleOverlay(true);
+        app.ChangePeopleQuery(target);
+        var navigation = app.PeopleNavigation;
+        var edit = app.ProfileEdit;
+        var result = Assert.Single(app.SearchPeople(target));
+
+        Assert.Equal(navigation, app.PeopleNavigation);
+        Assert.Same(edit, app.ProfileEdit);
+        Assert.False(app.NavigateSearchResult(result));
+        Assert.Equal(navigation, app.PeopleNavigation);
+        Assert.Same(edit, app.ProfileEdit);
+        Assert.Contains("Save, retry or discard", app.Status);
+    }
+
+    [Fact]
+    public void Grouped_activation_revalidates_Person_eligibility_and_archived_access_does_not_reactivate()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreatePersonNote("avery@example.com", "Orchid", "Orchid writing")!;
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeBuilding, "Orchid"));
+        app.ChangePeopleQuery("orchid");
+        var result = Assert.Single(app.SearchPeople("orchid"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeBuilding, "Willow"));
+        Assert.True(app.EditPersonArchived("avery@example.com", true));
+        Assert.True(app.NavigateSearchResult(result), app.Status);
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Contains(app.ArchivedPeople, p => p.Email == "avery@example.com");
+        Assert.DoesNotContain(app.ReportingRoots.SelectMany(root => root.Reports), p => p.Person.Email == "avery@example.com");
+        app.ChangePeopleQuery("unmatched-query");
+        var navigation = app.PeopleNavigation;
+        Assert.False(app.NavigateSearchResult(result));
+        Assert.Equal(navigation, app.PeopleNavigation);
+        Assert.Contains("no longer available", app.Status);
+        Assert.Equal("Orchid writing", Assert.Single(app.GetPersonNotes(note.OwnerEmail)).Markdown);
+    }
+
+    [Fact]
     public void Shared_Team_note_excerpts_do_not_allocate_a_normalized_body_for_every_report()
     {
         using var app = Open();
@@ -54,7 +186,8 @@ public sealed class SearchFavoriteTests
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("orchid");
 
-        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        var person = Assert.Single(app.SearchPeople(app.PeopleNavigation.Query));
+        var result = Assert.Single(person.Matches);
         Assert.Contains("Next visit to the Orchid office.", result.Excerpt);
         Assert.DoesNotContain('\n', result.Excerpt);
         Assert.True(result.Excerpt.Length < 200);
@@ -63,7 +196,8 @@ public sealed class SearchFavoriteTests
         Assert.Null(app.PeopleNavigation.SelectedResult);
         Assert.True(app.PeopleNavigation.OverlayOpen);
 
-        Assert.True(app.NavigateSearchResult(result));
+        Assert.True(app.NavigateSearchResult(person));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, note.Id));
         Assert.Equal(note.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.False(app.PersonNotesView.IsEditing);
         Assert.Equal(new string('a', 240) + "\nNext visit to the Orchid office.\n" + new string('z', 240),
@@ -71,7 +205,7 @@ public sealed class SearchFavoriteTests
     }
 
     [Fact]
-    public void People_search_replaces_browsing_and_restores_its_position_after_exact_secondary_navigation()
+    public void People_search_replaces_browsing_and_manual_clearing_restores_its_position()
     {
         using var app = (WorkspaceViewModel)Open();
         var ongoing = app.CreatePersonNote("avery@example.com", "Continuing", "Ordinary writing")!;
@@ -82,10 +216,10 @@ public sealed class SearchFavoriteTests
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("Orchid");
         Assert.False(app.PeopleNavigation.IsBrowsing);
-        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        var result = Assert.Single(app.SearchPeople(app.PeopleNavigation.Query));
         Assert.Equal("Empty note", result.Excerpt);
         Assert.True(app.NavigateSearchResult(result));
-        Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.Equal(ongoing.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.False(app.PersonNotesView.IsEditing);
         Assert.False(app.PeopleNavigation.OverlayOpen);
         Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
@@ -95,7 +229,8 @@ public sealed class SearchFavoriteTests
         Assert.Equal(12, app.PeopleNavigation.BrowseOffset);
         Assert.Equal(39, app.PeopleNavigation.BrowseHorizontalOffset);
         Assert.Equal(576.26, app.PeopleNavigation.BrowseExtentWidth);
-        Assert.Equal(secondary.Id, app.PersonNotesView.SelectedNote.Id);
+        Assert.Equal(ongoing.Id, app.PersonNotesView.SelectedNote.Id);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, secondary.Id));
     }
 
     [Fact]
@@ -111,7 +246,7 @@ public sealed class SearchFavoriteTests
         app.RememberPeopleBrowsing(["morgan@example.com"], 9, 24, 500);
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("alex@example");
-        var result = Assert.Single(app.Search(app.PeopleNavigation.Query));
+        var result = Assert.Single(app.SearchPeople(app.PeopleNavigation.Query));
         Assert.False(app.NavigateSearchResult(result));
         Assert.False(app.NavigatePerson("morgan@example.com"));
         Assert.True(app.PeopleNavigation.OverlayOpen);
@@ -132,7 +267,7 @@ public sealed class SearchFavoriteTests
     }
 
     [Fact]
-    public void Overlay_search_opens_the_exact_frozen_capture_not_the_later_current_note()
+    public void Historical_search_opens_the_normal_Person_with_frozen_evidence_still_available()
     {
         using var app = (WorkspaceViewModel)Open();
         var note = app.CreateTeamNote("morgan@example.com", "Cedar", "Cedar original")!;
@@ -141,8 +276,10 @@ public sealed class SearchFavoriteTests
         Assert.True(app.EditTeamNote(note.Id, "Later", "Willow current"));
         app.ShowPeopleOverlay(true);
         app.ChangePeopleQuery("cedar");
-        Assert.True(app.NavigateSearchResult(Assert.Single(app.Search("cedar"))));
-        var destination = app.PeopleNavigation.SelectedResult!;
+        var result = Assert.Single(app.SearchPeople("cedar"));
+        Assert.True(app.NavigateSearchResult(result));
+        Assert.Null(app.PeopleNavigation.SelectedResult);
+        var destination = Assert.Single(result.Matches);
         Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
         Assert.Equal(capture.Id, destination.HistoricalContextId);
         Assert.Equal(note.Id, destination.NoteId);

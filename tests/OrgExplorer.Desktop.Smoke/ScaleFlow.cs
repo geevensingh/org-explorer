@@ -105,7 +105,7 @@ internal static partial class Program
             ScaleFixture.Measure("UI-current-search", () =>
             {
                 Set(window, "SearchQuery", "handle01000");
-                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
                 Click(window, "ClearSearch");
@@ -124,7 +124,8 @@ internal static partial class Program
                     return result is not null;
                 });
                 ActivateSearchRow(result!, AwaitScale);
-                AwaitScale(() => Find(window, "HistoricalTeamReading").Current.HelpText.Contains("Historical"));
+                AwaitScale(() => OrdinarySearchProfileReady(window, ScaleFixture.Target));
+                ExpandHistory(window);
                 AssertSearchReading(window, "Cedar former context 100.", readingId: "HistoricalTeamReading");
             });
             Set(window, "SearchQuery", "");
@@ -136,7 +137,7 @@ internal static partial class Program
             ScaleFixture.Measure("UI-deep-profile", () =>
             {
                 Set(window, "SearchQuery", "handle00150");
-                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 00150");
                 ExpandCurrentTeamContext(window);
@@ -147,7 +148,7 @@ internal static partial class Program
             ScaleFixture.Measure("UI-final-person", () =>
             {
                 Set(window, "SearchQuery", "handle09999");
-                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "Email").Current.Name == ScaleFixture.Email(9999));
                 if (!Find(window, "PersonArchivalStatus").Current.Name.Contains("Archived"))
@@ -180,7 +181,7 @@ internal static partial class Program
                 AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
             });
             Set(window, "SearchQuery", "handle01000");
-            AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+            AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
             Click(window, "ClearSearch");
@@ -248,7 +249,7 @@ internal static partial class Program
             {
                 File.WriteAllText(notePath, File.ReadAllText(notePath).Replace("Orchid private writing 1000.", "Delivered tulip 1000."));
                 Set(window, "SearchQuery", "Delivered tulip 1000.");
-                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "PersonNoteHeading").Current.Name == "Individual 1000");
                 AssertSearchReading(window, "Delivered tulip 1000.");
@@ -264,7 +265,7 @@ internal static partial class Program
                 AssertNoteView(window, "Person", editing: false);
                 AwaitScale(() => ReadingText(window).Contains("Delivered tulip 1000."));
                 Set(window, "SearchQuery", "handle01000");
-                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+                AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
                 SelectScaleResult(window);
                 AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
                 AssertProfileValue(window, "OfficeNumber", "0009U");
