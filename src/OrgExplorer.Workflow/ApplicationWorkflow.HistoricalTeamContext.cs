@@ -90,63 +90,6 @@ public sealed partial class ApplicationWorkflow
             note.Id, note.OwnerEmail, note.Title, note.Markdown, note.CreatedAt, note.UpdatedAt, note.ConfirmedContextRevision
         }, JsonOptions)));
 
-    private sealed record HistoricalContextDocument(int SchemaVersion, string Email, List<HistoricalTeamContext> Contexts);
-
-    private static Dictionary<string, List<HistoricalTeamContext>> ReadHistoricalTeamContexts(
-        Dictionary<string, PersonProfile> population, IEnumerable<string> files)
-    {
-        var contexts = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
-        var ids = new HashSet<Guid>();
-        foreach (var file in files)
-        {
-            using var json = JsonDocument.Parse(ReadWorkspaceText(file));
-            RequireVersion(json.RootElement, "Historical team context", [1]);
-            RequireHistoricalProperties(json.RootElement, ["schemaVersion", "email", "contexts"]);
-            var document = json.RootElement.Deserialize<HistoricalContextDocument>(JsonOptions)
-                ?? throw new FormatException("Invalid Historical team context.");
-            if (document.SchemaVersion != 1)
-                throw new FormatException("Unsupported Historical team context version. Upgrade the app; writes are blocked.");
-            if (document.Email is null || !population.ContainsKey(document.Email) || document.Contexts is null ||
-                !contexts.TryAdd(document.Email, document.Contexts))
-                throw new FormatException("Historical team context has an unknown, duplicate, or conflicting Person.");
-            foreach (var capture in document.Contexts) ValidateHistoricalCapture(capture, document.Email, ids);
-            foreach (var captureJson in json.RootElement.GetProperty("contexts").EnumerateArray())
-            {
-                RequireHistoricalProperties(captureJson, ["id", "personEmail", "capturedAt", "reportingChain", "teamNotes", "transitions"]);
-                foreach (var person in captureJson.GetProperty("reportingChain").EnumerateArray())
-                {
-                    CheckProperties(person, ["email", "directoryName", "preferredName", "managerEmail", "archived", "alias",
-                        "jobTitle", "department", "officeBuilding", "officeNumber", "officeState", "officeCountry",
-                        "linkedInProfileUrl", "isFavorite", "photoPath", "heading"], "Historical chain");
-                    foreach (var property in new[] { "email", "directoryName", "managerEmail", "archived" })
-                        Required(person, property, "Historical chain");
-                }
-                foreach (var note in captureJson.GetProperty("teamNotes").EnumerateArray())
-                    RequireHistoricalProperties(note, ["id", "ownerEmail", "title", "markdown", "createdAt", "updatedAt",
-                        "confirmedContextRevision", "needsReview", "version"]);
-                foreach (var transition in captureJson.GetProperty("transitions").EnumerateArray())
-                {
-                    RequireHistoricalProperties(transition, ["personEmail", "change"]);
-                    var change = transition.GetProperty("change");
-                    RequireHistoricalProperties(change, ["field", "oldValue", "newValue", "previousEvidence", "evidence"]);
-                    RequireHistoricalEvidence(change.GetProperty("evidence"));
-                    if (change.GetProperty("previousEvidence") is { ValueKind: not JsonValueKind.Null } prior)
-                        RequireHistoricalEvidence(prior);
-                }
-            }
-        }
-        return contexts;
-    }
-
-    private static void RequireHistoricalProperties(JsonElement value, string[] properties)
-    {
-        CheckProperties(value, properties, "Historical team context");
-        foreach (var property in properties) Required(value, property, "Historical team context");
-    }
-
-    private static void RequireHistoricalEvidence(JsonElement value) =>
-        RequireHistoricalProperties(value, ["field", "value", "source", "observedAt", "recordedAt", "batchId", "producer"]);
-
     private static void ValidateHistoricalCapture(HistoricalTeamContext? capture, string email, HashSet<Guid> ids)
     {
         if (capture is null || capture.Id == Guid.Empty || !ids.Add(capture.Id) ||

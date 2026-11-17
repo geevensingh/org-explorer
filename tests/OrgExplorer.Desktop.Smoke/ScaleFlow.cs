@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -184,26 +185,17 @@ internal static partial class Program
             SelectScaleResult(window);
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
             Click(window, "ClearSearch");
-            ScaleFixture.Measure("UI-profile-mutation", () =>
-            {
-                BeginProfileEditing(window);
-                Set(window, "OfficeNumber", "0009U");
-                Click(window, "SaveProfile");
-                AwaitScale(() => Activity(window).Contains("Saving complete profile"));
-                Click(window, "OpenSettings");
-                Await(() => !Find(window, "SettingsTitle").Current.IsOffscreen &&
-                    !Find(window, "WorkspacePath").Current.IsOffscreen);
-                if (!Activity(window).Contains("Saving complete profile"))
-                    throw new InvalidOperationException("Settings only rendered after the actual scale mutation completed.");
-                Click(window, "OpenSettings");
-                Click(window, "NavigateManager");
-                Await(() => Status(window).StartsWith("Navigation blocked:"));
-                if (!Status(window).Contains("in progress") ||
-                    !Status(window).Contains("Please wait") ||
-                    Find(window, "Email").Current.Name != ScaleFixture.Target)
-                    throw new InvalidOperationException("Navigation during a save did not explain waiting or retain the current Person.");
-                AwaitScale(() => Status(window) == "Profile saved locally.");
-            });
+            ScaleFixture.Measure("UI-ordinary-save-latency", () =>
+                RunLocalNoteAutosaveJourney(window, fixture.Workspace, fixture, executable, "normal-executable"));
+            ScaleFixture.Measure("UI-close-before-held-export", () => Close(process));
+            process = null;
+            ScaleFixture.Measure("UI-background-export-independence", () => RunRichBackgroundExport(executable, fixture));
+            process = Launch(executable);
+            window = Window(process);
+            AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
+            SelectRichNoteReport(window);
+            AssertProfileValue(window, "OfficeNumber", "0009U");
+            ScaleFixture.Measure("UI-ordinary-profile-latency", () => RunRichProfileLatency(window, fixture, executable));
             ScaleFixture.Measure("UI-favorite-mutation", () =>
             {
                 Click(window, "ToggleFavorite");
@@ -241,12 +233,31 @@ internal static partial class Program
                     AwaitScale(() => Find(window, "NavigateManager").Current.Name.Contains("Reference 00012"));
                 });
             });
-            var notePath = ScaleFixture.Measure("UI-note-location", () =>
-                Directory.GetFiles(Path.Combine(fixture.Workspace, "notes"))
-                    .First(p => File.ReadAllText(p).Contains("Orchid private writing 1000.")));
             ScaleFixture.Measure("UI-external-delivery", () =>
             {
-                File.WriteAllText(notePath, File.ReadAllText(notePath).Replace("Orchid private writing 1000.", "Delivered tulip 1000."));
+                SetSettingsVisible(window, true);
+                Click(window, "SyncNow");
+                AwaitScale(() => Find(window, "SyncNow").Current.IsEnabled &&
+                    Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published."));
+                var incoming = Path.Combine(fixture.Root, "incoming-snapshots");
+                Directory.CreateDirectory(incoming);
+                foreach (var file in Directory.GetFiles(fixture.SynchronizationFolder, "*.oesnapshot"))
+                    File.Copy(file, Path.Combine(incoming, Path.GetFileName(file)));
+                using (var other = ApplicationWorkflow.CreateFileBacked())
+                {
+                    if (!other.OpenWorkspace(Path.Combine(fixture.Root, "second-local")) ||
+                        !other.ConfigureSynchronizationFolder(incoming, joinExistingWorkspace: true) || !other.SyncNow())
+                        throw new InvalidOperationException(other.Status);
+                    var note = other.GetPersonNotes(ScaleFixture.Target).Single();
+                    if (!other.EditPersonNote(note.Id, note.Title, "# Delivered tulip 1000.") || !other.SyncNow())
+                        throw new InvalidOperationException(other.Status);
+                }
+                foreach (var file in Directory.GetFiles(incoming, "*.oesnapshot"))
+                    File.Copy(file, Path.Combine(fixture.SynchronizationFolder, Path.GetFileName(file)), true);
+                Click(window, "SyncNow");
+                AwaitScale(() => Find(window, "SyncNow").Current.IsEnabled &&
+                    Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published."));
+                SetSettingsVisible(window, false);
                 Set(window, "SearchQuery", "Delivered tulip 1000.");
                 AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
                 SelectScaleResult(window);
@@ -277,7 +288,7 @@ internal static partial class Program
             });
             ScaleFixture.Measure("UI-close", () => Close(process));
             process = null;
-            Console.WriteLine("PASS: actual 10,000-Person WPF pending mutation responsiveness, rejection, favorite/import/refresh and durable reopen.");
+            Console.WriteLine("PASS: actual rich 10,000-Person WPF usable-editor/navigation and durable-save percentiles, browsing during a held real commit/export, favorite/import/snapshot adoption and durable reopen.");
         }
         finally
         {

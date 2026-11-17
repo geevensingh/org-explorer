@@ -1,10 +1,71 @@
 using OrgExplorer.Workflow;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Xunit;
 
 namespace OrgExplorer.Core.Tests;
 
 public sealed class PersonNoteTests
 {
+    public class NoteSaveBoundary : DispatchProxy
+    {
+        internal IApplicationWorkflow Inner = null!;
+        internal Action? BeforeSave;
+        protected override object? Invoke(MethodInfo? method, object?[]? arguments)
+        {
+            if (method!.Name == nameof(IApplicationWorkflow.SaveNoteDraft)) BeforeSave?.Invoke();
+            try { return method.Invoke(Inner, arguments); }
+            catch (TargetInvocationException error) when (error.InnerException is not null)
+            {
+                ExceptionDispatchInfo.Capture(error.InnerException).Throw();
+                throw;
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task In_flight_discard_preserves_exact_writing_and_idle_discard_clears_only_its_scope(NoteScope scope)
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
+        var boundary = (NoteSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(proxy);
+        Assert.True(app.OpenWorkspace("fictitious"), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id), app.Status);
+        var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        boundary.BeforeSave = () => { admitted.TrySetResult(); release.Wait(); };
+        var basis = app.CreateOwnedNoteDraft(scope, "avery@example.com")!;
+        app.UpdateNoteDraft(scope, basis.Id, "Exact owner", "Writing admitted for saving");
+        try
+        {
+            await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            app.DiscardUnsavedChanges(basis.Id);
+            var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, basis.Id));
+            Assert.True(retained.IsSaving);
+            Assert.Equal(basis.Id, retained.Basis.Id);
+            Assert.Equal(basis.OwnerEmail, retained.Basis.OwnerEmail);
+            Assert.Equal("Writing admitted for saving", retained.Markdown);
+            Assert.False(app.CanSafelyClose);
+            Assert.Contains("admitted", app.Status);
+        }
+        finally { boundary.BeforeSave = null; release.Set(); }
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        var owner = app.GetRelationships(basis.OwnerEmail)!.Person;
+        app.RetainPersonTextDraft(owner, PersonTextField.PreferredName, "Independent unsubmitted name");
+        app.UpdateNoteDraft(scope, basis.Id, " ", "Rejected draft retained until deliberate discard");
+        Assert.False(await app.FlushNoteDraftsAsync());
+        app.DiscardUnsavedChanges(basis.Id);
+        Assert.Null(app.GetRetainedNoteDraft(scope, basis.Id));
+        Assert.Equal("Writing admitted for saving", app.BeginNoteDraft(scope, basis.OwnerEmail, basis.Id)!.Markdown);
+        Assert.Equal("Independent unsubmitted name", app.GetPersonTextDraft(owner.Email, PersonTextField.PreferredName)!.Value);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardPersonTextDraft(owner, PersonTextField.PreferredName);
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
@@ -117,7 +178,7 @@ public sealed class PersonNoteTests
     }
 
     [Fact]
-    public void Retained_note_draft_rejects_secondary_ongoing_and_owner_navigation_without_changing_the_editor()
+    public async Task Retained_note_writing_survives_secondary_ongoing_and_owner_navigation_without_implicit_save()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
         Assert.True(app.OpenWorkspace("fictitious"));
@@ -127,19 +188,24 @@ public sealed class PersonNoteTests
         Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
         Assert.True(app.DesignateOngoingNote(NoteScope.Person, first.Id));
         Assert.True(app.OpenOwnedNote(NoteScope.Person, first.Id, editing: true));
-        var basis = app.BeginNoteDraft(NoteScope.Person, first.OwnerEmail, first.Id)!;
-        app.RetainNoteDraft(basis);
+        app.UpdateNoteDraft(NoteScope.Person, first.Id, first.Title, "Retained writing");
 
-        Assert.False(app.OpenOwnedNote(NoteScope.Person, other.Id));
-        Assert.False(app.OpenOwnedNotes(NoteScope.Person, null));
-        Assert.False(app.DesignateOngoingNote(NoteScope.Person, other.Id));
-        Assert.False(app.OpenOngoingNote(NoteScope.Person));
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
+        Assert.Equal(other.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, null));
+        Assert.True(app.OpenOwnedNotes(NoteScope.Person, first.OwnerEmail));
+        Assert.True(app.DesignateOngoingNote(NoteScope.Person, other.Id));
+        Assert.True(app.OpenOngoingNote(NoteScope.Person));
+        Assert.Equal(other.Id, app.PersonNotesView.SelectedNote!.Id);
+        Assert.True(app.OpenOwnedNote(NoteScope.Person, first.Id, editing: true));
         Assert.Equal(first.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.Equal(first.OwnerEmail, app.PersonNotesView.OwnerEmail);
         Assert.True(app.PersonNotesView.IsEditing);
-        Assert.Contains("Retry or discard", app.PersonNotesView.Feedback);
+        Assert.Equal("Retained writing", app.PersonNotesView.SelectedNote.Markdown);
+        Assert.Equal("Saved", app.GetPersonNotes(first.OwnerEmail).Single(note => note.Id == first.Id).Markdown);
         Assert.False(app.CanSafelyClose);
-        Assert.NotNull(app.SaveNoteDraft(basis, first.Title, "Deliberately saved"));
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        Assert.Equal("Retained writing", app.GetPersonNotes(first.OwnerEmail).Single(note => note.Id == first.Id).Markdown);
         Assert.True(app.OpenOwnedNote(NoteScope.Person, other.Id));
     }
 

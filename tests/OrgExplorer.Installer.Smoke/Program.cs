@@ -211,8 +211,10 @@ internal static partial class Program
 
     private static Dictionary<string, string> Snapshot(string workspace)
     {
-        if (!File.Exists(Path.Combine(workspace, "workspace.json")))
-            throw new InvalidOperationException("Real desktop did not create an independent Workspace.");
+        if (!File.Exists(Path.Combine(workspace, "workspace.sqlite")) ||
+            !File.Exists(Path.Combine(workspace, "local-workspace.format")) ||
+            File.ReadAllText(Path.Combine(workspace, "local-workspace.format")) != "OrgExplorer local SQLite Workspace")
+            throw new InvalidOperationException("Real desktop did not create an independent local SQLite Workspace.");
         return Directory.GetFiles(workspace, "*", SearchOption.AllDirectories).ToDictionary(
             file => Path.GetRelativePath(workspace, file), file =>
             {

@@ -66,7 +66,7 @@ internal static partial class Program
         Assembly? Resolve(AssemblyLoadContext context, AssemblyName name) =>
             resolver.ResolveAssemblyToPath(name) is { } path ? context.LoadFromAssemblyPath(path) : null;
         var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
-        var settings = Path.Combine(Path.GetTempPath(), "OrgExplorer-Xaml-" + Guid.NewGuid().ToString("N"));
+        var settings = Path.GetFullPath(Path.Combine(".test-workspaces", "OrgExplorer-Xaml-" + Guid.NewGuid().ToString("N")));
         Directory.CreateDirectory(settings);
         Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", settings);
         AssemblyLoadContext.Default.Resolving += Resolve;
@@ -81,7 +81,7 @@ internal static partial class Program
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
             var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher), chooseFolder], null)!;
+                [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher, fileObserver: heldPublisher), chooseFolder], null)!;
             var failures = new List<string>();
             if (window.Icon is not BitmapFrame { Decoder: IconBitmapDecoder icon } ||
                 !icon.Frames.Select(frame => frame.PixelWidth).Order().SequenceEqual(
@@ -196,15 +196,15 @@ internal static partial class Program
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyTreePresentation(treeWindow, settings); }
-                finally { treeWindow.Close(); }
+                finally { ClosePublishedCompiledWindow(treeWindow); }
                 var unavailableNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
-                try { VerifyUnavailablePreferredNameEntry(unavailableNameWindow, settings); }
-                finally { unavailableNameWindow.Close(); }
+                try { VerifyPreferredNameSnapshotDeferral(unavailableNameWindow, settings); }
+                finally { ClosePublishedCompiledWindow(unavailableNameWindow); }
                 var noteFailureWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyRetainedNoteCreationFailure(noteFailureWindow, settings); }
-                finally { noteFailureWindow.Close(); }
+                finally { ClosePublishedCompiledWindow(noteFailureWindow); }
                 VerifySettingsFocus(window);
                 HarnessRuntime.Run("compiled-sqlite", () => VerifySqliteCreationNavigation(type, settings, chooseFolder));
                 HarnessRuntime.Run("compiled-snapshots", () => VerifySnapshotSynchronization(type, settings, chooseFolder));
@@ -213,19 +213,19 @@ internal static partial class Program
                 var emptyReadingWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyEmptyReadingScroll(emptyReadingWindow, settings); }
-                finally { emptyReadingWindow.Close(); }
+                finally { ClosePublishedCompiledWindow(emptyReadingWindow); }
                 var retainedWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
-                try { VerifyRejectedOverlayGeometry(retainedWindow, settings); }
-                finally { retainedWindow.Close(); }
+                try { VerifyRetainedOverlayGeometry(retainedWindow, settings); }
+                finally { ClosePublishedCompiledWindow(retainedWindow); }
                 var reportsWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyReportsVisibility(reportsWindow, settings); }
-                finally { reportsWindow.Close(); }
+                finally { ClosePublishedCompiledWindow(reportsWindow); }
                 var teamNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyOwnedTeamNameProfile(teamNameWindow, Path.Combine(settings, "team-name-workspace")); }
-                finally { teamNameWindow.Close(); }
+                finally { ClosePublishedCompiledWindow(teamNameWindow); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
             }
@@ -236,7 +236,7 @@ internal static partial class Program
             }
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("The compiled-XAML check must never show the window or create its native handle.");
-            window.Close();
+            ClosePublishedCompiledWindow(window);
             Console.WriteLine("PASS: actual compiled MainWindow BAML and connectors load without showing a window.");
             return 0;
         }
@@ -289,7 +289,7 @@ internal static partial class Program
             T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
             Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             ChooseCompiledWorkspace(window, folder);
-            PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+            PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
             var tree = Control<TreeView>("PeopleList");
             var avery = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "rowan@example.com")
                 .Reports.Single().Reports.Single();
@@ -471,7 +471,7 @@ internal static partial class Program
             ((Button)window.FindName("CancelProfileButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var notes = (FrameworkElement)window.FindName("PersonNotes");
             ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            window.Close();
+            ClosePublishedCompiledWindow(window);
         }
     }
 
@@ -496,7 +496,7 @@ internal static partial class Program
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         var tree = Control<TreeView>("PeopleList");
         var ancestor = tree.Items.Cast<ReportingNode>().Single(node => node.Person.Email == "rowan@example.com");
         var owner = ancestor.Reports.Single();
@@ -757,6 +757,7 @@ internal static partial class Program
             if (!stateImport.CanApply || !seed.ApplyImport(stateImport.Id))
                 throw new InvalidOperationException("Compact identity-state fixtures failed: " + seed.Status);
         }
+        using var snapshotPeer = new SmokeSnapshotPeer(folder);
         var preferences = Path.Combine(settings, "workspace-settings.json");
         if (!new WorkspaceSettings(preferences).SetPaneProportions(folder, new(25, 92)))
             throw new InvalidOperationException("Could not seed the existing version-1 inner-ratio preference.");
@@ -764,7 +765,7 @@ internal static partial class Program
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         if (Control<TextBlock>("WorkspacePath").Text != folder)
             throw new InvalidOperationException("Settings did not display the opened Workspace's actual full path.");
         if (window.FindName("OperationalNotice") is not FrameworkElement { Visibility: Visibility.Collapsed })
@@ -836,9 +837,16 @@ internal static partial class Program
         var notes = Control<FrameworkElement>("PersonNotes");
         T NoteControl<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         NoteControl<ListBox>("NotesList").SelectedIndex = 0;
-        var noteFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        var noteId = workflow.GetPersonNotes("avery@example.com").Single().Id;
         foreach (var dirtyNote in new[] { false, true })
         {
+            if (!workflow.SyncNow() || !snapshotPeer.Workflow.SyncNow())
+                throw new InvalidOperationException(workflow.Status);
+            var delivered = "# Saved note\n# Delivered before profile Save " + dirtyNote;
+            snapshotPeer.Publish(source => source.EditPersonNote(noteId, "Saved title", delivered));
+            if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
+            notes.GetType().GetMethod("RefreshExternalWorkspace")!.Invoke(notes, null);
             Invoke("EditProfileButton");
             Control<TextBox>("DirectoryNameEditor").Text = dirtyNote ? "Second local profile" : "First local profile";
             if (dirtyNote)
@@ -860,17 +868,15 @@ internal static partial class Program
                 completed = true;
             };
             property.AddValueChanged(status, saved);
-            var delivered = File.ReadAllText(noteFile) + "\n# Delivered during profile Save";
             try
             {
-                File.WriteAllText(noteFile, delivered);
                 Invoke("SaveProfileButton");
                 PumpUntil(() => completed);
-                var expected = dirtyNote ? "# Retained unsaved note" : "# Saved note\n# Delivered during profile Save";
+                var expected = dirtyNote ? "# Retained unsaved note" : delivered;
                 if (observed != expected)
                     throw new InvalidOperationException($"Profile Save displayed stale or discarded Person-note writing: '{observed}'.");
-                if (File.ReadAllText(noteFile) != delivered)
-                    throw new InvalidOperationException("Profile Save rewrote delivered Person-note bytes.");
+                if (ReadSmokePersonNote(folder, noteId).Markdown != delivered)
+                    throw new InvalidOperationException("Profile Save rewrote delivered Person-note writing.");
                 if (!dirtyNote && new[] { notes, Control<FrameworkElement>("TeamNotes") }.Any(control =>
                         ((TextBlock)control.FindName("NoteStatus")).Visibility != Visibility.Collapsed))
                     throw new InvalidOperationException("Successful profile save/refresh left routine status in healthy Person/Team reading.");
@@ -891,7 +897,7 @@ internal static partial class Program
                 if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Visible ||
                     status.Text != previousStatus || Control<TextBlock>("Email").Text != "avery@example.com" ||
                     NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
-                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || ReadSmokePersonNote(folder, noteId).Markdown != delivered)
                     throw new InvalidOperationException("Cancelling the picker changed retained writing, status, selection or the startup preference.");
                 var blockedFolder = Path.Combine(settings, "blocked-by-note");
                 ChooseCompiledWorkspace(window, blockedFolder);
@@ -899,7 +905,7 @@ internal static partial class Program
                     Control<TextBlock>("Email").Text != "avery@example.com" ||
                     NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
                     !status.Text.Contains("Person note", StringComparison.Ordinal) || Directory.Exists(blockedFolder) ||
-                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || File.ReadAllText(noteFile) != delivered)
+                    !File.ReadAllBytes(preferences).SequenceEqual(previousPreference) || ReadSmokePersonNote(folder, noteId).Markdown != delivered)
                     throw new InvalidOperationException("Picker acceptance bypassed the failed note or stranded its exact writing behind Settings.");
                 Invoke("OpenSettingsButton");
                 Invoke("OpenImportButton");
@@ -907,14 +913,14 @@ internal static partial class Program
                     Control<TextBlock>("Email").Text != "avery@example.com" ||
                     NoteControl<TextBox>("MarkdownEditor").Text != "# Retained unsaved note" ||
                     !Control<TextBlock>("StatusText").Text.Contains("Person note", StringComparison.Ordinal) ||
-                    File.ReadAllText(noteFile) != delivered)
+                    ReadSmokePersonNote(folder, noteId).Markdown != delivered)
                     throw new InvalidOperationException("Settings Import bypassed the failed independent Person-note draft.");
                 NoteControl<Button>("DiscardButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready");
             }
         }
         VerifyOwnedTeamPresentation(window, folder);
-        VerifyMaintenanceRetryAfterBlockedOpen(window, folder);
+        VerifyLocalReconciliationAfterBlockedOpen(window, folder);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Person);
         VerifyOwnedNoteRevisions(window, folder, NoteScope.Team);
         VerifyPersonNoteUpdateFlush(window, folder);
@@ -955,7 +961,7 @@ internal static partial class Program
         T Team<T>(string name) where T : FrameworkElement => (T)team.FindName(name);
         Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         var tree = Control<TreeView>("PeopleList");
         var avery = tree.Items.Cast<ReportingNode>().SelectMany(n => n.Reports.Prepend(n))
             .Single(n => n.Person.Email == "avery@example.com");
@@ -1133,7 +1139,7 @@ internal static partial class Program
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
-            ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
+            ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
         Console.WriteLine("PASS: rejected picker acceptance preserves both Workspace byte sets and the last successful startup preference; native selection remains hosted-only evidence.");
     }
 
@@ -1153,9 +1159,9 @@ internal static partial class Program
         {
             var elapsed = System.Diagnostics.Stopwatch.StartNew();
             PumpUntil(() => elapsed.ElapsedMilliseconds >= 650);
+            using var saved = OpenSmokeWorkspace(folder);
             if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
-                File.ReadAllText(WorkspaceFixtures.IndexedDocuments(folder)["people:avery@example.com"])
-                    .Contains("Unconfirmed", StringComparison.Ordinal))
+                saved.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
                 throw new InvalidOperationException("Typing or generic draining published an unconfirmed Preferred name.");
         }
         Invoke("EditPreferredNameButton");
@@ -1224,7 +1230,7 @@ internal static partial class Program
             {
                 save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (!publisher.Entered.Wait(TimeSpan.FromSeconds(5)))
-                    throw new InvalidOperationException("Preferred-name Save did not reach the held real-file publication.");
+                    throw new InvalidOperationException("Preferred-name Save did not reach the held local SQLite commit.");
                 if (cancel)
                 {
                     editor.Text = "Cancelled newer writing";
@@ -1270,25 +1276,18 @@ internal static partial class Program
         editor.Clear();
         save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Settled();
-        Invoke("EditPreferredNameButton");
-        using (var provider = ApplicationWorkflow.CreateFileBacked())
-        {
-            if (!provider.OpenWorkspace(folder) || !provider.EditPreferredName("avery@example.com", "Delivered during entry"))
-                throw new InvalidOperationException(provider.Status);
-        }
+        using var entryPeer = new SmokeSnapshotPeer(folder);
         if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
-        PumpUntil(() => Control<TextBlock>("ProfileHeading").Text == "Delivered during entry");
+        Invoke("EditPreferredNameButton");
         editor.Text = "Retained stale entry";
-        foreach (var attempt in new[] { 1, 2 })
-        {
-            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Settled();
-            if (panel.Visibility != Visibility.Visible || editor.Text != "Retained stale entry" ||
-                !details.Text.Contains("changed externally", StringComparison.Ordinal) ||
-                workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Delivered during entry")
-                throw new InvalidOperationException($"Explicit stale Preferred-name attempt {attempt} lost its original base/input or overwrote delivery.");
-        }
+        entryPeer.Publish(source => source.EditPreferredName("avery@example.com", "Delivered during entry"));
+        workflow.SyncNow();
+        if (panel.Visibility != Visibility.Visible || editor.Text != "Retained stale entry" ||
+            workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Incoming snapshot replaced an unconfirmed Preferred-name entry or its saved base.");
         Invoke("CancelPreferredNameButton");
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
+        PumpUntil(() => Control<TextBlock>("ProfileHeading").Text == "Delivered during entry");
         Invoke("EditPreferredNameButton");
         if (editor.Text != "Delivered during entry")
             throw new InvalidOperationException("Reopening after cancellation did not intentionally accept the delivered name.");
@@ -1325,7 +1324,7 @@ internal static partial class Program
         if (!restoreNote.GetAwaiter().GetResult()) throw new InvalidOperationException(workflow.Status);
         ((TabControl)notes.FindName("Views")).SelectedItem = notes.FindName("ReadTab");
         Console.WriteLine("PASS: invisible compiled Preferred-name typing does not save; Settings/Cancel isolate dismissal, failure retains input, Save/clear publish explicitly.");
-        Console.WriteLine("PASS: admitted Preferred-name I/O survives Cancel without blocking dismissal; newer input waits for another explicit Save; close remains blocked while publication is held.");
+        Console.WriteLine("PASS: admitted Preferred-name SQLite commit survives Cancel without blocking dismissal; newer input waits for explicit Save; pending snapshot adoption waits for deliberate entry cancellation.");
     }
 
     private static void VerifyPhotoViewportLayout(Window window)
@@ -1693,7 +1692,7 @@ internal static partial class Program
         Console.WriteLine("PASS: responsive inline profile fields and anchored explicit actions at minimum, ordinary and wide sizes without showing a window.");
     }
 
-    private static void VerifyRejectedOverlayGeometry(Window window, string settings)
+    private static void VerifyRetainedOverlayGeometry(Window window, string settings)
     {
         var folder = Path.Combine(settings, "retained-overlay");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -1719,8 +1718,8 @@ internal static partial class Program
         Note<Button>("NewButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => Note<TextBox>("NoteTitle").Text == "New Person note" &&
             Control<TextBlock>("WorkflowActivity").Text == "Ready");
-        var savedFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
-        var savedBytes = File.ReadAllBytes(savedFile);
+        var savedId = workflow.GetPersonNotes("avery@example.com").Single().Id;
+        var savedNote = ReadSmokePersonNote(folder, savedId);
         var root = (FrameworkElement)window.Content;
         var searchFrame = (FrameworkElement)LogicalTreeHelper.GetParent(Control<TextBox>("SearchQuery"));
         var toolbar = (FrameworkElement)LogicalTreeHelper.GetParent(searchFrame);
@@ -1758,15 +1757,17 @@ internal static partial class Program
             Measure("opened");
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(avery, casey, TreeView.SelectedItemChangedEvent));
             Layout();
-            Measure("rejected");
+            if (Control<TextBlock>("Email").Text != "casey@example.com")
+                throw new InvalidOperationException("Retained failed writing blocked Person browsing.");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(casey, avery, TreeView.SelectedItemChangedEvent));
+            Layout();
+            Measure("returned");
             if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
                 Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
-                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
                 Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
-                !Control<TextBlock>("StatusText").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
-                !Note<TextBlock>("NoteStatus").Text.Contains("Retry or discard", StringComparison.Ordinal) ||
-                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
-                throw new InvalidOperationException("Measured rejected overlay navigation changed geometry, owner, retained editor or panel.");
+                !Note<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal) ||
+                ReadSmokePersonNote(folder, savedId) != savedNote)
+                throw new InvalidOperationException("Measured overlay browsing changed geometry, owner or retained editor.");
             var note = System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading"));
             var draft = Note<TextBox>("MarkdownEditor").Text;
             Measure("before-query");
@@ -1783,18 +1784,17 @@ internal static partial class Program
             Measure("query-enter-focus");
             results.SelectedItem = results.Items.Cast<SearchResult>().Single(result => result.Person.Email == "casey@example.com");
             Enter(results);
-            PumpUntil(() => results.SelectedItem is null);
+            PumpUntil(() => Control<TextBlock>("Email").Text == "casey@example.com");
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(casey, avery, TreeView.SelectedItemChangedEvent));
             Layout();
-            Measure("rejected-search");
+            Measure("returned-search");
             if (before != Bounds(Control<ScrollViewer>("PersonScroll")) ||
                 Control<TextBlock>("Email").Text != "avery@example.com" || Note<TextBox>("NoteTitle").Text != "" ||
                 Note<TextBox>("MarkdownEditor").Text != draft ||
                 System.Windows.Automation.AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")) != note ||
-                Control<TextBox>("SearchQuery").Text != "casey@example" ||
-                Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
                 Note<TabControl>("Views").SelectedItem != notes.FindName("EditTab") || workflow.CanSafelyClose ||
-                !File.ReadAllBytes(savedFile).SequenceEqual(savedBytes))
-                throw new InvalidOperationException("Measured rejected search changed absolute viewport or retained query, owner, note, writing or panel.");
+                ReadSmokePersonNote(folder, savedId) != savedNote)
+                throw new InvalidOperationException("Measured search browsing changed absolute viewport, owner, note or retained writing.");
             Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Layout();
             Measure("query-cleared");
@@ -1820,7 +1820,7 @@ internal static partial class Program
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened." &&
             Control<TextBlock>("WorkspaceName").Text == "empty-reading-scroll" &&
             Control<TextBlock>("WorkflowActivity").Text == "Ready");
         var tree = Control<TreeView>("PeopleList");
@@ -1886,7 +1886,7 @@ internal static partial class Program
         }
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened." &&
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened." &&
             Control<TextBlock>("WorkspaceName").Text == "responsive-browsing");
         var tree = Control<TreeView>("PeopleList");
         // Force cold realization rather than letting an invisible host premeasure the entire small fixture.
@@ -2243,7 +2243,7 @@ internal static partial class Program
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
             Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var tree = Control<TreeView>("PeopleList");
@@ -2257,7 +2257,7 @@ internal static partial class Program
             int Count() => scope == NoteScope.Person ? workflow.GetPersonNotes("avery@example.com").Count :
                 workflow.GetTeamNotes("avery@example.com").Count;
             var originalCount = Count();
-            using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(folder))
             {
                 ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpUntil(() => workflow.LocalSaveError is not null && status.Text.Contains("NOT saved", StringComparison.Ordinal));
@@ -2265,11 +2265,10 @@ internal static partial class Program
             var retained = workflow.LocalSaveError!;
             if (Count() != originalCount || workflow.CanSafelyClose)
                 throw new InvalidOperationException("Failed creation must retain its error without creating replacement writing.");
-            using (var provider = ApplicationWorkflow.CreateFileBacked())
-                if (!provider.OpenWorkspace(folder) ||
-                    !provider.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered " + scope))
-                    throw new InvalidOperationException("Unrelated provider delivery failed: " + provider.Status);
+            using var provider = new SmokeSnapshotPeer(folder);
+            provider.Publish(source => source.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Delivered " + scope));
             if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+            workflow.SyncNow();
             var settled = false;
             window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
             PumpUntil(() => settled);
@@ -2277,33 +2276,32 @@ internal static partial class Program
                 status.Visibility != Visibility.Visible || status.Text != retained ||
                 System.Windows.Automation.AutomationProperties.GetItemStatus(notes) != retained)
                 throw new InvalidOperationException($"Unrelated successful refresh must not replace the unresolved {scope} creation error with success feedback: {status.Text}");
-            var selector = Path.Combine(folder, "workspace.json");
-            var selectorBytes = File.ReadAllBytes(selector);
-            try
+            using (File.Open(Path.Combine(folder, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
             {
-                File.WriteAllText(selector, "{}");
                 if (workflow.RefreshWorkspace())
-                    throw new InvalidOperationException("The invalid delivery fixture was unexpectedly accepted.");
+                    throw new InvalidOperationException("The unavailable local store was unexpectedly accepted.");
                 settled = false;
                 window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
                 PumpUntil(() => settled);
-                if (!status.Text.Contains("STALE", StringComparison.Ordinal) || !status.Text.Contains(retained, StringComparison.Ordinal))
+                if (workflow.IsWorkspaceCurrent || !status.Text.Contains("NOT saved", StringComparison.Ordinal))
                     throw new InvalidOperationException("A distinct current failure must remain visible alongside the retained creation error.");
             }
-            finally { File.WriteAllBytes(selector, selectorBytes); }
+            if (!workflow.ReconcileLocalSaves()) throw new InvalidOperationException(workflow.Status);
             if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
             workflow.DiscardUnsavedChanges();
+            if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
             ((Button)notes.FindName("NewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => Count() == originalCount + 1 && status.Visibility == Visibility.Collapsed &&
                 workflow.LocalSaveError is null);
         }
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Note failure checks must not show a window or create its native handle.");
-        Console.WriteLine("PASS: Person/Team creation failures remain visible and accessible through successful external refresh, and healthy feedback becomes quiet after deliberate resolution.");
+        Console.WriteLine("PASS: Person/Team creation failures remain visible through refresh and deferred snapshot delivery, with explicit local reconciliation before new writing.");
     }
 
-    private static void VerifyUnavailablePreferredNameEntry(Window window, string settings)
+    private static void VerifyPreferredNameSnapshotDeferral(Window window, string settings)
     {
+        // Direct-file owner deletion is retired; complete incoming versions wait behind unconfirmed writing.
         var folder = Path.Combine(settings, "unavailable-preferred-name");
         void Seed(string path, string email, string name)
         {
@@ -2313,14 +2311,14 @@ internal static partial class Program
                  "observedAt":"2026-11-01T17:00:00Z","people":[
                  {"email":"{{email}}","displayName":"Directory name","preferredName":"{{name}}","managerEmail":null}]}
                 """).Id))
-                throw new InvalidOperationException("Unavailable-name fixture failed: " + source.Status);
+                throw new InvalidOperationException("Preferred-name snapshot fixture failed: " + source.Status);
         }
         Seed(folder, "avery@example.com", "Saved name");
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible) Invoke("OpenSettingsButton");
         var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
         void SelectOwner()
@@ -2331,69 +2329,29 @@ internal static partial class Program
             if (Control<TextBlock>("Email").Text != "avery@example.com")
                 throw new InvalidOperationException("Unavailable-name fixture did not select Avery.");
         }
-        void Deliver(string email, string name)
-        {
-            var delivery = Path.Combine(settings, "preferred-delivery-" + Guid.NewGuid().ToString("N"));
-            Seed(delivery, email, name);
-            foreach (var file in Directory.GetFiles(delivery, "*", SearchOption.AllDirectories)
-                .Where(path => Path.GetFileName(path) != ".workspace.lock")
-                .OrderBy(path => Path.GetFileName(path) == "workspace.json"))
-            {
-                var target = Path.Combine(folder, Path.GetRelativePath(delivery, file));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target, true);
-            }
-            if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
-            var settled = false;
-            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
-            PumpUntil(() => settled);
-        }
-        Dictionary<string, byte[]> Bytes() => Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
-            .Where(path => Path.GetFileName(path) != ".workspace.lock").ToDictionary(path => path, File.ReadAllBytes);
-        void Unchanged(Dictionary<string, byte[]> before)
-        {
-            var after = Bytes();
-            if (after.Count != before.Count || before.Any(pair => !after.TryGetValue(pair.Key, out var bytes) ||
-                !pair.Value.SequenceEqual(bytes)))
-                throw new InvalidOperationException("Preferred-name retention/cancellation rewrote delivered Workspace bytes.");
-        }
+        using var provider = new SmokeSnapshotPeer(folder);
+        if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
         SelectOwner();
         Invoke("EditPreferredNameButton");
         Control<TextBox>("PreferredName").Text = "Retained local entry";
-        Deliver("casey@example.com", "Casey");
-        var delivered = Bytes();
+        provider.Publish(source => source.EditPreferredName("avery@example.com", "Changed externally") &&
+            source.EditPersonArchived("avery@example.com", true));
+        workflow.SyncNow();
         if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Visible ||
             Control<TextBox>("PreferredName").Text != "Retained local entry" ||
-            Control<TextBlock>("Email").Text != "avery@example.com")
-            throw new InvalidOperationException("Valid owner removal must retain the unconfirmed Preferred-name entry and its owner.");
-        if (Control<Button>("SavePreferredNameButton").IsEnabled || !Control<Button>("CancelPreferredNameButton").IsEnabled ||
-            !Control<TextBlock>("PreferredNameError").Text.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
-            !System.Windows.Automation.AutomationProperties.GetItemStatus(window).Contains("Pending", StringComparison.Ordinal))
-            throw new InvalidOperationException("Unavailable-owner feedback must retain unsafe state, disable Save and leave Cancel available.");
+            Control<TextBlock>("Email").Text != "avery@example.com" ||
+            workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Saved name" ||
+            workflow.GetRelationships("avery@example.com")!.Person.Archived || workflow.CanSafelyClose)
+            throw new InvalidOperationException("Incoming archival replaced the retained Preferred-name entry, exact owner or original save base.");
         Invoke("CancelPreferredNameButton");
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
+        using var durable = OpenSmokeWorkspace(folder);
         if (Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed ||
-            Control<TextBlock>("Email").Text != "")
-            throw new InvalidOperationException("Deliberate cancellation must release the unavailable owner and close only the entry.");
-        Unchanged(delivered);
-        Deliver("avery@example.com", "Saved name");
-        SelectOwner();
-        Invoke("EditPreferredNameButton");
-        Control<TextBox>("PreferredName").Text = "Still based on saved name";
-        Deliver("casey@example.com", "Casey");
-        Deliver("avery@example.com", "Changed externally");
-        delivered = Bytes();
-        Invoke("SavePreferredNameButton");
-        PumpUntil(() => Control<TextBlock>("PreferredNameError").Visibility == Visibility.Visible);
-        if (Control<TextBox>("PreferredName").Text != "Still based on saved name" ||
-            !System.Windows.Automation.AutomationProperties.GetHelpText(Control<TextBlock>("PreferredNameError"))
-                .Contains("changed externally", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Owner disappearance/return must not replace the entry's original save base.");
-        Unchanged(delivered);
-        Invoke("CancelPreferredNameButton");
-        Unchanged(delivered);
+            durable.GetRelationships("avery@example.com")!.Person is not { Archived: true, PreferredName: "Changed externally" })
+            throw new InvalidOperationException("Deliberate entry cancellation did not release validated snapshot archival without rewriting it.");
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Unavailable-name checks must not show a window or create its native handle.");
-        Console.WriteLine("PASS: valid owner removal retains Preferred-name input/owner/unsafe state, deliberate Cancel is nonmutating and a returning owner cannot reset the save base.");
+        Console.WriteLine("PASS: incoming snapshot archival retains Preferred-name input, exact owner and save base until deliberate Cancel releases adoption.");
     }
 
     private static void VerifyTreePresentation(Window window, string settings)
@@ -2422,7 +2380,7 @@ internal static partial class Program
         }
         Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
             Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Layout();
@@ -2496,11 +2454,17 @@ internal static partial class Program
         ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(siblingContainer)
             .GetPattern(PatternInterface.SelectionItem)).Select();
         Layout();
-        if (Control<TextBlock>("Email").Text != "avery@example.com" || siblingContainer.IsExpanded || !child.IsSelected)
-            throw new InvalidOperationException("Rejected navigation must retain the owner and must not expand the rejected Person.");
+        if (Control<TextBlock>("Email").Text != "casey@example.com" || !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("Failed note writing must not block selecting and expanding another Person.");
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(child)
+            .GetPattern(PatternInterface.SelectionItem)).Select();
+        Layout();
+        if (Control<TextBlock>("Email").Text != "avery@example.com" ||
+            ((TextBox)notes.FindName("NoteTitle")).Text != "")
+            throw new InvalidOperationException("Returning through the tree lost the original Person's exact failed draft.");
         ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => ((WorkspaceViewModel)tree.DataContext).CanSafelyClose);
-        Console.WriteLine("PASS: real tree selection expands only immediate reports, retains manual collapse/other branches, reveals accepted search destinations and leaves rejected branches unchanged.");
+        Console.WriteLine("PASS: real tree selection expands only immediate reports, retains manual collapse/other branches, reveals search destinations and preserves failed drafts through browsing.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)
@@ -2540,7 +2504,7 @@ internal static partial class Program
         }
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+        PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
         if (Control<FrameworkElement>("SettingsPanel").Visibility == Visibility.Visible)
             Invoke("OpenSettingsButton");
         if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Visible)
@@ -2704,7 +2668,7 @@ internal static partial class Program
         Saved();
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, folder);
-        PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Workspace opened.");
+        PumpUntil(() => ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
         var tree = (TreeView)window.FindName("PeopleList");
         tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, tree.Items[0], TreeView.SelectedItemChangedEvent));
         if (!Control<TextBlock>("OngoingStatus").Text.Contains("Choose", StringComparison.Ordinal) ||
@@ -2732,21 +2696,24 @@ internal static partial class Program
                 throw new InvalidOperationException("Failed Team designation must retain both the exact secondary note and durable choice.");
         }
         Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
-        var file = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md")
-            .Single(path => File.ReadAllText(path).Contains("Secondary Team", StringComparison.Ordinal));
-        var saved = File.ReadAllBytes(file);
-        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        var secondaryId = SmokeNoteId(folder, "avery@example.com", "Secondary Team", team: true);
+        var saved = ReadSmokeTeamNote(folder, secondaryId);
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Control<TextBox>("MarkdownEditor").Text = "Retained secondary Team draft";
             PumpUntil(() => Control<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
             Invoke("OngoingButton");
+            PumpUntil(() => Control<TextBox>("NoteTitle").Text == "Continuing Team");
+            Select("Secondary Team");
+            Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
             if (Control<TextBox>("MarkdownEditor").Text != "Retained secondary Team draft" ||
                 Control<TextBox>("NoteTitle").Text != "Secondary Team" ||
                 Control<TabControl>("Views").SelectedItem != notes.FindName("EditTab") ||
-                !Control<TextBlock>("NoteStatus").Text.Contains("before leaving or closing", StringComparison.Ordinal) ||
-                !File.ReadAllBytes(file).SequenceEqual(saved))
-                throw new InvalidOperationException("Ongoing navigation must retain the exact failed Team editor and saved bytes.");
+                ReadSmokeTeamNote(folder, secondaryId) != saved)
+                throw new InvalidOperationException("Ongoing browsing must retain the exact failed Team editor and saved writing.");
         }
+        var workspace = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        if (!workspace.ReconcileLocalSaves()) throw new InvalidOperationException(workspace.Status);
         Invoke("RetryButton");
         Saved();
         Invoke("OngoingButton");
@@ -2784,30 +2751,30 @@ internal static partial class Program
         if (Control<TextBlock>("EmptyBody").Visibility != Visibility.Visible ||
             Control<TextBlock>("EmptyNotes").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException($"Exact empty {scope} reading must invite Edit without substituting a collection-empty state.");
-        var file = Path.Combine(folder, scope == NoteScope.Person ? "notes" : "team-notes", id.ToString("D") + ".md");
-        var text = File.ReadAllText(file);
-        var headerStart = text.IndexOf('\n') + 1;
-        var headerEnd = text.IndexOf("\n---", headerStart, StringComparison.Ordinal);
-        var header = JsonNode.Parse(text[headerStart..headerEnd])!;
-        header["updatedAt"] = DateTimeOffset.Parse(header["updatedAt"]!.GetValue<string>()).AddMinutes(1).ToString("O");
-        File.WriteAllText(file, text[..headerStart] + header.ToJsonString() + text[headerEnd..]);
+        using var provider = new SmokeSnapshotPeer(folder);
         if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+        // Replace externally edited note headers with a genuine next logical version at the public transport seam.
+        var title = scope == NoteScope.Person ? "Review secondary Person" : "Review secondary Team";
+        provider.Publish(source => scope == NoteScope.Person ? source.EditPersonNote(id, title, "Delivered secondary writing") :
+            source.EditTeamNote(id, title, "Delivered secondary writing"));
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Status);
         notes.GetType().GetMethod("RefreshExternalWorkspace")!.Invoke(notes, null);
-        if (Control<TextBox>("MarkdownEditor").Text != "")
-            throw new InvalidOperationException("Timestamp-only delivery changed the displayed note writing.");
+        if (Control<TextBox>("MarkdownEditor").Text != "Delivered secondary writing")
+            throw new InvalidOperationException("Clean note reading did not accept the complete delivered snapshot.");
         Control<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
-        Control<TextBox>("MarkdownEditor").Text = "Writing after timestamp-only delivery";
+        Control<TextBox>("MarkdownEditor").Text = "Writing after snapshot delivery";
         var flush = (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
         PumpUntil(() => flush.IsCompleted);
         if (!flush.GetAwaiter().GetResult() ||
-            !File.ReadAllText(file).Contains("Writing after timestamp-only delivery", StringComparison.Ordinal))
-            throw new InvalidOperationException($"Clean {scope} editor retained a stale timestamp base: " +
+            (scope == NoteScope.Person ? ReadSmokePersonNote(folder, id).Markdown : ReadSmokeTeamNote(folder, id).Markdown)
+                != "Writing after snapshot delivery")
+            throw new InvalidOperationException($"Clean {scope} editor retained a stale snapshot base: " +
                 Control<TextBlock>("NoteStatus").Text);
         Ready();
         if (Control<TextBlock>("NoteStatus").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException($"Successful {scope} autosave left routine status in the note section.");
         PumpUntil(() => System.Windows.Automation.AutomationProperties.GetItemStatus(notes) == Control<TextBlock>("NoteStatus").Text);
-        Console.WriteLine($"PASS: actual compiled clean {scope} editor accepts timestamp-only delivery before its next save.");
+        Console.WriteLine($"PASS: actual compiled clean {scope} editor accepts snapshot delivery before its next save.");
 
         Invoke("ArchiveButton");
         PumpUntil(() => Archived(id));
@@ -2898,18 +2865,19 @@ internal static partial class Program
         Console.WriteLine($"PASS: actual compiled {scope} Read/Edit immediately presents locked/corrupt view-preference failures and clears successful retries.");
     }
 
-    private static void VerifyMaintenanceRetryAfterBlockedOpen(Window window, string folder)
+    private static void VerifyLocalReconciliationAfterBlockedOpen(Window window, string folder)
     {
         var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
         void Settled() => PumpUntil(() => ((Button)window.FindName("OpenWorkspaceButton")).IsEnabled);
         var selected = workflow.PeopleNavigation.SelectedEmail!;
         var destination = workflow.PeopleNavigation.LastValidView;
         var preferredName = workflow.GetRelationships(selected)!.Person.PreferredName;
-        using (File.Open(Path.Combine(folder, "recovery", "current.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
-            if (!workflow.EditPreferredName(selected, "Maintenance retry fixture"))
-                throw new InvalidOperationException(workflow.Status);
-        if (workflow.CanSafelyClose || !workflow.LocalSaveError!.Contains("recovery maintenance incomplete", StringComparison.Ordinal))
-            throw new InvalidOperationException("The compiled retry fixture did not retain a committed maintenance failure.");
+        using (WorkspaceFixtures.LockLocalStore(folder))
+            if (workflow.EditPreferredName(selected, "Local recovery retry fixture"))
+                throw new InvalidOperationException("The locked SQLite write unexpectedly committed.");
+        if (workflow.CanSafelyClose || !workflow.LocalSave.EditsPaused ||
+            !workflow.LocalSaveError!.Contains("NOT saved", StringComparison.Ordinal))
+            throw new InvalidOperationException("The compiled retry fixture did not retain a confirmed local noncommit.");
         var alternate = Path.Combine(Path.GetDirectoryName(folder)!, "blocked-workspace");
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ChooseCompiledWorkspace(window, alternate);
@@ -2917,19 +2885,19 @@ internal static partial class Program
         if (workflow.Compatibility.WorkspacePath != folder ||
             workflow.PeopleNavigation.SelectedEmail != selected ||
             workflow.PeopleNavigation.LastValidView != destination || Directory.Exists(alternate) ||
-            !((TextBlock)window.FindName("NoticeSummary")).Text.Contains("Saved locally; recovery maintenance incomplete", StringComparison.Ordinal) ||
+            !((TextBlock)window.FindName("NoticeSummary")).Text.Contains("NOT saved", StringComparison.Ordinal) ||
             workflow.CanSafelyClose)
             throw new InvalidOperationException("Blocked Workspace navigation changed the current presentation or created the destination.");
         var retry = LogicalDescendants((DependencyObject)window.FindName("SettingsPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "RetryWorkspace");
         retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Settled();
-        if (!workflow.CanSafelyClose || workflow.LocalSaveError is not null ||
-            workflow.Compatibility.WorkspacePath != folder || Directory.Exists(alternate))
-            throw new InvalidOperationException("Retry after blocked Workspace navigation did not complete current storage maintenance: " + workflow.Status);
+        if (workflow.LocalSave.EditsPaused || workflow.Compatibility.WorkspacePath != folder || Directory.Exists(alternate))
+            throw new InvalidOperationException("Retry after blocked Workspace opening did not reconcile current local storage: " + workflow.Status);
+        workflow.DiscardPersonChanges(selected);
         if (!workflow.EditPreferredName(selected, preferredName))
             throw new InvalidOperationException(workflow.Status);
-        Console.WriteLine("PASS: actual compiled blocked Workspace navigation retains presentation and Retry completes current maintenance without retrying the unopened destination.");
+        Console.WriteLine("PASS: actual compiled blocked Workspace opening retains presentation and Retry reconciles current local saving without retrying the unopened destination.");
     }
 
     private static IEnumerable<DependencyObject> LogicalDescendants(DependencyObject parent)
@@ -2947,7 +2915,6 @@ internal static partial class Program
         T NoteControl<T>(string name) where T : FrameworkElement => (T)notes.FindName(name);
         var selected = NoteControl<ListBox>("NotesList").SelectedItem as OwnedNote ??
             throw new InvalidOperationException("The update-flush fixture has no exact selected Person note.");
-        var file = Path.Combine(folder, "notes", selected.Id.ToString("D") + ".md");
         Task<bool> Flush() => (Task<bool>)notes.GetType().GetMethod("FlushPendingDraftAsync")!.Invoke(notes, null)!;
         void WaitForSave() => PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text.StartsWith(
             "Person note saved locally.", StringComparison.Ordinal) &&
@@ -2955,14 +2922,14 @@ internal static partial class Program
         NoteControl<TabControl>("Views").SelectedItem = notes.FindName("EditTab");
         NoteControl<TextBox>("MarkdownEditor").Text = "Durable draft before update";
         WaitForSave();
-        var saved = File.ReadAllBytes(file);
-        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        var saved = ReadSmokePersonNote(folder, selected.Id);
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             NoteControl<TextBox>("MarkdownEditor").Text = "Retained failing update draft";
             PumpUntil(() => NoteControl<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal));
             var rejected = Flush();
             PumpUntil(() => rejected.IsCompleted);
-            if (rejected.GetAwaiter().GetResult() || !File.ReadAllBytes(file).SequenceEqual(saved))
+            if (rejected.GetAwaiter().GetResult() || ReadSmokePersonNote(folder, selected.Id) != saved)
                 throw new InvalidOperationException("Failed Person-note writing must block an update flush without changing durable bytes.");
             var retainedTitle = NoteControl<TextBox>("NoteTitle").Text;
             var retainedOwner = NoteControl<TextBlock>("Ownership").Text;
@@ -2983,13 +2950,15 @@ internal static partial class Program
                 NoteControl<TextBlock>("Ownership").Text != retainedOwner ||
                 !NoteControl<TextBlock>("NoteStatus").Text.Contains("NOT saved", StringComparison.Ordinal) ||
                 !((TextBlock)window.FindName("ExitRisk")).Text.Contains("may be lost", StringComparison.Ordinal) ||
-                !File.ReadAllBytes(file).SequenceEqual(saved))
+                ReadSmokePersonNote(folder, selected.Id) != saved)
                 throw new InvalidOperationException("Close must be rejected with its exact retained Person-note draft, failure text and unchanged saved writing.");
             if (((FrameworkElement)window.FindName("SettingsPanel")).Visibility != Visibility.Collapsed ||
                 ((FrameworkElement)window.FindName("ExplorerPanel")).Visibility != Visibility.Visible)
                 throw new InvalidOperationException("Close was correctly rejected and its draft/error retained, but Settings still hides the Person-note editor.");
             ((Button)window.FindName("CancelExitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         }
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        if (!workflow.ReconcileLocalSaves()) throw new InvalidOperationException(workflow.Status);
         NoteControl<Button>("RetryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         WaitForSave();
         NoteControl<TextBox>("MarkdownEditor").Text = "Final private writing flushed before update";
@@ -2998,15 +2967,15 @@ internal static partial class Program
         PumpUntil(() => flushed.IsCompleted);
         var accepted = flushed.GetAwaiter().GetResult();
         if (!accepted ||
-            !File.ReadAllText(file).Contains("Final private writing flushed before update", StringComparison.Ordinal))
+            ReadSmokePersonNote(folder, selected.Id).Markdown != "Final private writing flushed before update")
             throw new InvalidOperationException("An update flush must save newer Person-note writing after a successful retry, even while Settings hides the editor. " +
                 $"Accepted: {accepted}; note status: {NoteControl<TextBlock>("NoteStatus").Text}");
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (Environment.GetEnvironmentVariable("ORG_EXPLORER_UPDATE_FIXTURE") is { } fixtureDirectory)
-            VerifyPersonNoteUpdateHandoff(window, file, fixtureDirectory);
+            VerifyPersonNoteUpdateHandoff(window, folder, fixtureDirectory);
     }
 
-    private static void VerifyPersonNoteUpdateHandoff(Window window, string file, string fixtureDirectory)
+    private static void VerifyPersonNoteUpdateHandoff(Window window, string folder, string fixtureDirectory)
     {
         using var configuration = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtureDirectory, "trust.json")));
         var endpoint = new Uri(configuration.RootElement.GetProperty("manifestUrl").GetString()!);
@@ -3033,16 +3002,14 @@ internal static partial class Program
             Invoke(settings);
             PumpUntil(() => (panel.Visibility == Visibility.Visible) == visible);
         }
-        var folder = Path.GetDirectoryName(Path.GetDirectoryName(file))!;
         Invoke((Button)notes.FindName("NewButton"));
         PumpUntil(() => ((TextBox)notes.FindName("NoteTitle")).Text == "New Person note");
         ((TextBox)notes.FindName("NoteTitle")).Text = "Automatic update writing";
         editor.Text = "Durable draft before update handoff";
         PumpUntil(() => noteStatus.Text.StartsWith("Person note saved locally.", StringComparison.Ordinal) &&
             ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready");
-        file = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md")
-            .Single(path => File.ReadAllText(path).Contains("Durable draft before update handoff", StringComparison.Ordinal));
-        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        var noteId = SmokeNoteId(folder, "avery@example.com", "Automatic update writing");
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             editor.Text = "Retained failing update handoff draft";
             PumpUntil(() => noteStatus.Text.Contains("NOT saved", StringComparison.Ordinal));
@@ -3051,6 +3018,8 @@ internal static partial class Program
             PumpUntil(() => check.IsEnabled && updateStatus.Text.Contains("Automatic update paused", StringComparison.Ordinal));
             SetSettings(false);
         }
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        if (!workflow.ReconcileLocalSaves()) throw new InvalidOperationException(workflow.Status);
         Invoke((Button)notes.FindName("RetryButton"));
         PumpUntil(() => ((TextBlock)window.FindName("WorkflowActivity")).Text == "Ready" &&
             !noteStatus.Text.StartsWith("Pending", StringComparison.Ordinal));
@@ -3071,9 +3040,9 @@ internal static partial class Program
             throw new InvalidOperationException("The update must reach its controlled installer boundary after a successful note retry and newer writing. " +
                 $"Update: {updateStatus.Text}; note: {noteStatus.Text}");
         using var handoff = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixtureDirectory, "handoff.json")));
-        var workspace = Path.GetDirectoryName(Path.GetDirectoryName(file))!;
-        var expectedHash = handoff.RootElement.GetProperty("workspaceFiles").GetProperty(Path.GetRelativePath(workspace, file)).GetString();
-        if (!File.ReadAllText(file).Contains("Final private writing flushed before installer handoff", StringComparison.Ordinal) ||
+        var file = Path.Combine(folder, "workspace.sqlite");
+        var expectedHash = handoff.RootElement.GetProperty("workspaceFiles").GetProperty("workspace.sqlite").GetString();
+        if (ReadSmokePersonNote(folder, noteId).Markdown != "Final private writing flushed before installer handoff" ||
             Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))) != expectedHash)
             throw new InvalidOperationException("The actual update command handed off before the final Person-note bytes were durable.");
         SetSettings(false);
@@ -3087,6 +3056,7 @@ internal static partial class Program
             using var observation = HarnessRuntime.Measure(HarnessRuntime.Work.Observation);
             return complete();
         }
+
         var frame = new DispatcherFrame();
         var deadline = DateTime.UtcNow.AddSeconds(20);
         var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1) };
@@ -3095,5 +3065,22 @@ internal static partial class Program
         try { Dispatcher.PushFrame(frame); }
         finally { timer.Stop(); }
         if (!Observe()) throw new TimeoutException("The no-window profile refresh operation did not complete.");
+    }
+
+    private static void ClosePublishedCompiledWindow(Window window)
+    {
+        var workflow = (WorkspaceViewModel)((TreeView)window.FindName("PeopleList")).DataContext;
+        if (workflow.IsWorkspaceCurrent && workflow.CanSafelyClose &&
+            workflow.Compatibility.WorkspacePath is { } folder)
+        {
+            if (workflow.Synchronization.Folder is null &&
+                !workflow.ConfigureSynchronizationFolder(SmokeSnapshotFolder(folder)))
+                throw new InvalidOperationException(workflow.Status);
+            var publishing = workflow.SynchronizeAsync();
+            PumpUntil(() => publishing.IsCompleted);
+            if (!publishing.GetAwaiter().GetResult() || !workflow.ExitStatus.CanClose)
+                throw new InvalidOperationException("Ordinary compiled fixture could not publish before normal exit: " + workflow.ExitStatus.Message);
+        }
+        window.Close();
     }
 }

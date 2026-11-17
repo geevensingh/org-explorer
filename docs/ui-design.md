@@ -9,6 +9,13 @@ facts above full-width notes, anchored identity, always-visible fact slots and
 the single People divider; the remaining refresh is still in progress.
 No whole-pass hosted or owner visual acceptance is claimed here.
 
+The [reliable-save design](reliable-nonblocking-saves.md) refines storage and
+draft/exit semantics: normal local SQLite, complete independent snapshots,
+retained owner writing across browsing and an informed Exit anyway choice.
+Old pending-navigation and non-overridable-close examples are superseded, not
+reintroduced by this presentation design. Ongoing/exact-view preferences,
+Team-name ownership and the complete Historical/responsive matrices remain.
+
 This refines [the v1 design](design.md), not the product's identity, supported
 platforms, or data-safety boundaries. Keep the native Windows .NET/WPF direction
 in [ADR 0005](adr/0005-native-windows-dotnet.md). This is not a request for a web

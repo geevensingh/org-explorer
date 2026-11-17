@@ -4,8 +4,10 @@ A private, offline-first Windows org explorer with rich person profiles, person
 notes, manager-owned team context, and observed reporting history.
 
 The agreed first release targets Windows 11 x64 using .NET 10, WPF, and Velopack.
-People, notes, photos, and history live in readable local files. An external
-provider such as OneDrive owns synchronization and conflict resolution.
+People, notes, photos, and history commit to app-managed local SQLite storage.
+An external provider such as OneDrive carries complete logical snapshots between
+computers used one at a time; the app validates versions and requires an explicit
+whole-version choice for divergence.
 
 ## Specifications
 
@@ -31,17 +33,9 @@ On Windows 11 x64 with the .NET 10 SDK:
 dotnet run --project src\OrgExplorer.Desktop
 ```
 
-The staged SQLite replacement is available only through an explicit development
-opt-in, not as the normal shipping creation path:
-
-```powershell
-$env:ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES='1'
-dotnet run --project src\OrgExplorer.Desktop
-```
-
-**Settings → Create local Workspace (preview)** creates a new app-managed
+**Settings → Create new local Workspace** creates a new app-managed
 Workspace under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`, outside OneDrive.
-It preserves the previous Workspace. The staged path supports reviewed
+It preserves the previous Workspace. The normal shipping path supports reviewed
 partial Imports including photos, browsing and startup reopening, with all supplied
 Person attributes, relationships and accepted evidence committed together.
 Successful creation returns to the browsing start view, like Open Workspace;
@@ -50,7 +44,7 @@ Person/Team note autosave, explicit profile and Preferred-name saves, photos,
 favorites, archival/reactivation, Manager transitions, private Team names and
 frozen Historical team context also use this authority. Person browsing retains
 unsaved owner-specific profile and Preferred-name drafts without applying them.
-Unsupported actions are rejected, never sent to the legacy writer.
+There is no readable-file writer, migration, dual writing or legacy fallback.
 Original and later exact Import replay remain
 no-ops after subsequent changes.
 For cross-computer use, open **Settings -> Synchronization**, configure
@@ -98,11 +92,11 @@ unresolved transaction evidence keeps that data read-only. An invalid database
 reports an explicit failure, never an empty replacement.
 Do not synchronize the live database or its journal, and do not treat local
 commit as publication or provider delivery. See the
-[staged format](docs/workspace-format.md#staged-local-sqlite-formats).
+[local format](docs/workspace-format.md#local-sqlite-format-3).
 
 Everyday chrome keeps local search, **Settings**, and a quiet Workspace-name
 label. In **Settings → Open Workspace...**, select or create an empty local
-folder outside the installation in the native folder picker. Accepting the
+folder outside the installation and synchronized folders in the native folder picker. Accepting the
 picker immediately attempts the validated open; cancelling changes nothing.
 Settings displays the full current path with keyboard/context-menu **Copy path**,
 not an editable pending path or a second Open step.
@@ -134,7 +128,7 @@ pane. Empty fields remain editable. Text, Manager and photo changes stay in
 one draft; notes remain independently accessible below it. The editing bar keeps
 **Save profile** and **Cancel** available while the form scrolls. Entry focuses
 Directory name; Tab follows field order. Enter in a field does not submit the form.
-**Save profile** validates and publishes the complete change; **Cancel**
+**Save profile** validates and commits the complete change locally; **Cancel**
 discards only that draft without changing saved data or history and returns focus
 to Edit profile. Empty editor text explicitly
 clears a nullable value; whitespace-only text is rejected. Preferred name is
@@ -143,7 +137,7 @@ editable. Email is a non-editable identity. Reopen the same Workspace to retriev
 saved data. The app does not upload Workspace data.
 
 After a successful open, the app remembers that Workspace in app-local settings
-and reopens it on the next launch through the same version-3 validation flow.
+and reopens it on the next launch through the same local SQLite validation flow.
 First launch stays empty with folder-opening controls available in **Settings**.
 If the previous folder cannot be reopened, the app stays empty, explains the failure, and offers
 **Retry previous Workspace** or **Choose another folder**. Automatic reopening
@@ -158,8 +152,9 @@ purposeful search/Favorites/People start instead of opening replacement writing.
 No unsaved edit buffer is restored.
 
 Settings groups Workspace, Import and Updates in one bounded scrolling page.
-**Compatibility, recovery and technical details** retains validation/maintenance,
-revision-bound conflict review and update/signing/rollback guidance. Healthy
+**Compatibility, recovery and technical details** retains local validation/recovery
+and update/signing/rollback guidance. Synchronization has its own revision-bound
+complete-version review. Healthy
 reading has no permanent Ready/validated/saved rows or inactive recovery buttons.
 Actual activity and unresolved problems appear beneath the toolbar, with scoped
 actions and Details; editor failures remain beside the retained writing.
@@ -168,11 +163,12 @@ Preferred name normally appears as the primary name. Its adjacent pencil
 (**Edit preferred name**, or **Add preferred name** when unset) reveals its
 compact anchored editor. Only **Save** or **Enter** submits that entry; typing,
 blur, navigation, Settings and update draining never save it implicitly.
-**Cancel**, **Escape**, or clicking outside closes and cancels only this entry.
+**Cancel** or **Escape** cancels only this entry. Navigation or clicking outside
+hides its retained owner-specific draft without submitting it.
 A failed save retains its input and local error for explicit Save retry against
 the original displayed base. Empty clears the name; whitespace alone is invalid.
-Cancellation cannot undo already-submitted I/O or acknowledge a published storage
-conflict, and never discards independent writing or errors. **Mark favorite** remains
+Cancellation cannot undo already-submitted I/O or reconcile unknown storage
+outcomes, and never discards independent writing or errors. **Mark favorite** remains
 an independent one-click saved action.
 
 Wide reading keeps a resizable People pane beside one Person workspace; compact
@@ -184,16 +180,18 @@ This is the reading slice of the [visual refresh](docs/visual-refresh-design.md)
 not completion or visual acceptance of the whole pass.
 
 Loading, validation and local writes run off the desktop dispatcher. Rapid
-Markdown typing is coalesced after a short quiet interval. Preferred-name input
+Markdown autosave uses a bounded cadence while typing continues, not an idle-only
+debounce. Preferred-name input
 stays editable while its explicit save completes; newer input needs another
 explicit Save. Pending/newer drafts are **not yet saved** and block unsafe
 normal close/restart until saved or deliberately cancelled/discarded. An informed
 Exit anyway overrides close, not the updater's safe-restart contract. Cancellation
 does not bypass an already-admitted save. A failed write still requires retry
 or deliberate cancellation/discard. Preferred name,
-Favorite and notes remain independent of profile Save/Cancel. Leaving a dirty
-profile through navigation, Import, archival or workspace switching
-offers **Save / Discard / Stay**. A failed Save retains its owner and draft.
+Favorite and notes remain independent of profile Save/Cancel. Person navigation
+retains dirty profiles and exact note drafts by owner. Actions that would abandon
+a profile, such as Import, archival or Workspace switching, retain the explicit
+**Save / Discard / Stay** decision. A failed Save retains its owner and draft.
 Closing instead shows the nonmodal Exit anyway / Cancel decision without
 implicitly saving the profile.
 A profile changed externally since entering Edit cannot be overwritten by Save
@@ -201,25 +199,24 @@ or retry; discard that draft before editing the delivered version. Changes
 already incorporated before editing and changes only to other people do not
 cause this conflict. Automatic update restarts never save or discard an unsaved
 profile. Tree expansion and
-Settings remain usable while local work is outstanding. Rejected navigation is
-explained in the main status: pending edits or an in-progress save ask you to
-wait; a failed quick/note save asks you to retry or discard. Note-specific feedback also
-appears beside the affected note. Desktop smoke waits for saves and verifies
-the destination Person before continuing a successful navigation. Search runs
+Settings and Person browsing remain usable while local work is outstanding,
+failed, stalled or conflicted. Failures explain paused editing and explicit
+recovery; note-specific feedback appears beside the retained writing. Desktop
+coverage verifies the actual usable destination, including during real held
+work. Search runs
 locally in the background and ignores superseded query responses. None of this changes
-the import review checkpoint, atomic selector publication, or data formats.
+the Import review checkpoint or atomic local transaction boundary.
 
-Workspaces use **version 3**, with changed-document/index writes, independent
-committed recovery and guarded bounded reclamation. Older versions (including
-1 and 2) and future versions are rejected without changing their bytes or
-directories. There is no migration or legacy cleanup: preserve the old folder
-and explicitly choose a new empty folder. Import version 1 and existing record
-families remain unchanged. Incomplete external delivery is unavailable data,
-never permission to repair it or accept a smaller population.
+Workspaces use **local SQLite format 3**, distinguished from every retired
+readable-file version by `local-workspace.format`. Old file formats and
+incompatible databases are rejected without conversion, overwrite or deletion.
+Preserve the old folder and create a new local Workspace. Import version 1 is
+unchanged. Incomplete snapshot delivery is a synchronization error, never
+permission to replace valid local data or accept a smaller population.
 
 **Settings and upgrade guidance** is always accessible, including before choosing
 a Workspace or after incompatible/unavailable data. **Retry Workspace
-validation / storage maintenance** retries local loading and committed maintenance
+validation / recovery** retries local loading and transaction reconciliation
 without converting incompatible data or replaying an edit.
 **Check for updates** verifies project-key signed releases, and startup checks
 default to enabled. Availability and offline/rate-limit/verification errors are
@@ -270,17 +267,13 @@ Failed view writes leave the in-session choice visible with an explicit
 **NOT remembered** warning and retain the prior durable view. Deliberately
 selecting the destination again retries the preference write.
 
-The app watches local folder events and automatically reflects valid external
-Person, Person/Team Markdown, Team context metadata, and photo changes, including new image bytes at the same
-location. Whole-Workspace/graph validation precedes acceptance. Incomplete,
-unsupported, or invalid deliveries visibly mark all retained information
-**STALE / unavailable**, block writes, and never create false roots or repair
-files. Complete valid delivery recovers automatically. A draft retains the note
-version shown when editing began, including before its first autosave. External
-changes cannot be overwritten by that draft or its retry: the local writing
-stays visible, while the delivered document stays unchanged until you explicitly
-discard the draft and edit the accepted version. Ordinary I/O failures remain
-retryable. Images and raw
+Direct editing of database, note, selector or photo backing files is unsupported.
+Complete validated snapshot continuations are adopted only when local state is
+published and no writing is retained. Invalid delivery leaves the valid local
+Workspace usable and exposes a separate synchronization error. A draft retains
+its exact immutable owner/note base; stale saves cannot overwrite a subsequently
+accepted state. Local I/O failures require reconciliation before a safe retry,
+while browsing remains available. Images and raw
 HTML never load content; HTTP/HTTPS links open only on deliberate selection.
 
 **New Team note** explicitly opts into reporting-subtree scope. Writing a
@@ -309,7 +302,8 @@ change is later reverted. Review on the owner's profile: **Confirm still
 applies**, edit the autosaved Markdown (which confirms current applicability), or
 **Archive Team note** to retain but stop inheriting the writing. Restoring an
 archived note does not silently confirm it. Failed review saves retain the warning
-and saved writing; unsaved drafts block navigation/normal close and offer retry/discard.
+and saved writing; unsaved drafts remain available across browsing and prevent
+an unconfirmed safe close/restart, with explicit recovery/retry/discard.
 
 Secondary **History** access retains the structured Profile timeline,
 field-specific confirmations, source observations and read-only **Historical team
@@ -376,7 +370,7 @@ omission preserves the star and false removes it. Favorite-only edits do not
 create reporting history. Queries and favorite views rebuild from validated
 Workspace state after local/external changes, not a canonical index or hosted
 backend. Stale delivery is labeled; failed favorite saves retain the saved state
-and require retry/discard before navigation or normal close.
+and require recovery/retry/discard for editing or safe restart, not browsing.
 
 Profiles display copied local JPEG/PNG photos, with **Choose photo** and
 **Clear photo** actions. Imports accept safe relative `photoPath` references or

@@ -22,7 +22,7 @@ internal static partial class Program
         var outgoing = Path.Combine(settings, "snapshot-out");
         var incoming = Path.Combine(settings, "snapshot-in");
         using var first = ApplicationWorkflow.CreateFileBacked();
-        if (!first.OpenWorkspace(source, WorkspaceOpenMode.CreateLocalSqlite) ||
+        if (!first.OpenWorkspace(source, WorkspaceOpenMode.OpenOrCreate) ||
             !first.ApplyImport(first.PreviewImport("""
                 {"schemaVersion":1,"batchId":"96000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -31,7 +31,7 @@ internal static partial class Program
                 """).Id) || !first.ConfigureSynchronizationFolder(outgoing) || !first.SyncNow())
             throw new InvalidOperationException("Could not prepare the real compiled synchronization source: " + first.Status);
         using (var seed = ApplicationWorkflow.CreateFileBacked())
-            if (!seed.OpenWorkspace(target, WorkspaceOpenMode.CreateLocalSqlite))
+            if (!seed.OpenWorkspace(target, WorkspaceOpenMode.OpenOrCreate))
                 throw new InvalidOperationException(seed.Status);
         Directory.CreateDirectory(incoming);
         void Deliver()

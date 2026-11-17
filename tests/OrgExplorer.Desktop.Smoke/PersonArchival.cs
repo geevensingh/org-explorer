@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -67,19 +68,19 @@ internal static partial class Program
             Await(() => Status(window).StartsWith("Navigation blocked:"));
             AssertValue(window, "OfficeNumber", "0011");
             AssertArchivalOwner(window, "morgan@example.com", archived: false);
-            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 RequestPersonArchival(window, archived: true);
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
                 Await(() => Status(window).StartsWith("Navigation blocked:") &&
                     Status(window).Contains("NOT saved") &&
-                    Find(window, "SaveProfile").Current.IsEnabled &&
-                    Activity(window).StartsWith("Pending local edits") &&
+                    Activity(window).Contains("browsing remains available", StringComparison.Ordinal) &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
                 AssertValue(window, "OfficeNumber", "0011");
                 AssertArchivalOwner(window, "morgan@example.com", archived: false);
             }
+            ReconcileSmokeLocalSaves(window);
             RequestPersonArchival(window, archived: true);
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
             Await(() => Status(window).Contains("avery@example.com.managerEmail"));
@@ -105,7 +106,7 @@ internal static partial class Program
             AwaitLocalWorkIdle(window);
             BeginProfileEditing(window);
             Set(window, "OfficeCountry", "Discard before archival");
-            using (new FileStream(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 RequestPersonArchival(window, archived: true);
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
@@ -115,14 +116,17 @@ internal static partial class Program
                     throw new InvalidOperationException("Failed archival falsely published an Archived profile.");
                 AssertPhotoVisible(window);
                 Click(window, "NavigateManager");
-                if (Find(window, "Email").Current.Name != "avery@example.com")
-                    throw new InvalidOperationException("Failed archival did not retain the pending profile.");
+                Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
+                SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
+                if (HasArchivedIdentity(window))
+                    throw new InvalidOperationException("Browsing changed a failed archival into a committed profile.");
                 process.CloseMainWindow();
                 Await(() => ExitDecisionVisible(window) && Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 if (process.HasExited) throw new InvalidOperationException("Failed archival allowed unsafe closing.");
                 Click(window, "CancelExit");
                 Await(() => !ExitDecisionVisible(window));
             }
+            ReconcileSmokeLocalSaves(window);
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
             AssertTeamNameReading(window, null);
@@ -146,7 +150,7 @@ internal static partial class Program
             var frozen = HistoricalReadingText(window);
             if (!frozen.Contains("Original Manager writing") || !frozen.Contains("Original ancestor writing"))
                 throw new InvalidOperationException("Archival did not freeze every ancestor's known writing.");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Directory.Delete(producer, true);
 
             process = Launch(executable);
@@ -169,9 +173,11 @@ internal static partial class Program
                 throw new InvalidOperationException("Archived-profile reopening lost frozen context.");
             Set(window, "PersonNoteTitle", "");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-            SelectTreePerson(window, "casey@example.com", expectNavigation: false);
-            if (Find(window, "Email").Current.Name != "avery@example.com")
-                throw new InvalidOperationException("Archived-profile navigation discarded an unsaved retained-note draft.");
+            SelectTreePerson(window, "casey@example.com", PersonSelection.Mode.Recovery);
+            SelectArchivedPerson(window, "avery@example.com", allowPendingLocalWork: true);
+            SelectTab(window, "PersonNoteEditTab");
+            if (Value(window, "PersonNoteTitle") != "")
+                throw new InvalidOperationException("Archived-profile browsing discarded an unsaved retained-note draft.");
             AssertSelectionMatchesProfile(window);
             Click(window, "DiscardPersonNoteDraft");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Retained individual");
@@ -220,7 +226,7 @@ internal static partial class Program
             if (CurrentReadingText(window).Contains("Later Manager writing"))
                 throw new InvalidOperationException("Cleared Manager relationship retained current inheritance.");
             AssertPhotoVisible(window);
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: actual WPF Person More/confirmation, draft decisions, archive/filter/reopen/reactivate, retained context, Manager clear, failed-save retry and safe close.");
         }
         finally
@@ -272,9 +278,9 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonArchivalStatus")) is { } status &&
         status.Current.Name.StartsWith("Archived", StringComparison.Ordinal);
 
-    private static void SelectArchivedPerson(AutomationElement window, string email)
+    private static void SelectArchivedPerson(AutomationElement window, string email, bool allowPendingLocalWork = false)
     {
-        AwaitLocalWorkIdle(window);
+        if (!allowPendingLocalWork) AwaitLocalWorkIdle(window);
         EnsurePeopleBrowsing(window);
         AutomationElement? person = null;
         Await(() => (person = Find(window, "ArchivedPeople").FindFirst(TreeScope.Descendants,

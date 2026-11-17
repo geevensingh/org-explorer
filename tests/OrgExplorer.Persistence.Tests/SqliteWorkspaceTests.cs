@@ -25,11 +25,11 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         """;
 
     [Fact]
-    public void Explicit_local_creation_can_reopen_the_committed_empty_Workspace()
+    public void Normal_creation_can_reopen_the_committed_empty_SQLite_Workspace()
     {
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked()))
         {
-            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.OpenWorkspace(Workspace), app.Status);
             Assert.True(app.IsWorkspaceCurrent);
             Assert.Empty(app.People);
             Assert.Contains("SQLite", app.Compatibility.Guidance);
@@ -39,6 +39,60 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
         Assert.Empty(reopened.People);
         Assert.Contains("SQLite", reopened.Compatibility.Guidance);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(99)]
+    public void Normal_open_rejects_retired_file_formats_with_recreation_guidance_and_without_mutation(int version)
+    {
+        Directory.CreateDirectory(Workspace);
+        File.WriteAllText(Path.Combine(Workspace, "workspace.json"), $$"""{"schemaVersion":{{version}}}""");
+        File.WriteAllText(Path.Combine(Workspace, "owner-writing.md"), "# Preserve the existing folder");
+        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.False(app.OpenWorkspace(Workspace));
+        Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
+        Assert.Contains("new", app.Compatibility.Guidance);
+        Assert.Contains("does not migrate", app.Compatibility.Guidance);
+        Assert.Contains("Preserve", app.Compatibility.Guidance);
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.Empty(app.People);
+        Assert.False(app.RefreshWorkspace());
+        var after = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(99)]
+    public void Normal_open_refuses_incompatible_SQLite_versions_without_upgrading_or_repairing_them(int version)
+    {
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            Assert.True(seed.OpenWorkspace(Workspace), seed.Status);
+        using (var fixture = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False"))
+        {
+            fixture.Open();
+            using var command = fixture.CreateCommand();
+            command.CommandText = "UPDATE workspace SET format_version=$version;";
+            command.Parameters.AddWithValue("$version", version);
+            command.ExecuteNonQuery();
+        }
+        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.False(app.OpenWorkspace(Workspace));
+        Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.False(app.Compatibility.SupportsOrdinaryEdits);
+        Assert.Empty(app.People);
+        Assert.Contains(version < 3 ? "new empty Workspace" : "Upgrade", app.Compatibility.Guidance);
+        var after = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
     }
 
     [Fact]
@@ -57,7 +111,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         var settings = new WorkspaceSettings(preferences);
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings))
         {
-            Assert.True(settings.OpenWorkspace(app, Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(settings.OpenWorkspace(app, Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
             Assert.True(app.TryOpenImport(), app.Status);
             var preview = app.PreviewImportFile(import);
             Assert.True(preview.CanApply, app.Status);
@@ -97,7 +151,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Reviewed_partial_Imports_commit_resources_evidence_and_frozen_history_and_replay_without_duplication()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string manager = "manager@example.com";
         const string report = "report@example.com";
@@ -198,7 +252,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Rejected_local_Import_transaction_rolls_back_People_resources_evidence_and_captures_before_retry()
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var note = app.CreateTeamNote("manager@example.com", "Known before failure", "# Frozen writing")!;
         var photo = Path.Combine(root, "rollback.png");
@@ -271,7 +325,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Import_never_sets_or_clears_private_labels_and_reporting_updates_retain_dormant_duplicate_owners(string field)
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         const string initial = """
             {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000003",
              "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -336,7 +390,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Stale_review_and_changed_import_resources_reject_the_whole_partial_batch()
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var import = Path.Combine(root, "stale.json");
         const string update = """
@@ -384,7 +438,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Older_partial_observations_warn_without_backdating_changes_or_duplicating_confirmations_on_replay()
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string later = """
             {"schemaVersion":1,"batchId":"94000000-0000-4000-8000-000000000007",
@@ -430,7 +484,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     {
         var clock = new SaveClock();
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(timeProvider: clock), timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string owner = "manager@example.com";
         var id = scope == NoteScope.Person
@@ -498,7 +552,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Complete_local_profile_Save_and_Cancel_preserve_exact_committed_values_on_reopen()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string owner = "report@example.com";
         Assert.True(app.BeginProfileEdit(owner), app.Status);
@@ -525,7 +579,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Manager_transition_commits_photos_history_and_frozen_Team_notes_as_one_reopenable_state()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string owner = "manager@example.com";
         const string report = "report@example.com";
@@ -582,7 +636,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Ineligible_Team_name_and_unavailable_photo_reject_the_complete_profile_without_partial_history()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string owner = "manager@example.com";
         Assert.True(app.BeginProfileEdit(owner), app.Status);
@@ -628,7 +682,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Person_navigation_retains_distinct_unsubmitted_profiles_and_Cancel_is_owner_scoped()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
@@ -666,7 +720,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Held_profile_commit_never_blocks_browsing_or_overwrites_newer_owner_drafts()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
@@ -714,7 +768,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Independent_Preferred_name_favorite_and_archival_actions_preserve_profiles_notes_and_exact_reopen()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string report = "report@example.com";
         var note = app.CreatePersonNote(report, "Private", "Retained person writing")!;
@@ -751,7 +805,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Changed_field_stale_Preferred_name_is_rejected_while_unrelated_fields_are_retained()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         const string report = "report@example.com";
         var basis = app.GetRelationships(report)!.Person;
@@ -776,7 +830,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Preferred_name_drafts_remain_owner_correct_and_unsaved_until_explicit_Save_or_Cancel()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var manager = app.GetRelationships("manager@example.com")!.Person;
         app.RetainPersonTextDraft(manager, PersonTextField.PreferredName, "Unsubmitted manager");
@@ -808,7 +862,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Owned_duplicate_Team_names_skip_unnamed_gaps_and_label_only_saves_leave_note_review_and_history_unchanged()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport("""
             {"schemaVersion":1,"batchId":"93000000-0000-4000-8000-000000000001",
              "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -852,7 +906,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Failed_profile_save_retains_owner_draft_and_retry_does_not_discard_independent_note_writing()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var note = app.BeginNoteDraft(NoteScope.Person, "manager@example.com")!;
         app.RetainNoteDraft(note);
@@ -884,14 +938,14 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public void Staged_Workspace_rejects_unimplemented_changes_without_legacy_fallback()
+    public void Normal_Workspace_rejects_live_database_synchronization_without_a_file_authority_fallback()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var before = app.GetRelationships("report@example.com")!.Person;
-        Assert.False(app.RecoverWorkspace(Path.Combine(root, "unsupported-recovery")));
-        Assert.Contains("not implemented", app.Status);
+        Assert.False(app.ConfigureSynchronizationFolder(Workspace));
+        Assert.Contains("separate, non-nested", app.Status);
         Assert.True(app.CanNavigatePeople);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
@@ -916,7 +970,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         using var committed = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         using var app = new WorkspaceViewModel(proxy);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var paused = 0;
         boundary.AfterSuccessfulSave = _ =>
@@ -980,7 +1034,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         using var admitted = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         using var app = new WorkspaceViewModel(proxy);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(
             app.BeginNoteDraft(scope, "manager@example.com")!, "Original context", "Original committed writing"));
@@ -1035,7 +1089,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         DateTimeOffset created;
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), new WorkspaceSettings(preferences)))
         {
-            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
             var basis = Assert.IsType<NoteDraft>(app.BeginNoteDraft(scope, "manager@example.com"));
             var saved = Assert.IsType<NoteDraft>(app.SaveNoteDraft(basis, "Manager context", "# Original\nPrivate writing"));
@@ -1091,7 +1145,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Pending_creation_and_newer_typing_survive_actual_Person_switches_and_late_commit(NoteScope scope)
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         using var held = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
@@ -1141,7 +1195,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Failed_creation_retains_latest_draft_browsing_and_one_identity_through_explicit_retry(NoteScope scope)
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
@@ -1170,7 +1224,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Discarding_an_uncommitted_creation_restores_empty_reading_without_discarding_another_owner()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var kept = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "report@example.com"));
         var discarded = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "manager@example.com"));
@@ -1190,7 +1244,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Continuous_typing_becomes_durable_before_idle_and_finishes_with_exact_latest_writing(NoteScope scope)
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -1224,7 +1278,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Durable_note_observation_runs_during_typing_not_after_unrelated_navigation_observations(NoteScope scope)
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
         const string prefix = "# Independently observed ongoing writing";
@@ -1272,7 +1326,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Predetermined_continuous_typing_reopens_exact_final_writing_within_the_existing_observation_window()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var drafts = new[] { NoteScope.Person, NoteScope.Team };
         foreach (var scope in drafts)
@@ -1343,7 +1397,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
         connection.Open();
@@ -1366,7 +1420,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public void Rejected_creation_preserves_the_existing_legacy_Workspace()
+    public void Normal_reopen_preserves_existing_SQLite_data_instead_of_recreating_it()
     {
         using (var old = ApplicationWorkflow.CreateFileBacked())
         {
@@ -1376,9 +1430,9 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         var before = Directory.GetFiles(Workspace, "*", SearchOption.AllDirectories)
             .ToDictionary(path => path, File.ReadAllBytes);
         using var app = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite));
-        Assert.Contains("never converted or overwritten", app.Status);
-        Assert.Empty(app.People);
+        Assert.True(app.OpenWorkspace(Workspace), app.Status);
+        Assert.Equal(2, app.People.Count);
+        Assert.Equal("Reference", app.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.Equal(before.Keys.Order(), Directory.GetFiles(Workspace, "*", SearchOption.AllDirectories).Order());
         foreach (var (path, bytes) in before) Assert.Equal(bytes, File.ReadAllBytes(path));
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -1395,7 +1449,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     {
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
-            Assert.True(seed.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), seed.Status);
+            Assert.True(seed.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), seed.Status);
             Assert.True(seed.ApplyImport(seed.PreviewImport(Initial).Id), seed.Status);
         }
         var database = Path.Combine(Workspace, "workspace.sqlite");
@@ -1419,7 +1473,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Failed_initial_Import_can_retry_without_a_partially_accepted_population()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         var preview = app.PreviewImport(Initial);
         Assert.True(preview.CanApply, app.Status);
         using (File.Open(Path.Combine(Workspace, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
@@ -1449,7 +1503,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
     public void Stale_initial_review_cannot_overwrite_another_committed_population()
     {
         using var first = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(first.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), first.Status);
+        Assert.True(first.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), first.Status);
         using var other = ApplicationWorkflow.CreateFileBacked();
         Assert.True(other.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), other.Status);
         var stale = other.PreviewImport(Initial.Replace("Report", "Unaccepted name"));
@@ -1469,7 +1523,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         string before, string after, string error)
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         var preview = app.PreviewImport(Initial.Replace(before, after));
         Assert.False(preview.CanApply);
         Assert.Contains(error, string.Join("\n", preview.Errors));

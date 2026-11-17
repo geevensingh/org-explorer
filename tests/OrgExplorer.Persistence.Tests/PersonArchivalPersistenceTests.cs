@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -61,18 +62,20 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
             Assert.True(app.BeginProfileEdit(email));
             Assert.True(app.StageProfileText(PersonTextField.OfficeCountry, archived ? "Canada" : "France"));
             var draft = app.ProfileEdit;
-            var pointer = File.ReadAllBytes(Path.Combine(Workspace, "workspace.json"));
+            var pointer = app.Synchronization.LocalRevision;
             Assert.False(app.EditPersonArchived(email, archived, confirmed: false, ProfileLeaveDecision.Save));
             Assert.Equal(draft, app.ProfileEdit);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
-            using (File.Open(Path.Combine(Workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
+            using (WorkspaceFixtures.LockLocalStore(Workspace))
             {
                 Assert.False(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save));
                 Assert.Equal(draft, app.ProfileEdit);
-                Assert.Contains("NOT saved", app.LocalSaveError);
-                Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
+                Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+                Assert.True(app.LocalSave.EditsPaused);
+                Assert.Equal(pointer, app.Synchronization.LocalRevision);
                 Assert.Equal(!archived, Open().GetRelationships(email)!.Person.Archived);
             }
+            Assert.True(app.ReconcileLocalSaves(), app.Status);
             Assert.True(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save), app.Status);
             Assert.Null(app.ProfileEdit);
             Assert.True(app.CanSafelyClose);
@@ -98,14 +101,15 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained local draft"));
         using (var provider = Open())
             Assert.True(provider.EditPersonText(email, PersonTextField.Department, "Delivered department"));
-        var pointer = File.ReadAllBytes(Path.Combine(Workspace, "workspace.json"));
+        using var deliveredReader = Open();
+        var delivered = deliveredReader.GetRelationships(email)!.Person;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             Assert.False(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Save));
             Assert.Contains("changed externally", app.Status);
             Assert.Equal(email, app.ProfileEdit!.Basis.Email);
             Assert.Equal("Retained local draft", app.ProfileEdit.Draft.JobTitle);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
+            Assert.Equal(delivered, Open().GetRelationships(email)!.Person);
             Assert.Equal(!archived, Open().GetRelationships(email)!.Person.Archived);
         }
         Assert.True(app.EditPersonArchived(email, archived, confirmed: true, ProfileLeaveDecision.Discard), app.Status);
@@ -161,16 +165,18 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
         var owned = app.CreateTeamNote("avery@example.com", "Owned", "Owned writing")!;
         app.CreateTeamNote("morgan@example.com", "Manager", "Current Manager writing");
         var before = app.GetRelationships("avery@example.com")!.Person;
-        using (new FileStream(Path.Combine(Workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(Workspace))
         {
             Assert.False(app.EditPersonArchived("avery@example.com", true));
             Assert.False(app.CanSafelyClose);
-            Assert.Contains("NOT saved", app.LocalSaveError);
+            Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+            Assert.True(app.LocalSave.EditsPaused);
             Assert.Equal(before, app.GetRelationships("avery@example.com")!.Person);
             Assert.Empty(app.GetHistoricalTeamContexts("avery@example.com"));
             Assert.False(Assert.Single(app.GetTeamNotes("avery@example.com")).NeedsReview);
             Assert.Empty(Open().GetHistoricalTeamContexts("avery@example.com"));
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.EditPersonArchived("avery@example.com", true), app.Status);
         Assert.True(app.CanSafelyClose);
         var archived = Open();
@@ -180,13 +186,14 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
         Assert.Equal(direct, Assert.Single(archived.GetPersonNotes("avery@example.com")));
         Assert.Equal(owned.Markdown, Assert.Single(archived.GetTeamNotes("avery@example.com")).Markdown);
         Assert.Equal(Png, archived.GetPhoto("avery@example.com")!.Bytes.ToArray());
-        using (new FileStream(Path.Combine(Workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(Workspace))
         {
             Assert.False(archived.EditPersonArchived("avery@example.com", false));
             Assert.True(Assert.Single(archived.ArchivedPeople).Archived);
             Assert.Empty(archived.GetInheritedTeamNotes("avery@example.com"));
             Assert.True(Open().GetRelationships("avery@example.com")!.Person.Archived);
         }
+        Assert.True(archived.ReconcileLocalSaves(), archived.Status);
         Assert.True(archived.EditPersonArchived("avery@example.com", false), archived.Status);
         Assert.True(archived.CanSafelyClose);
         var active = Open();
@@ -213,7 +220,7 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
             {"email":"avery@example.com","managerEmail":null,"archived":true}
             """, 3);
         Apply(writer, archive);
-        Assert.True(SpinWait.SpinUntil(() => reader.ArchivedPeople.Count == 2 &&
+        Assert.True(SpinWait.SpinUntil(() => reader.RefreshWorkspace() && reader.ArchivedPeople.Count == 2 &&
             reader.GetHistoricalTeamContexts("avery@example.com").Count == 1, TimeSpan.FromSeconds(10)), reader.Status);
         Assert.True(reader.IsWorkspaceCurrent);
         Assert.Empty(reader.GetInheritedTeamNotes("avery@example.com"));
@@ -223,12 +230,12 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
         Assert.Equal(2, capture.Transitions.Count);
         Assert.Equal("Frozen writing", Assert.Single(capture.TeamNotes).Markdown);
         Assert.True(writer.EditTeamNote(note.Id, "Manager", "Later writing"));
-        Assert.True(SpinWait.SpinUntil(() => reader.GetTeamNotes("morgan@example.com")[0].Markdown == "Later writing",
+        Assert.True(SpinWait.SpinUntil(() => reader.RefreshWorkspace() && reader.GetTeamNotes("morgan@example.com")[0].Markdown == "Later writing",
             TimeSpan.FromSeconds(10)), reader.Status);
         Assert.Equal("Frozen writing", Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com")).TeamNotes[0].Markdown);
         Apply(writer, archive);
         Apply(writer, Batch("""{"email":"avery@example.com","archived":false}""", 4));
-        Assert.True(SpinWait.SpinUntil(() => !reader.GetRelationships("avery@example.com")!.Person.Archived,
+        Assert.True(SpinWait.SpinUntil(() => reader.RefreshWorkspace() && !reader.GetRelationships("avery@example.com")!.Person.Archived,
             TimeSpan.FromSeconds(10)), reader.Status);
         Assert.Equal(capture.Id, Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com")).Id);
         var reopened = Open();
@@ -246,33 +253,38 @@ public sealed class PersonArchivalPersistenceTests : IDisposable
     [InlineData("change.newValue", "null")]
     [InlineData("change.evidence.value", "false")]
     [InlineData("change.evidence.field", "\"managerEmail\"")]
-    public void Invalid_external_archival_evidence_is_stale_not_silently_accepted_and_valid_delivery_recovers(string path, string value)
+    public void Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(string path, string value)
     {
         var app = Seed();
         app.CreateTeamNote("morgan@example.com", "Manager", "Frozen writing");
         Assert.True(app.EditPersonArchived("avery@example.com", true));
-        var capture = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        var file = OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(Workspace)["historicalTeamContext:avery@example.com"];
-        var original = File.ReadAllText(file);
-        var document = JsonNode.Parse(original)!;
-        var segments = path.Split('.');
-        JsonNode node = document["contexts"]![0]!["transitions"]![0]!;
-        foreach (var segment in segments.SkipLast(1)) node = node[segment]!;
-        node[segments.Last()] = JsonNode.Parse(value);
-        File.WriteAllText(file, document.ToJsonString());
-        Assert.False(app.RefreshWorkspace(), app.Status);
-        Assert.False(app.IsWorkspaceCurrent);
-        Assert.Contains("STALE", app.Status);
-        Assert.True(app.GetRelationships("avery@example.com")!.Person.Archived);
-        Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
-        Assert.Equal(Png, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
-        using var invalid = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(invalid.OpenWorkspace(Workspace));
-        File.WriteAllText(file, original);
-        Assert.True(app.RefreshWorkspace(), app.Status);
-        Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
-        Assert.True(app.EditPersonArchived("avery@example.com", false), app.Status);
-        Assert.Equal(capture.Id, Assert.Single(Open().GetHistoricalTeamContexts("avery@example.com")).Id);
+        using var receiver = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(receiver.OpenWorkspace(Path.Combine(root, "receiver")), receiver.Status);
+        WorkspaceFixtures.JoinSnapshot(app, receiver, Path.Combine(root, "transport"));
+        var capture = Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeCountry, "Canada"));
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        var file = WorkspaceFixtures.LatestSnapshot(app);
+        var original = File.ReadAllBytes(file);
+        WorkspaceFixtures.RewriteSnapshot(file, content => WorkspaceFixtures.EditSnapshotRow(content,
+            "historicalContexts", "avery@example.com", document =>
+            {
+                var segments = path.Split('.');
+                JsonNode node = document[0]!["transitions"]![0]!;
+                foreach (var segment in segments.SkipLast(1)) node = node[segment]!;
+                node[segments.Last()] = JsonNode.Parse(value);
+            }));
+        var rejected = File.ReadAllBytes(file);
+        Assert.False(receiver.SyncNow());
+        Assert.True(receiver.GetRelationships("avery@example.com")!.Person.Archived);
+        Assert.Equal(capture.Id, Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com")).Id);
+        Assert.Equal(Png, receiver.GetPhoto("avery@example.com")!.Bytes.ToArray());
+        Assert.Equal(rejected, File.ReadAllBytes(file));
+        File.WriteAllBytes(file, original);
+        Assert.True(receiver.SyncNow(), receiver.Synchronization.Error);
+        Assert.Equal(capture.Id, Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com")).Id);
+        Assert.True(receiver.EditPersonArchived("avery@example.com", false), receiver.Status);
+        Assert.Equal(capture.Id, Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com")).Id);
     }
 
     public void Dispose()

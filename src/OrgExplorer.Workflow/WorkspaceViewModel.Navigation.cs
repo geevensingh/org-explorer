@@ -215,13 +215,6 @@ public sealed partial class WorkspaceViewModel
             navigationError = "That Person is unavailable. No replacement was opened.";
             return false;
         }
-        if ((result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
-            !workflow.CanNavigatePeople)
-        {
-            navigationError = "Navigation blocked: local writing is pending or was NOT saved. Save, retry or discard the draft before leaving. " +
-                (workflow.LocalSaveError ?? workflow.Status);
-            return false;
-        }
         if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
         if (result?.Source == SearchSource.PersonNote && result.NoteId is { } personNote &&
             !OpenOwnedNote(NoteScope.Person, personNote)) return false;

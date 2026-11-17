@@ -17,7 +17,7 @@ internal static partial class Program
         {
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
                 return RunLocalSaveRecoveryFixture(args);
-            if (args.Length > 0 && args[0] == "--automatic-snapshot-fixture")
+            if (args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--rich-scale-snapshot-fixture")
                 return RunAutomaticSnapshotFixture(args);
             if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
                 return RunWorkspaceExitFixture(args);

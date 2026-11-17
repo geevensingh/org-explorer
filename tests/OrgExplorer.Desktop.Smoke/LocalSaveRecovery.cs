@@ -35,7 +35,7 @@ internal static partial class Program
     private static void SeedRecoveryWorkspace(string path)
     {
         using var seed = ApplicationWorkflow.CreateFileBacked();
-        if (!seed.OpenWorkspace(path, WorkspaceOpenMode.CreateLocalSqlite) ||
+        if (!seed.OpenWorkspace(path, WorkspaceOpenMode.OpenOrCreate) ||
             !seed.ApplyImport(seed.PreviewImport(RecoveryPeople).Id) ||
             seed.CreatePersonNote("morgan@example.com", "Independent recovery note", "Independent exact recovery writing") is null)
             throw new InvalidOperationException("Recovery fixture creation failed: " + seed.Status);

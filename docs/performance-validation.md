@@ -7,7 +7,11 @@ separate commands, selection, revision/results contracts, nightly/manual
 activation, hosted manual bridge and future pre-publication requirements.
 That is the single execution guide; this document preserves fixture detail and
 historical observations. Neither old combined runs nor non-UI passes prove the
-new separated WPF suite. No baseline collection or new latency SLA is implied.
+new separated WPF suite. The later
+[reliable-save contract](reliable-nonblocking-saves.md#acceptance-evidence) adds
+the explicit 100-ms editor/navigation and one-second ordinary local-save p95
+targets at this same rich population. Historical measurements below do not
+establish those targets or the SQLite cutover's acceptance.
 
 ## Separation checkpoints (2026-11-10)
 
@@ -72,8 +76,9 @@ not the later hosted checkpoint. No installer/update performance is claimed.
 
 `tests\ScaleFixture.cs` constructs **exactly 10,000 fictitious people**, using
 the same application workflow for initial import, private notes, transfers,
-archival and a later Manager-note edit. It exports the documented readable
-version-2 Workspace, including accepted import sources and typed evidence:
+archival and a later Manager-note edit. It now creates normal local SQLite
+storage and publishes complete logical snapshots through the public workflow,
+including accepted Import sources and typed evidence:
 
 - 9,900 active and 100 Archived people;
 - multi-level branches and a 42-edge formal Reporting chain;
@@ -87,7 +92,8 @@ Filesystem assertions use `IApplicationWorkflow`, including load, reopen,
 complete tree/profile queries, current/historical search, favorite/profile/note
 saves, validated import preview/apply/replay and external delivery. They verify
 counts, copied photos, omitted values, unchanged frozen writing, source identity,
-stale retention and refused mutations, not just elapsed time.
+valid local retention through bad synchronization and refused mutations, not
+just elapsed time.
 
 The normal WPF executable is driven with Windows UI Automation, never a
 success-only app flag. Current explicit UI scale separates navigation/rendering
@@ -103,7 +109,14 @@ There are no arbitrary readiness sleeps, truncated chains/notes, smaller proxy
 populations, production credentials or company exports. Fixture generation,
 flushes, restore/build and cleanup are counted in execution.
 
-## Optimizations and safety boundaries
+## Historical readable-file optimizations and safety boundaries
+
+The following implementation account describes the retired engine used by the
+historical measurements, not another supported current path. Current local
+transactions, draft lifetime, snapshots and retention are specified in
+[Workspace format](workspace-format.md) and [testing](testing.md). The old
+canonical-file authority, I/O gate, watchers, recovery indexes and control-only
+draft/veto engine have been removed, not preserved to reproduce these figures.
 
 Sorted population/tree and owner/report lookups are private rebuildable
 projections. Read-only accepted query snapshots keep browsing/search independent

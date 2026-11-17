@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -114,16 +115,16 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Click(window, "ApplyImport");
                 Await(() => Status(window).Contains("NOT saved") &&
                     Find(window, "DiscardImport").Current.IsEnabled);
                 ReturnToPeople(window);
                 Click(window, "DiscardImport");
-                Await(() => Status(window).Contains("Import discarded") &&
-                    Activity(window) == "Ready");
+                Await(() => Status(window).Contains("Import discarded"));
             }
+            ReconcileSmokeLocalSaves(window);
             OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -303,7 +304,7 @@ internal static partial class Program
             Click(entry, "CancelPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
             if (listener.Pending()) throw new InvalidOperationException("Profile presentation fetched a remote link.");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
         }
         finally { if (process is not null) StopApplication(process); }
     }
@@ -330,10 +331,10 @@ internal static partial class Program
         AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com");
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Renamed platform");
-        using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(workspace))
         {
             Click(window, "SaveProfile");
-            Await(() => Status(window).Contains("NOT saved") && Find(window, "SaveProfile").Current.IsEnabled);
+            Await(() => Status(window).Contains("NOT saved"));
             AssertValue(window, "TeamNameEditor", "Renamed platform");
             using var saved = ApplicationWorkflow.CreateFileBacked();
             if (!saved.OpenWorkspace(workspace) ||
@@ -341,6 +342,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Rejected Team-name Save changed the committed owned label.");
             CaptureVisualEvidence(window, "team-name-rejected-save-retained");
         }
+        ReconcileSmokeLocalSaves(window);
         SaveProfileEditing(window);
         AssertTeamNameReading(window, "Renamed platform");
         BeginProfileEditing(window);

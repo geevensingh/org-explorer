@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace OrgExplorer.Workflow;
 
 public sealed record PersonNote(Guid Id, string OwnerEmail, string Title, string Markdown,
@@ -87,26 +85,6 @@ public sealed partial class ApplicationWorkflow
 
     public bool RefreshPersonNotes() => RefreshWorkspace();
 
-    private static Dictionary<Guid, PersonNote> LoadPersonNotes(string path, Dictionary<string, PersonProfile> owners)
-    {
-        var result = new Dictionary<Guid, PersonNote>();
-        var directory = Path.Combine(path, "notes");
-        if (workspaceReadSnapshot.Value is { } snapshot ? snapshot.ContainsKey(directory) : File.Exists(directory))
-            throw new IOException("Person notes folder is not a directory.");
-        if (workspaceReadSnapshot.Value is null && !Directory.Exists(directory)) return result;
-        RejectNoteLink(directory);
-        foreach (var file in NoteDocumentPaths(directory))
-        {
-            RejectNoteLink(file);
-            var (metadata, markdown) = ReadNoteDocument<NoteMetadata>(file, NoteScope.Person, owners);
-            var note = new PersonNote(metadata.Id, metadata.OwnerEmail, metadata.Title, markdown,
-                metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt);
-            if (!result.TryAdd(note.Id, note))
-                throw new FormatException($"Person note {Path.GetFileName(file)}: duplicate note identity {note.Id}.");
-        }
-        return result;
-    }
-
     private bool SavePersonNote(PersonNote note)
     {
         try
@@ -119,30 +97,15 @@ public sealed partial class ApplicationWorkflow
             }
             var metadata = new NoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt);
-            if (localSqlite)
-            {
-                SaveLocalSqliteNote(NoteScope.Person, metadata, note.Markdown);
-                AcceptNoteSave(NoteScope.Person, note.Id);
-                return true;
-            }
-            var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            WriteMarkdownAtomically("notes", note.Id, content, () => ValidateNoteDraft(NoteScope.Person, note.Id));
+            SaveLocalSqliteNote(NoteScope.Person, metadata, note.Markdown);
             AcceptNoteSave(NoteScope.Person, note.Id);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
             RetainNoteBase(NoteScope.Person, note.Id);
-            if (ex is IndeterminatePublicationException)
-                return SaveFailed("publication-conflict", ex.Message);
             return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
         }
     }
 
-    private static void RejectNoteLink(string path)
-    {
-        FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
-        if (entry.LinkTarget is not null)
-            throw new IOException("Person note documents must be ordinary local files, not links: " + Path.GetFileName(path));
-    }
 }

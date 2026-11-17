@@ -17,7 +17,7 @@ public sealed partial class SqliteWorkspaceTests
         var clock = new SaveClock();
         using var boundary = new CommitBoundary();
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: boundary), timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.ConfigureSynchronizationFolder(Path.Combine(root, "sync")), app.Synchronization.Error);
         Assert.True(app.SyncNow(), app.Synchronization.Error);
@@ -79,7 +79,7 @@ public sealed partial class SqliteWorkspaceTests
         using var retryEntered = new ManualResetEventSlim();
         using var releaseRetry = new ManualResetEventSlim();
         using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var calls = 0;
         var savingThread = 0;
@@ -156,7 +156,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         using var observer = new CommitBoundary();
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
         Assert.True(app.StageProfileTeamName("Cancelled independent label"), app.Status);
@@ -202,7 +202,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         using var observer = new CommitBoundary();
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
         Assert.True(app.StageProfileTeamName("Retained after commit refusal"), app.Status);
@@ -240,7 +240,7 @@ public sealed partial class SqliteWorkspaceTests
         var boundary = (NoteSaveBoundary)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked();
         using var app = new WorkspaceViewModel(proxy);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         var once = 0;
         boundary.AfterSuccessfulSave = _ =>
@@ -271,7 +271,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         var clock = new SaveClock();
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
@@ -332,7 +332,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         using (var app = ApplicationWorkflow.CreateFileBacked())
         {
-            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+            Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
             Assert.NotNull(app.CreatePersonNote("report@example.com", "Previously committed", "Survives every interruption"));
         }
@@ -491,7 +491,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         using var boundary = new CommitBoundary { Boundary = WorkspaceStoragePhaseKind.End };
         using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         boundary.Hold = true;
         var saving = Task.Run(() => app.CreateTeamNote("manager@example.com", "Committed but unacknowledged",
@@ -536,7 +536,7 @@ public sealed partial class SqliteWorkspaceTests
     {
         using var boundary = new CommitBoundary();
         using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         boundary.Hold = true;
         var saving = Task.Run(() => app.EditPreferredName("manager@example.com", "Committed after release"));
@@ -565,7 +565,7 @@ public sealed partial class SqliteWorkspaceTests
     public void Storage_failure_pauses_edits_but_retains_complete_Team_profile_and_independent_note_for_safe_retry()
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
         Assert.True(app.StageProfileTeamName("Exact retained label"), app.Status);
@@ -605,7 +605,7 @@ public sealed partial class SqliteWorkspaceTests
         using var admitted = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         using var app = new WorkspaceViewModel(proxy, timeProvider: clock);
-        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.CreateLocalSqlite), app.Status);
+        Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         boundary.BeforeSave = () =>
         {

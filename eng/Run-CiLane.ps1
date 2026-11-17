@@ -80,7 +80,7 @@ try {
             & "$root\tests\CiRunner.Tests.ps1"
             & "$root\tests\ImplementationBaseline.Tests.ps1"
             & "$root\tests\DocumentationHandoff.Tests.ps1"
-            & "$root\tests\DraftDiscard.Tests.ps1"
+            & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll')
             & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"
             & "$root\tests\UiScale.Tests.ps1"

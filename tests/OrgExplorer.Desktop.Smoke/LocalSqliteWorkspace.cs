@@ -17,30 +17,65 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private sealed class NoteCommitAcknowledgment(NoteScope scope, Guid id, string owner, string title, string prefix)
+    {
+        internal long? PendingObservedAt { get; private set; }
+        internal long? AcknowledgmentObservedAt { get; private set; }
+        internal bool Observe(NoteEditorFrame frame, string currentOwner, string feedback, bool inputReturned)
+        {
+            if (!inputReturned || frame.Identity != id.ToString() || currentOwner != owner ||
+                frame.Title != title || frame.Markdown?.StartsWith(prefix, StringComparison.Ordinal) != true) return false;
+            if (feedback.StartsWith("Pending private note edits", StringComparison.Ordinal))
+            {
+                PendingObservedAt ??= Stopwatch.GetTimestamp();
+                return false;
+            }
+            var accepted = feedback == $"{scope} note saved locally." ||
+                scope == NoteScope.Team && feedback == "Team note saved locally and confirmed for current context.";
+            if (PendingObservedAt is null || !accepted) return false;
+            AcknowledgmentObservedAt ??= Stopwatch.GetTimestamp();
+            return true;
+        }
+    }
+
+    private sealed class NoteAcknowledgmentCommitBarrier : IWorkspaceFileObserver, IDisposable
+    {
+        internal bool Armed;
+        internal ManualResetEventSlim Entered { get; } = new();
+        internal ManualResetEventSlim Release { get; } = new();
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (!Armed || phase.Name != "local-sqlite-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            Entered.Set();
+            Release.Wait();
+        }
+        public void Dispose() { Release.Set(); Entered.Dispose(); Release.Dispose(); }
+    }
+
     private static void VerifySqliteCreationNavigation(Type windowType, string settings,
         Func<Window, string?> chooseFolder)
     {
-        var previousOptIn = Environment.GetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES");
         Window? window = null;
+        using var acknowledgmentBarrier = new NoteAcknowledgmentCommitBarrier();
         try
         {
-            Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", "1");
             window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                [ApplicationWorkflow.CreateFileBacked(fileObserver: acknowledgmentBarrier), chooseFolder], null)!;
             T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
             void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var legacy = Path.Combine(settings, "sqlite-navigation-legacy");
             WorkspaceFixtures.CopyCurrent(legacy);
             Invoke("OpenSettingsButton");
             ChooseCompiledWorkspace(window, legacy);
-            PumpUntil(() => Control<TextBlock>("StatusText").Text == "Workspace opened.");
+            PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
             if (Control<FrameworkElement>("SettingsPanel").Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("Ordinary Workspace opening must return to browsing.");
 
             Invoke("OpenSettingsButton");
             if (Control<Button>("CreateLocalSqliteWorkspaceButton").Visibility != Visibility.Visible ||
                 !Control<Button>("CreateLocalSqliteWorkspaceButton").IsEnabled)
-                throw new InvalidOperationException("The compiled SQLite opt-in did not expose its Create action.");
+                throw new InvalidOperationException("Normal Settings did not expose the shipping local Workspace Create action.");
             Invoke("CreateLocalSqliteWorkspaceButton");
             PumpUntil(() => Control<TextBlock>("StatusText").Text == "SQLite Workspace created and saved locally." &&
                 Control<TextBlock>("WorkflowActivity").Text == "Ready");
@@ -149,9 +184,16 @@ internal static partial class Program
                         throw new InvalidOperationException("Compiled selection changed the admitted save base or navigated owner.");
                     Console.WriteLine("DIAGNOSTIC: compiled held-note navigation " + JsonSerializer.Serialize(new
                     {
-                        scope = scope.ToString(), destination, injectedDispatchDelayMs, dispatchMs, throughLayoutMs,
-                        writerHeld = held.Connection == connection, savingBefore = before.IsSaving, savingAfter = after.IsSaving,
-                        sameSaveBase = ReferenceEquals(before.Basis, after.Basis), safelyClose = workflow.CanSafelyClose,
+                        scope = scope.ToString(),
+                        destination,
+                        injectedDispatchDelayMs,
+                        dispatchMs,
+                        throughLayoutMs,
+                        writerHeld = held.Connection == connection,
+                        savingBefore = before.IsSaving,
+                        savingAfter = after.IsSaving,
+                        sameSaveBase = ReferenceEquals(before.Basis, after.Basis),
+                        safelyClose = workflow.CanSafelyClose,
                         hasSaveError = workflow.LocalSaveError is not null,
                         boundary = "Actual invisible compiled selection and layout returned while the same admitted note write and real SQLite transaction remain held; not a native latency sample."
                     }));
@@ -250,10 +292,21 @@ internal static partial class Program
             }
             double P95(List<double> values) => values.Order().ElementAt((int)Math.Ceiling(values.Count * .95) - 1);
             Console.WriteLine("DIAGNOSTIC: compiled SQLite note dispatch/layout/selection and independently reopened commits " +
-                JsonSerializer.Serialize(new { dispatchMs, addThroughLayoutMs = layoutMs, selectionDispatchMs, selectionThroughLayoutMs = selectionMs,
-                    commitMs, reopenReadMs = reopenMs, p95DispatchMs = P95(dispatchMs), p95AddThroughLayoutMs = P95(layoutMs),
-                    p95SelectionThroughLayoutMs = P95(selectionMs), p95CommitMs = P95(commitMs),
-                    boundary = "Actual invisible compiled event handlers/layout and first-request-to-real-workflow reopen; not native focus, rendered pixels or hosted latency acceptance." }));
+                JsonSerializer.Serialize(new
+                {
+                    dispatchMs,
+                    addThroughLayoutMs = layoutMs,
+                    selectionDispatchMs,
+                    selectionThroughLayoutMs = selectionMs,
+                    commitMs,
+                    reopenReadMs = reopenMs,
+                    p95DispatchMs = P95(dispatchMs),
+                    p95AddThroughLayoutMs = P95(layoutMs),
+                    p95SelectionThroughLayoutMs = P95(selectionMs),
+                    p95CommitMs = P95(commitMs),
+                    boundary = "Actual invisible compiled event handlers/layout and first-request-to-real-workflow reopen; not native focus, rendered pixels or hosted latency acceptance."
+                }));
+            VerifyCompiledNoteCommitAcknowledgment(window, workflow, teams, acknowledgmentBarrier);
             HarnessRuntime.Run("compiled-sqlite-profile",
                 () => VerifyLocalProfileControls(window, workflow, Select, ArrangeContent, settings));
             HarnessRuntime.Run("compiled-sqlite-reviewed-import",
@@ -267,17 +320,76 @@ internal static partial class Program
         }
         finally
         {
+            acknowledgmentBarrier.Armed = false;
+            acknowledgmentBarrier.Release.Set();
             if (window?.FindName("PeopleList") is TreeView { DataContext: WorkspaceViewModel workflow })
                 workflow.Dispose();
             window?.Close();
-            Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", previousOptIn);
         }
+    }
+
+    private static void VerifyCompiledNoteCommitAcknowledgment(Window window, WorkspaceViewModel workflow,
+        UserControl surface, NoteAcknowledgmentCommitBarrier barrier)
+    {
+        T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
+        var saved = workflow.TeamNotesView.SelectedNote!;
+        var expected = saved.Markdown + "\nCausal post-Commit acknowledgment request";
+        var acknowledgment = new NoteCommitAcknowledgment(NoteScope.Team, saved.Id, saved.OwnerEmail, saved.Title, expected);
+        NoteEditorFrame Frame() => new(AutomationProperties.GetHelpText(Note<TextBlock>("NoteHeading")),
+            Note<TextBox>("NoteTitle").Text, Note<TextBox>("MarkdownEditor").Text,
+            Note<TextBox>("NoteTitle").IsEnabled && Note<TextBox>("MarkdownEditor").IsEnabled,
+            Note<TabControl>("Views").SelectedItem == Note<TabItem>("EditTab"),
+            Note<TextBox>("NoteTitle").IsVisible, Note<TextBox>("NoteTitle").IsKeyboardFocused, 5);
+        string Owner() => ((TextBlock)window.FindName("Email")).Text;
+        string Feedback() => AutomationProperties.GetItemStatus(surface);
+        var originalFeedback = Feedback();
+        var requestStartedAt = Stopwatch.GetTimestamp();
+        barrier.Armed = true;
+        try
+        {
+            Note<TextBox>("MarkdownEditor").Text = expected;
+            if (acknowledgment.Observe(Frame(), Owner(), Feedback(), inputReturned: true))
+                throw new InvalidOperationException("The rich acknowledgment oracle accepted an old idle acknowledgment with new optimistic input.");
+            PumpUntil(() => barrier.Entered.IsSet);
+            if (acknowledgment.Observe(Frame(), Owner(), Feedback(), inputReturned: true) ||
+                acknowledgment.PendingObservedAt is null ||
+                workflow.GetRetainedNoteDraft(NoteScope.Team, saved.Id) is not { IsSaving: true } ||
+                Note<TextBox>("MarkdownEditor").Text != expected)
+                throw new InvalidOperationException("An exact rich acknowledgment appeared while its real SQLite transaction was still blocked before Commit.");
+            using var original = ApplicationWorkflow.CreateFileBacked();
+            if (!original.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
+                original.BeginNoteDraft(NoteScope.Team, saved.OwnerEmail, saved.Id)?.Markdown != saved.Markdown)
+                throw new InvalidOperationException("The negative acknowledgment proof did not retain the actual uncommitted database boundary.");
+        }
+        finally { barrier.Armed = false; barrier.Release.Set(); }
+        PumpUntil(() => workflow.CanSafelyClose &&
+            acknowledgment.Observe(Frame(), Owner(), Feedback(), inputReturned: true));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        if (!reopened.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
+            reopened.BeginNoteDraft(NoteScope.Team, saved.OwnerEmail, saved.Id)?.Markdown != expected ||
+            reopened.BeginNoteDraft(NoteScope.Team, "avery@example.com", saved.Id) is not null)
+            throw new InvalidOperationException("The acknowledged exact owner/request was not durably committed.");
+        Console.WriteLine("NOTE-COMMIT-ACK-CAUSAL " + JsonSerializer.Serialize(new
+        {
+            scope = "Team",
+            owner = saved.OwnerEmail,
+            noteId = saved.Id,
+            requestStartedAt,
+            acknowledgment.PendingObservedAt,
+            acknowledgment.AcknowledgmentObservedAt,
+            originalFeedback,
+            requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(expected))),
+            beforeCommitAcknowledged = false,
+            beforeCommitIndependentlyUnchanged = true,
+            afterCommitIndependentlyVerified = true,
+            source = "Actual compiled surface ItemStatus: VM pending overrides all core status while any retained generation exists; the save worker removes a generation only after accepted SaveNoteDraft and only when generation==latest. Core SaveNoteDraft accepts after SQLite Commit.",
+            limit = "One bounded invisible actual-BAML/pre-Commit negative, not hosted pixels or native latency. Request-to-postcommit-ack is a conservative upper bound on Commit, not storage-only timing."
+        }));
     }
 
     private static void RunLocalSqliteWorkspaceFlow(string executable, string root)
     {
         var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
-        var previousOptIn = Environment.GetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES");
         var settingsDirectory = Path.Combine(root, "sqlite-app-settings");
         var oldWorkspace = Path.Combine(root, "sqlite-preserved-old");
         WorkspaceFixtures.CopyCurrent(oldWorkspace);
@@ -298,7 +410,6 @@ internal static partial class Program
         try
         {
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", settingsDirectory);
-            Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", "1");
             string local;
             IReadOnlyDictionary<NoteScope, (Guid Id, string Title, string Markdown)> savedNotes;
             LocalPersonJourney personJourney;
@@ -411,7 +522,6 @@ internal static partial class Program
         finally
         {
             Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
-            Environment.SetEnvironmentVariable("ORG_EXPLORER_ENABLE_SQLITE_WORKSPACES", previousOptIn);
         }
     }
 
@@ -461,7 +571,10 @@ internal static partial class Program
                     throw new InvalidOperationException("Compiled held profile Save changed its committed owner's data before release.");
             Console.WriteLine("HELD-PROFILE-COMPILED " + JsonSerializer.Serialize(new
             {
-                before, after, localSave = workflow.LocalSave, unsafeToClose = !workflow.CanSafelyClose,
+                before,
+                after,
+                localSave = workflow.LocalSave,
+                unsafeToClose = !workflow.CanSafelyClose,
                 originalStateDuringHold = true,
                 evidence = "Actual compiled selection/layout and independent original-owner data before physical writer release; not native visibility or timing acceptance."
             }));
@@ -688,7 +801,9 @@ internal static partial class Program
                 if (!opened ||
                     reading.GetRelationships(originalProfile.Email)!.Person != originalProfile with
                     {
-                        OfficeNumber = "008C", JobTitle = "Independent researcher", ManagerEmail = null,
+                        OfficeNumber = "008C",
+                        JobTitle = "Independent researcher",
+                        ManagerEmail = null,
                         PhotoPath = photoHash.ToLowerInvariant() + ".png"
                     } || reading.GetPhoto(originalProfile.Email) is not { } committedPhoto ||
                     Convert.ToHexString(SHA256.HashData(committedPhoto.Bytes.Span)) != photoHash)
@@ -703,21 +818,35 @@ internal static partial class Program
         {
             var context = new
             {
-                schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                schemaVersion = 1,
+                revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                 runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                 runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
                 executableSha256 = ownedIdentity.ExecutableSha256,
-                editingProcessId = ownedIdentity.ProcessId, stage, submittedOwner, expectedOwner = "avery@example.com",
-                expectedDestination = "morgan@example.com", lastObservedEmail, lastObservedHeading, lastEmailVisible,
+                editingProcessId = ownedIdentity.ProcessId,
+                stage,
+                submittedOwner,
+                expectedOwner = "avery@example.com",
+                expectedDestination = "morgan@example.com",
+                lastObservedEmail,
+                lastObservedHeading,
+                lastEmailVisible,
                 metadataCharacterLimit = 512,
-                before, after,
-                saveRequestStarted, saveRequestReturned, destinationReady, originalStateDuringHold,
-                committedStateAfterRelease, independentReadStatus,
-                samplesMs = navigation, timingUse = "diagnostic",
-                exceptionType = heldFailure?.GetType().FullName, hResult = heldFailure?.HResult
+                before,
+                after,
+                saveRequestStarted,
+                saveRequestReturned,
+                destinationReady,
+                originalStateDuringHold,
+                committedStateAfterRelease,
+                independentReadStatus,
+                samplesMs = navigation,
+                timingUse = "diagnostic",
+                exceptionType = heldFailure?.GetType().FullName,
+                hResult = heldFailure?.HResult
             };
             var json = JsonSerializer.Serialize(context, new JsonSerializerOptions
-                { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
             Console.WriteLine("HELD-PROFILE-NAVIGATION " + json);
             var proofPath = Path.Combine(Path.GetDirectoryName(diagnostics)!,
                 Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-person-held-navigation.json");
@@ -815,21 +944,40 @@ internal static partial class Program
         var p95 = journey.ProfileSaveMs.Order().ElementAt((int)Math.Ceiling(journey.ProfileSaveMs.Count * .95) - 1);
         File.WriteAllText(path, JsonSerializer.Serialize(new
         {
-            schemaVersion = 3, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            schemaVersion = 3,
+            revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
-            editingProcessId = journey.EditingProcessId, reopenedProcessId = window.Current.ProcessId,
-            environment = new { os = Environment.OSVersion.ToString(), processors = Environment.ProcessorCount,
-                runtime = Environment.Version.ToString(), window = window.Current.BoundingRectangle.ToString() },
+            editingProcessId = journey.EditingProcessId,
+            reopenedProcessId = window.Current.ProcessId,
+            environment = new
+            {
+                os = Environment.OSVersion.ToString(),
+                processors = Environment.ProcessorCount,
+                runtime = Environment.Version.ToString(),
+                window = window.Current.BoundingRectangle.ToString()
+            },
             workspaceFormat = "SQLite format 3; no legacy authority",
-            ownerEmail = "avery@example.com", managerEmail = "morgan@example.com",
-            preferredName = "Avery reference", officeNumber = "008C", jobTitle = "Independent researcher", isFavorite = true,
-            teamName = "Platform", photoSha256 = journey.PhotoSha256, captureId = journey.CaptureId,
-            noteId = journey.NoteId, frozenVersion = journey.FrozenVersion,
-            profileDurability = new { boundary = "Native explicit Save Invoke through independently reopened exact complete profile and decoded photo; includes dispatch/queueing/commit.",
-                samplesMs = journey.ProfileSaveMs, p95Ms = p95, budgetMs = 1000,
-                percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based." },
+            ownerEmail = "avery@example.com",
+            managerEmail = "morgan@example.com",
+            preferredName = "Avery reference",
+            officeNumber = "008C",
+            jobTitle = "Independent researcher",
+            isFavorite = true,
+            teamName = "Platform",
+            photoSha256 = journey.PhotoSha256,
+            captureId = journey.CaptureId,
+            noteId = journey.NoteId,
+            frozenVersion = journey.FrozenVersion,
+            profileDurability = new
+            {
+                boundary = "Native explicit Save Invoke through independently reopened exact complete profile and decoded photo; includes dispatch/queueing/commit.",
+                samplesMs = journey.ProfileSaveMs,
+                p95Ms = p95,
+                budgetMs = 1000,
+                percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based."
+            },
             heldSaveNavigation = journey.HeldNavigation,
             captures = new[] { "sqlite-profile-retained-after-browse", "sqlite-person-history-capture-details",
                 "sqlite-person-saves-committed", "sqlite-person-saves-reopened" },
@@ -841,8 +989,31 @@ internal static partial class Program
     }
 
     private static IReadOnlyDictionary<NoteScope, (Guid Id, string Title, string Markdown)> RunLocalNoteAutosaveJourney(
-        AutomationElement window, string local)
+        AutomationElement window, string local, ScaleFixture? richFixture = null,
+        string? productExecutable = null, string phase = "ordinary", Action? requireHeldExport = null)
     {
+        var ownerEmail = richFixture is null ? "morgan@example.com" : ScaleFixture.Email(11);
+        var reportEmail = richFixture is null ? "avery@example.com" : ScaleFixture.Target;
+        var ownerHeading = richFixture is null ? "Morgan Example" : "Reference 00011";
+        var reportHeading = richFixture is null ? "Avery Example" : "Reference 01000";
+        var continuedEdits = richFixture is null ? NoteCommitObservation.ContinuedEditCount : 6;
+        var editSpacingMs = richFixture is null ? NoteCommitObservation.ContinuedEditSpacingMs : 250;
+        PersonNote[] originalPersonNotes;
+        TeamNote[] originalTeamNotes;
+        int originalInheritedNotes;
+        object? actualRichWorkload = null;
+        using (var baseline = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!baseline.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly))
+                throw new InvalidOperationException("Could not establish the real note workload: " + baseline.Status);
+            if (richFixture is not null)
+                actualRichWorkload = ScaleFixture.RequireRichPopulation(baseline,
+                    additionalPersonNotes: phase == "background-export" ? 1 : 0,
+                    additionalTeamNotes: phase == "background-export" ? 20 : 0);
+            originalPersonNotes = baseline.GetPersonNotes(ownerEmail).ToArray();
+            originalTeamNotes = baseline.GetTeamNotes(ownerEmail).ToArray();
+            originalInheritedNotes = baseline.GetInheritedTeamNotes(reportEmail).Count;
+        }
         var editors = new List<double>();
         var navigation = new List<double>();
         var durability = new List<double>();
@@ -860,10 +1031,12 @@ internal static partial class Program
         var continuedEditRequestStartedMs = new List<double[]>();
         var continuedEditRequestCompletedMs = new List<double[]>();
         var typingCompletedMs = new List<double>();
+        var independentVerificationMs = new List<double>();
+        var noteAcknowledgments = new List<object>();
         var identities = new HashSet<Guid>();
         var saved = new Dictionary<NoteScope, (Guid, string, string)>();
         Click(window, "NavigateManager");
-        Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+        Await(() => CurrentPersonEmail(window) == ownerEmail);
         var email = Find(window, "Email");
         var profileHeading = Find(window, "ProfileHeading");
         var personCache = new CacheRequest { TreeScope = TreeScope.Element };
@@ -879,11 +1052,12 @@ internal static partial class Program
         foreach (var scope in new[] { NoteScope.Person, NoteScope.Team })
             for (var sample = 0; sample < (scope == NoteScope.Team ? 20 : 1); sample++)
             {
+                requireHeldExport?.Invoke();
                 var family = scope.ToString();
-                var editorCache = NoteEditorCache(family);
+                var editorCache = NoteEditorCache(family, includeAcknowledgment: richFixture is not null);
                 EnsurePeopleBrowsing(window);
                 var report = Find(window, "People").FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com"))
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, reportEmail))
                     ?? throw new InvalidOperationException("The hosted note owner lost its report in People.");
                 var selectReport = (SelectionItemPattern)report.GetCurrentPattern(SelectionItemPattern.Pattern);
                 var manager = (InvokePattern)Find(window, "NavigateManager").GetCurrentPattern(InvokePattern.Pattern);
@@ -898,7 +1072,7 @@ internal static partial class Program
                 var observedNodes = 0;
                 var polls = ObserveNoteLatency(() =>
                 {
-                    var frame = ReadNoteEditor(surface, editorCache, family);
+                    var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
                     observedNodes = frame.ObservedNodes;
                     return frame.Identity != previous && Guid.TryParse(frame.Identity, out _) &&
                         frame.Writable && frame.TitleVisible && frame.TitleFocused && frame.Editing;
@@ -918,45 +1092,80 @@ internal static partial class Program
                 var bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
                 var text = $"# {family} continuous writing {sample:D2}";
                 var prefix = text;
-                using var firstCommit = NoteCommitObservation.Begin(() => bodyPattern.SetValue(prefix), () =>
+                var inputReturned = 0;
+                var acknowledgment = richFixture is null ? null :
+                    new NoteCommitAcknowledgment(scope, id, ownerEmail, titleText, prefix);
+                using var firstCommit = NoteCommitObservation.Begin(() =>
                 {
+                    bodyPattern.SetValue(prefix);
+                    Volatile.Write(ref inputReturned, 1);
+                }, () =>
+                {
+                    if (richFixture is not null)
+                    {
+                        if (Volatile.Read(ref inputReturned) == 0) return false;
+                        var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: true);
+                        return acknowledgment!.Observe(frame, email.GetUpdatedCache(personCache).Cached.Name,
+                            frame.OperationStatus ?? "", inputReturned: true);
+                    }
                     using var reading = ApplicationWorkflow.CreateFileBacked();
                     if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly))
                         throw new InvalidOperationException("Could not observe the hosted durable local commit: " + reading.Status);
-                    return reading.BeginNoteDraft(scope, "morgan@example.com", id)?.Markdown
+                    return reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown
                         .StartsWith(prefix, StringComparison.Ordinal) == true;
                 });
 
                 interaction.Restart();
                 selectReport.Select();
                 nativeMs = interaction.Elapsed.TotalMilliseconds;
-                polls = ObserveNoteLatency(() => PersonReady("avery@example.com", "Avery Example"));
+                polls = ObserveNoteLatency(() => PersonReady(reportEmail, reportHeading));
                 navigation.Add(interaction.Elapsed.TotalMilliseconds);
                 navigationRequests.Add(nativeMs);
                 navigationPolls.Add(polls);
                 interaction.Restart();
                 manager.Invoke();
                 nativeMs = interaction.Elapsed.TotalMilliseconds;
-                polls = ObserveNoteLatency(() => PersonReady("morgan@example.com", "Morgan Example"));
+                polls = ObserveNoteLatency(() => PersonReady(ownerEmail, ownerHeading));
                 navigation.Add(interaction.Elapsed.TotalMilliseconds);
                 navigationRequests.Add(nativeMs);
                 navigationPolls.Add(polls);
+                requireHeldExport?.Invoke();
                 ObserveNoteLatency(() =>
                 {
-                    var frame = ReadNoteEditor(surface, editorCache, family);
+                    var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
                     return frame.Identity == id.ToString() && frame.Title == titleText && frame.Markdown == text &&
                         frame.Writable && frame.Editing;
                 });
 
                 var continuedTyping = firstCommit.ContinueTyping(edit =>
                 {
-                    text += $"\nContinuing entry {edit}";
+                    text += richFixture is null ? $"\nContinuing entry {edit}" : $" {edit}";
                     bodyPattern.SetValue(text);
-                });
+                }, continuedEdits, editSpacingMs);
                 var completedTyping = continuedTyping.RequestCompletedMs[^1];
                 if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
                     throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
                 durability.Add(firstCommit.Complete());
+                if (richFixture is not null)
+                {
+                    var verification = Stopwatch.StartNew();
+                    using var reading = ApplicationWorkflow.CreateFileBacked();
+                    if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
+                        reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown.StartsWith(prefix, StringComparison.Ordinal) != true ||
+                        reading.BeginNoteDraft(scope, reportEmail, id) is not null)
+                        throw new InvalidOperationException("The actual WPF saved acknowledgment was not backed by exact committed owner writing.");
+                    independentVerificationMs.Add(verification.Elapsed.TotalMilliseconds);
+                    noteAcknowledgments.Add(new
+                    {
+                        scope = family,
+                        ownerEmail,
+                        noteId = id,
+                        requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix))),
+                        acknowledgment!.PendingObservedAt,
+                        acknowledgment.AcknowledgmentObservedAt,
+                        independentlyVerifiedOwnerAndRequest = true
+                    });
+                }
                 commitRequests.Add(firstCommit.RequestMs);
                 commitReads.Add(firstCommit.ReadCount);
                 commitReadMs.Add(firstCommit.ReadMs);
@@ -966,6 +1175,7 @@ internal static partial class Program
                 continuedEditRequestStartedMs.Add(continuedTyping.RequestStartedMs);
                 continuedEditRequestCompletedMs.Add(continuedTyping.RequestCompletedMs);
                 typingCompletedMs.Add(completedTyping);
+                requireHeldExport?.Invoke();
                 AssertNoteView(window, family, editing: true);
                 AssertValue(window, family + "NoteTitle", titleText);
                 AssertValue(window, family + "NoteMarkdown", text);
@@ -978,13 +1188,14 @@ internal static partial class Program
                         scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
                     Await(() => !Find(window, "TeamNoteTitle").Current.IsOffscreen &&
                         !Find(window, "TeamNoteMarkdown").Current.IsOffscreen);
-                    CaptureVisualEvidence(window, "sqlite-nonblocking-note-editing");
+                    CaptureVisualEvidence(window, "sqlite-nonblocking-note-editing" +
+                        (richFixture is null ? "" : "-rich-" + phase));
                 }
                 Await(() =>
                 {
                     using var reading = ApplicationWorkflow.CreateFileBacked();
                     return reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) &&
-                        reading.BeginNoteDraft(scope, "morgan@example.com", id)?.Markdown == text &&
+                        reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown == text &&
                         NoteFeedback(window, family).Contains("saved locally", StringComparison.Ordinal);
                 });
                 AssertValue(window, family + "NoteMarkdown", text);
@@ -996,9 +1207,11 @@ internal static partial class Program
         using (var reading = ApplicationWorkflow.CreateFileBacked())
         {
             if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
-                reading.GetTeamNotes("morgan@example.com").Count != 20 ||
-                reading.GetPersonNotes("morgan@example.com").Count != 1 ||
-                reading.GetInheritedTeamNotes("avery@example.com").Count != 20)
+                reading.GetTeamNotes(ownerEmail).Count != originalTeamNotes.Length + 20 ||
+                reading.GetPersonNotes(ownerEmail).Count != originalPersonNotes.Length + 1 ||
+                reading.GetInheritedTeamNotes(reportEmail).Count != originalInheritedNotes + 20 ||
+                originalPersonNotes.Any(note => reading.GetPersonNotes(ownerEmail).Single(item => item.Id == note.Id) != note) ||
+                originalTeamNotes.Any(note => reading.GetTeamNotes(ownerEmail).Single(item => item.Id == note.Id) != note))
                 throw new InvalidOperationException("Repeated hosted creation lost distinct notes or current Team inheritance.");
         }
         double P95(List<double> values) => values.Order().ElementAt((int)Math.Ceiling(values.Count * .95) - 1);
@@ -1007,7 +1220,8 @@ internal static partial class Program
         var executable = process.MainModule!.FileName;
         using var input = File.OpenRead(executable);
         var resultPath = Path.Combine(Path.GetDirectoryName(diagnostics)!,
-            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-note-latency.json");
+            Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-note-latency" +
+            (richFixture is null ? "" : "-rich-" + phase) + ".json");
         if (File.Exists(resultPath)) throw new InvalidOperationException("Hosted note timing evidence already exists.");
         File.WriteAllText(resultPath, JsonSerializer.Serialize(new
         {
@@ -1015,30 +1229,91 @@ internal static partial class Program
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
-            environment = new { os = Environment.OSVersion.ToString(), processors = Environment.ProcessorCount,
-                runtime = Environment.Version.ToString(), window = window.Current.BoundingRectangle.ToString() },
-            workload = "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, 20 predetermined continued edits at nominal 60-ms spacing and immediate report/Manager switches per note. All edits execute independently of save observation. Combined rich 10,000-Person/background-export proof belongs to #100.",
+            processId = process.Id,
+            hostExecutable = executable,
+            productExecutable = productExecutable ?? executable,
+            productExeSha256 = productExecutable is null ? null :
+                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(productExecutable))),
+            productAssemblySha256 = productExecutable is null ? null :
+                Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(productExecutable, ".dll")))),
+            timestampFrequency = Stopwatch.Frequency,
+            phase,
+            environment = new
+            {
+                os = Environment.OSVersion.ToString(),
+                processors = Environment.ProcessorCount,
+                runtime = Environment.Version.ToString(),
+                window = window.Current.BoundingRectangle.ToString()
+            },
+            workload = richFixture is null
+                ? "Ordinary two-Person SQLite fixture; 20 distinct Team creations, one Person creation, 20 predetermined continued edits at nominal 60-ms spacing and immediate report/Manager switches per note. All edits execute independently of save observation."
+                : "Full rich 10,000-Person SQLite fixture; 9,900 active/100 Archived, 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes, 200 Historical contexts and complete Profile evidence before these additive edits. Each of 21 new notes receives six predetermined continued inputs at nominal 250-ms spacing, independent of save observation. Twenty Team-editor and 42 Person-navigation samples retain the 100-ms p95 targets; 21 durable-commit samples retain the one-second p95 target.",
+            richScale = richFixture is not null,
+            heldExport = requireHeldExport is not null,
+            actualRichWorkload,
+            ownerEmail,
+            reportEmail,
+            originalPersonNotes = originalPersonNotes.Length,
+            originalTeamNotes = originalTeamNotes.Length,
+            originalInheritedNotes,
             percentile = "Nearest rank: sorted sample at ceil(0.95 * count), one based.",
-            observation = "Acceptance samples retain all native-request-to-observed-state time, without subtracting instrumentation. Each post-action editor cache selects only the current scope's surface, exact note identity, title, Markdown and Edit tab; it does not request unrelated note reading/list controls. Identity properties come from freshly updated permanent native elements. An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues.",
-            addTeamNote = new { boundary = "Native Invoke request through new exact identity, enabled writable editor, visible title and actual keyboard focus.",
-                samplesMs = editors, p95Ms = P95(editors), budgetMs = 100,
+            observation = "Acceptance samples retain all native-request-to-observed-state time, without subtracting instrumentation. Each post-action editor cache selects only the current scope's surface, exact note identity, title, Markdown and Edit tab; it does not request unrelated note reading/list controls. Identity properties come from freshly updated permanent native elements. " +
+                (richFixture is null
+                    ? "An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues."
+                    : "An observer starts before the first Markdown request, waits for that actual native input to return, then requires actual WPF saved acknowledgment plus the exact note/title/current writing while typing continues. Every sample is independently reopened and owner/request-verified; full-rich reopen validation time is separately retained, not counted as application Commit latency."),
+            addTeamNote = new
+            {
+                boundary = "Native Invoke request through new exact identity, enabled writable editor, visible title and actual keyboard focus.",
+                samplesMs = editors,
+                p95Ms = P95(editors),
+                budgetMs = 100,
                 nativeRequestMs = editorRequests,
                 observationMs = editors.Zip(editorRequests, (total, request) => total - request).ToArray(),
-                observationPolls = editorPolls, observationNodes = editorNodes },
-            personNavigation = new { boundary = "Native report selection in People or Manager Invoke through exact selected email, heading and visible usable Person.",
-                samplesMs = navigation, p95Ms = P95(navigation), budgetMs = 100,
+                observationPolls = editorPolls,
+                observationNodes = editorNodes
+            },
+            personNavigation = new
+            {
+                boundary = "Native report selection in People or Manager Invoke through exact selected email, heading and visible usable Person.",
+                samplesMs = navigation,
+                p95Ms = P95(navigation),
+                budgetMs = 100,
                 nativeRequestMs = navigationRequests,
                 observationMs = navigation.Zip(navigationRequests, (total, request) => total - request).ToArray(),
-                observationPolls = navigationPolls },
-            localDurability = new { boundary = "First native Markdown edit through independently reopened committed writing covering that request while typing continues; includes dispatch, scheduling and queueing.",
-                samplesMs = durability, p95Ms = P95(durability), budgetMs = 1000,
-                nativeRequestMs = commitRequests, observationReads = commitReads, observationReadMs = commitReadMs,
-                observerAdmittedMs, firstReadStartedMs, successfulReadStartedMs,
-                continuedEditsPerNote = NoteCommitObservation.ContinuedEditCount,
-                nominalEditSpacingMs = NoteCommitObservation.ContinuedEditSpacingMs,
-                continuedEditRequestStartedMs, continuedEditRequestCompletedMs,
+                observationPolls = navigationPolls
+            },
+            localDurability = new
+            {
+                boundary = richFixture is null
+                    ? "First native Markdown edit through independently reopened committed writing covering that request while typing continues; includes dispatch, scheduling and queueing."
+                    : "First native Markdown edit through the actual WPF post-Commit saved acknowledgment for the exact displayed note/title/writing, after native input returns and while typing continues. Every sample is independently reopened to verify committed writing covers that request and cannot belong to the report. Includes dispatch/scheduling/queueing. Full-population reopen verification is separately timed, not substituted for application commit latency.",
+                samplesMs = durability,
+                p95Ms = P95(durability),
+                budgetMs = 1000,
+                independentVerificationMs,
+                requestToPostCommitAcknowledgmentMs = richFixture is null ? null : durability,
+                independentFullReopenVerificationMs = richFixture is null ? null : independentVerificationMs,
+                acknowledgment = richFixture is null ? null : new
+                {
+                    source = "Actual scoped WPF ItemStatus snapshot, after exact pending owner/note/title/request writing is observed, then exact scope note saved locally. VM pending overrides all core status while retained generations exist; only accepted SaveNoteDraft removes a latest generation, after SQLite Commit.",
+                    latencyMeaning = "Conservative request-to-postcommit-acknowledgment upper bound on Commit latency, not direct storage-only time.",
+                    causalProof = "Existing invisible compiled --verify-profile-refresh includes NOTE-COMMIT-ACK-CAUSAL: same oracle cannot acknowledge the exact new input before a real held SQLite Commit, independent original state is unchanged, then exact acknowledgment/durable owner writing advance after release. Existing failed/unknown/no-stale-generation cases remain.",
+                    samples = noteAcknowledgments
+                },
+                nativeRequestMs = commitRequests,
+                observationReads = commitReads,
+                observationReadMs = commitReadMs,
+                observerAdmittedMs,
+                firstReadStartedMs,
+                successfulReadStartedMs,
+                continuedEditsPerNote = continuedEdits,
+                nominalEditSpacingMs = editSpacingMs,
+                continuedEditRequestStartedMs,
+                continuedEditRequestCompletedMs,
                 typingCompletionBoundary = "Actual completion of the final predetermined native Markdown SetValue; no trailing sleep, idle wait or save-conditioned continuation.",
-                typingCompletedMs, committedDuringTyping }
+                typingCompletedMs,
+                committedDuringTyping
+            }
         }, new JsonSerializerOptions { WriteIndented = true }));
         if (P95(editors) > 100 || P95(navigation) > 100 || P95(durability) > 1000 || committedDuringTyping.Any(value => !value))
             throw new InvalidOperationException($"Hosted ordinary note latency budget failed: editor={P95(editors):F1} ms, " +
@@ -1065,7 +1340,7 @@ internal static partial class Program
     }
 
     private sealed record NoteEditorFrame(string? Identity, string? Title, string? Markdown,
-        bool Writable, bool Editing, bool TitleVisible, bool TitleFocused, int ObservedNodes);
+        bool Writable, bool Editing, bool TitleVisible, bool TitleFocused, int ObservedNodes, string? OperationStatus = null);
 
     private static void VerifyCompiledNoteObservation(UserControl surface, NoteScope scope, OwnedNote expected)
     {
@@ -1108,7 +1383,7 @@ internal static partial class Program
             throw new InvalidOperationException("The compiled observation cannot claim native visible/focused editor acceptance.");
     }
 
-    private static CacheRequest NoteEditorCache(string family)
+    private static CacheRequest NoteEditorCache(string family, bool includeAcknowledgment = false)
     {
         var cache = new CacheRequest
         {
@@ -1121,10 +1396,12 @@ internal static partial class Program
             AutomationElement.HasKeyboardFocusProperty, ValuePattern.IsReadOnlyProperty, ValuePattern.ValueProperty,
             SelectionItemPattern.IsSelectedProperty })
             cache.Add(property);
+        if (includeAcknowledgment) cache.Add(AutomationElement.ItemStatusProperty);
         return cache;
     }
 
-    private static NoteEditorFrame ReadNoteEditor(AutomationElement surface, CacheRequest cache, string family)
+    private static NoteEditorFrame ReadNoteEditor(AutomationElement surface, CacheRequest cache, string family,
+        bool includeAcknowledgment = false)
     {
         using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NoteSnapshot);
         var nodes = new List<AutomationElement>();
@@ -1149,6 +1426,7 @@ internal static partial class Program
                 Equals(Property(body, ValuePattern.IsReadOnlyProperty), false),
             Equals(Property(FindCached("NoteEditTab"), SelectionItemPattern.IsSelectedProperty), true),
             Equals(Property(title, AutomationElement.IsOffscreenProperty), false),
-            Equals(Property(title, AutomationElement.HasKeyboardFocusProperty), true), nodes.Count);
+            Equals(Property(title, AutomationElement.HasKeyboardFocusProperty), true), nodes.Count,
+            includeAcknowledgment ? Property(FindCached("NotesSurface"), AutomationElement.ItemStatusProperty) as string : null);
     }
 }

@@ -481,7 +481,11 @@ public sealed class ProfileSessionTests
         Assert.Equal(email, app.ProfileEdit!.Basis.Email);
         Assert.Equal("Draft Avery", app.ProfileEdit.Draft.DirectoryName);
         Assert.Equal("Avery", app.GetRelationships(email)!.Person.DirectoryName);
-        Assert.False(app.BeginProfileEdit("riley@example.com"));
+        var retained = app.ProfileEdit;
+        Assert.True(app.NavigatePerson("riley@example.com"), app.Status);
+        Assert.Null(app.ProfileEdit);
+        Assert.True(app.NavigatePerson(email), app.Status);
+        Assert.Same(retained, app.ProfileEdit);
         var note = app.CreatePersonNote(email, "Note", "")!;
         Assert.False(app.EditPersonNote(note.Id, " ", "Retained note"));
         app.CancelProfileEdit();

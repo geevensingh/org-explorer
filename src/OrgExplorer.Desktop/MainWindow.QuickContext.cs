@@ -178,14 +178,8 @@ public partial class MainWindow
         CancelPreferredNameButton.IsEnabled = preferredNameEditing;
         PreferredNameError.Text = ownerUnavailable
             ? "This Person is unavailable. Your entry is retained. Cancel to leave this entry."
-            : preferredNameSaveError is null ? "" : workflow.PublicationOutcome switch
-        {
-            WorkspacePublicationOutcome.PublishedConflict =>
-                "A saved change has a conflict. Your entry is retained. See Details.",
-            WorkspacePublicationOutcome.Indeterminate =>
-                "A save outcome is unknown. Your entry is retained. Preserve the evidence in Details.",
-            _ => "Could not save. Your entry is retained. See Details before retrying."
-        };
+            : preferredNameSaveError is null ? "" :
+                "Could not save. Your entry is retained. See Details before retrying.";
         PreferredNameError.Visibility = PreferredNameError.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         System.Windows.Automation.AutomationProperties.SetHelpText(PreferredNameError, preferredNameSaveError ?? PreferredNameError.Text);
         PreferredNameErrorDetails.Text = preferredNameSaveError ?? "";

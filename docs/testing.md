@@ -76,11 +76,12 @@ fresh writing after an edit. This is not either 10,000-Person scale suite.
 absence) at the workflow/view-model seam. Editors display that snapshot and
 `RetainNoteDraft` marks it dirty without waiting behind in-flight Workspace I/O.
 Close/restart stays blocked through first autosave and retries; `SaveNoteDraft`
-returns the next base on success, retained again for newer typing. Real-file tests cover delivery before
-first save, absent → created and deleted documents, retained external bytes,
-discard/intentional edits and ordinary I/O retry. Parser boundary tests remain
-behind that same seam; Team confirmation and record-version checks stay explicit.
-The existing two-scope held-note regression keeps its real `.md` publication hook
+returns the next base on success, retained again for newer typing. Real-store
+tests cover incoming adoption deferral before first save, stable pending
+creations, stale bases, deliberate discard/intentional edits and ordinary I/O
+recovery/retry. Complete snapshot validation replaces retired frontmatter/parser
+protocols; Team confirmation and format checks stay explicit.
+The existing two-scope held-note regression keeps a real SQLite Commit barrier
 and five-second entry deadline. An entry refusal appends
 `NOTE-SAVE-ENTRY-REFUSAL` JSON with monotonic request/admission/exit times,
 task outcome, workflow status/errors and available/min/max worker snapshots.
@@ -96,15 +97,15 @@ Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
 that field's unsaved failure, never other fields, profile sessions, quick actions,
-notes, Import, committed maintenance or durable publication conflicts.
+notes, Import, local recovery or retained synchronization divergence.
 Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
 Ordinary profiles use `BeginProfileEdit`, staged text/Manager/photo operations,
 and explicit `SaveProfileEdit` / `CancelProfileEdit`. `ProfileEdit` exposes the
 person-scoped immutable baseline and complete draft. `TryLeaveProfileEdit`
-observes Save / Discard / Stay; only successful Save or explicit Discard permits
-leaving. Profile Cancel clears only that session, never independent note or
+observes Save / Discard / Stay for actions abandoning a profile. Person browsing
+instead retains each owner's complete draft. Profile Cancel clears only that session, never independent note or
 quick-action failures. Unsaved profiles block safe close and updater restart.
 Person More actions require confirmation before the same profile leave decision
 and apply archival/reactivation immediately through `EditPersonArchived`, not as
@@ -166,21 +167,21 @@ drafts. Real-folder cases prove unchanged saved bytes, retained writing, and
 safe-close/restart becoming available only when no other writing remains.
 People and exact-note browsing remain available after failed Import or recovery
 maintenance without clearing either error or claiming safe close. Independent
-writing and publication conflicts still reject navigation; rejected startup
-restoration reports recovery without publishing a partial remembered view.
-Blocked Workspace navigation is distinct from an attempted open failure. The
-compiled Retry action must still complete current storage maintenance without
+writing and divergence retain owner drafts while Person browsing stays available;
+rejected startup restoration reports recovery without publishing a partial remembered view.
+Blocked Workspace replacement is distinct from an attempted open failure. The
+compiled Retry action must still reconcile the current local store without
 reopening or creating the blocked destination or resetting the current view.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 
-`WorkspaceWriteObservationTests` drives the real file-backed workflow with an
-optional `IWorkspaceFileObserver`; payload writes and durable flushes stay real.
-It accounts for transient and repeated writes, failed publication/cleanup, and
-current/recovery/transaction/index writes, not just surviving file sizes.
-Older-version rejection has zero observed writes. The
-[incremental storage protocol](incremental-workspace-storage-protocol.md)
-defines the shipping publication, recovery and guarded reclamation contract.
+`WorkspaceWriteObservationTests` drives the real SQLite-backed workflow with an
+optional `IWorkspaceFileObserver`; actual local Commit/evidence effects and
+diagnostic failure isolation stay real. Retired-format rejection has zero
+observed writes. Canonical document/index write-count bounds are retired with
+that engine, not reinterpreted as SQLite page-write measurements. The
+[storage protocol](incremental-workspace-storage-protocol.md)
+defines local recovery, independent snapshots and guarded retention.
 
 The #99 close cases use that same real-storage workflow/observable view-model
 seam: both note scopes commit/reopen current writing during an older held
@@ -215,7 +216,7 @@ writing, independently reopens it before releasing the old export, requires the
 canceled process to remain open/unpublished, then requests normal close once and
 requires latest publication plus normal process death. Its candidate/run/attempt/
 product-hash-bound `*-sqlite-exit-lifecycle.json` and named `sqlite-exit-*` captures
-are hosted-only evidence. The earlier opt-in creation/reopen fixture explicitly
+are hosted-only evidence. The normal creation/reopen fixture explicitly
 chooses the saved-but-unpublished exit risk before folder configuration; it still
 requires all local writing to finish first. Existing rejected-close journeys now
 Cancel the decision before their original retry, preserving drafts/bytes and
@@ -240,17 +241,16 @@ stages are capped at 24 and error text at 8192 characters with paths redacted;
 these observations contain no editor bodies or backing-store paths. Diagnostic
 write/report failures cannot replace the original case failure.
 
-`SqliteWorkspaceTests` observes the staged #91 path through the same real-storage
-`IApplicationWorkflow` / `WorkspaceViewModel` seams. It covers explicit creation,
+`SqliteWorkspaceTests` observes the normal shipping path through the same real-storage
+`IApplicationWorkflow` / `WorkspaceViewModel` seams. It covers ordinary Create/Open,
 reviewed People-only Import, all supplied attributes, exact accepted evidence and
 replay, startup reopening, stale review, actual file-access failure, unavailable
 or corrupt local storage, explicit unsupported actions and preservation of an
-existing legacy Workspace. It does not inspect private tables or substitute an
+existing retired Workspace. It does not inspect private tables as a business seam or substitute an
 in-memory success. The existing `compatibility-settings` hosted journey also
-enables the development opt-in in isolated app settings, creates the app-managed
-local format, previews/applies, browses rendered Person facts and reporting
+creates the app-managed local format without an opt-in, previews/applies, browses rendered Person facts and reporting
 navigation, closes and reopens the same population, and checks the old Workspace
-bytes. The opt-in is restored afterwards; all prior scenario steps remain.
+bytes. All prior scenario steps remain.
 Compiling this journey or passing filesystem cases does not establish hosted
 WPF interaction evidence or any 10,000-Person responsiveness claim.
 The existing invisible `--verify-profile-refresh` contract also drives the
@@ -261,18 +261,18 @@ It never sets presentation state to bypass navigation or shows a native window.
 This guards the hosted helper's required starting view; the unchanged hosted
 journey still establishes actual create/import/browse/close/reopen interaction.
 
-The staged #92 path extends that same local authority with Person/Team notes.
-SQLite format 2 retains note identities, ownership, complete Markdown, timestamps,
-archival and Team confirmation/context revisions; an existing staged format-1
-store gains note support atomically with its first note. Synchronization
-remains explicitly unsupported, and the shipping legacy path and its coverage remain.
+The same normal SQLite format-3 authority retains Person/Team note identities,
+ownership, complete Markdown, timestamps, archival and Team confirmation/context
+revisions. Earlier staged SQLite1/2 and every readable-file format are refused
+without mutation and with recreate/upgrade guidance; no schema upgrade or retired
+engine fallback remains. Complete-snapshot synchronization is the shipping path.
 The observable view model owns pending creations and latest drafts independently
 of displayed controls. Its first-edit 250-ms cadence cannot be postponed by typing;
 one worker serializes captured revisions, retains newer generations after completion
 and makes failed writing retryable without another creation identity. Local Person
 and exact-note browsing do not use the legacy draft veto. Safe close still requires
-all retained writing to commit; stalled/recovery orchestration and informed exit are
-later slices, not claims established here.
+all retained writing to commit. The focused stalled/recovery and informed-exit
+contracts below cover the remaining failure/close behavior.
 
 `SqliteWorkspaceTests` proves both scopes' durable creation/edit/archive/restore,
 Ongoing selection, inherited Team context, actual Person switches during a real
@@ -863,122 +863,54 @@ prerequisite, not destination observation. Failed/stalled/indeterminate work rem
 non-idle under the unchanged idle predicate. Every native recovery switch requires
 the actual visible email/heading, exact retained fault phase/outcome and paused
 mutation controls; owner drafts and late committed writing are checked separately.
-Ordinary selections still await idle; expected legacy rejections retain their
-original selection-only behavior. Runner cases exercise this shared caller
+Healthy ordinary selections still await idle; retained-write/recovery journeys
+explicitly omit that obsolete prerequisite while preserving usable-destination
+and exact-owner assertions. Runner cases exercise this shared caller
 coordinator, including wrong-destination rejection, and the invisible compiled
 replay drives real Failed and Stalled owner switches through it. Neither replaces
 the hosted native recovery journey.
 
-The focused invisible `--verify-legacy-save-feedback` replay uses the real legacy
-profile save and existing leave-feedback continuation without opening a native
-modal dialog. After the queued dispatcher refreshes settle, it requires the
-original navigation rejection, enabled Save, exact owner/complete draft, and
-unchanged legacy navigation/safe-close guards. It is also included in the existing
-compiled profile-refresh selection. The matching public real-storage case verifies
-that a rejected legacy mutation still notifies status observers but does not emit
-the SQLite coordinator's synthetic Workspace-change event.
+The existing named invisible `--verify-legacy-save-feedback` command is retained
+for runner compatibility, not a legacy engine. It now uses actual SQLite
+noncommit/reconciliation, exact retained owner writing, paused edits and available
+browsing, followed by complete snapshot publication before normal cleanup close.
+It remains part of the compiled profile-refresh selection.
 
-`IncrementalProfileStorageTests` exercises shipping version 3 through
-the same file-backed workflow (and the view model for text drafts). It creates
-an empty Workspace, seeds accepted Import evidence, and reopens profile text,
-favorites, relationships, notes, images and history. The rich small regression
-compares the same edit with 6 and 258 People, counting every observed payload
-and metadata write, including transient stages. It checks reused unrelated
-document bytes as well as a bounded byte increase; final directory size alone
-cannot pass it. Real pointer replacement failures prove retained drafts,
-retry/discard and no staging adoption. Receipt failure distinguishes a committed
-edit from incomplete transaction maintenance. All tests use the public factory;
-there is no activation bypass. Small regressions do not claim desktop coverage
-or 10,000-Person evidence.
+### Retired-engine coverage reconciliation (#100)
 
-`IncrementalRecoveryTests` and the extended rich profile-write regression drive
-the same file-backed workflow with independent sealed recovery. They restore
-through `RecoverWorkspace` and the normal reader after current Person/history,
-photo and note corruption, checking commit identity and independently expected
-relationships, evidence and writing. Real publisher/lock failures cover recovery
-object/candidate staging, current replacement, committed receipt and recovery
-selector replacement. Interrupted candidates are never adopted on reopen;
-maintenance-only retry preserves current bytes/history/note dates and an
-unchanged Import preview. Recovery inventories, seals, staged payloads and
-selector/receipt writes all participate in byte accounting. The 6/258-Person
-comparison also proves zero copies of unrelated recovery documents, not merely
-a smaller surviving directory. There is no cleanup or desktop evidence here.
-With #46's required staging-path inventories and retirement evidence, the
-6/258-Person comparison allows a fixed additional 4 KiB only for measured
-affected-path ownership provenance. That provenance delta is independently
-capped; non-provenance writes retain the original 8-KiB delta allowance.
-Every transient write still counts toward the unchanged 32-KiB total ceiling,
-and zero-unrelated-copy assertions are unchanged.
+`WorkspaceFixtures.CopyCurrent` now caches durable bytes produced by normal
+public SQLite creation, reviewed Imports, decoded photos, note creation/archive,
+reporting transfer and a later Team-note edit. The same five fixture People and
+exact textual business values remain. Publicly generated note/capture identities
+replace ZIP constants; tests discover by owner/title once, then retain exact
+IDs/versions/provenance across reopen and transfer. Old archives are refusal-only.
+There is no private-table fixture builder or second public per-record repository.
 
-`IncrementalReclamationTests` drives automatic retirement/deletion through that
-same real-file workflow. Thirty-six edits with unrelated rich profiles count all
-transient writes, bound redundant document/index/bookkeeping retention separately
-from genuine growing history, then reopen and restore independently expected
-evidence, notes and frozen context. Locked deletion proves explicit committed
-maintenance failure, partial progress, durable pending state across restart and
-maintenance-only retry without edit replay or stale Import review. Cleanup-time
-pointer/index/document/photo and invalid/unsupported delivery stays stale until
-complete, while ambiguous intent/candidate/receipt failures, changed superseded
-bytes, unknown/conflict files and historical photos remain protected. These are
-small required filesystem cases, not legacy cleanup,
-desktop or supported-population scale evidence.
-Recovery-selector, object, index and seal delivery after validation also suspends
-cleanup without deleting the previously selected independent graph; retry protects
-the committed current state without replay. Same-capture index-byte reuse must
-not hide changed index or seal bytes from the next publication/deletion guard.
-The reviewed 128-Person publication also bounds ownership-file count and proves
-each inventory batch is durably flushed before any corresponding payload write,
-then corrupts current documents and restores the independently expected population.
-Interrupted scalar inventories remain readable alongside bounded batches.
-Malformed interrupted ownership reports maintenance failure and blocks safe close
-without deleting recorded files; partial-batch cleanup retains immutable evidence.
+The following protocol-only coverage is deliberately retired with its production
+implementation, not skipped or relabeled as passing:
 
-The #43 extension counts actual index writes for both creation and update of a
-reviewed 128-Person Import, including shared paths, and checks old graph visibility
-at the real publication boundary. Small relationship, archival/reactivation and
-favorite cases assert unchanged document bytes/references and durable context.
-The existing photo suite also rejects an actual selector replacement with a
-multi-Person graph/image update, explicitly retries it, then clears the images
-and reopens retained historical resources. Existing reporting/replay, typed
-evidence, unknown prior evidence, frozen context, photo, archival, inherited
-reading/search/favorite, Team-note review and note-draft assertions run against
-the shipping factory. Current-format fixtures retain all rich record families;
-older archives serve only explicit nonmutation/refusal cases. These remain
-ordinary small filesystem tests, not supported-population scale evidence.
+| Retired coverage | Semantic replacement |
+|---|---|
+| `IncrementalRecoveryTests`, `IncrementalReclamationTests`, `LiveGenerationTests` | `SqliteRecoveryTests` verifies actual pre/post-Commit process death, accessible/unavailable evidence, read-only recovery, nonreplay and explicit reconciliation; `WorkspaceSnapshotTests` verifies complete retained versions/resources and guarded current/previous rotation. Old selectors, independent canonical document copies, receipt publication and radix ownership inventories no longer exist. |
+| `NoteDocumentValidationTests` frontmatter/filename rules | Snapshot note identity/owner/metadata/confirmation validation, exact Markdown/archive/reopen and stale-base preservation. Direct `.md` editing is unsupported. |
+| Old portions of `IncrementalDeliveryTests` and `LocalPublicationDeliveryTests` | Complete snapshot validation for absent accepted evidence, history, historical-only photos, Person/history consistency and invalid delivery; focused snapshot race/divergence/revision-bound choice/retained-both-branches cases replace canonical replacement-window journals and external acknowledgment. |
+| Canonical index/write-cost portions of `IncrementalProfileStorageTests` and `WorkspaceWriteObservationTests` | Public profile/evidence/replay and full 128-Person graph assertions remain; real SQLite lock/Commit/refusal/recovery replaces pointer replacement and private file-count ceilings. No SQLite write-amplification claim is inferred from old limits. |
+| Per-file creation/deletion/owner removal and timestamp-only delivery tests | Real two-local-store public edits and snapshot transport preserve exact owner drafts, immutable bases, independent scopes and clean-note refresh; adoption waits behind retained writing. No unsupported note/Person deletion operation is invented as a test seam. |
+| Canonical version-family/read-lease/maintenance/restore tests | Every readable-file version and staged SQLite1/2 refuses without mutation; current SQLite/snapshot schema/identity/provenance failures remain. Exact remembered secondary/inherited/Historical destinations and failed-replacement preservation remain. |
+| Pending-navigation/non-overridable-close expectations | Actual native and compiled browsing retains drafts during pending/failure/unknown/divergence; explicit exit matrices require Cancel retention, latest normal publication and actual Exit anyway process death. Import/Workspace replacement and safe updater restart still protect unsubmitted writing. |
 
-`IncrementalDeliveryTests` covers valid direct Person/history/note edits, stale
-Import previews, selector/index/document/history/photo arrival permutations,
-invalid and unsupported index graphs, and preservation of provider conflict
-copies. Missing accepted evidence or photos retained only by history/captured
-profiles prevents acceptance. Real publication callbacks deliver Person/history
-or same-path photo bytes immediately before/after replacement; refresh must
-detect them rather than bless an unvalidated post-save scan. Existing external
-refresh, local-publication, live-generation, profile-session, text-draft and
-note-draft cases run through the same shipping factory.
-These are real-folder/workflow assertions, not desktop or cleanup evidence.
-
-The owner-approved publication-conflict extension deliberately replaces the old
-unconditional final-window rejection assertion. Real selector callbacks deliver
-same-Person/history changes; Person and Team note callbacks deliver writing at
-replacement. Assert positively published conflicts, exact independent sealed
-captured bytes, retained local writing/source roots, safe-close/restart blocking,
-generic-discard/maintenance nonresolution and restart survival. Explicit review
-and acknowledgment bind conflict IDs and the complete current byte revision;
-newer delivery and damaged evidence reject acknowledgment. Unconfirmed callbacks
-before/after replacement and actual partial file effects remain indeterminate,
-not clean refusals or automatically adopted recovery. Creation/deletion/backup
-collisions use the shipping publisher's explicit modes. Actual linked recovery
-selectors are never advertised or reused. These focused cases do not establish
-hardware power-loss durability, complete capture of noncooperating delivery,
-desktop interaction or supported-population scale.
-Journal-only sibling failures block both profile and note writers before staging,
-without relying on watcher delivery. Null evidence/path entries are rejected through
-normal storage errors. Reviewed base/displaced provenance includes absence; later
-changes require another review. Resolved interrupted note stages remain intact while
-new intentional edits use distinct inventoried paths, and verified sibling resolution
-clears only the conflict error while retaining independent drafts.
-A barrier-held real publication also proves dispatcher-facing conflict snapshots
-return without waiting on the save's I/O gate and remain immutable after publication.
+Mixed persistence classes retain domain assertions for every textual field,
+omission/null/false and accepted replay, all relationships, sticky Team review,
+notes/archival/favorites/photos, exact Profile evidence/dates, unknown ordinary
+field provenance, frozen capture identity/version/provenance, private Team-name
+eligibility/dormancy and duplicate attributed paths. Missing original Manager
+observations cannot be manufactured by mutating retired history files: normal
+reviewed Person creation requires explicit Manager/no-Manager. Existing
+omitted-field evidence and Historical timing rules remain independently covered.
+Invalid complete snapshots leave valid local reading/editing available with a
+separate synchronization error; stale note rejection is a semantic conflict,
+not a fabricated failed storage device. The focused SQLite/snapshot suites and
+both explicit full-rich suites remain required at their existing selections.
 
 `OrgExportTests` covers the local producer's public capture and
 Ingest/Profile/Photo seams using fictitious session events and synthetic PNG bytes.
@@ -1275,6 +1207,14 @@ Default local verification is non-UI:
 .\eng\Run-CiLane.ps1 filesystem
 ```
 
+`DraftDiscard.Tests.ps1` now runs both named Person/Team public workflow/view-model
+cases from the already-built Core test assembly (the core lane supplies its
+isolated assembly path). It refuses missing/skipped/partial results. The actual
+shared draft coordinator, not a compiled retired `NoteDraftState` with a fake
+dispatcher timer, proves admitted-discard refusal, exact owner writing and
+scoped idle discard preserving independent unsubmitted input. Filesystem cases
+remain responsible for SQLite durability and actual effect barriers.
+
 Each runner isolates build artifacts. They may run in independent processes.
 The filesystem runner excludes only `Category=Performance`; ordinary persistence,
 delivery, recovery and watcher coverage remains required. The core runner also
@@ -1353,13 +1293,13 @@ The Window's accessible ItemStatus and HelpText expose the actual existing
 workflow activity and operation feedback; the Workspace label's ItemStatus exposes
 actual validation/freshness. These are bound to the same detailed status, not
 test-only readiness or success flags.
-Notice classification uses the workflow's operation error and retained storage
-maintenance state, not English success-message lists or maintenance substrings.
+Notice classification uses the workflow's operation error and actual retained
+local-save/recovery state, not English success-message lists or maintenance substrings.
 Preferred-name cancellation and successful profile/note saves leave healthy
 reading quiet. Both note sections collapse routine operation feedback while
 exposing that same feedback through their surface's accessible ItemStatus.
 Pending/failed drafts remain visible; independent save and preference errors,
-stale data, publication outcomes and committed maintenance remain actionable.
+unavailable local data, synchronization divergence and committed cleanup remain actionable.
 An idle failed operation is summarized once, without an additional generic
 pending row or a second copy of its technical rejection. Real in-flight work
 and distinct failures still appear. Preferred-name failure keeps a short local
@@ -1374,7 +1314,7 @@ The separate `--verify-profile-refresh` option runs that load contract and then
 drives the actual compiled controls' open/select/Save events on a bounded STA
 dispatcher with isolated real files, still without showing a window or creating
 its native handle. It observes note content at profile Save completion, before a
-later watcher callback could hide stale same-owner reading, and proves both clean
+later refresh could hide stale same-owner reading, and proves both clean
 delivery refresh and dirty-note retention. It does not run Loaded startup/update
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
@@ -1507,13 +1447,13 @@ callbacks must not restore the previous ratio during the key's layout/save
 transaction.
 It additionally drives actual compiled owned-Team create/read/designate/Other
 controls, an exact empty secondary note, a locked preference rejection and a
-failed secondary-note save with protected ongoing navigation and successful
+failed secondary-note save with retained writing across ongoing navigation and successful
 retry, then deliberate preference recovery and archived-choice feedback.
-Save completion requires Ready and the note-specific success message, allowing
-the explicit informational storage-reclamation deferral suffix after a failed
-transaction. Existing failed-save and publication-conflict guards still apply.
-The same real controls receive timestamp-only note delivery while clean, then
-save from the refreshed immutable base. Person and Team archive/restore actions
+Save completion requires real Ready and note-specific success feedback, not a
+queued task. Failed local I/O still pauses edits until explicit reconciliation.
+The same real controls receive a genuine public note edit through complete
+snapshot delivery while clean, then save from the refreshed immutable base.
+Person and Team archive/restore actions
 also require the restored exact note to become the durable Read destination.
 Ongoing designation keeps note/navigation mutations on the dispatcher while
 its host runner performs preference I/O. Compiled controls retain query/overlay
@@ -1713,22 +1653,23 @@ without changing its display. They cover:
   actual field Enter followed by Tab without submission, unchanged saved office
   data before explicit Save, and focus returning to Edit profile after Cancel.
   Named captures retain the field-Enter draft and staged photo clear.
-- `draft-navigation`: explicit dirty-profile Save / Discard / Stay, failed
+- `draft-navigation`: retained profile/Preferred-name and Person/Team writing across
+  real tree/search/Manager browsing, plus explicit dirty-profile Save / Discard / Stay, failed
   leave-save retention and Import protection versus independent failed Person/Team drafts,
-  explicit blocked actions, retained owner/draft, deliberate discard, then
-  separately successful navigation. Opening the dedicated Import view exercises
+  protected Import/Workspace replacement, retained owner/draft and deliberate discard.
+  Opening the dedicated Import view exercises
   all three profile decisions and a locked-file leave-save rejection, then checks
   reading values after returning; independent failed notes still block Import.
 - `person-note-rendering`: Read-first existing notes with both editors hidden,
   one-click editing, empty-section actions, direct New-note editing and empty-body
   accessibility, actual Markdown text, loopback
-  no-fetch assertion, failed filesystem save, restored tree selection,
-  Workspace/close rejection, retry, independent ownership and durable reopening.
+  no-fetch assertion, failed local transaction, usable retained-draft browsing,
+  Workspace replacement/close decision, retry, independent ownership and durable reopening.
 - `team-context-history`: explicit Team ownership, all-ancestor attribution,
   ongoing/Other designation and exact secondary search, Read-first owned notes,
   direct New-note editing and empty-body accessibility, visible preference/save
   failures and collapsed attributed warnings at the ordinary desktop size,
-  protected owner review navigation/confirmation and archive/restore,
+  exact owner review navigation/confirmation with retained writing and archive/restore,
   secondary History with confirmations/observations, actual current/frozen
   reading and honest historical dates through a representative
   ancestor move, exact frozen search and reopen.
@@ -2049,19 +1990,69 @@ interactive Windows job, with a fresh rich 10,000-Person fixture per scenario:
   pending; expand/collapse, scroll and select a distant realized tree row;
   current/frozen/deep-chain/final-archived-Person search and Manager navigation;
   actual photo pixels and rendered current/frozen Markdown.
-- `scale-mutation-responsiveness`: Settings visibly works while an actual
-  file-backed profile mutation is pending; explicit navigation rejection retains
-  the owner and explains waiting; favorite mutation, complete reviewed import,
-  external note delivery/rendering, and durable profile/Manager/favorite/photo
-  reopening. Valid external delivery automatically completes independent recovery
-  maintenance before the ordinary Ready, safe-close and durable-reopen checks;
-  the runner must not rescue that successful delivery through Settings retry.
+- `scale-mutation-responsiveness`: repeated normal-executable usable Team editors,
+  Person selection and ordinary durable saves while typing continues, followed
+  by actual compiled WPF at the same complete rich population during a held real
+  profile Commit and a held complete-snapshot export. Settings and Person
+  browsing must finish while those same operations remain admitted, without
+  losing the original owner's writing. It retains favorite mutation, complete
+  reviewed Import, two-local-store public note edits/snapshot delivery/rendering,
+  latest publication and durable profile/Manager/favorite/photo reopening.
+  Valid incoming adoption cannot require a Settings recovery retry.
 
 The same shared `ScaleFixture` preserves 9,900 active/100 Archived people, the
 complete 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes,
 200 frozen contexts and retained Profile evidence. No population/chain truncation,
 import cap or non-UI proxy replaces either WPF scenario. The old combined scale
 runner is retired; it is not also invoked by smoke or the explicit command.
+
+The rich mutation scenario retains twenty Team-editor, forty-two Person-navigation
+and twenty-one ordinary save samples per phase. Healthy samples drive the normal
+product EXE. The background-export phase drives the actual product MainWindow in
+an owned hosted WPF process, controlling only the public 60-second clock and real
+external snapshot publication. The actual held profile transaction separately
+proves pending-work usability; its deliberate hold is not a healthy-save latency
+sample. The snapshot must remain held through the same complete continued-typing/
+browsing workload and independently reopened local writing. Its older publication
+cannot acknowledge the later local revision; subsequent Sync now must publish
+that exact latest revision.
+
+Rich ordinary typing uses six predetermined inputs at nominal 250-ms spacing,
+not a new 60-ms stress deadline. Raw native request/observation arrays, nearest-rank
+`ceil(0.95 * count)` p95, sample counts, exact candidate/run/attempt, product EXE/
+assembly and host hashes, environment and monotonic clock boundaries are retained
+in the two `*-sqlite-note-latency-rich-*.json` artifacts and the
+`*-sqlite-rich-export-lifecycle.json` artifact. Editor and navigation p95 remain
+at most 100 ms; ordinary durable-save p95 remains at most 1 second.
+
+The rich save clock starts before native input and runs through actual WPF
+post-Commit acknowledgment for the exact current owner/note/title/request.
+It requires observed Pending after input returns before accepting the exact
+Person/Team saved-success (or Team saved-and-confirmed) acknowledgment, never
+generic Ready/Saved combined with optimistic editor text. The scoped accessible
+ItemStatus is set by `OwnedNotePresentation` from VM status. Retained generations
+override every core status with Pending; the worker removes a generation only
+after accepted `SaveNoteDraft` and only when it is still the latest generation.
+That core acknowledgment is returned after actual SQLite Commit.
+
+The existing invisible compiled selection includes one bounded negative at the
+same real public-storage/actual-BAML seams (`NOTE-COMMIT-ACK-CAUSAL`): the exact
+new request cannot acknowledge while a real transaction is held before Commit;
+an independent reopen still sees the original writing. Release must permit both
+the exact acknowledgment and independently reopened owner writing to advance.
+Existing failed/unknown/no-stale-generation cases remain. This is causal
+contract evidence, not native timing acceptance.
+
+Request-to-postcommit-acknowledgment latency is a conservative upper bound on
+Commit latency, not direct storage-only time. Every rich sample independently reopens real local storage
+to verify its request is durably covered under the original owner, never the
+selected report. Full-population reopen verification duration is reported
+separately: load/validation cost is not substituted for application Commit latency.
+Reopen proves data correctness; it is not used to retroactively date Commit.
+Focused two-Person
+20/42/21 samples keep their existing independent-reopen timer, original 20-second
+observation, 60-ms continued-input workload and p95 contracts unchanged. No suite
+budget or required result selection changes.
 
 For investigation on an authorized interactive desktop, append `--ui-scale` to
 the harness invocation above, or one scale name. Use `Run-UiScale.ps1` for the
@@ -2081,6 +2072,28 @@ lifecycle, fresh reports, exact-candidate checks and cleanup. Workload selection
 and complete named-result assertions remain in their separate entry points.
 See [performance validation](performance-validation.md) for fixture detail and
 historical measurements, not current command authority.
+
+Non-UI rich performance also measures twenty-one actual explicit profile Save
+requests through the real VM queue and SQLite acceptance, not quick
+`EditPersonText` as a proxy for the shipping explicit Save path. Its nearest-rank
+p95 retains the one-second target. Same-revision saves still read the real head;
+changed/failed heads, stale bases, photos, eligibility, newer generations and
+unknown receipt recovery remain covered in focused real-storage suites.
+Native rich profile samples repeat that explicit Save path in both normal-EXE
+and actual held-export WPF phases, with exact whole-Person and decoded-photo/hash
+reopen checks. `*-sqlite-rich-profile-latency-*.json` separates native
+request-to-postcommit-acknowledgment from full-reopen verification.
+
+Only the fixture's synchronization cadence is controlled through its independent
+TimeProvider. Actual save-request/latency/three-second clocks remain real for
+performance acceptance. The clock-independence real-store regression advances
+the synchronization clock during an actually admitted blocked save without
+advancing its deadline, then advances the separate save clock by three seconds
+and requires Stalled/unknown with browsing available. Non-UI ordinary measurements
+admit exports explicitly, without accidental timer exports contaminating the
+healthy editing phase. Cleanup stops fixture-owned future scheduling and waits
+for already admitted export I/O before deleting its data. Production timer/
+Dispose/forced-exit semantics are not changed to make cleanup pass.
 
 Each invocation marks a fresh root report `running` before execution and writes
 revision, expected revision, dirty/untracked state, selected tests/scenarios,

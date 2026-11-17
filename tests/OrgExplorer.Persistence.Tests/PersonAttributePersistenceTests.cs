@@ -7,8 +7,9 @@ namespace OrgExplorer.Persistence.Tests;
 
 public sealed class PersonAttributePersistenceTests : IDisposable
 {
-    private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+    private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private string folder => Path.Combine(root, "workspace");
     private const string Batch = """
         {"schemaVersion":1,"batchId":"40000000-0000-4000-8000-000000000001",
          "observedAt":"2026-11-01T17:00:00Z","people":[
@@ -84,11 +85,13 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         var personNote = Assert.IsType<PersonNote>(app.CreatePersonNote(basis.Email, "Empty Person context", ""));
         var teamNote = Assert.IsType<TeamNote>(app.CreateTeamNote(basis.Email, "Empty owned Team context", ""));
 
-        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
             Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
-        Assert.Contains("NOT saved", app.Status);
+        Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+        Assert.True(app.LocalSave.EditsPaused);
         Assert.False(app.CanSafelyClose);
         Assert.Equal("Ave", Assert.Single(app.People).Heading);
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "My Avery"));
         Assert.True(app.CanSafelyClose);
         Assert.Equal("My Avery", accepted.Heading);
@@ -148,7 +151,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(preview.CanApply, app.Status);
         Assert.True(app.BeginProfileEdit(basis.Email));
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retained office draft"));
-        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Assert.False(app.ApplyImport(preview.Id));
             Assert.Null(app.SaveNoteDraft(personDraft, "Person writing", "Retained Person"));
@@ -157,6 +160,7 @@ public sealed class PersonAttributePersistenceTests : IDisposable
             Assert.False(app.SaveProfileEdit());
             Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Retained name"));
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         var before = WorkspaceFixtures.Bytes(folder);
         app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         var after = WorkspaceFixtures.Bytes(folder);
@@ -249,8 +253,9 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         Assert.True(provider.OpenWorkspace(folder), provider.Status);
         Assert.True(provider.EditPersonText(basis.Email, PersonTextField.Department, "Delivered department"), provider.Status);
         Assert.True(app.RefreshWorkspace(), app.Status);
-        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
             Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "First"));
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         var saved = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.OfficeNumber, "First"));
         Assert.Equal("Delivered department", saved.Department);
         Assert.Equal("First", saved.OfficeNumber);
@@ -275,10 +280,11 @@ public sealed class PersonAttributePersistenceTests : IDisposable
         var preview = app.PreviewImport(invalid);
         Assert.False(preview.CanApply);
         Assert.False(app.ApplyImport(preview.Id));
-        using (var lease = new FileStream(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Assert.False(app.EditPersonText(saved.Email, PersonTextField.OfficeNumber, "Unsaved 009A"));
-            Assert.Contains("NOT saved", app.Status);
+            Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+            Assert.True(app.LocalSave.EditsPaused);
             Assert.Equal(saved, Assert.Single(app.People));
         }
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -296,21 +302,25 @@ public sealed class PersonAttributePersistenceTests : IDisposable
     [InlineData("officeState", "\t")]
     [InlineData("officeCountry", "")]
     [InlineData("linkedInProfileUrl", "http://www.linkedin.com/in/avery")]
-    public void Invalid_external_textual_data_blocks_opening_and_writes(string property, string invalidValue)
+    public void Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(string property, string invalidValue)
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id), app.Status);
-        var path = WorkspaceFixtures.IndexedDocuments(folder)["people:avery@example.com"];
-        var json = JsonNode.Parse(File.ReadAllText(path))!;
-        json[property] = invalidValue;
-        File.WriteAllText(path, json.ToJsonString());
         using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(reopened.OpenWorkspace(folder));
-        Assert.Contains(property, reopened.Status);
-        Assert.Empty(reopened.People);
-        Assert.False(reopened.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "008"));
+        Assert.True(reopened.OpenWorkspace(Path.Combine(root, "receiver")), reopened.Status);
+        WorkspaceFixtures.JoinSnapshot(app, reopened, Path.Combine(root, "transport"));
+        var expected = Assert.Single(reopened.People);
+        Assert.True(app.EditPreferredName(expected.Email, "Next revision"));
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        var path = WorkspaceFixtures.LatestSnapshot(app);
+        WorkspaceFixtures.RewriteSnapshot(path, content => WorkspaceFixtures.EditSnapshotRow(content,
+            "people", expected.Email, profile => profile[property] = invalidValue));
+        var rejected = File.ReadAllBytes(path);
+        Assert.False(reopened.SyncNow());
+        Assert.Equal(expected, Assert.Single(reopened.People));
+        Assert.Equal(rejected, File.ReadAllBytes(path));
     }
 
-    public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

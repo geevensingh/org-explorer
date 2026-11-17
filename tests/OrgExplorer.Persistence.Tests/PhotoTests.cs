@@ -242,8 +242,7 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
         Assert.True(app.EditPhoto("avery@example.com", localPhoto), app.Status);
         Assert.True(app.EditPersonNote(note.Id, note.Title, "Writing after a local photo edit"), app.Status);
-        var noteFile = Path.Combine(Workspace, "notes", note.Id.ToString("D") + ".md");
-        var originalDocument = File.ReadAllText(noteFile);
+        var savedNote = Assert.Single(app.GetPersonNotes("avery@example.com"));
         File.WriteAllText(path, """
             {"schemaVersion":1,"batchId":"70000000-0000-4000-8000-000000000002",
             "observedAt":"2026-11-02T17:00:00Z","people":[
@@ -269,8 +268,12 @@ public sealed class PhotoTests : IDisposable
         Assert.Contains("no-op", Assert.Single(replay.Changes));
         Assert.True(app.ApplyImport(replay.Id), app.Status);
         Assert.Equal(Jpeg, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
-        Assert.Equal(originalDocument, File.ReadAllText(noteFile));
-        File.WriteAllText(noteFile, originalDocument + "\nExternal writing.");
+        Assert.Equal(savedNote, Assert.Single(app.GetPersonNotes("avery@example.com")));
+        using (var provider = CreateWorkflow())
+        {
+            Assert.True(provider.OpenWorkspace(Workspace), provider.Status);
+            Assert.True(provider.EditPersonNote(note.Id, note.Title, savedNote.Markdown + "\nExternal writing."), provider.Status);
+        }
         Assert.True(app.RefreshPersonNotes(), app.Status);
         Assert.Equal("Writing after a local photo edit\nExternal writing.",
             Assert.Single(app.GetPersonNotes("avery@example.com")).Markdown);
@@ -401,11 +404,9 @@ public sealed class PhotoTests : IDisposable
     }
 
     [Fact]
-    public void Incremental_graph_and_images_publish_together_and_retained_photo_evidence_keeps_resources_after_clear()
+    public void Graph_and_images_commit_together_and_retained_photo_evidence_transfers_after_clear()
     {
-        var observer = new RecordingObserver();
-        var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(Workspace), app.Status);
         var path = Import("\"avery.png\"");
         File.WriteAllBytes(Path.Combine(Producer, "avery.png"), Png);
@@ -413,9 +414,6 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.ApplyImport(app.PreviewImportFile(path).Id), app.Status);
         var originalPhoto = app.GetRelationships("avery@example.com")!.Person.PhotoPath!;
         var note = app.CreatePersonNote("avery@example.com", "Private", "Unchanged writing")!;
-        var before = WorkspaceFixtures.IndexedDocuments(Workspace);
-        var bytes = before.ToDictionary(e => e.Key, e => File.ReadAllBytes(e.Value));
-        var pointer = File.ReadAllBytes(Path.Combine(Workspace, "workspace.json"));
         File.WriteAllText(path, """
             {"schemaVersion":1,"batchId":"43000000-0000-4000-8000-000000000003",
              "observedAt":"2026-11-03T17:00:00Z","producer":"resource-test","people":[
@@ -424,22 +422,11 @@ public sealed class PhotoTests : IDisposable
             """);
         var preview = app.PreviewImportFile(path);
         Assert.True(preview.CanApply, string.Join("\n", preview.Errors));
-        FileStream? held = null;
-        publisher.BeforePublish = (_, destination) =>
-        {
-            if (destination == Path.Combine(Workspace, "workspace.json"))
-                held = File.Open(destination, FileMode.Open, FileAccess.Read, FileShare.Read);
-        };
-        observer.Effects.Clear();
-        try { Assert.False(app.ApplyImport(preview.Id)); }
-        finally { held?.Dispose(); }
-        publisher.BeforePublish = null;
+        using (WorkspaceFixtures.LockLocalStore(Workspace))
+            Assert.False(app.ApplyImport(preview.Id));
         Assert.False(app.CanSafelyClose);
-        Assert.Contains("NOT saved", app.LocalSaveError);
-        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Workspace, "workspace.json")));
-        foreach (var (key, file) in before) Assert.Equal(bytes[key], File.ReadAllBytes(file));
-        Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write &&
-            e.Path.StartsWith(Path.Combine(Workspace, "documents", "photos")));
+        Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+        Assert.True(app.LocalSave.EditsPaused);
         using (var prior = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(prior.OpenWorkspace(Workspace), prior.Status);
@@ -448,22 +435,9 @@ public sealed class PhotoTests : IDisposable
             Assert.Equal(Png, prior.GetPhoto("avery@example.com")!.Bytes.ToArray());
             Assert.Empty(prior.GetProfileTimeline("avery@example.com")!.Changes);
         }
-        observer.Effects.Clear();
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImportFile(path).Id), app.Status);
         Assert.True(app.CanSafelyClose);
-        var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        Assert.NotEmpty(writes);
-        Assert.True(writes.Sum(e => e.Bytes) < 131072, $"Two-Person resource import wrote {writes.Sum(e => e.Bytes)} bytes.");
-        var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
-            .ToDictionary(e => e.Path, e => e.Destination!);
-        var current = WorkspaceFixtures.IndexedDocuments(Workspace);
-        foreach (var key in new[] { "photos:" + originalPhoto, "acceptedBatches:10000000-0000-4000-8000-000000000001" })
-        {
-            Assert.Equal(before[key], current[key]);
-            Assert.Equal(bytes[key], File.ReadAllBytes(current[key]));
-            Assert.DoesNotContain(writes, e => e.Path.StartsWith(Path.Combine(Workspace, "documents")) &&
-                File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
-        }
         using (var reopened = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
@@ -477,52 +451,27 @@ public sealed class PhotoTests : IDisposable
             Assert.Equal("resource-test", change.Evidence.Producer);
             Assert.Equal(DateTimeOffset.Parse("2026-11-03T17:00:00Z"), change.Evidence.ObservedAt);
             Assert.True(reopened.GetRelationships("avery@example.com")!.Person.IsFavorite);
-            var saved = WorkspaceFixtures.Bytes(Workspace);
+            var saved = reopened.Synchronization.LocalRevision;
             Assert.True(reopened.ApplyImport(reopened.PreviewImportFile(path).Id), reopened.Status);
-            var replayed = WorkspaceFixtures.Bytes(Workspace);
-            Assert.Equal(saved.Keys.Order(), replayed.Keys.Order());
-            foreach (var (file, value) in saved) Assert.Equal(value, replayed[file]);
+            Assert.Equal(saved, reopened.Synchronization.LocalRevision);
         }
-        observer.Effects.Clear();
+        var replacedPhoto = app.GetProfileTimeline("avery@example.com")!.Changes.First(c => c.Field == "photoPath").NewValue.GetString()!;
         Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
         Assert.True(app.EditPhoto("blake@example.com", null), app.Status);
-        var clearWrites = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        Assert.NotEmpty(clearWrites);
-        Assert.True(clearWrites.Sum(e => e.Bytes) < 65536, $"Clearing two photos wrote {clearWrites.Sum(e => e.Bytes)} bytes.");
-        Assert.DoesNotContain(clearWrites, e => e.Path.StartsWith(Path.Combine(Workspace, "documents", "photos")) ||
-            e.Path.StartsWith(Path.Combine(Workspace, "documents", "acceptedBatches")) || e.Path.EndsWith(".md"));
         Directory.Delete(Producer, true);
-        observer.Effects.Clear();
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write &&
-            e.Path.StartsWith(Path.Combine(Workspace, "documents", "photos")));
         using var cleared = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(cleared.OpenWorkspace(Workspace), cleared.Status);
+        Assert.True(cleared.OpenWorkspace(Path.Combine(root, "receiver")), cleared.Status);
+        WorkspaceFixtures.JoinSnapshot(app, cleared, Path.Combine(root, "transport"));
         Assert.Null(cleared.GetPhoto("avery@example.com"));
         Assert.Null(cleared.GetPhoto("blake@example.com"));
-        var retained = WorkspaceFixtures.IndexedDocuments(Workspace);
-        foreach (var (key, file) in current.Where(e => e.Key.StartsWith("photos:") || e.Key.StartsWith("acceptedBatches:")))
-            Assert.Equal(file, retained[key]);
-        Assert.Equal(2, retained.Keys.Count(k => k.StartsWith("photos:")));
-        Assert.Equal(Png, File.ReadAllBytes(retained["photos:" + originalPhoto]));
-        var replacedPhoto = cleared.GetProfileTimeline("avery@example.com")!.Changes.First(c => c.Field == "photoPath").NewValue.GetString()!;
-        Assert.Equal(Jpeg, File.ReadAllBytes(retained["photos:" + replacedPhoto]));
-    }
-
-    private sealed class RecordingObserver : IWorkspaceFileObserver
-    {
-        public System.Collections.Concurrent.ConcurrentQueue<WorkspaceFileEffect> Effects { get; } = new();
-        public void Observe(WorkspaceFileEffect effect) => Effects.Enqueue(effect);
-    }
-
-    private sealed class InspectingPublisher : IWorkspaceFilePublisher
-    {
-        public Action<string, string>? BeforePublish { get; set; }
-        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
-        {
-            BeforePublish?.Invoke(staged, destination);
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
-        }
+        var changes = cleared.GetProfileTimeline("avery@example.com")!.Changes.Where(c => c.Field == "photoPath").ToArray();
+        Assert.Equal(originalPhoto, changes[0].OldValue.GetString());
+        Assert.Equal(replacedPhoto, changes[0].NewValue.GetString());
+        Assert.Equal(replacedPhoto, changes[1].OldValue.GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, changes[1].NewValue.ValueKind);
+        Assert.Equal("resource-test", changes[0].Evidence.Producer);
+        Assert.Equal(note, Assert.Single(cleared.GetPersonNotes("avery@example.com")));
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }

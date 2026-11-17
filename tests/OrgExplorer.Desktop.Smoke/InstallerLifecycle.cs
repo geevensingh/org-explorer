@@ -62,7 +62,7 @@ internal static partial class Program
                 ApplyReviewedHistoryImport(window);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 AssertInstallerWorkspace(window);
-                Close(process);
+                ClosePublishedWorkspace(process, workspace);
                 process.Dispose();
                 process = null;
                 Directory.Delete(producer, true);
@@ -71,7 +71,7 @@ internal static partial class Program
             }
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertInstallerWorkspace(window);
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             process.Dispose();
             process = null;
             Console.WriteLine(create

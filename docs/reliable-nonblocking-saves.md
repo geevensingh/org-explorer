@@ -1,6 +1,8 @@
 # Reliable, nonblocking local saves
 
-**Status:** Approved design direction; implementation pending.
+**Status:** Implemented normal SQLite/snapshot path (#91-#100); final joint
+delivery requires fresh normal and explicit full rich-scale hosted verification
+of one exact integration candidate. Implementation alone is not acceptance.
 
 This design replaces canonical-file persistence with local SQLite transactions
 and separates local durability, interaction responsiveness, and external-folder
@@ -9,7 +11,7 @@ note. It does not change note ownership, reporting inheritance, or the meaning o
 recorded Profile changes and Historical team context.
 
 See [ADR 0008](adr/0008-local-transactions-independent-sync.md) for the architectural
-decision. This document describes intended behavior, not the current implementation.
+decision and the [implemented formats/protocol](workspace-format.md).
 Its documentation and matching implementation must reach the default branch
 together under the [documentation handoff contract](agents/documentation-handoff.md).
 
@@ -17,7 +19,7 @@ together under the [documentation handoff contract](agents/documentation-handoff
 
 The reported symptoms are slow Add Team note interactions, saves remaining
 pending, and inability to navigate or close while saves are pending. Read-only
-inspection confirms that the current desktop workflow disables controls during
+inspection of the retired desktop workflow confirmed disabled controls during
 background work and vetoes navigation and close for pending work or unsaved
 drafts. It does not establish the cause of the reported latency or reproduce a
 permanently stalled save.
@@ -25,7 +27,9 @@ permanently stalled save.
 Replacing the engine does not require a separate root-cause investigation of
 discarded storage machinery. The replacement must nevertheless exercise the real
 end-to-end interaction paths: changing the database alone will not remove UI
-guards, scheduling delays, or draft-lifetime problems.
+guards, scheduling delays, or draft-lifetime problems. The retired storage,
+direct-edit and control-only draft/veto machinery has now been removed rather
+than retained as a fallback.
 
 ## Local authority and durability
 

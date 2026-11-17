@@ -24,7 +24,7 @@ public sealed class TeamNoteTests
     }
 
     [Fact]
-    public void Inherited_secondary_notes_reach_their_exact_owner_without_bypassing_retained_Person_writing()
+    public async Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing()
     {
         using var app = (WorkspaceViewModel)Open();
         var root = app.CreateTeamNote("root@example.com", "Root ongoing", "Root writing")!;
@@ -44,15 +44,18 @@ public sealed class TeamNoteTests
         var before = app.GetTeamNotes(root.OwnerEmail).ToArray();
         var person = app.CreatePersonNote("avery@example.com", "Private", "Saved")!;
         Assert.True(app.OpenOwnedNote(NoteScope.Person, person.Id, editing: true));
-        var basis = app.BeginNoteDraft(NoteScope.Person, person.OwnerEmail, person.Id)!;
-        app.RetainNoteDraft(basis);
+        app.UpdateNoteDraft(NoteScope.Person, person.Id, person.Title, "Retained Person writing");
 
-        Assert.False(app.NavigateInheritedTeamNote(secondary.Id));
+        Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
+        Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(secondary.Id, app.TeamNotesView.SelectedNote!.Id);
+        Assert.True(app.NavigatePerson(person.OwnerEmail));
         Assert.Equal(person.OwnerEmail, app.PeopleNavigation.SelectedEmail);
         Assert.Equal(person.Id, app.PersonNotesView.SelectedNote!.Id);
         Assert.True(app.PersonNotesView.IsEditing);
-        Assert.Contains("retry or discard", app.Status);
-        app.DiscardUnsavedChanges(person.Id);
+        Assert.Equal("Retained Person writing", app.PersonNotesView.SelectedNote.Markdown);
+        Assert.Equal("Saved", Assert.Single(app.GetPersonNotes(person.OwnerEmail)).Markdown);
+        Assert.False(app.CanSafelyClose);
         Assert.True(app.NavigateInheritedTeamNote(secondary.Id), app.Status);
         Assert.Equal(root.OwnerEmail, app.PeopleNavigation.SelectedEmail);
         Assert.Equal(root.OwnerEmail, app.TeamNotesView.OwnerEmail);
@@ -61,6 +64,8 @@ public sealed class TeamNoteTests
         Assert.False(app.TeamNotesView.IsEditing);
         Assert.Equal("", app.TeamNotesView.SelectedNote.Markdown);
         Assert.Equal(before, app.GetTeamNotes(root.OwnerEmail));
+        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+        Assert.Equal("Retained Person writing", Assert.Single(app.GetPersonNotes(person.OwnerEmail)).Markdown);
         Assert.True(app.ConfirmTeamNote(secondary.Id));
         Assert.False(app.GetTeamNotes(root.OwnerEmail).Single(n => n.Id == secondary.Id).NeedsReview);
         Assert.True(app.GetTeamNotes(root.OwnerEmail).Single(n => n.Id == root.Id).NeedsReview);

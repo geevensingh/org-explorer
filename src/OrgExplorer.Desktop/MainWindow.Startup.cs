@@ -120,7 +120,7 @@ public partial class MainWindow
         var path = Path.Combine(SettingsDirectory, "LocalWorkspaces", Guid.NewGuid().ToString("D"));
         SettingsPanel.Visibility = Visibility.Collapsed;
         UpdateMainViews();
-        await OpenWorkspaceAtPathAsync(path, WorkspaceOpenMode.CreateLocalSqlite);
+        await OpenWorkspaceAtPathAsync(path);
     }
 
     private async void ChooseAnotherWorkspace(object sender, RoutedEventArgs e)
