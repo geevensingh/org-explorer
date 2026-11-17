@@ -5,6 +5,74 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class ControlReadinessTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
+    {
+        var observations = 0;
+        var published = new Reading("Current Person note", false);
+        var result = ControlReadiness.AwaitControl<Reading>(
+            () => ++observations switch
+            {
+                1 => null!,
+                2 => new Reading("Current Profile:", false),
+                _ => published
+            },
+            row => row is not null && row.Name.Contains("Current") && row.Name.Contains("Person note"), AwaitReady);
+
+        Assert.Same(published, result);
+        Assert.Equal(3, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_search_result_fails_the_existing_bounded_observation()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitControl<Reading>(
+            () => null!, row => row is not null && row.Name.Contains("Current") &&
+                row.Name.Contains("Person note"), AwaitReady));
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData("", false, "")]
+    [InlineData("", true, "open")]
+    [InlineData("orchid", true, "clear,open")]
+    public void Browsing_preparation_waits_for_query_discovery_without_repeating_clear_or_open(
+        string query, bool needsOverlay, string expectedActions)
+    {
+        var queryReads = 0;
+        var treeReads = 0;
+        var actions = new List<string>();
+
+        ControlReadiness.PreparePeopleBrowsing(
+            () => ++queryReads == 1
+                ? throw new InvalidOperationException("Missing actual UI control: SearchQuery")
+                : query,
+            () => actions.Add("clear"),
+            () => needsOverlay,
+            () => actions.Add("open"),
+            () => ++treeReads > 1, AwaitReady);
+
+        Assert.Equal(2, queryReads);
+        Assert.Equal(expectedActions, string.Join(",", actions));
+        Assert.Equal(2, treeReads);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Permanently_missing_query_fails_bounded_preparation_before_any_clear_or_open()
+    {
+        var actions = 0;
+        Assert.Throws<TimeoutException>(() => ControlReadiness.PreparePeopleBrowsing(
+            () => throw new InvalidOperationException("Missing actual UI control: SearchQuery"),
+            () => actions++,
+            () => { actions++; return true; },
+            () => actions++,
+            () => { actions++; return true; }, AwaitReady));
+        Assert.Equal(0, actions);
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData(true)]

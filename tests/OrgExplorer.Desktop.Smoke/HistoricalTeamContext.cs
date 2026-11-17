@@ -83,12 +83,15 @@ internal static partial class Program
             AssertOtherTeamNotesCollapsed(window);
             AssertNoteView(window, "Team", editing: false);
             QueryAndSelect(window, "Secondary empty Team note", "casey@example.com", "Current", "Owned Team note");
+            Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
+            AssertOtherTeamNotesCollapsed(window);
+            SelectTeamNote(window, "Secondary empty Team note");
             Await(() => Find(window, "TeamNoteHeading").Current.Name == "Secondary empty Team note");
             AssertNoteView(window, "Team", editing: false);
             if (!Find(window, "TeamNoteKind").Current.Name.Contains("Other Team note"))
-                throw new InvalidOperationException("Team search redirected a secondary note to the ongoing note.");
+                throw new InvalidOperationException("Ordinary Other Team notes access lost the secondary note.");
             AssertEmptyDocument(window, "Team");
-            CaptureVisualEvidence(window, "search-exact-empty-other-team-note");
+            CaptureVisualEvidence(window, "search-person-then-other-team-note");
             var secondaryIdValue = SmokeNoteId(workspace, "casey@example.com", "Secondary empty Team note", team: true);
             var savedSecondary = ReadSmokeTeamNote(workspace, secondaryIdValue);
             SelectTab(window, "TeamNoteEditTab");
@@ -276,10 +279,11 @@ internal static partial class Program
                     NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Former Team paragraph 32", $"team-frozen-long-reading-{size.Width:0}");
                 }
             QueryAndSelect(window, "Original direct", "avery@example.com", "Historical", "Frozen Team note");
+            ExpandHistory(window);
             AssertSearchReading(window, "Original direct", "Later writing", "HistoricalTeamReading");
-            if (!Find(window, "HistoricalTeamReading").Current.HelpText.Contains("morgan@example.com"))
-                throw new InvalidOperationException("Historical search lost its frozen former-owner attribution.");
-            NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-exact-frozen-search");
+            if (!HistoricalReadingText(window).Contains("morgan@example.com"))
+                throw new InvalidOperationException("Ordinary History access lost its frozen former-owner attribution.");
+            NavigateMainReadingAndCapture(window, "HistoricalTeamReading", "Original direct", "team-person-search-ordinary-history");
             SelectTreePerson(window, "casey@example.com");
             SelectTeamNote(window, "Secondary empty Team note");
             var secondaryId = Find(window, "TeamNoteHeading").Current.HelpText;

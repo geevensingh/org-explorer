@@ -5,6 +5,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private bool workPending;
+    private bool ordinaryLocalWorkPending;
     private bool localImportPending;
     private bool externalRefreshPending;
     private TaskCompletionSource? workCompleted;
@@ -16,6 +17,7 @@ public partial class MainWindow
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
         bool isImport = false, bool ordinarySave = false)
     {
+        ordinaryLocalWorkPending = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
         workPending = true;
         localImportPending = isImport && RetainsPersonDrafts;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -34,6 +36,7 @@ public partial class MainWindow
         finally
         {
             workPending = false;
+            ordinaryLocalWorkPending = false;
             localImportPending = false;
             if (pendingPreferredNameCancellation is { } cancelledName)
             {

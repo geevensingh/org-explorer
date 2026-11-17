@@ -19,6 +19,15 @@ internal static class ControlReadiness
         if (isScrollable()) scrollToTop();
     }
 
+    internal static void PreparePeopleBrowsing(Func<string> readQuery, Action clearQuery,
+        Func<bool> needsOverlay, Action openOverlay, Func<bool> peopleVisible, Action<Func<bool>> awaitState)
+    {
+        var query = AwaitControl(readQuery, _ => true, awaitState);
+        if (query.Length > 0) clearQuery();
+        if (needsOverlay()) openOverlay();
+        awaitState(peopleVisible);
+    }
+
     internal static void AssertCollapsed(IEnumerable<string> sections, Func<string, bool> isCollapsed,
         Action<Func<bool>> awaitState)
     {

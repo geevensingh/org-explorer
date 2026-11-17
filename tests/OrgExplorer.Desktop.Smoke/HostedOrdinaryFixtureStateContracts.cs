@@ -82,13 +82,14 @@ internal static partial class Program
         fixture.Arrange(700, 900);
         fixture.Control<TextBox>("SearchQuery").Text = "example.com";
         var results = fixture.Control<ListBox>("SearchResults");
-        PumpUntil(() => results.Items.Cast<SearchResult>().Any(result => result.Person.Email == "avery@example.com"));
-        results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
-            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile && result.Field == "email");
+        PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == "avery@example.com"));
+        results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result =>
+            result.Person.Email == "avery@example.com");
         results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
             new UnshownInputSource { RootVisual = (System.Windows.Media.Visual)fixture.Window.Content }, 0, Key.Enter)
             { RoutedEvent = Keyboard.PreviewKeyDownEvent });
-        PumpUntil(() => fixture.Control<TextBlock>("Email").Text == "avery@example.com");
+        PumpUntil(() => fixture.Control<TextBlock>("Email").Text == "avery@example.com" &&
+            fixture.Control<TextBox>("SearchQuery").Text == "");
         fixture.Arrange(700, 900);
         if (fixture.Control<GroupBox>("PeoplePanel").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("The actual compact search activation did not dismiss People.");
@@ -100,6 +101,10 @@ internal static partial class Program
         }
         var viewport = Viewport();
         fixture.Click("OpenPeopleButton");
+        fixture.Arrange(700, 900);
+        fixture.Control<TextBox>("SearchQuery").Text = "example.com";
+        PumpUntil(() => results.Items.Cast<PersonSearchResult>().Any(result => result.Person.Email == "avery@example.com"));
+        results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == "avery@example.com");
         fixture.Arrange(700, 900);
         var peers = OrdinaryPeerDescendants(UIElementAutomationPeer.CreatePeerForElement(
             fixture.Control<GroupBox>("PeoplePanel"))!).ToArray();
@@ -126,16 +131,14 @@ internal static partial class Program
                     ? OrdinarySearchSelectionIdentity(peer.GetName(), fixture.Control<TextBlock>("ProfileHeading").Text,
                         "avery@example.com") : peer.GetAutomationId()));
         AssertSelection();
-        results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
-            result.Person.Email == "morgan@example.com" && result.Source == SearchSource.Profile && result.Field == "email");
-        var rejected = false;
-        try { AssertSelection(); }
-        catch (InvalidOperationException error) when (error.Message ==
-            "Navigation left a different Person selected while showing the retained profile.") { rejected = true; }
-        if (!rejected)
-            throw new InvalidOperationException("Search selection observation accepted a different selected Person.");
-        results.SelectedItem = results.Items.Cast<SearchResult>().Single(result =>
-            result.Person.Email == "avery@example.com" && result.Source == SearchSource.Profile && result.Field == "email");
+        results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result =>
+            result.Person.Email == "morgan@example.com");
+        if (fixture.Control<TextBlock>("Email").Text != "avery@example.com" ||
+            fixture.Model.PeopleNavigation.HighlightedResult?.Person.Email != "morgan@example.com" ||
+            fixture.Model.GetRetainedNoteDraft(NoteScope.Person, id) != retained)
+            throw new InvalidOperationException("Highlighting another grouped Person activated it or changed retained owner writing.");
+        results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result =>
+            result.Person.Email == "avery@example.com");
         AssertSelection();
         if (fixture.Control<TextBox>("SearchQuery").Text != "example.com" || Viewport() != viewport ||
             fixture.Model.PeopleNavigation.SelectedEmail != "avery@example.com" ||

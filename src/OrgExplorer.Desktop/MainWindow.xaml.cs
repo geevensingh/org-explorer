@@ -153,6 +153,9 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
+        pendingSearchRevealEmail = null;
+        peopleBrowseRequest++;
+        workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
         loading = true;
         SearchQuery.Text = destination.Query;
         loading = false;
@@ -272,6 +275,8 @@ public partial class MainWindow : Window
         var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
         if (changedPerson)
         {
+            pendingSearchRevealEmail = null;
+            peopleBrowseRequest++;
             HistoryAccess.IsExpanded = false;
             PersonScroll.ScrollToTop();
         }

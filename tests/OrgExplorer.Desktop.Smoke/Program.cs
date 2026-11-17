@@ -52,6 +52,13 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, DiagnoseCompiledRichNavigation);
             if (args.Length == 2 && args[1] == "--verify-manager-choice-demand")
                 return VerifyHostedCutoverContracts(executable, VerifyManagerChoiceDemand);
+            if (args.Length == 2 && args[1] == "--verify-current-search-storage")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrentSearchStorage);
+            if (args.Length == 2 && args[1] == "--verify-person-search-integration")
+                return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
+            if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
+                return VerifyHostedCutoverContracts(executable,
+                    (type, root) => VerifyPersonSearchIntegration(type, root, retainedOnly: true));
             if (args.Length == 2 && args[1] == "--verify-cutover-ordinary-fixture-state")
                 return VerifyHostedCutoverContracts(executable, VerifyHostedOrdinaryFixtureStateContracts);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
