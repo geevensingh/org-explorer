@@ -457,7 +457,11 @@ Reserved blank reporting-row extent can remain wider than that viewport.
 Wide mode requires actual row keyboard focus. Compact current/archived acceptance must
 dismiss People and focus its button, then retain the revealed selection on
 reopening. Archived access must show the retained list without reactivation or
-current-tree insertion. The responsive rejected-note journey uses the same
+current-tree insertion. An accepted-search timeout captures the actual failure
+frame and reports query, owner, profile readiness, navigation visibility and the
+actual keyboard-focus owner without retrying input or repairing focus. The same
+20-second assertion and current/archived matrix remain unchanged.
+The responsive rejected-note journey uses the same
 query-field input and preserves exact failed writing, owner, highlight, overlay
 and geometry. No scenario, responsive matrix, deadline or scale contract changes.
 The complete #107/#108 candidate requires exact-candidate hosted execution;

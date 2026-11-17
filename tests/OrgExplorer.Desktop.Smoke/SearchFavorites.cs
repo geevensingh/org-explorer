@@ -358,9 +358,27 @@ internal static partial class Program
     private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false)
     {
         var compact = IsVisible(window, "OpenPeople");
-        Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
-            (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                : IsVisible(window, "People") && IsVisible(window, "Favorites")));
+        try
+        {
+            Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
+                (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
+                    : IsVisible(window, "People") && IsVisible(window, "Favorites")));
+        }
+        catch (TimeoutException error)
+        {
+            var focused = AutomationElement.FocusedElement?.Current;
+            var entry = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OpenPeople"))?.Current;
+            CaptureFailureEvidence(window, "search-accepted-browsing-failure");
+            throw new TimeoutException("Accepted search did not clear the query and restore browsing/focus within 20 seconds. " +
+                $"compact={compact}; archived={archived}; expectedEmail='{email}'; owner='{Find(window, "Email").Current.Name}'; " +
+                $"query='{Value(window, "SearchQuery")}'; ordinaryProfileReady={OrdinarySearchProfileReady(window, email)}; " +
+                $"peopleNavigationVisible={IsVisible(window, "PeopleNavigation")}; peopleVisible={IsVisible(window, "People")}; " +
+                $"favoritesVisible={IsVisible(window, "Favorites")}; entryVisible={IsVisible(window, "OpenPeople")}; " +
+                $"entryEnabled={entry?.IsEnabled}; entryFocused={entry?.HasKeyboardFocus}; " +
+                $"focusedId='{focused?.AutomationId}'; focusedName='{focused?.Name}'; focusedProcess={focused?.ProcessId}; " +
+                $"applicationProcess={window.Current.ProcessId}. No corrective actions were attempted.", error);
+        }
         if (compact)
         {
             Click(window, "OpenPeople");
