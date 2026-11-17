@@ -59,9 +59,37 @@ public partial interface IApplicationWorkflow
 
 public sealed partial class ApplicationWorkflow
 {
-    public IReadOnlyList<PersonSearchResult> SearchPeople(string query) =>
-        Search(query).GroupBy(match => match.Person.Email, StringComparer.OrdinalIgnoreCase)
-            .Select(matches => new PersonSearchResult(matches.First().Person, matches.ToArray())).ToArray();
+    public IReadOnlyList<PersonSearchResult> SearchPeople(string query)
+    {
+        var text = query.Trim();
+        return Search(query).GroupBy(match => match.Person.Email, StringComparer.OrdinalIgnoreCase)
+            .Select(matches => new PersonSearchResult(matches.First().Person,
+                matches.OrderBy(match => MatchPriority(match, text)).ToArray()))
+            .OrderBy(result => MatchPriority(result.Matches[0], text))
+            .ThenBy(result => result.Person.Heading)
+            .ThenBy(result => result.Person.Email, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static int MatchPriority(SearchResult match, string query)
+    {
+        if (match.Source != SearchSource.Profile ||
+            match.Field is not ("preferredName" or "displayName" or "alias" or "email")) return 4;
+        var value = match.MatchText;
+        if (value.Equals(query, StringComparison.OrdinalIgnoreCase)) return 0;
+        var priority = 3;
+        if (match.Field is "preferredName" or "displayName")
+            for (var start = value.IndexOf(query, StringComparison.OrdinalIgnoreCase); start >= 0;
+                start = value.IndexOf(query, start + 1, StringComparison.OrdinalIgnoreCase))
+            {
+                if (start > 0 && !IsNameSeparator(value[start - 1])) continue;
+                var end = start + query.Length;
+                if (end == value.Length || IsNameSeparator(value[end])) return 1;
+                priority = 2;
+            }
+        return priority;
+    }
+
+    private static bool IsNameSeparator(char value) => char.IsWhiteSpace(value) || char.IsPunctuation(value);
 
     public IReadOnlyList<SearchResult> Search(string query)
     {
