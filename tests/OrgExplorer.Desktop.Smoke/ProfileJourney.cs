@@ -568,14 +568,8 @@ internal static partial class Program
         keybd_event(key, 0, 2, 0);
     }
 
-    private static void AwaitCopiedText(string expected)
-    {
-        try { PumpUntil(() => System.Windows.Clipboard.GetText() == expected); }
-        catch (TimeoutException error)
-        {
-            throw new TimeoutException("The actual clipboard did not receive the expected text within 20 seconds.", error);
-        }
-    }
+    private static void AwaitCopiedText(string expected) =>
+        ClipboardObservation.AwaitText(expected, System.Windows.Clipboard.GetText, PumpUntil);
 
     private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
         => AssertKeyboardCopy(window, Find(window, name), expected, copyAction);
