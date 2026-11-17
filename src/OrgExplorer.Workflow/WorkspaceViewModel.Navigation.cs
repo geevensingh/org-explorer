@@ -3,7 +3,8 @@ namespace OrgExplorer.Workflow;
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
     IReadOnlyList<string> ExpandedPeople, double BrowseOffset, RememberedView? LastValidView = null,
-    double BrowseHorizontalOffset = 0, double BrowseExtentWidth = 0)
+    double BrowseHorizontalOffset = 0, double BrowseExtentWidth = 0, PersonSearchResult? HighlightedResult = null,
+    bool ArchivedPeopleVisible = false)
 {
     public bool IsBrowsing => string.IsNullOrWhiteSpace(Query);
 }
@@ -130,16 +131,80 @@ public sealed partial class WorkspaceViewModel
     });
 
     public PeopleNavigationView PeopleNavigation { get; private set; } = new("", false, null, null, [], 0);
+    private IReadOnlyList<PersonSearchResult> peopleSearchResults = [];
+    private long peopleSearchRequest;
 
     public void ChangePeopleQuery(string query)
     {
-        PeopleNavigation = PeopleNavigation with { Query = query };
+        if (query == PeopleNavigation.Query) return;
+        var request = BeginPeopleSearch(query);
+        PublishPeopleSearchResults(request, workflow.SearchPeople(query));
+    }
+
+    public long BeginPeopleSearch(string query)
+    {
+        var request = Interlocked.Increment(ref peopleSearchRequest);
+        if (query == PeopleNavigation.Query) return request;
+        peopleSearchResults = [];
+        PeopleNavigation = PeopleNavigation with { Query = query, HighlightedResult = null };
+        Notify();
+        return request;
+    }
+
+    public bool PublishPeopleSearchResults(long request, IReadOnlyList<PersonSearchResult> results)
+    {
+        if (request != Volatile.Read(ref peopleSearchRequest)) return false;
+        peopleSearchResults = results;
+        var highlighted = PeopleNavigation.HighlightedResult?.Person.Email;
+        PeopleNavigation = PeopleNavigation with
+        {
+            HighlightedResult = results.FirstOrDefault(r =>
+                r.Person.Email.Equals(highlighted, StringComparison.OrdinalIgnoreCase)) ?? results.FirstOrDefault()
+        };
+        Notify();
+        return true;
+    }
+
+    private void ResetPeopleSearch()
+    {
+        Interlocked.Increment(ref peopleSearchRequest);
+        peopleSearchResults = [];
+    }
+
+    public void MoveSearchHighlight(int direction)
+    {
+        if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
+        var results = peopleSearchResults;
+        var index = -1;
+        for (var candidate = 0; candidate < results.Count; candidate++)
+            if (results[candidate].Person.Email.Equals(PeopleNavigation.HighlightedResult?.Person.Email,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                index = candidate;
+                break;
+            }
+        PeopleNavigation = PeopleNavigation with
+        {
+            HighlightedResult = results.Count == 0 ? null : results[Math.Clamp(index + direction, 0, results.Count - 1)]
+        };
+        Notify();
+    }
+
+    public void HighlightSearchResult(PersonSearchResult? result)
+    {
+        PeopleNavigation = PeopleNavigation with { HighlightedResult = result };
         Notify();
     }
 
     public void ShowPeopleOverlay(bool open)
     {
         PeopleNavigation = PeopleNavigation with { OverlayOpen = open };
+        Notify();
+    }
+
+    public void ShowArchivedPeople(bool show)
+    {
+        PeopleNavigation = PeopleNavigation with { ArchivedPeopleVisible = show };
         Notify();
     }
 
@@ -191,9 +256,10 @@ public sealed partial class WorkspaceViewModel
         return accepted;
     });
 
-    public bool NavigateSearchResult(SearchResult result) => Observe(() =>
+    public bool NavigateSearchResult(PersonSearchResult result) => Observe(() =>
     {
-        var current = workflow.Search(PeopleNavigation.Query).FirstOrDefault(r => SameSearchDestination(r, result));
+        var current = workflow.SearchPeople(PeopleNavigation.Query).FirstOrDefault(r =>
+            string.Equals(r.Person.Email, result.Person.Email, StringComparison.OrdinalIgnoreCase));
         if (current is null)
         {
             navigationError = "That search match is no longer available in the validated Workspace. Search again; no replacement was opened.";
@@ -201,13 +267,30 @@ public sealed partial class WorkspaceViewModel
         }
         changingDestination = true;
         bool accepted;
-        try { accepted = NavigatePeopleCore(current.Person.Email, current); }
+        try { accepted = NavigatePeopleCore(current.Person.Email, null, requireNavigation: true); }
         finally { changingDestination = false; }
-        if (accepted) RememberCurrentView(result: current);
+        if (accepted)
+        {
+            ResetPeopleSearch();
+            var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var context = workflow.GetRelationships(current.Person.Email);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (context is not null && visited.Add(context.Person.Email))
+            {
+                if (context.ImportedReports.Count > 0) expanded.Add(context.Person.Email);
+                context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
+            }
+            PeopleNavigation = PeopleNavigation with
+            {
+                Query = "", HighlightedResult = null, ExpandedPeople = expanded.ToArray(),
+                ArchivedPeopleVisible = current.Person.Archived || PeopleNavigation.ArchivedPeopleVisible
+            };
+            RememberCurrentView();
+        }
         return accepted;
     });
 
-    private bool NavigatePeopleCore(string email, SearchResult? result)
+    private bool NavigatePeopleCore(string email, SearchResult? result, bool requireNavigation = false)
     {
         var person = workflow.GetRelationships(email)?.Person;
         if (person is null)
@@ -215,7 +298,7 @@ public sealed partial class WorkspaceViewModel
             navigationError = "That Person is unavailable. No replacement was opened.";
             return false;
         }
-        if ((result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
+        if ((requireNavigation || result is not null || !email.Equals(PeopleNavigation.SelectedEmail, StringComparison.OrdinalIgnoreCase)) &&
             !workflow.CanNavigatePeople)
         {
             navigationError = "Navigation blocked: local writing is pending or was NOT saved. Save, retry or discard the draft before leaving. " +
@@ -223,6 +306,11 @@ public sealed partial class WorkspaceViewModel
             return false;
         }
         if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
+        if (requireNavigation)
+        {
+            OpenOngoingNote(NoteScope.Person);
+            OpenOngoingNote(NoteScope.Team);
+        }
         if (result?.Source == SearchSource.PersonNote && result.NoteId is { } personNote &&
             !OpenOwnedNote(NoteScope.Person, personNote)) return false;
         if (result?.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote &&

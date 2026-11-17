@@ -525,19 +525,15 @@
           <TextBlock DockPanel.Dock="Top" x:Name="SearchCount" AutomationProperties.AutomationId="SearchCount"
                      Text="Enter text to search local information." TextWrapping="Wrap" Margin="0,0,0,8"/>
           <ListBox x:Name="SearchResults" AutomationProperties.AutomationId="SearchResults" AutomationProperties.Name="Local search results"
+                   SelectionChanged="HighlightSearchResult"
                    PreviewKeyDown="ActivateSearchWithKeyboard" MouseLeftButtonUp="ActivateSearchWithMouse"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled" Background="Transparent" BorderThickness="0">
             <ListBox.ItemContainerStyle>
               <Style TargetType="ListBoxItem" BasedOn="{StaticResource NavigationRow}">
                 <Setter Property="AutomationProperties.Name" Value="{Binding Label}"/>
-                <Setter Property="AutomationProperties.HelpText">
-                  <Setter.Value>
-                    <MultiBinding StringFormat="{}note {0}; capture {1}">
-                      <Binding Path="NoteId"/><Binding Path="HistoricalContextId"/>
-                    </MultiBinding>
-                  </Setter.Value>
-                </Setter>
-                <Setter Property="ToolTip" Value="{Binding Label}"/>
+                <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
+                <Setter Property="AutomationProperties.HelpText" Value="{Binding EvidenceDescription}"/>
+                <Setter Property="ToolTip" Value="{Binding EvidenceDescription}"/>
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
               </Style>
             </ListBox.ItemContainerStyle>
@@ -545,6 +541,7 @@
               <DataTemplate>
                 <StackPanel Margin="0,4">
                   <TextBlock Text="{Binding Person.Heading}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Text="{Binding Person.Email}" TextTrimming="CharacterEllipsis"/>
                   <TextBlock Text="{Binding SourceLabel}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}" Margin="0,2"/>
                   <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="40"/>
                 </StackPanel>

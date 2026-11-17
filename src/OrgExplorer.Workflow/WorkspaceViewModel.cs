@@ -28,6 +28,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public void DiscardImportChanges() => Observe(() => { workflow.DiscardImportChanges(); return true; });
     private void ForwardWorkspaceChange(object? sender, EventArgs e)
     {
+        Interlocked.Increment(ref peopleSearchRequest);
         Notify();
         WorkspaceChanged?.Invoke(this, e);
     }
@@ -40,6 +41,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public event PropertyChangedEventHandler? PropertyChanged;
     public IReadOnlyList<PersonProfile> People => workflow.People;
     public IReadOnlyList<SearchResult> Search(string query) => workflow.Search(query);
+    public IReadOnlyList<PersonSearchResult> SearchPeople(string query) => workflow.SearchPeople(query);
     public IReadOnlyList<PersonProfile> FavoritePeople => workflow.FavoritePeople;
     public bool EditFavorite(string email, bool isFavorite) => Observe(() => workflow.EditFavorite(email, isFavorite));
     public IReadOnlyList<PersonProfile> ArchivedPeople => workflow.ArchivedPeople;
@@ -86,6 +88,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                 IsImportOpen = false;
                 noteViews.Clear();
                 ongoingPreferenceError = null;
+                ResetPeopleSearch();
                 PeopleNavigation = new("", false, null, null, [], 0);
                 LayoutPreferenceFeedback = null;
                 ViewPreferenceFeedback = null;

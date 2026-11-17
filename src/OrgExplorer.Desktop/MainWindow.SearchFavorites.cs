@@ -16,33 +16,67 @@ public partial class MainWindow
     private bool queryDirty = true;
     private string? lastQuery;
     private int queryRequest;
+    private Task searchRefresh = Task.CompletedTask;
     private bool activatingSearch;
     private FrameworkElement? matchedProfileValue;
     private string? matchedProfileHelp;
     private Paragraph? matchedFormerFact;
 
-    private void ConfirmSearchQuery(object sender, KeyEventArgs e)
+    private async void ConfirmSearchQuery(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter) return;
+        if (Keyboard.Modifiers != ModifierKeys.None || workflow.PeopleNavigation.IsBrowsing) return;
+        if (e.Key is not (Key.Up or Key.Down or Key.Enter)) return;
         e.Handled = true;
-        if (workflow.PeopleNavigation.IsBrowsing) return;
-        if (!wideWorkspace) workflow.ShowPeopleOverlay(true);
-        UpdatePeopleNavigation();
-        FocusManager.SetFocusedElement(this, SearchResults);
-        if (IsVisible) SearchResults.Focus();
+        if (!await AwaitSearchResults()) return;
+        if (e.Key is Key.Up or Key.Down)
+        {
+            workflow.MoveSearchHighlight(e.Key == Key.Down ? 1 : -1);
+            ShowSearchHighlight();
+        }
+        else if (e.Key == Key.Enter)
+        {
+            if (workflow.PeopleNavigation.HighlightedResult is { } result) await ActivateSearchResult(result);
+        }
+    }
+
+    private async Task<bool> AwaitSearchResults()
+    {
+        var query = SearchQuery.Text;
+        var request = queryRequest;
+        await searchRefresh;
+        return request == queryRequest && query == SearchQuery.Text && !workPending && !queryDirty;
+    }
+
+    private void HighlightSearchResult(object sender, SelectionChangedEventArgs e)
+    {
+        if (!refreshingQueries) workflow.HighlightSearchResult(SearchResults.SelectedItem as PersonSearchResult);
+    }
+
+    private void ShowSearchHighlight()
+    {
+        var wasRefreshing = refreshingQueries;
+        refreshingQueries = true;
+        try
+        {
+            SearchResults.SelectedItem = SearchResults.Items.Cast<PersonSearchResult>().FirstOrDefault(r =>
+                workflow.PeopleNavigation.HighlightedResult is { } highlighted && SameSearchPerson(r, highlighted));
+            if (SearchResults.SelectedItem is { } selected) SearchResults.ScrollIntoView(selected);
+        }
+        finally { refreshingQueries = wasRefreshing; }
     }
 
     private async void ActivateSearchWithKeyboard(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
         e.Handled = true;
-        if (SearchResults.SelectedItem is SearchResult result) await ActivateSearchResult(result);
+        if (!await AwaitSearchResults()) return;
+        if (SearchResults.SelectedItem is PersonSearchResult result) await ActivateSearchResult(result);
     }
 
     private async void ActivateSearchWithMouse(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject source ||
-            ItemsControl.ContainerFromElement(SearchResults, source) is not ListBoxItem { DataContext: SearchResult result }) return;
+            ItemsControl.ContainerFromElement(SearchResults, source) is not ListBoxItem { DataContext: PersonSearchResult result }) return;
         e.Handled = true;
         await ActivateSearchResult(result);
     }
@@ -59,10 +93,14 @@ public partial class MainWindow
         var wasBrowsing = workflow.PeopleNavigation.IsBrowsing;
         if (wasBrowsing && !string.IsNullOrWhiteSpace(SearchQuery.Text) && PeoplePanel.Visibility == Visibility.Visible)
             RememberPeopleBrowsing();
-        workflow.ChangePeopleQuery(SearchQuery.Text);
+        workflow.BeginPeopleSearch(SearchQuery.Text);
         if (!wideWorkspace && !workflow.PeopleNavigation.IsBrowsing) workflow.ShowPeopleOverlay(true);
         UpdatePeopleNavigation();
-        if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing) RestorePeopleBrowsing();
+        if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing)
+        {
+            if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+            else RestorePeopleBrowsing();
+        }
         if (workflow.PeopleNavigation.IsBrowsing)
         {
             refreshingQueries = true;
@@ -77,6 +115,7 @@ public partial class MainWindow
     {
         if (SearchResults is null || refreshingQueries || workPending) return;
         var query = SearchQuery.Text;
+        if (query != workflow.PeopleNavigation.Query) return;
         if (!queryDirty && lastQuery == query)
         {
             refreshingQueries = true;
@@ -88,19 +127,32 @@ public partial class MainWindow
         queryDirty = false;
         lastQuery = query;
         var request = ++queryRequest;
-        var snapshot = await Task.Run(() => (Results: workflow.Search(query),
+        var searchRequest = workflow.BeginPeopleSearch(query);
+        searchRefresh = RefreshSearchSnapshot(query, request, searchRequest);
+        await searchRefresh;
+    }
+
+    private async Task RefreshSearchSnapshot(string query, int request, long searchRequest)
+    {
+        var snapshot = await Task.Run(() => (Results: workflow.SearchPeople(query),
             Favorites: workflow.FavoritePeople, Current: workflow.IsWorkspaceCurrent));
         if (request != queryRequest || workPending || query != SearchQuery.Text) return;
+        if (!workflow.PublishPeopleSearchResults(searchRequest, snapshot.Results))
+        {
+            queryDirty = true;
+            return;
+        }
         refreshingQueries = true;
         try
         {
             var results = snapshot.Results;
-            if (!results.SequenceEqual(SearchResults.Items.Cast<SearchResult>())) SearchResults.ItemsSource = results;
+            SearchResults.ItemsSource = results;
+            ShowSearchHighlight();
             SearchCount.Text = string.IsNullOrWhiteSpace(SearchQuery.Text) ? "Enter text to search local information." :
-                $"Local matches: {results.Count} — profiles and notes";
+                $"People found: {results.Count} — local profiles and notes";
             if (selectedMatch is not null)
             {
-                var match = results.FirstOrDefault(r => SameSearchDestination(r, selectedMatch));
+                var match = results.FirstOrDefault(r => r.Matches.Any(m => SameSearchDestination(m, selectedMatch)));
                 if (match is null) ClearSearchContext();
             }
             var favorites = snapshot.Favorites.Select(p => new FavoriteRow(p,
@@ -117,19 +169,21 @@ public partial class MainWindow
     private static bool SameSearchDestination(SearchResult left, SearchResult right) =>
         WorkspaceViewModel.SameSearchDestination(left, right);
 
-    private async Task ActivateSearchResult(SearchResult result)
+    private static bool SameSearchPerson(PersonSearchResult left, PersonSearchResult right) =>
+        string.Equals(left.Person.Email, right.Person.Email, StringComparison.OrdinalIgnoreCase);
+
+    private async Task ActivateSearchResult(PersonSearchResult result)
     {
         if (refreshingQueries || activatingSearch) return;
         activatingSearch = true;
         try
         {
             var query = SearchQuery.Text;
-            var current = await Task.Run(() => workflow.Search(query).FirstOrDefault(r => SameSearchDestination(r, result)));
+            var current = await Task.Run(() => workflow.SearchPeople(query).FirstOrDefault(r => SameSearchPerson(r, result)));
             if (query != SearchQuery.Text) return;
             if (workPending)
             {
                 TryLeaveLocalEdits();
-                RestoreSearchSelection();
                 return;
             }
             if (current is null)
@@ -141,38 +195,31 @@ public partial class MainWindow
             result = current;
             if (!TryLeaveLocalEdits())
             {
-                RestoreSearchSelection();
                 return;
             }
             if (!workflow.NavigateSearchResult(result))
             {
-                RestoreSearchSelection();
                 ShowNavigationBlocked(workflow.Status);
                 return;
             }
-            result = workflow.PeopleNavigation.SelectedResult!;
             if (!NavigateTo(result.Person.Email, searchNavigation: true))
             {
-                RestoreSearchSelection();
                 return;
             }
-            if (result.Source == SearchSource.PersonNote && result.NoteId is { } personNote)
-                PersonNotes.OpenNote(personNote);
-            else if (result.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote)
-                TeamNotes.OpenNote(teamNote);
-            ClearSearchContext(clearSelection: false);
-            ShowSearchContext(result);
+            PersonNotes.RefreshExternalWorkspace();
+            TeamNotes.RefreshExternalWorkspace();
+            ClearSearchContext();
+            SearchQuery.Clear();
+            ShowArchivedPeople.IsChecked = workflow.PeopleNavigation.ArchivedPeopleVisible;
+            expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
+            pendingSearchRevealEmail = result.Person.Email;
+            peopleBrowseRequest++;
+            UpdatePeopleNavigation();
+            if (wideWorkspace) RevealAcceptedSearchPerson();
+            else FocusPeopleEntry();
             ShowStatus();
         }
         finally { activatingSearch = false; }
-    }
-
-    private void RestoreSearchSelection()
-    {
-        refreshingQueries = true;
-        SearchResults.SelectedItem = SearchResults.Items.Cast<SearchResult>().FirstOrDefault(r =>
-            selectedMatch is not null && SameSearchDestination(r, selectedMatch));
-        refreshingQueries = false;
     }
 
     private void ShowSearchContext(SearchResult result)

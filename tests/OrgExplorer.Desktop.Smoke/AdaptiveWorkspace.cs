@@ -414,7 +414,6 @@ internal static partial class Program
         AssertWorkspaceBytes(workspace, bytes);
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
         QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
-        Click(window, "ClearSearch");
         Await(() => Value(window, "SearchQuery") == "" && IsVisible(window, "People") &&
             Find(window, "Email").Current.Name == "longread@example.com");
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
@@ -484,8 +483,16 @@ internal static partial class Program
             if (Find(window, "SearchResults").Current.BoundingRectangle.Height <
                 Find(window, "PeopleNavigation").Current.BoundingRectangle.Height - 150 * DpiScale(window))
                 throw new InvalidOperationException("Search did not replace browsing with a full-height result list.");
-            QueryAndSelect(window, "orchid", "avery@example.com", "Current", "Person note");
-            if (compact) Await(() => !IsVisible(window, "PeopleNavigation"));
+            var beforeOwner = CurrentPersonEmail(window);
+            var result = ControlReadiness.AwaitControl(
+                () => Find(window, "SearchResults").FindFirst(TreeScope.Children,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "avery@example.com")),
+                row => row is not null && row.Current.HelpText.Contains("Current") &&
+                    row.Current.HelpText.Contains("Person note"), Await);
+            ((SelectionItemPattern)result.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            if (CurrentPersonEmail(window) != beforeOwner)
+                throw new InvalidOperationException("Highlighting grouped results changed the open Person.");
+            Click(window, "ClearSearch");
             EnsurePeopleBrowsing(window);
             var observedOffset = double.NaN;
             var favoritesVisible = false;
@@ -553,12 +560,11 @@ internal static partial class Program
         window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element &&
         !element.Current.IsOffscreen;
 
-    private static void EnsurePeopleBrowsing(AutomationElement window)
-    {
-        if (Value(window, "SearchQuery").Length > 0) Set(window, "SearchQuery", "");
-        if (IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation")) Click(window, "OpenPeople");
-        Await(() => IsVisible(window, "People"));
-    }
+    private static void EnsurePeopleBrowsing(AutomationElement window) =>
+        ControlReadiness.PreparePeopleBrowsing(
+            () => Value(window, "SearchQuery"), () => Set(window, "SearchQuery", ""),
+            () => IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation"),
+            () => Click(window, "OpenPeople"), () => IsVisible(window, "People"), Await);
 
     private static void AssertResponsiveProfileForm(AutomationElement window)
     {

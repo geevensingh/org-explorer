@@ -32,6 +32,13 @@ where they differ, specifically:
   pending Workspace path with separate Choose folder and Open buttons.
 - Keep identity visible while the facts and note reading content scroll.
 
+The later [Person-level search amendment](ui-design.md#person-level-search)
+supersedes this pass's exact-destination search and focus-only query Enter.
+Grouped results and ordinary-profile activation are implemented in #107;
+#108 adds highlighting, query-field keyboard input and accepted clear/reveal/focus.
+Exact-candidate hosted evidence belongs to
+[integration PR #109](https://github.com/geevensingh/org-explorer/pull/109).
+
 The existing ongoing-note, exact-restoration, ownership, import, profile-draft,
 external-change, history, and storage-safety contracts remain the baseline.
 This plan does not complete or validate the separate, inherited source
@@ -54,7 +61,7 @@ application state or accessibility behavior.
 | Reference | Approved part and purpose |
 |---|---|
 | [Compact People](images/visual-refresh/compact-people.png) | Panel A: left trigger and left flyout. Its obscured facts are not a replacement for the fixed facts grid. |
-| [Search destinations](images/visual-refresh/search.png) | Both states: reveal the matched field or the exact note in the real Person workspace. |
+| [Search destinations](images/visual-refresh/search.png) | Visual reference only; the later Person-level amendment replaces exact-destination activation. |
 | [Settings](images/visual-refresh/settings.png) | Final grouped page with a displayed current path and one Open Workspace action. |
 | [Profile editing](images/visual-refresh/profile-edit.png) | Panel A: inline form, not a dialog. Extra sidebar search, row icons, and country/state dropdowns are drawing artifacts, not requirements. |
 | [Preferred name](images/visual-refresh/preferred-name.png) | Compact anchored editor and retained-input failure state. Outside-click cancellation follows the explicit decision below. |
@@ -157,7 +164,7 @@ Do not wrap the marker behind the actions or add another anchored row. Reclaim e
 minimum-window profiles remain editable without shrinking the photo or controls.
 Office combines building and room with a middle dot only when both are present;
 one available part stands alone, and no Office data uses a neutral dash.
-Retain individual building/room Copy and search destinations, with visual,
+Retain individual building/room Copy and search eligibility, with visual,
 keyboard and automation reading order all following building then room. At narrow widths,
 single-line ellipsis keeps header context and actions within the existing photo
 height; full values remain available through accessibility, tooltips and Copy.
@@ -274,18 +281,15 @@ position and hierarchy depth.
 
 Keep live search across existing profile/note information and current,
 archived, and historical distinctions. Search temporarily replaces Favorites
-and the reporting tree; clearing it restores the prior browsing position.
-Results show concise name, source, and relevant excerpt.
-
-A profile result reveals the actual matched field in the Person workspace.
-A note result opens the exact selected document in Read mode, retaining its
-owner/current/frozen attribution and ongoing-versus-Other distinction. Remove
-the duplicate generic Selected search context inspector; do not remove the
-context-specific information needed to understand an inherited or frozen result.
-
-Enter in the search field confirms the query/focuses results, not an implicit
-first-Person selection. Explicit result selection followed by click/Enter
-opens that result through the existing guarded navigation.
+and the reporting tree; manual clearing restores the prior browsing position.
+Accepted activation clears search and instead reveals the chosen browsing row.
+Results show one Person per email identity, with name, email, attributed sources
+and a relevant excerpt. Explicit activation opens their ordinary profile through
+the existing guards. Other notes and current/frozen context remain accessible
+through normal reading surfaces; there is no generic Selected search context
+inspector. The later Person-level amendment owns highlighting, query-field
+keyboard behavior and accepted clear/reveal/focus, implemented in #108.
+Complete-candidate hosted acceptance remains a delivery gate.
 
 ## Editing and keyboard behavior
 
@@ -329,8 +333,8 @@ nothing committed, or permission to clear another unresolved error.
 | Context | Enter behavior |
 |---|---|
 | Preferred-name entry | Save that single-purpose entry. |
-| Search field | Confirm/focus results; do not open the first Person. |
-| Explicitly selected result | Open its exact guarded destination. |
+| Search field | Activate the highlighted Person immediately, then clear/reveal only on acceptance. |
+| Explicitly selected result | Open the ordinary guarded Person profile. |
 | Full-profile text field | Do not submit the whole profile. |
 | Multiline note editor | Insert a newline. |
 | Import path | Preview import, with the same checks as Preview import. |
@@ -428,8 +432,8 @@ not just generated pictures or a list of passing tests. Include:
 
 - Wide and minimum/compact Person reading; long and missing values; archived
   identification; photo/placeholder; facts-before-notes and sticky-identity scroll.
-- Wide/compact People overlay, hierarchy, search/clear, matched field and exact
-  document navigation, with no shifted/squeezed background.
+- Wide/compact People overlay, hierarchy, Person-level search/clear and independent
+  exact document navigation, with no shifted/squeezed background.
 - Settings with one picker-and-open action, Import preview/explicit Apply,
   inline full-profile edit, and Preferred-name save/cancel/outside/failure states.
 - Populated and empty note presentation, attributed current/frozen context,
