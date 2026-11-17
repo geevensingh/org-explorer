@@ -521,6 +521,12 @@ public partial class MainWindow : Window
             return false;
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
+        if (workflow.LocalSaveError is { } independentError)
+        {
+            ShowNavigationBlocked("Navigation blocked: " + independentError +
+                " Retry or discard the independent unsaved writing before leaving.", retainedFailure: true);
+            return false;
+        }
         if (!HasPreferredNameDraft && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;

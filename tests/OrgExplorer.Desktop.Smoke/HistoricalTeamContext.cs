@@ -101,7 +101,7 @@ internal static partial class Program
                 SelectTeamNote(window, "Secondary empty Team note", allowPendingLocalWork: true);
                 SelectTab(window, "TeamNoteEditTab");
                 AssertValue(window, "TeamNoteMarkdown", "Retained secondary Team writing");
-                AssertNoteView(window, "Team", editing: true);
+                AssertNoteView(window, "Team", editing: true, writable: false);
                 if (Find(window, "TeamNoteHeading").Current.Name != "Secondary empty Team note" ||
                     savedSecondary != ReadSmokeTeamNote(workspace, secondaryIdValue))
                     throw new InvalidOperationException("Ongoing Team navigation changed a failed secondary draft or saved writing.");
@@ -111,6 +111,7 @@ internal static partial class Program
             ReconcileSmokeLocalSaves(window);
             Click(window, "DiscardTeamNoteDraft");
             AwaitLocalWorkIdle(window);
+            SelectTab(window, "TeamNoteReadTab");
             AssertEmptyDocument(window, "Team");
             if (savedSecondary != ReadSmokeTeamNote(workspace, secondaryIdValue))
                 throw new InvalidOperationException("Discard changed the saved secondary Team note.");

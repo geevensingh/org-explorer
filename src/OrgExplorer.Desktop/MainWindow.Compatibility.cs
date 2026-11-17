@@ -27,7 +27,8 @@ public partial class MainWindow
     private void ShowOperationalNotice()
     {
         var messages = new List<string>();
-        if (workflow.LocalSave.Phase == Workflow.LocalSavePhase.Recovered) messages.Add(workflow.LocalSave.Message);
+        if (workflow.LocalSave.Phase == Workflow.LocalSavePhase.Recovered && !workflow.CanSafelyClose)
+            messages.Add(workflow.LocalSave.Message);
         var error = workflow.LocalSaveError;
         var retainedErrors = error?.Split('\n', StringSplitOptions.RemoveEmptyEntries) ?? [];
         var feedback = StatusText.Text != workflow.Status ? StatusText.Text : workflow.OperationError;

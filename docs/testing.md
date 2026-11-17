@@ -912,6 +912,38 @@ Public real-store tests additionally cover changed receipt bytes, locked/corrupt
 artifacts, unavailable local storage and an actual pre-Commit sibling transaction
 whose unresolved receipt must refuse cached Ready until explicit recovery.
 
+The combined hosted follow-up also runs focused actual compiled
+`--verify-cutover-recovery-copy`, `--verify-independent-note-leave`,
+`--verify-manager-choice-demand` and
+`--verify-cutover-ordinary-fixture-state` checks in that full selection.
+Healthy recovered storage becomes quiet once no unsaved writing remains;
+clipboard retry cannot dismiss an independent fault. Profile-only Discard does
+not authorize a protected mutation/replacement past an independent note error.
+The shared guard is tested through actual nonmodal replacement controls and
+real SQLite, without invoking private product methods or opening native dialogs.
+Browse-only navigation still bypasses that mutation guard.
+The ordinary fixture-state loop distinguishes a discarded uncommitted creation
+from an existing note: restore assertions first independently establish the
+exact saved owner/id/title/body. Paused failed Edit retains readable writing
+with disabled inputs/mutations; healthy Edit still requires writable inputs.
+After failed-profile owner browsing, a clean note returns Read and its actual
+Edit action realizes the Value provider before inspecting writing. Active search
+selection is checked through its own exact selected-Person result, not a hidden
+archived toggle or an inherited note owner's incidental email; query, overlay,
+viewport and complete native size matrices remain.
+
+Ordinary reading does not construct or clear the hidden whole-population Manager
+picker. Actual profile Edit and retained-owner restore still build all current
+choices with the exact current draft/base; visible editing continues through
+the existing refresh path, without a stale cross-head cache. Staging and Cancel
+retain their original relationship/history semantics.
+The explicit `--diagnose-rich-navigation` command is a separate, nonaccepting
+actual-BAML investigation at the complete rich population: 42 action-to-layout
+observations during 21 notes with six nominal 250-ms inputs apiece, raw managed
+allocations and picker work, followed by full independent owner/writing/resource
+verification. It never replaces native action-to-usable observations, changes the
+100-ms p95 target, subtracts observer time or runs as another required scale lane.
+
 The invisible `--verify-preferred-name-retention` check also runs in that existing
 profile-refresh selection. It holds the real SQLite commit through the shared
 save-boundary observer, drives enabled compiled Save/Cancel and pending A-B-A

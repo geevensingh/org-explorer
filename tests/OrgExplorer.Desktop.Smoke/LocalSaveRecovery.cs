@@ -234,6 +234,7 @@ internal static partial class Program
             Set(window, "TeamNameEditor", "Retained recovery label");
             Set(window, "Department", "Retained recovery department");
             ((SelectionItemPattern)Find(window, "PersonNoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+            var independentNoteId = Find(window, "PersonNoteHeading").Current.HelpText;
             string failed;
             string failedNotice;
             using (File.Open(Path.Combine(path, "workspace.sqlite"), FileMode.Open, FileAccess.Read, FileShare.None))
@@ -248,6 +249,11 @@ internal static partial class Program
                 SelectRecoveryPerson(window, "morgan@example.com", "Morgan Example", LocalSavePhase.Failed, LocalSaveOutcome.NotCommitted);
                 AssertValue(window, "TeamNameEditor", "Retained recovery label");
                 AssertValue(window, "Department", "Retained recovery department");
+                SelectTab(window, "PersonNoteEditTab");
+                AssertNoteView(window, "Person", editing: true, writable: false);
+                if (Find(window, "PersonNoteHeading").Current.HelpText != independentNoteId ||
+                    !Find(window, "PersonNoteOwnership").Current.Name.Contains("morgan@example.com"))
+                    throw new InvalidOperationException("Explicit Edit after failed-profile browsing lost the exact clean note owner/id.");
                 AssertValue(window, "PersonNoteMarkdown", "Independent exact recovery writing");
                 if (!Find(window, "NoticeSummary").Current.Name.Contains("NOT saved", StringComparison.Ordinal))
                     throw new InvalidOperationException("The native failure notice did not explain unsaved local writing.");

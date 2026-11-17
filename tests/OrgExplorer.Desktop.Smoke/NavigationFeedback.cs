@@ -124,6 +124,18 @@ internal static partial class Program
             foreach (var kind in new[] { "Person", "Team" })
             {
                 Click(window, $"New{kind}Note");
+                var noteId = Guid.Parse(Find(window, $"{kind}NoteHeading").Current.HelpText);
+                AwaitLocalWorkIdle(window);
+                var savedNote = kind == "Person" ? (object)ReadSmokePersonNote(workspace, noteId) :
+                    ReadSmokeTeamNote(workspace, noteId);
+                using (var reading = OpenSmokeWorkspace(workspace))
+                {
+                    var saved = reading.BeginNoteDraft(kind == "Person" ? OrgExplorer.Workflow.NoteScope.Person :
+                        OrgExplorer.Workflow.NoteScope.Team, "avery@example.com", noteId);
+                    if (saved?.OwnerEmail != "avery@example.com" || saved.Id != noteId ||
+                        saved.Title != $"New {kind} note" || saved.Markdown != "")
+                        throw new InvalidOperationException($"The initial {kind} note was not committed before invalid editing.");
+                }
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
                 if (responsive && kind == "Person") AssertProtectedPeopleOverlay(window);
@@ -144,7 +156,12 @@ internal static partial class Program
                     Value(window, $"{kind}NoteTitle") != "" || Find(window, "DirectoryName").Current.Name != "Avery")
                     throw new InvalidOperationException($"Rejected navigation changed the owner or discarded the failed {kind} note draft.");
                 Click(window, $"Discard{kind}NoteDraft");
-                Await(() => Find(window, $"{kind}NoteHeading").Current.Name == $"New {kind} note");
+                Await(() => Find(window, $"{kind}NoteHeading").Current.Name == $"New {kind} note" &&
+                    Find(window, $"{kind}NoteHeading").Current.HelpText == noteId.ToString());
+                if (!Equals(savedNote, kind == "Person" ? (object)ReadSmokePersonNote(workspace, noteId) :
+                    ReadSmokeTeamNote(workspace, noteId)))
+                    throw new InvalidOperationException($"Discard changed the saved exact {kind} note.");
+                SelectTab(window, $"{kind}NoteReadTab");
                 AssertNoteView(window, kind, editing: false);
                 SelectTab(window, $"{kind}NoteEditTab");
                 AssertNoteView(window, kind, editing: true);

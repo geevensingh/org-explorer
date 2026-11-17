@@ -206,6 +206,14 @@ internal static partial class Program
                     VerifyHostedIncomingContract(type, Path.Combine(settings, "ci")));
                 HarnessRuntime.Run("compiled-cutover-close-publication", () =>
                     VerifyHostedClosePublicationContracts(type, Path.Combine(settings, "cc")));
+                HarnessRuntime.Run("compiled-recovered-copy", () =>
+                    VerifyRecoveredCopyContract(type, Path.Combine(settings, "cr")));
+                HarnessRuntime.Run("compiled-independent-note-leave", () =>
+                    VerifyIndependentNoteLeaveContract(type, Path.Combine(settings, "il")));
+                HarnessRuntime.Run("compiled-manager-choice-demand", () =>
+                    VerifyManagerChoiceDemand(type, Path.Combine(settings, "mc")));
+                HarnessRuntime.Run("compiled-ordinary-fixture-state", () =>
+                    VerifyHostedOrdinaryFixtureStateContracts(type, Path.Combine(settings, "os")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
