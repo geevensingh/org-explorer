@@ -16,6 +16,35 @@ internal static partial class Program
         return decision is not null && !decision.Current.IsOffscreen;
     }
 
+    private static AutomationElement ExitHostWindow(Process process, string root, string mode)
+    {
+        var stage = "window-discovery";
+        Exception? primary = null;
+        try
+        {
+            var window = Window(process);
+            stage = "fixture-readiness";
+            Await(() =>
+            {
+                process.Refresh();
+                if (process.HasExited)
+                    throw new InvalidOperationException($"Owned exit host {mode} exited with code {process.ExitCode} before readiness.");
+                return File.Exists(Path.Combine(root, "ready.json"));
+            });
+            stage = "ready";
+            return window;
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
+                Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-exit-" + mode + "-readiness.json");
+            try { WriteExitHostReadiness(process, root, mode, stage, primary, evidence); }
+            catch (Exception error) when (primary is not null)
+            { ReportExitHostObservationFailure(primary, error); }
+        }
+    }
+
     private static void RequestNativeExit(Process process, AutomationElement window)
     {
         if (!process.CloseMainWindow()) throw new InvalidOperationException("The owned app did not accept its native close request.");
@@ -65,8 +94,7 @@ internal static partial class Program
             Applications.Add(process);
             try
             {
-                var window = Window(process);
-                Await(() => File.Exists(Path.Combine(fixture, "ready.json")));
+                var window = ExitHostWindow(process, fixture, mode);
                 EnsurePeopleBrowsing(window);
                 RequestNativeExit(process, window);
                 if (mode == "active-export") Await(() => File.Exists(Path.Combine(fixture, "held")));
@@ -145,8 +173,7 @@ internal static partial class Program
         Applications.Add(process);
         try
         {
-            var window = Window(process);
-            Await(() => File.Exists(Path.Combine(fixture, "ready.json")));
+            var window = ExitHostWindow(process, fixture, "update-handoff");
             RequestNativeExit(process, window);
             Await(() => Find(window, "ExitRisk").Current.Name.Contains("Update handoff is pending", StringComparison.Ordinal));
             var risk = Find(window, "ExitRisk").Current.Name;
@@ -172,8 +199,7 @@ internal static partial class Program
         Applications.Add(process);
         try
         {
-            var window = Window(process);
-            Await(() => File.Exists(Path.Combine(fixture, "ready.json")));
+            var window = ExitHostWindow(process, fixture, "normal-latest");
             EnsurePeopleBrowsing(window);
             RequestNativeExit(process, window);
             Await(() => File.Exists(Path.Combine(fixture, "held")));

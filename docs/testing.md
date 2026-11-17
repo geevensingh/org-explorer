@@ -223,6 +223,23 @@ profile navigation Save/Discard/Stay without leaving a latent close intent.
 No scenario, sample, previous assertion scope, lane budget or latency target is
 removed or extended. Local compiled/process success is not hosted UI acceptance.
 
+The exit host's one preparation Open waits for the actual compiled Ready activity
+and enabled Open control inside its original bounded preparation observation.
+Product Loaded performs asynchronous startup/update recovery even with startup
+update checks opted out; a second Loaded handler cannot assume that work has
+finished. `--verify-exit-host-startup`, also included in the existing compiled
+profile/exit checks, replays both real Loaded handlers without Show or a native
+handle. It requires observed pending startup, exactly one subsequent Ready Open,
+the real populated/selected Workspace and actual owned process death/reopen.
+It does not establish hosted startup/exit acceptance.
+Native exit cases retain bounded `*-sqlite-exit-<case>-readiness.json` sidecars
+even when window discovery or fixture readiness fails. They record the case,
+parent/child stages, actual process exit/code, available child stderr/error and
+observation-read failures; unknown live-host outcomes remain explicit. Child
+stages are capped at 24 and error text at 8192 characters with paths redacted;
+these observations contain no editor bodies or backing-store paths. Diagnostic
+write/report failures cannot replace the original case failure.
+
 `SqliteWorkspaceTests` observes the staged #91 path through the same real-storage
 `IApplicationWorkflow` / `WorkspaceViewModel` seams. It covers explicit creation,
 reviewed People-only Import, all supplied attributes, exact accepted evidence and
