@@ -411,17 +411,18 @@ internal static partial class Program
             var owner = Find(window, "Email").Current.Name;
             var note = Find(window, "PersonNoteHeading").Current.HelpText;
             TypeSearchQuery(window, "browse");
-            Await(() => SearchRows(window).Length == 40);
+            Await(() => Find(window, "SearchCount").Current.Name == "People found: 40 — local profiles and notes");
             AssertQueryHighlight(window, "browse01@example.com");
             PressCopyKey(0x26);
             AssertQueryHighlight(window, "browse01@example.com");
             PressCopyKey(0x28);
             AssertQueryHighlight(window, "browse02@example.com");
             TypeSearchText("0");
-            Await(() => Value(window, "SearchQuery") == "browse0" && SearchRows(window).Length == 9);
+            Await(() => Value(window, "SearchQuery") == "browse0" &&
+                Find(window, "SearchCount").Current.Name == "People found: 9 — local profiles and notes");
             AssertQueryHighlight(window, "browse01@example.com");
             TypeSearchQuery(window, "browse");
-            Await(() => SearchRows(window).Length == 40);
+            Await(() => Find(window, "SearchCount").Current.Name == "People found: 40 — local profiles and notes");
             for (var i = 2; i <= 40; i++)
             {
                 PressCopyKey(0x28);
@@ -437,7 +438,8 @@ internal static partial class Program
             PressCopyKey(0x0D);
             AssertAcceptedSearchBrowsing(window, "browse39@example.com");
             TypeSearchQuery(window, "no-person-matches-this-query");
-            Await(() => SearchRows(window).Length == 0);
+            Await(() => Find(window, "SearchCount").Current.Name == "People found: 0 — local profiles and notes" &&
+                SearchRows(window).Length == 0);
             PressCopyKey(0x0D);
             PressCopyKey(0x28);
             if (Value(window, "SearchQuery") != "no-person-matches-this-query" ||

@@ -412,6 +412,12 @@ The existing search journeys now type through the focused query field with real
 keyboard input, retain typing focus during Up/Down, observe each highlighted row
 inside the results viewport, and check first/last clamping, continued typing,
 first/chosen-result Enter, no-result Enter and mouse equivalence.
+Population readiness uses the rendered distinct-Person count, not the number
+of simultaneously realized UI Automation rows. The complete-candidate hosted
+failure exposed only seven/nine realized rows for forty matches at the two
+viewport sizes. Every native Down step must still reveal the exact next
+Person, selected and wholly inside the results viewport with query focus;
+neither a displayed total nor invisible logical focus proves that traversal.
 Accepted current and archived rows must be selected and visible, with their
 leading edge, full header height and clickable point inside the viewport.
 Reserved blank reporting-row extent can remain wider than that viewport.
