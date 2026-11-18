@@ -36,6 +36,14 @@ than retained as a fallback.
 - Each computer has an authoritative local SQLite database outside the
   externally synchronized folder. Never synchronize an open live database, its
   journal, or its write-ahead log as the interchange mechanism.
+- The implemented local policy is verified WAL with `synchronous=FULL` on actual
+  writers. An independent public reader retains a coherent old version while a
+  later ordinary note generation commits and a fresh reader sees it. SQLite
+  still serializes writers; the existing busy/stall and explicit recovery
+  contracts are unchanged. Default checkpoints may wait behind long readers;
+  neither checkpoint completion nor the main file alone defines local Commit.
+  Complete logical export includes committed WAL frames. No new exit checkpoint
+  or raw database/WAL/SHM interchange is introduced.
 - The database is app-managed. Direct external editing of backing storage is no
   longer a supported workflow. Human-readable canonical files are not required.
 - A local transaction supplies the commit boundary. Report an edit as locally

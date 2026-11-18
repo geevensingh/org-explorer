@@ -17,8 +17,8 @@ private Team-name rules and all domain history are unchanged.
    coherent local state. Keep profile/note/photo/Import associations atomic.
 2. Durably flush a revision-only `local-write-<id>.json` intent and retain the
    writer lease. It binds the actual base and preselected next revision.
-3. Perform the SQLite transaction with rollback journaling and
-   `synchronous=EXTRA`. Commit the payload and ordered ancestry together.
+3. Perform the SQLite transaction with verified local WAL and
+   `synchronous=FULL` on the actual writer. Commit the payload and ordered ancestry together.
 4. Acknowledge only successful durable Commit, then retire accessible evidence.
    Failed cleanup is committed maintenance; it cannot authorize replay.
 
@@ -41,9 +41,20 @@ Read-only query snapshots preserve browsing during transactions, bulk Imports
 and recovery. Continuous note typing uses a bounded autosave cadence; explicit
 profile/Preferred-name drafts are never submitted by navigation or close.
 
+Public independent readers retain coherent old snapshots without preventing a
+later writer's Commit. SQLite still serializes writers; the one-second busy
+setting, three-second oldest-request stall, unknown-outcome fences and explicit
+recovery are unchanged. Compatible format-3 state is fully validated before WAL
+negotiation, and a failure never silently selects rollback journaling.
+Default SQLite checkpoints remain independent of provider work. A confirmed
+Commit may live in WAL while an old reader delays checkpointing; live main/WAL/
+SHM files stay local and are never copied/deleted as a substitute for logical export.
+
 ## Independent publication and adoption
 
 1. Read one coherent committed local transaction.
+   This includes committed, uncheckpointed WAL content; checkpoint completion
+   is not a publication prerequisite.
 2. Package every logical family, complete ancestry and all required resource
    bytes into a self-contained `.oesnapshot`.
 3. Validate complete logical state in isolated local staging, durably write a

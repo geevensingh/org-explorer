@@ -9,6 +9,39 @@ namespace OrgExplorer.TestFixtures;
 
 internal static class WorkspaceFixtures
 {
+    internal sealed class WalCommitRefusal(string workspace) : IWorkspaceFileObserver, IDisposable
+    {
+        private FileStream? blocked;
+        public bool Armed;
+        public int CommitAttempts;
+        public bool ActualCommitFailed;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name != "local-sqlite-commit") return;
+            if (phase.Kind == WorkspaceStoragePhaseKind.Begin)
+            {
+                CommitAttempts++;
+                if (!Armed) return;
+                if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("This physical WAL write-refusal fixture requires Windows byte-range locks.");
+                blocked = new FileStream(Path.Combine(workspace, "workspace.sqlite-wal"),
+                    FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+                blocked.Lock(0, uint.MaxValue);
+            }
+            else if (blocked is not null)
+            {
+                ActualCommitFailed = phase.Kind == WorkspaceStoragePhaseKind.Failed;
+                Armed = false;
+                Dispose();
+            }
+        }
+        public void Dispose()
+        {
+            blocked?.Dispose();
+            blocked = null;
+        }
+    }
+
     private static readonly Lazy<Dictionary<string, byte[]>> Current = new(() =>
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",

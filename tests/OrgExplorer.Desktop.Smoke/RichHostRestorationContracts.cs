@@ -38,8 +38,9 @@ internal static partial class Program
             void Reopen(string expectedEmail, bool selectReport)
             {
                 var expected = ReadSmokeWorkspacePreferences();
-                using var store = ApplicationWorkflow.CreateFileBacked();
-                var window = CreateAutomaticSnapshotWindow(windowType, store, path, new SnapshotClock());
+                using var adoption = new SnapshotAdoptionCommitControl();
+                using var store = ApplicationWorkflow.CreateFileBacked(fileObserver: adoption);
+                var window = CreateHeldSnapshotWindow(windowType, store, path);
                 T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
                 var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
                 var closed = false;
@@ -86,6 +87,21 @@ internal static partial class Program
 
             Reopen("morgan@example.com", selectReport: true);
             Reopen("avery@example.com", selectReport: false);
+            using (var adoption = new SnapshotAdoptionCommitControl())
+            {
+                var host = LaunchHeldSnapshotFixture(Path.ChangeExtension(windowType.Assembly.Location, ".exe"),
+                    path, adoption, startupOnly: true);
+                if (!host.WaitForExit(20_000)) throw new TimeoutException("The owned no-window WPF host did not finish its existing startup/normal-close observation.");
+                var error = host.StandardError.ReadToEnd();
+                var result = host.StandardOutput.ReadToEnd();
+                if (host.ExitCode != 0) throw new InvalidOperationException("Owned no-window host startup failed: " + error);
+                using var observed = System.Text.Json.JsonDocument.Parse(result);
+                if (observed.RootElement.GetProperty("processId").GetInt32() != host.Id ||
+                    !observed.RootElement.GetProperty("noNativeWindow").GetBoolean() ||
+                    observed.RootElement.GetProperty("remembered").GetProperty("PersonEmail").GetString() != "avery@example.com")
+                    throw new InvalidOperationException("The actual owned host did not independently verify its process and remembered Person.");
+                Console.WriteLine("OWNED-ADOPTION-HOST-STARTUP " + result.Trim());
+            }
             using var reading = OpenSmokeWorkspace(path);
             if (reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", note)?.Markdown != "Exact saved context")
                 throw new InvalidOperationException("Remembered startup or selection changed saved Team writing.");

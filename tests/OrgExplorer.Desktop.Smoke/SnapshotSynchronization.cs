@@ -46,8 +46,9 @@ internal static partial class Program
         var holdExport = false;
         var publisher = new AutomaticSnapshotPublicationGate(() => holdExport, exportEntered.Set,
             () => releaseExport.Wait(TimeSpan.FromSeconds(15)));
+        using var adoption = new SnapshotAdoptionCommitControl();
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
-            [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher), chooseFolder,
+            [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: adoption), chooseFolder,
                 (Action<string>)(_ => { }), clock], null)!;
         WorkspaceViewModel? workflow = null;
         try
@@ -87,7 +88,7 @@ internal static partial class Program
             Deliver();
             Invoke("EditProfileButton");
             var displayedBasis = workflow.ProfileEdit!.Basis;
-            HeldSnapshotAdoption.Run(target, () =>
+            HeldSnapshotAdoption.Run(adoption, () =>
                 {
                     Thread.Sleep(1200);
                     var editor = Control<TextBox>("JobTitle");
@@ -102,7 +103,7 @@ internal static partial class Program
                 },
                 () => { Invoke("OpenSettingsButton"); Invoke("SyncNowButton"); },
                 () => PumpUntil(() => workflow.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
-                    File.Exists(Path.Combine(target, "workspace.sqlite-journal"))),
+                    adoption.Read()?.Held == true),
                 () =>
                 {
                     if (workflow.Synchronization.Phase != WorkspaceSynchronizationPhase.Adopting || workflow.CanSafelyClose ||
@@ -112,6 +113,8 @@ internal static partial class Program
                 observation => Console.WriteLine("DIAGNOSTIC: compiled-held-snapshot " + JsonSerializer.Serialize(observation)));
             PumpUntil(() => workflow.GetRelationships("avery@example.com")!.Person.PreferredName == "Incoming continuation" &&
                 Control<Button>("SyncNowButton").IsEnabled);
+            if (adoption.Read() is not { Kind: WorkspaceStoragePhaseKind.End, CompletedAt: > 0 })
+                throw new InvalidOperationException("The released actual adoption Commit did not complete.");
             if (Control<TextBox>("JobTitle").Text != "Compiled later owner draft" ||
                 !ReferenceEquals(displayedBasis, workflow.ProfileEdit?.Basis))
                 throw new InvalidOperationException("Compiled adoption cleared or silently rebased post-seal owner writing.");
@@ -191,7 +194,7 @@ internal static partial class Program
     }
 
     private static void RunSnapshotSynchronizationJourney(AutomationElement window, string source, string root,
-        LocalPersonJourney expected)
+        LocalPersonJourney expected, string productExecutable)
     {
         var outgoing = Path.Combine(root, "sqlite-snapshot-out");
         var incoming = Path.Combine(root, "sqlite-snapshot-in");
@@ -270,6 +273,53 @@ internal static partial class Program
             continuation = editing.Synchronization.LocalRevision;
         }
         Deliver();
+        SetSettingsVisible(window, true);
+        Synchronize();
+        SetSettingsVisible(window, false);
+        AssertProfileValue(window, "OfficeNumber", "009D");
+        CaptureVisualEvidence(window, "sqlite-sync-normal-incoming-continuation");
+        var normalContinuation = continuation;
+        var normalProcessId = window.Current.ProcessId;
+        var originalBounds = window.Current.BoundingRectangle;
+        if (((ValuePattern)Find(window, "SearchQuery").GetCurrentPattern(ValuePattern.Pattern)).Current.Value.Length != 0)
+            throw new InvalidOperationException("The forced-adoption relaunch requires the existing clean empty-query setup; no query is cleared.");
+        using (var editing = OpenSmokeWorkspace(source))
+        {
+            var favorite = editing.GetRelationships("avery@example.com")!.Person.IsFavorite;
+            if (!editing.EditFavorite("avery@example.com", !favorite) || !editing.SyncNow())
+                throw new InvalidOperationException(editing.Status);
+            continuation = editing.Synchronization.LocalRevision;
+        }
+        using (var normal = Process.GetProcessById(normalProcessId)) ClosePublishedWorkspace(normal, target);
+        var remembered = ReadSmokeWorkspacePreferences().GetLastView(target) ??
+            throw new InvalidOperationException("The clean forced-adoption setup has no independently remembered view.");
+        Deliver();
+        using var adoption = new SnapshotAdoptionCommitControl();
+        var controlled = LaunchHeldSnapshotFixture(productExecutable, target, adoption);
+        window = Window(controlled);
+        AwaitRestoredWorkspace(window, target, remembered.PersonEmail);
+        SetSettingsVisible(window, true);
+        Await(() => Find(window, "OpenWorkspace").Current.IsEnabled && Activity(window) == "Ready");
+        SetSettingsVisible(window, false);
+        if (ReadSmokeWorkspacePreferences().GetLastView(target) != remembered ||
+            ((ValuePattern)Find(window, "SearchQuery").GetCurrentPattern(ValuePattern.Pattern)).Current.Value.Length != 0 ||
+            Math.Abs(window.Current.BoundingRectangle.Width - originalBounds.Width) > 1 ||
+            Math.Abs(window.Current.BoundingRectangle.Height - originalBounds.Height) > 1)
+            throw new InvalidOperationException("The controlled WPF host did not preserve the independently recorded clean view/query/size.");
+        using (var before = OpenSmokeWorkspace(target))
+        {
+            if (before.Synchronization.LocalRevision != normalContinuation ||
+                before.Synchronization.WorkspaceId != identity)
+                throw new InvalidOperationException("Controlled startup changed the clean local Workspace before admission.");
+            if (remembered.NoteId is { } rememberedNote &&
+                remembered.Source is SearchSource.PersonNote or SearchSource.OwnedTeamNote)
+            {
+                var scope = remembered.Source == SearchSource.PersonNote ? NoteScope.Person : NoteScope.Team;
+                var note = before.BeginNoteDraft(scope, remembered.NoteOwnerEmail!, rememberedNote) ??
+                    throw new InvalidOperationException("The remembered exact note is unavailable before controlled admission.");
+                AssertRestoredNote(window, scope.ToString(), note.Id.ToString("D"), note.Title);
+            }
+        }
         BeginProfileEditing(window);
         DateTimeOffset? heldAdmissionAt = null, heldActionsCompletedAt = null;
         AutomationElement? syncStatus = null, syncButton = null;
@@ -291,7 +341,7 @@ internal static partial class Program
         SnapshotWritableEditor? lastEditor = null, beforeInputEditor = null, afterInputEditor = null;
         object NativeUsability() => new
         { beforeInputPerson, beforeInputEditor, afterInputPerson, afterInputEditor, destinationPerson, lastPerson, lastEditor };
-        var heldObservation = HeldSnapshotAdoption.Run(target,
+        var heldObservation = HeldSnapshotAdoption.Run(adoption,
             () =>
             {
                 var settingsAction = (InvokePattern)Find(window, "OpenSettings").GetCurrentPattern(InvokePattern.Pattern);
@@ -373,7 +423,11 @@ internal static partial class Program
             () =>
             {
                 Await(() => syncStatus!.GetUpdatedCache(syncState).Cached.Name.Contains("Installing a validated incoming version.") &&
-                    !syncButton!.GetUpdatedCache(syncState).Cached.IsEnabled && File.Exists(Path.Combine(target, "workspace.sqlite-journal")));
+                    !syncButton!.GetUpdatedCache(syncState).Cached.IsEnabled &&
+                    adoption.Read() is { Held: true } state && state.ProcessId == controlled.Id);
+                using var oldReading = OpenSmokeWorkspace(target);
+                if (oldReading.Synchronization.LocalRevision != normalContinuation)
+                    throw new InvalidOperationException("The admitted pre-Commit phase did not retain the old committed reading.");
                 heldAdmissionAt = DateTimeOffset.UtcNow;
             },
             () =>
@@ -381,7 +435,7 @@ internal static partial class Program
                 CaptureVisualEvidence(window, "sqlite-sync-held-adoption-draft");
                 heldActionsCompletedAt = DateTimeOffset.UtcNow;
             },
-            observation => WriteHeldSnapshotObservation(window, observation, NativeUsability()));
+            observation => WriteHeldSnapshotObservation(window, observation, NativeUsability(), productExecutable));
         SetSettingsVisible(window, true);
         Await(() => Find(window, "SyncNow").Current.IsEnabled &&
             Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.") &&
@@ -402,6 +456,23 @@ internal static partial class Program
             reopened.GetHistoricalTeamContexts("avery@example.com").Single(c => c.Id == expected.CaptureId)
                 .TeamNotes.Single(n => n.Id == expected.NoteId).Version != expected.FrozenVersion)
             throw new InvalidOperationException("Native incoming adoption was not complete and durable.");
+        var completedAdoption = adoption.Read();
+        if (completedAdoption is not { Kind: WorkspaceStoragePhaseKind.End, CompletedAt: > 0 } ||
+            completedAdoption.ProcessId != controlled.Id ||
+            heldObservation.Milestones.Where(value => value.OperationId is not null)
+                .Any(value => value.OperationId != completedAdoption.OperationId))
+            throw new InvalidOperationException("The same identified controlled adoption Commit did not complete after release.");
+        var controlledExecutable = controlled.MainModule!.FileName;
+        var controlledExecutableSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(controlledExecutable)));
+        var controlledProcessId = controlled.Id;
+        ClosePublishedWorkspace(controlled, target);
+        var resumed = Launch(productExecutable);
+        window = Window(resumed);
+        AwaitRestoredWorkspace(window, target, "avery@example.com");
+        SetSettingsVisible(window, true);
+        Await(() => Find(window, "OpenWorkspace").Current.IsEnabled && Activity(window) == "Ready");
+        SetSettingsVisible(window, false);
+        AssertProfileValue(window, "OfficeNumber", "009D");
         using var process = Process.GetProcessById(window.Current.ProcessId);
         using var executable = File.OpenRead(process.MainModule!.FileName);
         var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
@@ -429,6 +500,10 @@ internal static partial class Program
             frozenVersion = expected.FrozenVersion,
             heldAdoption = new
             {
+                hostKind = "Controlled actual compiled-WPF host, not the normal EXE",
+                hostProcessId = controlledProcessId, hostExecutableSha256 = controlledExecutableSha256,
+                productDllSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(productExecutable, ".dll")))),
+                completedAdoption, normalProcessId, normalContinuation,
                 heldAdmissionAt, heldActionsCompletedAt,
                 observationFile = Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-held-adoption-observation.json",
                 milestones = heldObservation.Milestones,
@@ -436,7 +511,7 @@ internal static partial class Program
                 inputRequests = heldObservation.Milestones.Count(value => value.Stage == "enter-draft-started"),
                 selectionRequests = heldObservation.Milestones.Count(value => value.Stage == "select-person-started"),
                 nativeUsability = NativeUsability(),
-                boundary = "Normal Sync now reports sealed validated adoption with a live SQLite journal; native draft input and actual Person selection complete and are captured while the same real reader still prevents commit. Only then is the reader deliberately released.",
+                boundary = heldObservation.Mechanism,
                 ownerEmail = "avery@example.com", selectedWhileHeld = "morgan@example.com",
                 retainedJobTitle = "Private draft admitted after snapshot seal",
                 discardedExplicitlyAfterSuccess = true
@@ -444,9 +519,9 @@ internal static partial class Program
             artifacts = Directory.GetFiles(incoming, "*.oesnapshot").Select(path => new
             { name = Path.GetFileName(path), bytes = new FileInfo(path).Length, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) }).ToArray(),
             providerDelivery = "Unknown; deterministic copying of actual complete artifacts substitutes only external provider delivery.",
-            captures = new[] { "sqlite-sync-folder-published", "sqlite-sync-joined-person-history",
+            captures = new[] { "sqlite-sync-folder-published", "sqlite-sync-joined-person-history", "sqlite-sync-normal-incoming-continuation",
                 "sqlite-sync-held-adoption-draft", "sqlite-sync-incoming-continuation" },
-            scope = "Normal native Settings folder, Sync now, fresh join and automatic clean continuation; real independent logical stores/resources/history. Not periodic scheduling, conflict resolution, retention, exit or 10,000-Person export evidence."
+            scope = "Normal-EXE native Settings/Sync/fresh Join/unpaused incoming continuation, then the separately identified controlled compiled-WPF forced-adoption segment, then normal-EXE resume. Real independent logical stores/resources/history. Not periodic scheduling, retention, exit or 10,000-Person export evidence."
         }, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS: hosted SQLite snapshots: native Settings folder/Sync now/status, independent-store fresh join and selected-Person incoming adoption preserve actual photos/private Team names/frozen history; candidate-bound evidence: " + evidence);
         RunWorkspaceConflictJourney(window, source, target, outgoing, incoming, expected);
@@ -458,9 +533,11 @@ internal static partial class Program
         EnsurePeopleBrowsing(window);
         SelectTreePerson(window, "morgan@example.com");
         Await(() => CurrentPersonEmail(window) == "morgan@example.com");
+        ClosePublishedWorkspace(resumed, source);
     }
 
-    private static void WriteHeldSnapshotObservation(AutomationElement window, SnapshotAdoptionObservation observation, object nativeUsability)
+    private static void WriteHeldSnapshotObservation(AutomationElement window, SnapshotAdoptionObservation observation, object nativeUsability,
+        string productExecutable)
     {
         using var process = Process.GetProcessById(window.Current.ProcessId);
         using var executable = File.OpenRead(process.MainModule!.FileName);
@@ -477,19 +554,22 @@ internal static partial class Program
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
-            executableSha256 = Convert.ToHexString(SHA256.HashData(executable)),
+            hostKind = "Controlled actual compiled-WPF host, not normal EXE",
+            hostExecutableSha256 = Convert.ToHexString(SHA256.HashData(executable)),
+            productExeSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(productExecutable))),
+            productDllSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(productExecutable, ".dll")))),
             processId = window.Current.ProcessId,
             observedAt = DateTimeOffset.UtcNow,
             observation,
             nativeUsability,
             inputRequests = observation.Milestones.Count(value => value.Stage == "enter-draft-started"),
             selectionRequests = observation.Milestones.Count(value => value.Stage == "select-person-started"),
-            outcomeObservedBeforeReaderDisposal = new
+            outcomeObservedBeforeHostCleanup = new
             {
                 itemStatus = current.Cached.ItemStatus,
                 helpText = current.Cached.HelpText
             },
-            boundary = "Harness monotonic actual preparation/request/observation milestones and real reader/journal state. No database commit timestamp or latency subtraction. UI outcome is observed before disposing the reader; a passing proof has already deliberately released it. Feedback remains non-atomic."
+            boundary = observation.Mechanism + " Harness monotonic preparation/request/observation milestones; no database Commit timestamp or latency subtraction. Feedback remains non-atomic."
         }));
         Console.WriteLine("DIAGNOSTIC: sqlite-held-adoption outcome=" + observation.Outcome + " evidence=" + path);
     }

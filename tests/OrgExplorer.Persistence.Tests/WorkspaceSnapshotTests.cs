@@ -1522,7 +1522,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         using var preparing = new ManualResetEventSlim();
         using var prepared = new ManualResetEventSlim();
         using var committing = new ManualResetEventSlim();
-        var observer = new ChoiceValidationObserver(preparing, prepared, committing);
+        using var releaseValidation = new ManualResetEventSlim();
+        var observer = new ChoiceValidationObserver(preparing, prepared, committing, releaseValidation);
         var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
@@ -1541,25 +1542,14 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.False(second.LocalSave.HasUnresolvedOutcome);
         observer.Armed = 1;
         var choosing = Task.Run(() => second.ChooseWorkspaceVersion(review.Id, incoming));
-        SqliteConnection? connection = null;
-        SqliteTransaction? heldReader = null;
         Guid? committedChild = null;
         try
         {
             Assert.True(preparing.Wait(TimeSpan.FromSeconds(5)), "The actual choice review never prepared its isolated validation store.");
             var candidate = Assert.Single(Directory.GetDirectories(Local("second"), "snapshot-*"),
                 path => File.Exists(Path.Combine(path, "workspace.sqlite")));
-            connection = new SqliteConnection($"Data Source={Path.Combine(candidate, "workspace.sqlite")};Pooling=False");
-            connection.Open();
-            heldReader = connection.BeginTransaction(deferred: true);
-            using (var read = connection.CreateCommand())
-            {
-                read.Transaction = heldReader;
-                read.CommandText = "PRAGMA schema_version;";
-                read.ExecuteScalar();
-            }
             prepared.Set();
-            Assert.True(committing.Wait(TimeSpan.FromSeconds(5)), "Actual choice validation never reached its reader-held SQLite Commit.");
+            Assert.True(committing.Wait(TimeSpan.FromSeconds(5)), "Actual choice validation never reached its held SQLite Commit.");
             boundary.AfterSave = () => throw new IOException("Actual note commit returned after choice admission, but its acknowledgment was lost.");
             second.UpdateNoteDraft(scope, note.Id, note.Title, "Committed child after clean choice admission");
             await AwaitSnapshot(() => second.GetRetainedNoteDraft(scope, note.Id) is { IsSaving: false } &&
@@ -1577,15 +1567,13 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.True(second.LocalSave.HasUnresolvedOutcome);
             Assert.False(second.CanSafelyClose);
             Assert.True(observer.CommitActive && !choosing.IsCompleted && !observer.PreparationExpired &&
-                File.Exists(Path.Combine(candidate, "workspace.sqlite-journal")),
+                !releaseValidation.IsSet && File.Exists(Path.Combine(candidate, "workspace.sqlite")),
                 "The same actual validation Commit must remain held through the lost return and explicit buffer discard.");
         }
         finally
         {
             prepared.Set();
-            heldReader?.Rollback();
-            heldReader?.Dispose();
-            connection?.Dispose();
+            releaseValidation.Set();
             boundary.AfterSave = null;
             await choosing.WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -1615,7 +1603,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     private sealed class ChoiceValidationObserver(ManualResetEventSlim preparing, ManualResetEventSlim prepared,
-        ManualResetEventSlim committing) : IWorkspaceFileObserver
+        ManualResetEventSlim committing, ManualResetEventSlim release) : IWorkspaceFileObserver
     {
         public int Armed;
         public volatile bool CommitActive, PreparationExpired;
@@ -1632,7 +1620,11 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             }
             if (!observingCommit || phase.Name != "snapshot.validate-commit") return;
             CommitActive = phase.Kind == WorkspaceStoragePhaseKind.Begin;
-            if (CommitActive) committing.Set();
+            if (CommitActive)
+            {
+                committing.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("The owning choice test did not release its actual validation Commit.");
+            }
             else observingCommit = false;
         }
     }
@@ -1789,9 +1781,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     [InlineData("profile")]
     [InlineData("person-note")]
     [InlineData("team-note")]
-    public async Task A_real_reader_held_adoption_commit_cannot_block_browsing_or_discard_a_later_draft(string kind)
+    public async Task A_real_held_adoption_commit_cannot_block_browsing_or_discard_a_later_draft(string kind)
     {
         using var installing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         var scope = kind == "team-note" ? NoteScope.Team : NoteScope.Person;
@@ -1800,7 +1793,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using var second = Create("second", new SnapshotPhaseObserver(installing));
+        var observer = new SnapshotPhaseObserver(installing, release);
+        using var second = Create("second", observer);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
@@ -1809,16 +1803,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.EditPreferredName("report@example.com", "Incoming before later draft"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Local("second"), "workspace.sqlite")};Pooling=False");
-        connection.Open();
-        using var heldReader = connection.BeginTransaction(deferred: true);
-        using (var read = connection.CreateCommand())
-        {
-            read.Transaction = heldReader;
-            read.CommandText = "PRAGMA schema_version;";
-            read.ExecuteScalar();
-        }
         installing.Reset();
+        observer.Armed = true;
         var sync = Task.Run(second.SyncNow);
         var stillInstalling = false;
         NoteDraft? retainedBasis = null;
@@ -1842,9 +1828,9 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             if (retainedBasis is not null)
                 Assert.Same(retainedBasis, second.GetRetainedNoteDraft(scope, original.Id)!.Basis);
         }
-        finally { heldReader.Rollback(); }
+        finally { release.Set(); }
         var synchronized = await sync.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.True(stillInstalling, "Browsing/draft admission waited for the reader-held adoption to finish or fail.");
+        Assert.True(stillInstalling, "Browsing/draft admission waited for the held adoption to finish or fail.");
         Assert.True(synchronized, second.Synchronization.Error);
         Assert.True(second.NavigatePerson(owner), second.Status);
         Assert.Equal("Incoming before later draft", second.GetRelationships("report@example.com")!.Person.PreferredName);
@@ -1866,12 +1852,17 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         }
     }
 
-    private sealed class SnapshotPhaseObserver(ManualResetEventSlim committing) : IWorkspaceFileObserver
+    private sealed class SnapshotPhaseObserver(ManualResetEventSlim committing, ManualResetEventSlim release) : IWorkspaceFileObserver
     {
+        public bool Armed;
         public void Observe(WorkspaceFileEffect effect) { }
         public void ObservePhase(WorkspaceStoragePhase phase)
         {
-            if (phase.Name == "snapshot.adopt-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin) committing.Set();
+            if (Armed && phase.Name == "snapshot.adopt-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+            {
+                committing.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("The owning adoption test did not release its actual transaction.");
+            }
         }
     }
 
@@ -2154,32 +2145,24 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using var second = Create("second");
+        using var observer = new WorkspaceFixtures.WalCommitRefusal(Local("second"));
+        using var second = Create("second", observer);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         var oldRevision = second.Synchronization.LocalRevision;
         Assert.True(first.EditPreferredName("report@example.com", "Complete incoming local transaction"), first.Status);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using (var connection = new SqliteConnection($"Data Source={Path.Combine(Local("second"), "workspace.sqlite")};Pooling=False"))
-        {
-            connection.Open();
-            using var held = connection.BeginTransaction(deferred: true);
-            using (var read = connection.CreateCommand())
-            {
-                read.Transaction = held;
-                read.CommandText = "PRAGMA schema_version;";
-                read.ExecuteScalar();
-            }
-            Assert.False(await Task.Run(second.SyncNow).WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.Equal(oldRevision, second.Synchronization.LocalRevision);
-            Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
-            Assert.True(second.IsWorkspaceCurrent);
-            Assert.True(second.LocalSave.EditsPaused);
-            Assert.Equal(LocalSaveOutcome.NotCommitted, second.LocalSave.Outcome);
-            Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
-            held.Rollback();
-        }
+        observer.Armed = true;
+        Assert.False(await Task.Run(second.SyncNow).WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(observer.ActualCommitFailed);
+        Assert.Contains("SqliteException", second.LocalSave.Error);
+        Assert.Equal(oldRevision, second.Synchronization.LocalRevision);
+        Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        Assert.True(second.IsWorkspaceCurrent);
+        Assert.True(second.LocalSave.EditsPaused);
+        Assert.Equal(LocalSaveOutcome.NotCommitted, second.LocalSave.Outcome);
+        Assert.True(second.NavigatePerson("manager@example.com"), second.Status);
         Assert.True(second.ReconcileLocalSaves(), second.Status);
         Assert.False(second.LocalSave.HasUnresolvedOutcome);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
@@ -2267,7 +2250,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Synchronization.Error);
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
-        using var second = Create("second");
+        using var control = new SnapshotAdoptionCommitControl();
+        using var second = Create("second", control);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Synchronization.Error);
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.True(first.EditPreferredName("report@example.com", "Incoming after prepared controls"), first.Status);
@@ -2280,7 +2264,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         var synchronized = false;
         try
         {
-            HeldSnapshotAdoption.Run(Local("second"),
+            HeldSnapshotAdoption.Run(control,
                 () =>
                 {
                     Thread.Sleep(1200);
@@ -2300,7 +2284,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                 },
                 () => sync = Task.Run(second.SyncNow),
                 () => Assert.True(SpinWait.SpinUntil(() => second.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
-                    File.Exists(Path.Combine(Local("second"), "workspace.sqlite-journal")), TimeSpan.FromSeconds(5))),
+                    control.Read()?.Held == true, TimeSpan.FromSeconds(5))),
                 () => { },
                 value => observed = value);
         }
@@ -2311,19 +2295,21 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         }
         Assert.NotNull(observed);
         Assert.All(observed.Milestones.Where(value => value.Stage.StartsWith("prepare-controls", StringComparison.Ordinal)),
-            value => Assert.False(value.ReaderHeld));
+            value => Assert.False(value.CommitPhaseHeld));
         if (lateAction)
         {
-            Assert.Equal("Native browsing/draft admission outlasted the actual held adoption transaction.", failure?.Message);
+            Assert.Equal("Native browsing/draft admission outlasted the actual held adoption Commit phase.", failure?.Message);
             Assert.Equal("Failed", observed.Outcome);
-            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && value.ReaderHeld && !value.JournalPresent);
-            Assert.False(synchronized);
+            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && !value.CommitPhaseHeld);
+            Assert.True(synchronized, second.Synchronization.Error);
+            Assert.True(control.Read() is { Kind: WorkspaceStoragePhaseKind.End, CompletedAt: > 0, HoldExpired: true });
         }
         else
         {
             Assert.Null(failure);
             Assert.Equal("Passed", observed.Outcome);
-            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && value.ReaderHeld && value.JournalPresent);
+            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && value.CommitPhaseHeld &&
+                value.OperationId != Guid.Empty);
             Assert.True(synchronized, second.Synchronization.Error);
             Assert.True(second.NavigatePerson("report@example.com"), second.Status);
             Assert.Equal("Exact prepared owner draft", second.ProfileEdit!.Draft.JobTitle);

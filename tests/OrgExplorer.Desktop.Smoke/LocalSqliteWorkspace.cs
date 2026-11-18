@@ -507,9 +507,9 @@ internal static partial class Program
                             throw new InvalidOperationException("Hosted note reopening lost exact writing or its actual owner.");
                 }
                 Console.WriteLine("PASS: hosted SQLite Person/Team notes survive process close/reopen with exact identities, writing and original ownership; legacy Workspace bytes remain unchanged.");
-                HarnessRuntime.Run("native-sqlite-snapshots", () => RunSnapshotSynchronizationJourney(window, local, root, personJourney));
+                HarnessRuntime.Run("native-sqlite-snapshots", () => RunSnapshotSynchronizationJourney(window, local, root, personJourney, executable));
                 AssertWorkspaceBytes(oldWorkspace, originals);
-                Close(reopened);
+                if (!reopened.HasExited) Close(reopened);
             }
             finally { StopApplication(reopened); }
             HarnessRuntime.Run("native-sqlite-reviewed-import",
