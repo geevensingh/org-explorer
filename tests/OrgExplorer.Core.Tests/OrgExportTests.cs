@@ -1754,6 +1754,46 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal(1, published["unavailableProfileLookups"]!.GetValue<int>());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Capture_failure_settles_its_claim_when_unrelated_capacity_deferred_reads_have_no_attempts(bool bestEffort)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        if (bestEffort) session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var failed = session.ClaimSource("failed", "profile", [RootId]);
+        var other = session.ClaimSource("other", "profile", [ChildId]);
+        Assert.Null(session.ClaimSource("deferred", "profile", [AltId]).ClaimId);
+        var events = Path.Combine(root, "deferred-capture.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "deferred-capture-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = failed.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "failed", toolName = "workiq-retrieve", arguments });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "failed", success = false,
+            error = new { message = "Unsupported incomplete source response." } });
+
+        var result = session.FailCapture(failed.ClaimId!.Value, ticket, "Original invocation completed without a usable result.");
+
+        Assert.Equal(failed.ClaimId, result.ClaimId);
+        Assert.Equal(RootId, Assert.Single(result.Reads).Target);
+        using var reopened = ExportSession.Open(path);
+        var ledger = reopened.SourceStatus();
+        var settled = ledger.Reads.Single(read => read.Target == RootId);
+        Assert.Equal("failed", settled.State);
+        Assert.Equal(bestEffort, settled.RecoveryEligible);
+        Assert.NotNull(settled.Attempts.Single().FinishedAt);
+        Assert.True(File.Exists(Path.Combine(path, settled.Attempts.Single().CaptureFailureFile!)));
+        var unchanged = ledger.Reads.Single(read => read.Target == ChildId);
+        Assert.Equal("active", unchanged.State);
+        Assert.Equal(other.ClaimId, unchanged.Attempts.Single().ClaimId);
+        var deferred = ledger.Reads.Single(read => read.Target == AltId);
+        Assert.Equal("deferred", deferred.State);
+        Assert.Empty(deferred.Attempts);
+    }
+
     [Fact]
     public void A_late_verified_capture_must_be_used_instead_of_discarded_for_a_retry()
     {

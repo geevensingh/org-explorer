@@ -200,7 +200,7 @@ public sealed partial class ExportSession
                         read with { State = "failed", RecoveryEligible = false }, retryable: !classified.Denied && !classified.InvalidDelay);
                 }
                 return new SourceCompletion(ledger.BatchId, claimId,
-                    ledger.Reads.Where(read => read.Attempts[^1].ClaimId == claimId).ToArray(),
+                    ledger.Reads.Where(read => read.Attempts.LastOrDefault()?.ClaimId == claimId).ToArray(),
                     ledger.RecoveryConsumed, ledger.StopReason);
             });
         }
