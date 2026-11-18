@@ -73,11 +73,10 @@ public sealed partial class ExportSession
         Require(events.Length >= ticket.Offset && PrefixHash(events, ticket.Offset) == ticket.PrefixSha256,
             "The original session event stream changed; capture cannot establish request identity.");
         events.Position = ticket.Offset;
-        using var reader = new StreamReader(events, new UTF8Encoding(false, true));
         var starts = new List<(string Id, string Line, long Position)>();
         var completions = new Dictionary<string, List<(string Line, long Position)>>(StringComparer.Ordinal);
         long position = 0;
-        while (reader.ReadLine() is { } line)
+        foreach (var line in CompleteEventLines(events))
         {
             position++;
             using var document = JsonDocument.Parse(line);
@@ -175,7 +174,10 @@ public sealed partial class ExportSession
                 Require(active.Length > 0, "The original source claim has already settled.");
                 var directory = System.IO.Path.GetDirectoryName(ticketFile)!;
                 var completionFile = System.IO.Path.Combine(directory, "completion.json");
-                JsonObject? outcome = File.Exists(completionFile) ? Read<JsonObject>(completionFile)["data"]?.AsObject() : null;
+                Require(File.Exists(completionFile),
+                    "The matching completion diagnostics cannot be inspected safely; keep the claim active and recapture before authorizing a replacement.");
+                var outcome = Read<JsonObject>(completionFile)["data"] as JsonObject
+                    ?? throw new InvalidOperationException("The correlated capture completion has no diagnostic data.");
                 var classified = CaptureFailureOutcome(active[0].Kind, active[0].Target, outcome);
                 if (classified.Denied) ledger.StopReason = "Source authorization/access/policy denial in capture diagnostics stops this invocation.";
                 else if (classified.InvalidDelay)
@@ -355,6 +357,38 @@ public sealed partial class ExportSession
     {
         Local(file);
         return new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    }
+
+    private static IEnumerable<string> CompleteEventLines(FileStream events)
+    {
+        var remaining = events.Length - events.Position;
+        var buffer = new byte[81920];
+        var encoding = new UTF8Encoding(false, true);
+        var first = true;
+        using var line = new MemoryStream();
+        while (remaining > 0)
+        {
+            var count = events.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+            Require(count > 0, "Session events were truncated during capture.");
+            remaining -= count;
+            var start = 0;
+            for (var index = 0; index < count; index++)
+            {
+                if (buffer[index] != '\n') continue;
+                line.Write(buffer, start, index - start);
+                var bytes = line.GetBuffer();
+                var length = checked((int)line.Length);
+                if (length > 0 && bytes[length - 1] == '\r') length--;
+                var preamble = first && length >= 3 && bytes[0] == 0xEF
+                    && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+                first = false;
+                yield return encoding.GetString(bytes, preamble, length - preamble);
+                line.SetLength(0);
+                line.Position = 0;
+                start = index + 1;
+            }
+            line.Write(buffer, start, count - start);
+        }
     }
 
     private static string PrefixHash(FileStream stream, long length)

@@ -219,7 +219,7 @@ public sealed partial class ExportSession
     {
         var metadata = ledger.Reads.SingleOrDefault(read => read.Kind == "structured"
             && read.Target == PhotoPath(target.Split('/')[2]) && read.State == "completed");
-        return metadata is not null && SavedSourceResponse(metadata)["statusCode"]?.GetValue<int>() == 200;
+        return metadata is not null && SavedSourceResponse(metadata, metadata.Attempts[^1])["statusCode"]?.GetValue<int>() == 200;
     }
 
     private static bool KnownProfileFailure(JsonObject response)
@@ -342,7 +342,8 @@ public sealed partial class ExportSession
             ledger.StopReason = "Source authorization/access/policy denial stops this invocation: " + outcome.Error;
             return ledger;
         }
-        var transientRecoveryAllowed = !ledger.RecoveryConsumed || ledger.PerReadRecovery is not null;
+        var transientRecoveryAllowed = !ledger.RecoveryConsumed || ledger.PerReadRecovery is not null
+            || ledger.BestEffortEnrichment is not null;
         var matching = MatchingErrorAuthorizations(ledger).ToArray();
         Require(transientRecoveryAllowed || matching.Length > 0,
             "The invocation-wide failed-read recovery pass is already consumed.");

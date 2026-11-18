@@ -78,7 +78,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `init LABEL ROOT-ID ACCOUNT-ID` | Returns a new private staging path below local `OrgExplorer\Imports`. |
 | `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
 | `capture RUN TICKET.json` | Returns original response/request file references, tool-call identity, source-result counts and outer tool outcome. Incomplete/ambiguous capture fails explicitly. |
-| `capture-fail RUN CLAIM-ID TICKET.json REASON` | After bounded local recapture and confirmed-stopped work: records immutable capture diagnostics, preserves observed denials/delays, and schedules the permitted replacement read or unavailable optional outcome. Rejects a usable completed capture. |
+| `capture-fail RUN CLAIM-ID TICKET.json REASON` | After bounded local recapture and confirmed-stopped work: records immutable correlated diagnostics, preserves observed denials/delays, and schedules the permitted replacement read or unavailable optional outcome. Rejects a usable capture or missing safely correlated completion diagnostics. |
 | `plan RUN` | Returns pending directory paths/errors or job-file paths and fresh photo-metadata paths. |
 | `source-status RUN` | Returns the persistent invocation-wide source record, including active claims, failures, deferred first reads, saved result paths and recovery consumption. |
 | `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
@@ -163,6 +163,9 @@ or hand-written payload substitute.
    payloads are explicit capture failures. Preserve the ticket and diagnostic,
    then follow the claim-bound capture-failure path below; never repair or
    reconstruct source bytes.
+   Capture scans a snapshot of available bytes and parses only newline-terminated
+   JSONL records. An unrelated uncommitted final record is deferred until a later
+   capture, not parsed as corrupt JSON or allowed to hide an earlier completion.
    Before fan-out, prove this path with the first normal bounded call and retain
    its success; do not repeat it as a separate preflight.
 4. Record the captured outcomes with `source-finish` before any further source
@@ -310,7 +313,8 @@ With `bestEffortEnrichment` recorded, inspect this claim's outcomes from
 
 The helper automatically retries transient failures and the approved exact
 profile errors, and retries binary-photo 404s only with completed successful
-metadata. Other nonretryable optional errors settle explicitly as unavailable.
+metadata, including when that metadata succeeded on its second attempt.
+Other nonretryable optional errors settle explicitly as unavailable.
 Photo metadata itself can be unavailable; it is not confirmed `ImageNotFound`.
 `cached-photos` reports `lookupUnavailable:true` for unavailable metadata/bytes;
 this is distinct from confirmed-absence `unavailable:true` and legacy
@@ -331,6 +335,11 @@ all source calls, even unrelated first reads; wait until the latest recorded
 slot or freeze queued jobs. Workers may process their helper-granted retries;
 the helper, not a worker's judgment, owns eligibility and terminal outcomes.
 
+For a confirmed stopped-worker handoff using `source-interrupt`, the coordinator
+uses `source-recover` after active claims settle. Recorded best-effort policy
+permits each independent target's eligible second attempt, rather than consuming
+one global recovery allowance; it never grants a third attempt.
+
 ### Recover an unverifiable capture
 
 First diagnose descriptor/scope errors and bounded late-event arrival by
@@ -345,6 +354,10 @@ binding and tries capture again: a now-usable result must be finished, not
 discarded for a retry. Otherwise it retains failure diagnostics and any correlated
 original completion, carries observed denial/delay information into the gate,
 and permits only the remaining read attempt. No unverified values are ingested.
+If safely correlated completion diagnostics are absent, `capture-fail` leaves the
+claim active and authorizes no replacement: absent diagnostics do not establish
+the absence of denial or a returned delay. Recapture or repair local inspection
+first; stopped-worker handoffs are not a bypass for that check.
 After both attempts, optional enrichment becomes unavailable; unverified directory
 identity/reporting remains a publication blocker.
 

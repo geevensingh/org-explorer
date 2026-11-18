@@ -618,6 +618,34 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => coordinator.Publish());
     }
 
+    [Fact]
+    public void Best_effort_stopped_worker_handoffs_each_get_one_retry_without_resetting_other_reads()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        for (var index = 1; index <= 2; index++)
+        {
+            var stopped = session.ClaimSource("stopped-" + index, "profile", [Identity(index)]);
+            session.InterruptSource(stopped.ClaimId!.Value, "Coordinator confirmed the worker stopped.");
+            session.BeginSourceRecovery();
+            Finish(session, session.ClaimSource("replacement-" + index, "profile", [Identity(index)]), Ok());
+        }
+        Assert.All(session.SourceStatus().Reads, read =>
+        {
+            Assert.Equal("completed", read.State);
+            Assert.Equal(2, read.Attempts.Count);
+        });
+        var exhausted = session.ClaimSource("stopped-third", "profile", [Identity(3)]);
+        session.InterruptSource(exhausted.ClaimId!.Value, "Coordinator confirmed the next worker stopped.");
+        session.BeginSourceRecovery();
+        var retry = session.ClaimSource("replacement-third", "profile", [Identity(3)]);
+        session.InterruptSource(retry.ClaimId!.Value, "The replacement also stopped.");
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        Assert.Null(session.ClaimSource("forbidden-third-attempt", "profile", [Identity(3)]).ClaimId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == Identity(3)).Attempts.Count);
+    }
+
     [Theory]
     [InlineData("retryAfterMilliseconds", 1500, 1.5)]
     [InlineData("x-ms-retry-after-ms", 2500, 2.5)]
