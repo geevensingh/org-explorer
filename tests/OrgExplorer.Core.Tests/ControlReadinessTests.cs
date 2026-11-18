@@ -75,6 +75,28 @@ public sealed class ControlReadinessTests
 
     [Theory]
     [Trait("Category", "Runner")]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Accepted_search_reobserves_layout_with_browsing_readiness_in_the_same_bounded_wait(
+        bool initialCompact, bool settledCompact)
+    {
+        var layoutReads = 0;
+        var observedModes = new List<bool>();
+
+        ControlReadiness.AwaitSearchBrowsing(
+            () => ++layoutReads == 1 ? initialCompact : settledCompact,
+            compact =>
+            {
+                observedModes.Add(compact);
+                return compact == settledCompact;
+            }, AwaitReady);
+
+        Assert.Equal(2, layoutReads);
+        Assert.Equal([initialCompact, settledCompact], observedModes);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
     [InlineData(true)]
     [InlineData(false)]
     public void Team_name_reading_waits_for_post_cancel_resize_discovery_without_repeating_an_action(bool initiallyMissing)

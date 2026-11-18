@@ -186,10 +186,44 @@ deliver the combined implementation and this documentation together.
   profile fields, Person/Team notes and history. Different people with the same
   display name remain separate. Show the Person's name and email with a compact
   explanation of matching fields/sources, retaining current, archived and
-  historical attribution rather than repeating the Person for each match.
-- Count distinct people, not individual matches. Preserve existing matching
-  rules and result order, placing each Person at their first matching position;
-  this change does not introduce new ranking.
+  historical attribution rather than repeating the Person for each match. Lead
+  with the strongest matching field/source and its excerpt, not the first match
+  encountered. Retain the other matching evidence through the existing
+  presentation; do not add scores, explanatory prose or controls.
+- Count distinct people, not individual matches. Preserve existing matching:
+  trim surrounding query whitespace and use case-insensitive literal-substring
+  inclusion. Ranking must not add or remove qualifying People. Do not introduce
+  fuzzy, reordered-name, noncontiguous-word or accent-insensitive matching.
+- Rank each Person by their strongest matching evidence, using these tiers from
+  best to weakest:
+  1. Exact match on their own Preferred name, Directory name, Alias or email.
+  2. A whole word or contiguous whole-word phrase in their own Preferred name or
+     Directory name.
+  3. A word-prefix match in their own Preferred name or Directory name.
+  4. Any other substring match on their own Preferred name, Directory name,
+     Alias or email.
+  5. Their other current profile fields, except Manager, or their owned current
+     Person/Team notes.
+  6. Their current Manager field or currently inherited Team-note context.
+  7. Historical evidence, including former identity and reporting information
+     and frozen Team notes, regardless of textual match quality.
+- Give Preferred name and Directory name equal standing within those tiers.
+  Whitespace and punctuation separate name words. A name-word-prefix match
+  begins at a name-word boundary but can end partway through a word; a whole-word
+  or whole-word-phrase match also ends at a boundary. This classification does
+  not relax literal-substring inclusion. Treat Alias and email as identifiers,
+  not collections of name words.
+- For example, searching `sachin` places an exact Alias `sachin` in the first
+  tier; names `Sachin Singh`, `Sachin-Singh` and `(Sachin)` in the second;
+  `Sachindra Singh` in the third; and a name `JaySachin` or an email containing
+  `sachintala` in the fourth. Typing a complete email produces an exact identity
+  match. Searching `Sachin Sri` does not newly match `Sachin Kumar Srivastava`.
+- Sort equal-tier People alphabetically by their displayed heading: Preferred
+  name, falling back to Directory name and then email. Use email as the final
+  tie-break for identical headings. Use the same relevance rules for current
+  and archived People; archival alone does not make their latest profile
+  historical. Additional weak matches do not boost a Person's rank. Retain
+  existing evidence order when that Person has equally strong matches.
 - Automatically highlight the first result and reset the highlight to the first
   result whenever the query changes. With no results, there is no highlighted
   result. Highlighting is not activation: typing or moving the highlight must

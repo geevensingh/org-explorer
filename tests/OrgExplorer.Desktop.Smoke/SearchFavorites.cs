@@ -209,24 +209,26 @@ internal static partial class Program
         var beforeNote = PersonNoteIdentity();
         TypeSearchQuery(window, query);
         AutomationElement? result = null;
+        string[] rowEmails = [];
+        var archived = false;
         Await(() =>
         {
-            result = Find(window, "SearchResults").FindAll(TreeScope.Children,
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)).Cast<AutomationElement>()
-                .SingleOrDefault(r => r.Current.AutomationId == email && r.Current.Name.Contains($"({email})") &&
-                    r.Current.HelpText.Contains(context) && r.Current.HelpText.Contains(source) &&
-                    (owner is null || r.Current.HelpText.Contains($"({owner})")));
-            return result is not null;
+            var rows = SearchRows(window);
+            result = rows.SingleOrDefault(r => r.Current.AutomationId == email && r.Current.Name.Contains($"({email})") &&
+                r.Current.HelpText.Contains(context) && r.Current.HelpText.Contains(source) &&
+                (owner is null || r.Current.HelpText.Contains($"({owner})")));
+            if (result is null) return false;
+            archived = result.Current.HelpText.Contains("Archived person", StringComparison.Ordinal);
+            rowEmails = rows.Select(row => row.Current.AutomationId).ToArray();
+            return true;
         });
-        var archived = result!.Current.HelpText.Contains("Archived person", StringComparison.Ordinal);
-        var rows = SearchRows(window);
-        var index = Array.FindIndex(rows, row => row.Current.AutomationId == email);
+        var index = Array.IndexOf(rowEmails, email);
         if (index < 0) throw new InvalidOperationException("The queried Person disappeared before keyboard navigation.");
-        AssertQueryHighlight(window, rows[0].Current.AutomationId);
+        AssertQueryHighlight(window, rowEmails[0]);
         for (var i = 0; i < index; i++)
         {
             PressCopyKey(0x28);
-            AssertQueryHighlight(window, rows[i + 1].Current.AutomationId);
+            AssertQueryHighlight(window, rowEmails[i + 1]);
         }
         if (CurrentPersonEmail(window) != beforeEmail || PersonNoteIdentity() != beforeNote)
             throw new InvalidOperationException("Typing or highlighting opened a Person or replaced exact note reading before activation.");
@@ -368,10 +370,29 @@ internal static partial class Program
     private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false,
         NoteScope? retainedScope = null)
     {
-        var compact = IsVisible(window, "OpenPeople");
-        Await(() => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email, retainedScope) &&
-            (compact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                : IsVisible(window, "People") && IsVisible(window, "Favorites")));
+        var compact = false;
+        try
+        {
+            ControlReadiness.AwaitSearchBrowsing(() => compact = IsVisible(window, "OpenPeople"),
+                isCompact => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email, retainedScope) &&
+                    (isCompact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
+                        : IsVisible(window, "People") && IsVisible(window, "Favorites")), Await);
+        }
+        catch (TimeoutException error)
+        {
+            var focused = AutomationElement.FocusedElement?.Current;
+            var entry = window.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "OpenPeople"))?.Current;
+            CaptureFailureEvidence(window, "search-accepted-browsing-failure");
+            throw new TimeoutException("Accepted search did not clear the query and restore browsing/focus within 20 seconds. " +
+                $"compact={compact}; archived={archived}; expectedEmail='{email}'; owner='{Find(window, "Email").Current.Name}'; " +
+                $"query='{Value(window, "SearchQuery")}'; ordinaryProfileReady={OrdinarySearchProfileReady(window, email, retainedScope)}; " +
+                $"peopleNavigationVisible={IsVisible(window, "PeopleNavigation")}; peopleVisible={IsVisible(window, "People")}; " +
+                $"favoritesVisible={IsVisible(window, "Favorites")}; entryVisible={IsVisible(window, "OpenPeople")}; " +
+                $"entryEnabled={entry?.IsEnabled}; entryFocused={entry?.HasKeyboardFocus}; " +
+                $"focusedId='{focused?.AutomationId}'; focusedName='{focused?.Name}'; focusedProcess={focused?.ProcessId}; " +
+                $"applicationProcess={window.Current.ProcessId}. No corrective actions were attempted.", error);
+        }
         if (compact)
         {
             Click(window, "OpenPeople");
