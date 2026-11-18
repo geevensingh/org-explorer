@@ -230,6 +230,8 @@ internal static partial class Program
                     VerifyIncomingSmokePublication(type, Path.Combine(settings, "ip")));
                 HarnessRuntime.Run("compiled-actualc38-note-readiness", () =>
                     VerifyActualC38NoteReadinessContracts(type, Path.Combine(settings, "cn")));
+                HarnessRuntime.Run("compiled-current1eee-note-contexts", () =>
+                    VerifyCurrent1eeeNoteContracts(type, Path.Combine(settings, "nc")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
                 var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;

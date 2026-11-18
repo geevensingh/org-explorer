@@ -188,6 +188,7 @@ internal static partial class Program
             Await(() => CurrentPersonEmail(window) == "morgan@example.com" &&
                 ReopenedWriting("Newer writing during automatic export"));
             native.RequireHeld("before-returned-note-reveal");
+            native.PrepareReturnedEditor();
             native.RevealNote();
             native.ObserveReturned("Newer writing during automatic export");
             if (release.WaitOne(0) || !hold.WaitOne(0))
@@ -195,8 +196,8 @@ internal static partial class Program
             var continuedEditingAt = Stopwatch.GetTimestamp();
             native.Capture("continued-editing", () => CaptureVisualEvidence(window, "sqlite-automatic-export-continued-editing"),
                 () => native.ObserveReturned("Newer writing during automatic export"));
-            if (native.InputRequests != 1 || native.SelectionRequests != 2)
-                throw new InvalidOperationException("Held export requires exactly one input and two Person selections.");
+            if (native.InputRequests != 1 || native.SelectionRequests != 2 || native.EditPreparationRequests != 1)
+                throw new InvalidOperationException("Held export requires exactly one input, two Person selections and one explicit returned Edit preparation.");
             native.Record("release-requested");
             hold.Reset();
             release.Set();

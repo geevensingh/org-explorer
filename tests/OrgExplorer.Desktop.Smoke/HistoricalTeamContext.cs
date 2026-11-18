@@ -321,6 +321,7 @@ internal static partial class Program
             if (HistoricalReadingText(window) != frozen || !CurrentReadingText(window).Contains("Later writing"))
                 throw new InvalidOperationException("Reopening lost separate current and Historical writing.");
             SelectTreePerson(window, "casey@example.com");
+            Click(window, "OpenOngoingTeamNote");
             Await(() => Find(window, "TeamNoteHeading").Current.Name == "Casey context");
             AssertOtherTeamNotesCollapsed(window);
             AssertNoteView(window, "Team", editing: false);

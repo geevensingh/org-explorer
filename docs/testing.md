@@ -250,6 +250,23 @@ new incoming profile/note data and matching current/published revisions, and
 separately requires close-only preparation to reject an unexpectedly advanced
 head without losing the adopted version. It is also in the full compiled selection.
 
+The Team/history journey preserves the exact reopened secondary note across owner
+navigation, then deliberately uses Open ongoing before inspecting that owner's
+ongoing note. Owner return does not silently replace an exact selection.
+The held automatic-publication journey deliberately reenters Edit after its
+newer writing commits and clean owner return opens Read, then reacquires the
+current editor provider before applying the unchanged finite-positive geometry,
+viewport, exact identity/value and writability predicates. Its evidence counts
+that one public Edit preparation separately from its one input and two Person
+selections, all under the same first publisher hold.
+`--verify-current1eee-note-contexts`, also in the full compiled selection, replays
+these contracts through actual invisible BAML controls and real SQLite/snapshot
+storage, including the continuing incoming-profile refresh and local writing
+while the provider is unavailable. Neither logical attachment nor a fresh
+provider binding substitutes for native geometry/interaction evidence. Genuine
+SQLite noncommit still retains paused Edit and must fail a healthy-writable
+predicate; these fixture preparations never reconcile/retry or enable it.
+
 The exit host's one preparation Open waits for the actual compiled Ready activity
 and enabled Open control inside its original bounded preparation observation.
 Product Loaded performs asynchronous startup/update recovery even with startup

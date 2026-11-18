@@ -6,14 +6,14 @@ namespace OrgExplorer.Desktop.Smoke;
 internal sealed class AutomaticSnapshotNativeObservation(AutomationElement window, Guid noteId,
     Func<SnapshotExportLifetime> lifetime)
 {
-    private enum NoteObservationPurpose { BeforeInput, AfterInput, ReturnedReading }
+    private enum NoteObservationPurpose { BeforeInput, AfterInput, ReturnedEditing }
     private const string Owner = "morgan@example.com", Heading = "Morgan Example", Title = "Automatic publication owner";
     private readonly CacheRequest textState = TextState();
     private readonly CacheRequest editorState = EditorState();
     private readonly AutomationElement identity = Program.Find(window, "Email");
     private readonly AutomationElement heading = Program.Find(window, "ProfileHeading");
     private readonly AutomationElement noteHeading = Program.Find(window, "TeamNoteHeading");
-    private readonly AutomationElement markdownEditor = Program.Find(window, "TeamNoteMarkdown");
+    private AutomationElement markdownEditor = Program.Find(window, "TeamNoteMarkdown");
     private readonly AutomationElement profileViewport = Program.Find(window, "ProfileScroll");
     private AutomationElement? synchronizationStatus, syncButton, settingsViewport;
     private readonly List<object> boundaries = [];
@@ -33,13 +33,16 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
     internal object? LastReveal { get; private set; }
     internal int InputRequests { get; private set; }
     internal int SelectionRequests { get; private set; }
+    internal int EditPreparationRequests { get; private set; }
+    internal int EditorBindingGeneration { get; private set; } = 1;
 
     internal object Diagnostic => new
     {
         Publishing, BeforeInput, AfterInput, Avery, Morgan, Returned, LastPublication, LastNote, LastOwner, LastLifetime,
         LastRejectedPublication, LastRejectedNote, LastRejectedOwner, LastReveal, InputRequests, SelectionRequests,
+        EditPreparationRequests, EditorBindingGeneration,
         timestampFrequency = Stopwatch.Frequency, boundaries,
-        noteReadiness = "BeforeInput/ReturnedReading require visible title and body. AfterInput retains exact note metadata and fully visible writable body; ordinary title scrolling is not loss of editing usability.",
+        noteReadiness = "BeforeInput/ReturnedEditing require visible title and body. Clean committed owner return is Read; returned editing uses one explicit public Edit action and a fresh editor binding. AfterInput retains exact note metadata and fully visible writable body; ordinary title scrolling is not loss of editing usability.",
         boundary = "Driver observations of the first actual held publisher invocation. Entered is set inside its callback; Ended is set in that same callback's finally, including timeout/failure. Ended is never reset. Not product latency."
     };
 
@@ -117,8 +120,41 @@ internal sealed class AutomaticSnapshotNativeObservation(AutomationElement windo
 
     internal void ObserveReturned(string value)
     {
-        Returned = AwaitNote(value, NoteObservationPurpose.ReturnedReading).Frame;
+        Returned = AwaitNote(value, NoteObservationPurpose.ReturnedEditing).Frame;
         Record("returned-note-accepted");
+    }
+
+    internal void PrepareReturnedEditor()
+    {
+        RequireHeld("returned-edit-preparation");
+        var currentOwner = ReadOwner();
+        if (!SnapshotNativeUsability.OwnerReady(currentOwner, Owner, Heading) ||
+            Program.Find(window, "TeamNoteHeading").Current.HelpText != noteId.ToString("D"))
+            throw new InvalidOperationException("Returned Edit preparation must retain the exact current owner/note.");
+        var tab = Program.Find(window, "TeamNoteEditTab");
+        Reveal("returned-edit-tab", profileViewport, noteHeading, tab);
+        var selection = ControlReadiness.AwaitPattern(() => Program.Find(window, "TeamNoteEditTab"),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen &&
+                SnapshotNativeUsability.BoundsValid(CurrentBounds(control)),
+            control => (SelectionItemPattern)control.GetCurrentPattern(SelectionItemPattern.Pattern), Program.Await);
+        RequireHeld("returned-edit-before-select");
+        EditPreparationRequests++;
+        using (HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke)) selection.Select();
+        Program.Await(() =>
+        {
+            RequireHeld("returned-edit-binding");
+            var edit = Program.Find(window, "TeamNoteEditTab");
+            if (!((SelectionItemPattern)edit.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected)
+                return false;
+            var current = Program.Find(window, "TeamNoteMarkdown");
+            if (!current.Current.IsEnabled || !SnapshotNativeUsability.BoundsValid(CurrentBounds(current)))
+                return false;
+            markdownEditor = current;
+            return true;
+        });
+        EditorBindingGeneration++;
+        RequireHeld("returned-edit-bound");
+        Record("returned-edit-prepared");
     }
 
     internal void Capture(string stage, Action capture, Action verify)
