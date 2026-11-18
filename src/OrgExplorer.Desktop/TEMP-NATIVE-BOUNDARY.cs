@@ -61,7 +61,7 @@ public partial class MainWindow
             if (failed) return default;
             try
             {
-                if (ignored) { map.Record(default, BoundaryEvent.Unrelated, flags: 1); return default; }
+                if (ignored) { map.RecordIgnoredSelection(identity, entered); return default; }
                 if (handler.Valid) { map.Fault(BoundaryFault.Overlap); return default; }
                 var next = map.BeginHandler(identity, action, entered);
                 if (!next.Valid) return default;
@@ -105,7 +105,7 @@ public partial class MainWindow
         internal void EndDispatch(BoundarySpan captured)
         {
             var exited = Stopwatch.GetTimestamp();
-            if (failed || !captured.Valid) return;
+            if (failed || !captured.Recorded) return;
             try { map.End(captured, exited); }
             catch (Exception error) when (Expected(error)) { Fail(error); }
         }

@@ -156,7 +156,8 @@ internal static partial class Program
                     JsonSerializer.Serialize(new
                     {
                         diagnosticOnly = true, acceptanceEligible = false, instrumentedSource = true,
-                        baseRevision = "9b56703417c172804c6436457c041289b13103f4",
+                        shippingBaseRevision = "1e86c7a8a3a4c11b3298ab966139c8a356243e86",
+                        parentTraceRevision = "47a0c646e1b16fd7ff6d43a71bfecb3224899d06",
                         revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                         runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                         runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
@@ -166,6 +167,14 @@ internal static partial class Program
                         harnessHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(Program).Assembly.Location))),
                         frequency = Stopwatch.Frequency, highResolution = Stopwatch.IsHighResolution,
                         mapBytes = BoundaryMap.Bytes, recordBytes = 64,
+                        recordFormatVersion = 1, eventSchemaVersion = 2,
+                        additionalEventKinds = new
+                        {
+                            ignoredSelection = (int)BoundaryEvent.IgnoredSelection,
+                            unassociatedDispatchEnter = (int)BoundaryEvent.UnassociatedDispatchEnter,
+                            unassociatedDispatchExit = (int)BoundaryEvent.UnassociatedDispatchExit
+                        },
+                        unassociatedSpanContract = "Request0/Parent0 forever; app-producer unique span ID. Target is entry-captured identity slot (0 unknown,1 owner,2 report); Flags is entry-captured navigation (0 false,1 true). IgnoredSelection is a distinct instant, Flags1 means ignored/loading. Missing/clipped/capture-censored endpoints remain unknown, never fabricated durations. Same-thread intersections only; nested/inclusive spans are not additive or causal attribution.",
                         rawFile = "native-boundary.raw.log", requestCount, requests = requests.Take(requestCount),
                         traceComplete = captured && failure is null && stderrFaults == 0 && snapshot is { Complete: true },
                         failure, stderrFaults, snapshotFaults = snapshot?.Faults.ToString(),

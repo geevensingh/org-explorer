@@ -17,7 +17,8 @@ internal enum BoundaryFault
 internal enum BoundaryEvent
 {
     Request = 1, CallEnter, CallReturn, Usable, HandlerEnter, HandlerExit,
-    DispatchEnter, DispatchExit, LayoutObservation, Superseded, Unrelated
+    DispatchEnter, DispatchExit, LayoutObservation, Superseded, Unrelated,
+    IgnoredSelection, UnassociatedDispatchEnter, UnassociatedDispatchExit
 }
 
 internal readonly record struct BoundaryClock(long Frequency, bool HighResolution)
@@ -31,8 +32,9 @@ internal readonly record struct BoundaryRequest(long Sequence, int Action, int T
     internal bool Valid => Sequence > 0;
 }
 
-internal readonly record struct BoundarySpan(BoundaryRequest Request, long Id, long Parent, bool Root)
+internal readonly record struct BoundarySpan(BoundaryRequest Request, long Id, long Parent, bool Root, bool Navigation = false)
 {
+    internal bool Recorded => Id > 0;
     internal bool Valid => Request.Valid && Id > 0;
 }
 
@@ -215,8 +217,11 @@ internal sealed class BoundaryMap : IDisposable
         var entered = timestamp == 0 ? Stopwatch.GetTimestamp() : timestamp;
         if (!parent.Valid || !navigation)
         {
-            Record(default, BoundaryEvent.Unrelated, flags: Identity(exactPerson));
-            return default;
+            var unassociated = new BoundarySpan(default(BoundaryRequest) with { Target = Identity(exactPerson) },
+                ++nextSpan, 0, Root: false, Navigation: navigation);
+            Record(unassociated.Request, BoundaryEvent.UnassociatedDispatchEnter, unassociated.Id,
+                flags: navigation ? 1 : 0, timestamp: entered);
+            return unassociated;
         }
         if (parent.Request.Target != Identity(exactPerson))
         {
@@ -228,12 +233,19 @@ internal sealed class BoundaryMap : IDisposable
         return span;
     }
 
+    internal void RecordIgnoredSelection(string? exactPerson, long timestamp = 0) =>
+        Record(default(BoundaryRequest) with { Target = Identity(exactPerson) }, BoundaryEvent.IgnoredSelection,
+            flags: 1, timestamp: timestamp);
+
     internal void End(BoundarySpan captured, long timestamp = 0)
     {
         var exited = timestamp == 0 ? Stopwatch.GetTimestamp() : timestamp;
         if (captured.Valid)
             Record(captured.Request, captured.Root ? BoundaryEvent.HandlerExit : BoundaryEvent.DispatchExit,
                 captured.Id, captured.Parent, timestamp: exited);
+        else if (captured.Recorded)
+            Record(captured.Request, BoundaryEvent.UnassociatedDispatchExit, captured.Id,
+                flags: captured.Navigation ? 1 : 0, timestamp: exited);
     }
 
     internal void Layout(BoundarySpan captured, string? actualIdentity, bool valid, bool superseded)
@@ -311,6 +323,20 @@ internal sealed class BoundaryMap : IDisposable
             }
         }
         if (incomplete > 0) faults |= BoundaryFault.IncompleteRecord;
+        foreach (var group in records.Where(record => record.Event is BoundaryEvent.UnassociatedDispatchEnter or
+                     BoundaryEvent.UnassociatedDispatchExit).GroupBy(record => record.Span))
+        {
+            var pair = group.ToArray();
+            var begin = pair.FirstOrDefault(record => record.Event == BoundaryEvent.UnassociatedDispatchEnter);
+            var end = pair.FirstOrDefault(record => record.Event == BoundaryEvent.UnassociatedDispatchExit);
+            if (pair.Length != 2 || begin.Event != BoundaryEvent.UnassociatedDispatchEnter ||
+                end.Event != BoundaryEvent.UnassociatedDispatchExit || begin.Span <= 0 ||
+                pair.Any(record => record.Request != 0 || record.Parent != 0) ||
+                begin.Target is < 0 or > 2 || begin.Flags is < 0 or > 1 ||
+                end.Target != begin.Target || end.Flags != begin.Flags ||
+                end.Thread != begin.Thread || end.Timestamp < begin.Timestamp)
+                faults |= BoundaryFault.MissingEvent;
+        }
         var requested = records.Where(r => r.Event == BoundaryEvent.Request).ToArray();
         if (requested.Length != expectedRequests || requested.Select(r => r.Request).Distinct().Count() != expectedRequests)
             faults |= BoundaryFault.MissingEvent;

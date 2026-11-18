@@ -15,6 +15,8 @@ internal static partial class Program
         Directory.CreateDirectory(root);
         try
         {
+            CheckUnassociatedSpans(root);
+            CheckUnassociatedBounds(root);
             CheckClock(root, mismatch: false);
             CheckClock(root, mismatch: true);
             CheckIdentity(root);
@@ -27,10 +29,92 @@ internal static partial class Program
             CheckFailureCapture(root);
             CheckOwnedProtocolChild(root);
             CheckRunnerClassification(root);
-            Console.WriteLine("PASS TEMP-NATIVE-BOUNDARY: clock/exact owner+event/unrelated refresh/immutable exit/overlap/overflow/incomplete commit/missing call/superseded layout/map faults/primary preservation/owned-child abrupt exit. Structural protocol ONLY; no Window/handle/UIA/actual layout or acceptance evidence.");
+            Console.WriteLine("PASS TEMP-NATIVE-BOUNDARY: ignored selection/unassociated carry-in pairs/immutable Request0+Parent0/censored endpoints/provenance/clock/exact owner+event/no-borrow/immutable exit/overlap/fixed overflow/incomplete commit/missing call/superseded layout/map faults/primary preservation/owned-child abrupt exit. Structural protocol ONLY; no Window/handle/UIA/actual layout or acceptance evidence.");
             return 0;
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    private static void CheckUnassociatedSpans(string root) => WithTempMap(root, (native, app) =>
+    {
+        var carryIn = app.BeginDispatch(default, "owner@example.com", navigation: false);
+        WriteCompleteTempRequest(native, app, 1);
+        var next = native.Arm(2, 2, "owner@example.com", 0, 0, Guid.NewGuid());
+        native.Record(next, BoundaryEvent.CallEnter);
+        var child = app.BeginDispatch(carryIn, "report@example.com", navigation: true);
+        var unknown = app.BeginDispatch(default, "other@example.com", navigation: true);
+        app.RecordIgnoredSelection("owner@example.com");
+        app.End(unknown);
+        app.End(child);
+        app.End(carryIn);
+        var handler = app.BeginHandler("owner@example.com", 2);
+        var dispatch = app.BeginDispatch(handler, "owner@example.com", navigation: true);
+        app.End(dispatch);
+        app.End(handler);
+        app.Layout(handler, "owner@example.com", valid: true, superseded: false);
+        native.Record(next, BoundaryEvent.CallReturn);
+        native.Record(next, BoundaryEvent.Usable);
+        native.Disarm(next);
+        var snapshot = native.Snapshot(2);
+        var ignored = snapshot.Records.Single(record => record.Event == BoundaryEvent.IgnoredSelection);
+        if (ignored.Request != 0 || ignored.Span != 0 || ignored.Parent != 0 || ignored.Target != 1 ||
+            ignored.Flags != 1 || snapshot.Records.Any(record => record.Event == BoundaryEvent.Unrelated))
+            throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY ignored/loading selection remained ambiguous with unassociated OpenPerson.");
+        if (carryIn.Id <= 0 || child.Id <= 0 || unknown.Id <= 0 ||
+            carryIn.Valid || child.Valid || unknown.Valid)
+            throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY unassociated OpenPerson is still ambiguous/entry-only, or borrowed request association.");
+        foreach (var (span, target, navigation) in new[] { (carryIn, 1, 0), (child, 2, 1), (unknown, 0, 1) })
+        {
+            var pair = snapshot.Records.Where(record => record.Span == span.Id).ToArray();
+            if (pair.Length != 2 || pair[0].Event.ToString() != "UnassociatedDispatchEnter" ||
+                pair[1].Event.ToString() != "UnassociatedDispatchExit" ||
+                pair[1].Timestamp < pair[0].Timestamp ||
+                pair.Any(record => record.Request != 0 || record.Parent != 0 ||
+                    record.Target != target || record.Flags != navigation))
+                throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY unassociated entry/exit lost exact identity/navigation or immutable Request0/Parent0 across a changed header.");
+        }
+        var entries = snapshot.Records.Where(record => record.Event is BoundaryEvent.HandlerEnter or BoundaryEvent.DispatchEnter ||
+            record.Event.ToString() == "UnassociatedDispatchEnter").ToArray();
+        if (!snapshot.Complete || entries.Select(record => record.Span).Distinct().Count() != entries.Length ||
+            snapshot.Records.Single(record => record.Span == carryIn.Id &&
+                record.Event.ToString() == "UnassociatedDispatchEnter").Timestamp >
+                snapshot.Records.First(record => record.Event == BoundaryEvent.CallEnter).Timestamp ||
+            snapshot.Records.Single(record => record.Span == carryIn.Id &&
+                record.Event.ToString() == "UnassociatedDispatchExit").Timestamp <
+                snapshot.Records.First(record => record.Event == BoundaryEvent.Usable).Timestamp)
+            throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY carry-in span was clipped to an active request or reused a primary producer span ID.");
+    });
+
+    private static void CheckUnassociatedBounds(string root)
+    {
+        foreach (var mode in new[] { "missing-exit", "capture-censored", "clipped-entry" })
+            WithTempMap(root, (native, app) =>
+            {
+                if (mode == "clipped-entry")
+                    app.Record(default(BoundaryRequest) with { Target = 1 },
+                        BoundaryEvent.UnassociatedDispatchExit, span: 1);
+                else
+                {
+                    var span = app.BeginDispatch(default, "owner@example.com", navigation: false);
+                    if (mode == "capture-censored") { native.Freeze(); app.End(span); }
+                }
+                var snapshot = native.Snapshot(0);
+                if (snapshot.Complete || !snapshot.Faults.HasFlag(BoundaryFault.MissingEvent) ||
+                    snapshot.Records.Length != 1)
+                    throw new InvalidOperationException($"TEMP-NATIVE-BOUNDARY {mode} unassociated span fabricated completeness instead of remaining unknown.");
+            });
+        WithTempMap(root, (native, app) =>
+        {
+            for (var index = 0; index < 1025; index++)
+            {
+                var span = app.BeginDispatch(default, "owner@example.com", navigation: false);
+                app.End(span);
+            }
+            var snapshot = native.Snapshot(0);
+            if (snapshot.Complete || !snapshot.Faults.HasFlag(BoundaryFault.Overflow) ||
+                snapshot.RecordCount != 2048)
+                throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY unassociated pairs grew/overwrote the fixed app lane or hid overflow.");
+        });
     }
 
     private static void CheckIdentity(string root)
@@ -226,6 +310,18 @@ internal static partial class Program
                 manifest.RootElement.GetProperty("traceComplete").GetBoolean() ||
                 manifest.RootElement.GetProperty("primaryType").GetString() != typeof(TimeoutException).FullName)
                 throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY partial failure was mislabeled as accepting/complete.");
+            var provenance = manifest.RootElement;
+            if (!provenance.TryGetProperty("shippingBaseRevision", out var shipping) ||
+                shipping.GetString() != "1e86c7a8a3a4c11b3298ab966139c8a356243e86" ||
+                !provenance.TryGetProperty("parentTraceRevision", out var parent) ||
+                parent.GetString() != "47a0c646e1b16fd7ff6d43a71bfecb3224899d06" ||
+                provenance.TryGetProperty("baseRevision", out _) ||
+                provenance.GetProperty("eventSchemaVersion").GetInt32() != 2 ||
+                provenance.GetProperty("recordFormatVersion").GetInt32() != 1 ||
+                provenance.GetProperty("revision").GetString() != Environment.GetEnvironmentVariable("GITHUB_SHA") ||
+                provenance.GetProperty("runId").GetString() != Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ||
+                provenance.GetProperty("runAttempt").GetString() != Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"))
+                throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY provenance still conflates stale base, parent trace, current run or event schema.");
             var blocked = Path.Combine(root, "blocked-output");
             File.WriteAllText(blocked, "fixture blocks map and sidecar creation");
             diagnostics = Path.Combine(blocked, "scenario.log");
