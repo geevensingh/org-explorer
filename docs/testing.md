@@ -384,7 +384,7 @@ These do not prove WPF geometry.
 
 The #107 search slice groups the existing `Search` evidence through `SearchPeople`
 at the shared workflow/view-model seam. Cases retain every source and attribution,
-equal-name/different-email identities, first-match order, archived eligibility and
+equal-name/different-email identities, archived eligibility and
 exact unsaved writing, including rejected same-Person reloads. Ordinary activation
 uses the normal ongoing-note view; exact Other notes and legacy remembered-note
 restoration remain independently covered.
@@ -413,6 +413,30 @@ that published result list instead of rebuilding excerpts. Bounded allocation
 cases use a warmed long-note fixture, and publication cases reject older query,
 refresh and Workspace requests. The compiled replay also sends Enter immediately
 after query input, before pumping publication, to retain single-Enter acceptance.
+The #111 own-identity slice replaces first-match order at that same `SearchPeople`
+seam: complete Preferred/Directory names, Alias and email precede literal name
+words/phrases, word prefixes and incidental own-identity substrings. Cases cover
+punctuation/whitespace boundaries, multiple occurrences, archived parity,
+heading/email ties, stable same-tier evidence, strongest primary excerpts and
+unchanged literal membership. The Sachin regression publishes names before
+Kiran's incidental email and Manager-only matches, preserves secondary-note and
+historical attribution, and exercises ranked highlight/guarded acceptance without
+replacing unsaved writing. Referenced Managers must still exist; the existing
+invalid-reference rejection is unchanged, not bypassed for an unreachable fixture.
+The #112 context slice completes the seven-tier policy at this same boundary:
+other owned current profile/Person-note/Team-note matches precede current
+Manager/inherited Team-note matches, and all historical evidence follows.
+Small mixed-source cases retain exact former names/Aliases, former Manager
+identity and frozen note versions below weaker-text current evidence. They
+check archived/current owned-context parity, same-heading email ties, one
+strong hit versus repeated inherited mentions, title-only primary excerpts,
+stable same-tier evidence order and complete owner-correct evidence retention.
+The existing no-identity-hit publication and bounded-allocation cases now
+highlight the owned Team-note result before its reports; ordinary first-result
+acceptance opens that owner without targeting a matched note. These non-UI cases
+do not establish native query focus, viewport visibility or mouse/keyboard
+acceptance; the existing required hosted journeys remain required on the complete
+candidate, with no new desktop scenario or explicit-scale execution.
 The native manual-clear replay waits read-only for the queried Person's current
 Person-note evidence before selecting once; hidden browsing controls alone do
 not establish result readiness. The existing bounded wait and exact row/pixel
@@ -421,6 +445,10 @@ The existing search journeys now type through the focused query field with real
 keyboard input, retain typing focus during Up/Down, observe each highlighted row
 inside the results viewport, and check first/last clamping, continued typing,
 first/chosen-result Enter, no-result Enter and mouse equivalence.
+Target discovery snapshots attribution and ordered result identities inside the
+same bounded read-only observation, without an unguarded second lookup of the
+result list. Each subsequent highlight still requires fresh native visibility,
+selection and query focus; no input is repeated to repair discovery.
 Population readiness uses the rendered distinct-Person count, not the number
 of simultaneously realized UI Automation rows. The complete-candidate hosted
 failure exposed only seven/nine realized rows for forty matches at the two
@@ -433,7 +461,17 @@ Reserved blank reporting-row extent can remain wider than that viewport.
 Wide mode requires actual row keyboard focus. Compact current/archived acceptance must
 dismiss People and focus its button, then retain the revealed selection on
 reopening. Archived access must show the retained list without reactivation or
-current-tree insertion. The responsive rejected-note journey uses the same
+current-tree insertion. An accepted-search timeout captures the actual failure
+frame and reports query, owner, profile readiness, navigation visibility and the
+actual keyboard-focus owner without retrying input or repairing focus. The same
+20-second assertion and current/archived matrix remain unchanged.
+Accepted-search layout discovery shares that bounded read-only observation:
+a transiently missing People entry must not freeze the wide-layout branch for
+the entire wait. A runner regression replays an initial layout observation that
+differs from the settled mode. Native query/profile, mode-specific visibility
+and focus, reopened selection and exact viewport assertions remain unchanged;
+the replay does not establish hosted focus or acceptance.
+The responsive rejected-note journey uses the same
 query-field input and preserves exact failed writing, owner, highlight, overlay
 and geometry. No scenario, responsive matrix, deadline or scale contract changes.
 The complete #107/#108 candidate requires exact-candidate hosted execution;
