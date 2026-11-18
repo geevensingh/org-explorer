@@ -66,6 +66,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyIncomingSmokePublication);
             if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")
                 return VerifyHostedCutoverContracts(executable, VerifyActualC38NoteReadinessContracts);
+            if (args.Length == 2 && args[1] == "--verify-current1eee-note-contexts")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrent1eeeNoteContracts);
             if (args.Length == 2 && args[1] == "--verify-person-search-integration")
                 return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
             if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
