@@ -20,6 +20,7 @@ try
             "source-claim" when args.Length == 5 => session.ClaimSource(args[2], args[3], args[4]),
             "source-finish" when args.Length == 4 => session.FinishSource(Guid.Parse(args[2]), args[3]),
             "source-recover" when args.Length == 2 => session.BeginSourceRecovery(),
+            "source-refresh-manager" when args.Length == 4 => session.RefreshManagerConfirmation(args[2], args[3]),
             "source-authorize-best-effort" when args.Length == 3 =>
                 new { bestEffortEnrichment = session.AuthorizeBestEffortEnrichment(args[2]) },
             "source-authorize-per-read-recovery" when args.Length == 3 =>

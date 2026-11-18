@@ -360,17 +360,22 @@ public sealed class OrgExportSourceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("ServiceUnavailable", true, false)]
-    [InlineData("ServiceUnavailable; Status code is Forbidden", false, true)]
-    [InlineData("ServiceUnavailableButUnclassified", false, false)]
+    [InlineData("ServiceUnavailable", true, false, false)]
+    [InlineData("ServiceUnavailable", true, false, true)]
+    [InlineData("ServiceUnavailable; Status code is Forbidden", false, true, false)]
+    [InlineData("ServiceUnavailable; Status code is Forbidden", false, true, true)]
+    [InlineData("ServiceUnavailableButUnclassified", false, false, false)]
+    [InlineData("ServiceUnavailableButUnclassified", false, false, true)]
     public void Explicit_named_statuses_in_source_error_text_preserve_transient_and_denial_rules(
-        string statusText, bool retryable, bool denied)
+        string statusText, bool retryable, bool denied, bool messageOnly)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
         using var session = ExportSession.Open(path);
+        var message = "Status code is " + statusText;
         Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), new JsonObject
         {
-            ["statusCode"] = 200, ["error"] = "Status code is " + statusText
+            ["statusCode"] = 200, ["error"] = messageOnly
+                ? new JsonObject { ["message"] = message } : JsonValue.Create(message)
         });
         var ledger = session.SourceStatus();
         Assert.Equal(retryable, ledger.Reads.Single().Attempts.Single().Retryable);
@@ -381,6 +386,24 @@ public sealed class OrgExportSourceTests : IDisposable
             Assert.NotNull(session.ClaimSource("retry", "profile", [Identity(1)]).ClaimId);
         }
         else Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+    }
+
+    [Fact]
+    public void Best_effort_message_only_service_status_gets_its_permitted_retry_instead_of_unavailable()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Status code is ServiceUnavailable" }
+        });
+        var read = session.SourceStatus().Reads.Single();
+        Assert.True(read.RecoveryEligible);
+        Assert.False(read.AccountedFor);
+        Assert.True(read.Attempts.Single().Retryable);
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        Assert.Equal("completed", session.SourceStatus().Reads.Single().State);
     }
 
     [Theory]

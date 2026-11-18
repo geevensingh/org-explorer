@@ -239,7 +239,15 @@ public sealed partial class ExportSession
                 }
                 if (name is not ("content" or "detailedContent" or "text" or "message" or "error")) continue;
                 if (errorContext || name is "message" or "error")
+                {
                     denied |= SourceDenialText(text);
+                    try { text = StripNativeErrorPrefix(text); }
+                    catch (InvalidOperationException error)
+                    {
+                        diagnostics.Add(error.Message);
+                        continue;
+                    }
+                }
                 if (text.TrimStart().StartsWith('{') || text.TrimStart().StartsWith('['))
                 {
                     try { Inspect(JsonNode.Parse(text), errorContext, depth + 1); }
@@ -254,11 +262,12 @@ public sealed partial class ExportSession
     private void RequireCaptureBinding(string ticketFile, CaptureTicket ticket, bool active)
         => WithSources(ledger =>
         {
-            var read = ledger.Reads.FirstOrDefault(read => read.Attempts.Any(attempt => attempt.ClaimId == ticket.Request.ClaimId));
-            var attempt = read?.Attempts.Single(item => item.ClaimId == ticket.Request.ClaimId);
+            var read = ledger.Reads.FirstOrDefault(read => SourceAttempts(read).Any(attempt => attempt.ClaimId == ticket.Request.ClaimId));
+            var attempt = read is null ? null : SourceAttempts(read).Single(item => item.ClaimId == ticket.Request.ClaimId);
             Require(attempt is not null && attempt.CaptureTicket == System.IO.Path.GetRelativePath(path, ticketFile)
                 && attempt.CaptureTicketSha256 == Hash(File.ReadAllBytes(ticketFile))
-                && attempt.CaptureFailureFile is null && (!active || read!.State == "active"),
+                && attempt.CaptureFailureFile is null && (!active || read!.State == "active"
+                    && read.Attempts[^1].ClaimId == ticket.Request.ClaimId),
                 "The original capture ticket must match its source claim and remain unchanged.");
             return true;
         });
@@ -291,23 +300,26 @@ public sealed partial class ExportSession
         }
         else
             text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") ?? "" : "";
-        if (!outcome.GetProperty("success").GetBoolean())
-        {
-            if (text.StartsWith("MCP error ", StringComparison.Ordinal))
-            {
-                var separator = text.IndexOf(": ", StringComparison.Ordinal);
-                Require(separator > 10 && int.TryParse(text[10..separator], out _), "Unsupported MCP error wrapper.");
-                text = text[(separator + 2)..];
-            }
-            else if (text.StartsWith("MCP server '", StringComparison.Ordinal))
-            {
-                var separator = text.IndexOf("': ", 12, StringComparison.Ordinal);
-                Require(separator > 12 && text.AsSpan(12, separator - 12).IndexOfAny('\r', '\n', '\'') < 0,
-                    "Unsupported MCP server error wrapper.");
-                text = text[(separator + 3)..];
-            }
-        }
+        if (!outcome.GetProperty("success").GetBoolean()) text = StripNativeErrorPrefix(text);
         return UnwrapPayload(text);
+    }
+
+    private static string StripNativeErrorPrefix(string text)
+    {
+        if (text.StartsWith("MCP error ", StringComparison.Ordinal))
+        {
+            var separator = text.IndexOf(": ", StringComparison.Ordinal);
+            Require(separator > 10 && int.TryParse(text[10..separator], out _), "Unsupported MCP error wrapper.");
+            return text[(separator + 2)..];
+        }
+        if (text.StartsWith("MCP server '", StringComparison.Ordinal))
+        {
+            var separator = text.IndexOf("': ", 12, StringComparison.Ordinal);
+            Require(separator > 12 && text.AsSpan(12, separator - 12).IndexOfAny('\r', '\n', '\'') < 0,
+                "Unsupported MCP server error wrapper.");
+            return text[(separator + 3)..];
+        }
+        return text;
     }
 
     private static string UnwrapPayload(string text, int depth = 0)

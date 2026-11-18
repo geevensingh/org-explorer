@@ -35,8 +35,9 @@ public sealed partial class ExportSession : IDisposable
     public sealed record PhotoEvidence(string DirectoryId, string Etag, string ContentType, int SizeBytes,
         string Sha256, string PhotoPath, DateTimeOffset DownloadedAt, bool Reused);
     public sealed record Person(string Id, string Email, string Name, string? ManagerId, JsonObject Directory);
+    public sealed record ManagerRefreshRequest(string DirectoryId, string Target, DateTimeOffset RequiredAfter);
     public sealed record Collection(Person[] People, string[] Pending, string[] Errors, string[] Excluded,
-        int SubtreeCount, Dictionary<string, Receipt> Receipts, string[] ReviewFlags);
+        int SubtreeCount, Dictionary<string, Receipt> Receipts, string[] ReviewFlags, ManagerRefreshRequest[] ManagerRefreshes);
     public sealed record ProfileOutcome(int Index, string InputFile, string? DirectoryId, bool Recorded, string? Error);
     public sealed record ProfileBatchResult(int Succeeded, int Failed, ProfileOutcome[] Items);
     private sealed record ProfileFailure(string InputFile, string? DirectoryId, DateTimeOffset? ObservedAt, string Error);
@@ -117,6 +118,7 @@ public sealed partial class ExportSession : IDisposable
         var managers = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var reportingParents = new Dictionary<string, Dictionary<string, DateTimeOffset>>(StringComparer.OrdinalIgnoreCase);
         var reconciled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var managerRefreshes = new List<ManagerRefreshRequest>();
         var subtree = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         JsonObject? Get(string request, bool missingManager = false)
@@ -193,17 +195,19 @@ public sealed partial class ExportSession : IDisposable
         {
             managers.Remove(id);
             var request = ManagerPath(id);
+            var requiredAfter = parents.Values.Max();
+            if (latest.TryGetValue(request, out var previous) && previous.ObservedAt < requiredAfter)
+            {
+                pending.Add(request);
+                managerRefreshes.Add(new(id, request, requiredAfter));
+                continue;
+            }
             var manager = Get(request);
             if (manager is null) continue;
             var managerId = Text(manager, "id");
             if (!parents.ContainsKey(managerId))
             {
                 errors.Add("Conflicting reporting parents require an exact Manager matching a sourced parent for " + id);
-                continue;
-            }
-            if (latest[request].ObservedAt < parents.Values.Max())
-            {
-                errors.Add("Manager confirmation predates conflicting reporting evidence for " + id);
                 continue;
             }
             User(manager);
@@ -258,7 +262,7 @@ public sealed partial class ExportSession : IDisposable
         return new Collection(people.ToArray(), pending.ToArray(), errors.ToArray(), excluded.ToArray(),
             people.Count(p => subtree.Contains(p.Id)), latest, people.Where(p => reconciled.Contains(p.Id))
                 .Select(p => p.Email + ": conflicting reporting parents reconciled using the fresh exact Manager relationship; source receipts retained.")
-                .ToArray());
+                .ToArray(), managerRefreshes.ToArray());
     }
 
     public object Jobs()
@@ -276,7 +280,7 @@ public sealed partial class ExportSession : IDisposable
                 jobs.Add(name);
             }
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
-            collection.Errors, collection.ReviewFlags, sources, jobFiles = jobs,
+            collection.Errors, collection.ReviewFlags, collection.ManagerRefreshes, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
@@ -497,6 +501,7 @@ public sealed partial class ExportSession : IDisposable
         var omitted = sources.Reads.Where(IsPhotoOmitted).ToDictionary(read => read.Target);
         var unavailable = sources.Reads.Where(IsEnrichmentUnavailable).ToArray();
         var unavailableProfiles = unavailable.Where(read => read.Kind == "profile").ToDictionary(read => read.Target);
+        var unavailableMetadata = unavailable.Where(read => read.Kind == "structured").ToDictionary(read => read.Target);
         var unavailablePhotoIds = unavailable.Where(read => read.Kind != "profile")
             .Select(read => read.Target.Split('/')[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var confirmedAbsentPhotos = 0;
@@ -534,11 +539,17 @@ public sealed partial class ExportSession : IDisposable
                 warnings.AddRange(observation.Warnings.Select(w => person.Email + ": " + w));
             }
             ApplyOffice(item, Text(person.Directory, "officeLocation"), warnings, person.Email);
+            JsonObject? metadata = null;
+            if (!unavailableMetadata.ContainsKey(PhotoPath(person.Id)))
+            {
+                RequireCompletedSource(sources, "structured", PhotoPath(person.Id));
+                metadata = PhotoMetadata(person.Id);
+            }
             if (unavailablePhotoIds.Contains(person.Id))
                 warnings.Add(person.Email + ": photo lookup unavailable; photoPath omitted to preserve any existing Workspace photo.");
             else
             {
-                var metadata = PhotoMetadata(person.Id);
+                if (metadata is null) throw new InvalidOperationException("Photo metadata coverage is not accounted for: " + person.Id);
                 if (omitted.TryGetValue($"/users/{person.Id}/photo/$value", out var omittedPhoto))
                 {
                     Success(metadata, "Fresh photo metadata");

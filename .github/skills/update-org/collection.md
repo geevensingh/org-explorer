@@ -83,6 +83,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-status RUN` | Returns the persistent invocation-wide source record, including active claims, failures, deferred first reads, saved result paths and recovery consumption. |
 | `source-claim RUN WORKER KIND TARGETS.json` | Claims a source call, or returns `claimId:null` with a blocker. Kinds/target limits are defined below. |
 | `source-finish RUN CLAIM-ID RESULTS.json` | Records and returns only this claim's outcomes plus invocation recovery/stop flags; retains the result file for handoff. Use `source-status` for the full ledger. |
+| `source-refresh-manager RUN DIRECTORY-ID REASON` | Reopens only a completed Manager confirmation made stale by newer conflicting reporting evidence in `plan.managerRefreshes`; archives the previous observation/attempts and records the reason and required freshness. |
 | `source-authorize-best-effort RUN REASON` | Records the standing best-effort policy before failed reads. The helper thereafter schedules retries and unavailable outcomes per target automatically. |
 | `source-recover RUN` | Coordinator only: enrolls a newly eligible failed set after all active claims settle, under the run's recorded recovery approvals. |
 | `source-authorize-per-read-recovery RUN REASON` | Coordinator only: records this skill's standing per-read recovery approval for the run. |
@@ -116,7 +117,15 @@ Keep `$select`, `$top` and `$value` literal: use parsed path strings or
 single-quoted PowerShell literals, not interpolated query strings.
 
 Fetch any exact Manager paths requested by `plan` under the standing conflict
-rule. Retain supported agent-user accounts as distinct identities with review
+rule. When `managerRefreshes` identifies a stale completed confirmation, use
+`source-refresh-manager` for that exact directory ID before claiming it again.
+The helper retains prior attempts and receipts in `previousObservations`, and
+rejects an outstanding refresh or a refresh without strictly newer conflicting
+evidence. Each newly required confirmation has at most two attempts; this is a
+fresh observation, not a way to renew a failed read's budget. Unrelated successful
+reads stay completed.
+
+Retain supported agent-user accounts as distinct identities with review
 flags rather than excluding them or merging them by name.
 
 The helper never calls M365 itself. Use the shared capture sequence below for
@@ -170,7 +179,10 @@ Capture supports original JSON in event `result.content`, native
 `structuredContent`, one native text `contents` block, and full `detailedContent`.
 It also unwraps MCP `structuredContent` or one text `content` block, including
 `isError` wrappers. Native failure messages containing complete JSON, optionally
-prefixed `MCP error <integer>: `, retain mixed successes and source failures.
+prefixed `MCP error <integer>: ` or `MCP server '<server>': `, retain mixed
+successes and source failures. The same validated prefixes are removed when
+inspecting unusable capture diagnostics for denials and retry delays; those
+diagnostic bytes are still not accepted as a usable source response.
 Host-capped text with the marker
 `Output too large to display.\nFull output saved to: <absolute path>` is an explicit
 blocker. A path and a fresh modification time cannot establish which invocation
@@ -307,7 +319,9 @@ this is distinct from confirmed-absence `unavailable:true` and legacy
 Only recorded failures count as unavailable coverage. Every retained Person must
 still have an attempted profile lookup and photo-metadata lookup, and every
 successful non-absent metadata result needs verified bytes or an accounted-for
-download outcome. Malformed local observations, identity mismatches and corrupt
+download outcome. An unavailable binary download does not waive its metadata
+lookup; only that exact metadata read's recorded unavailable outcome can do so.
+Malformed local observations, identity mismatches and corrupt
 artifacts remain explicit validation errors, not permission to hide them as
 unavailable source data.
 
@@ -344,6 +358,7 @@ contract, not a path or a digest computed after reading unrelated bytes.
 
 Explicit error fragments `Status code is <HTTP status name>` are source statuses,
 including transient `ServiceUnavailable` and denial `Forbidden`. Recovery checks
+both string errors and their supported message-only object wrappers. It checks
 the retained original result with the current classifier without rewriting prior
 attempts. A newly recognized denial persists the invocation stop.
 

@@ -24,7 +24,10 @@ public sealed partial class ExportSession
         SourceUnavailability? Unavailable = null)
     {
         public bool AccountedFor => State == "completed" || IsPhotoOmitted(this) || IsEnrichmentUnavailable(this);
+        public SourceObservationRefresh[] PreviousObservations { get; init; } = [];
     }
+    public sealed record SourceObservationRefresh(DateTimeOffset RecordedAt, DateTimeOffset RequiredAfter, string Reason,
+        SourceAttempt[] Attempts, SourceRecoveryAuthorization? UnclassifiedRecovery, SourceRecoveryAuthorization? NotFoundRecovery);
     public sealed record SourceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason);
     public sealed record SourceUnavailability(DateTimeOffset RecordedAt, string Reason);
     public sealed record SourceErrorRecoveryAuthorization(string Kind, string Error, DateTimeOffset AuthorizedAt, string Reason);
@@ -69,7 +72,7 @@ public sealed partial class ExportSession
             var pending = ledger.Reads.Where(read => read.Kind == kind && targets.Contains(read.Target)
                 && !read.AccountedFor).ToArray();
             var now = sourceClock.GetUtcNow();
-            var retryAt = ledger.Reads.SelectMany(read => read.Attempts).Max(attempt => attempt.RetryAt);
+            var retryAt = ledger.Reads.SelectMany(SourceAttempts).Max(attempt => attempt.RetryAt);
             SourceClaim Blocked(string reason) => new(null, kind, worker, pending.Select(read => read.Target).ToArray(),
                 reason, retryAt > now ? retryAt : null);
             if (ledger.StopReason is not null) return Blocked(ledger.StopReason);
@@ -101,6 +104,37 @@ public sealed partial class ExportSession
                 read.Attempts.Add(new(claimId, worker, now, null, null, false, null));
             }
             return new SourceClaim(claimId, kind, worker, pending.Select(read => read.Target).ToArray(), null);
+        });
+    }
+
+    public SourceObservationRefresh RefreshManagerConfirmation(string id, string reason)
+    {
+        Require(Guid.TryParse(id, out _), "Use the exact directory identity requiring fresh Manager confirmation.");
+        Require(!string.IsNullOrWhiteSpace(reason), "Record why newer reporting evidence requires Manager recollection.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            var request = Plan().ManagerRefreshes.SingleOrDefault(request => request.DirectoryId == id)
+                ?? throw new InvalidOperationException("No newer conflicting reporting evidence requires this Manager refresh.");
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "structured" && read.Target == request.Target);
+            Require(read is not null && read.State == "completed" && read.Attempts.Count > 0
+                && read.Attempts.All(attempt => attempt.FinishedAt is not null)
+                && read.Attempts[^1].Error is null && read.Attempts[^1].ResultFile is not null,
+                "Refresh only a completed Manager observation; outstanding reads retain their existing attempt budget.");
+            var completed = read!;
+            Require(completed.PreviousObservations.Length == 0
+                || request.RequiredAfter > completed.PreviousObservations[^1].RequiredAfter,
+                "A Manager refresh requires strictly newer conflicting reporting evidence.");
+            var refresh = new SourceObservationRefresh(sourceClock.GetUtcNow(), request.RequiredAfter, reason,
+                completed.Attempts.ToArray(), completed.UnclassifiedRecovery, completed.NotFoundRecovery);
+            ledger.Reads[ledger.Reads.IndexOf(completed)] = completed with
+            {
+                State = "deferred", Attempts = [], RecoveryEligible = false,
+                UnclassifiedRecovery = null, NotFoundRecovery = null,
+                PreviousObservations = [.. completed.PreviousObservations, refresh]
+            };
+            complete = null;
+            return refresh;
         });
     }
 
@@ -360,13 +394,17 @@ public sealed partial class ExportSession
     {
         if (read.Kind != approval.Kind || !IsUnclassifiedSourceFailure(read)) return false;
         if (read.Attempts[0].Error == approval.Error) return true;
-        var original = ledger.Reads.FirstOrDefault(candidate => candidate.Kind == approval.Kind
-            && candidate.Attempts.Count > 0 && candidate.Attempts[0].Error == approval.Error)
+        var original = ledger.Reads.Where(candidate => candidate.Kind == approval.Kind)
+            .SelectMany(candidate => SourceAttempts(candidate).Select(attempt => (Read: candidate, Attempt: attempt)))
+            .FirstOrDefault(candidate => candidate.Attempt.Error == approval.Error);
+        var originalRead = original.Read
             ?? throw new InvalidOperationException("The approved matching-error source evidence is missing.");
-        Require(IsUnclassifiedSourceFailure(original), "The approved source result must retain its unclassified failure.");
+        var originalResponse = SavedSourceResponse(originalRead, original.Attempt);
+        Require(SourceOutcome(originalRead.Kind, originalRead.Target, originalResponse).Unclassified,
+            "The approved source result must retain its unclassified failure.");
         var errors = SourceErrorKeys(SavedSourceResponse(read));
         return errors.Length > 0
-            && errors.SequenceEqual(SourceErrorKeys(SavedSourceResponse(original)), StringComparer.Ordinal);
+            && errors.SequenceEqual(SourceErrorKeys(originalResponse), StringComparer.Ordinal);
     }
 
     private static string[] SourceErrorKeys(JsonObject response)
@@ -376,8 +414,11 @@ public sealed partial class ExportSession
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
     private JsonObject SavedSourceResponse(SourceRead read, int attemptIndex = 0)
+        => SavedSourceResponse(read, read.Attempts[attemptIndex]);
+
+    private JsonObject SavedSourceResponse(SourceRead read, SourceAttempt attempt)
     {
-        var resultFile = read.Attempts[attemptIndex].ResultFile
+        var resultFile = attempt.ResultFile
             ?? throw new InvalidOperationException("The original source result is required to classify this failure.");
         var result = Read<SourceResult[]>(Within(resultFile)).Single(result => result.Target == read.Target);
         return result.Response;
@@ -473,6 +514,16 @@ public sealed partial class ExportSession
         var unresolved = ledger.Reads.Where(read => !read.AccountedFor).ToArray();
         Require(ledger.StopReason is null && unresolved.Length == 0, "Source collection is incomplete: " + ledger.StopReason + string.Join("; ",
             unresolved.Select(read => $"{read.Kind} {read.Target}: {read.State}; {read.Attempts.LastOrDefault()?.Error}")));
+        foreach (var attempt in ledger.Reads.SelectMany(read => read.PreviousObservations).SelectMany(history => history.Attempts))
+        {
+            if (attempt.ResultFile is { } resultFile)
+                Require(File.Exists(Within(resultFile)), "Retained Manager source evidence is missing.");
+            else if (attempt.CaptureFailureFile is { } failureFile)
+                Require(File.Exists(Within(failureFile)), "Retained Manager capture diagnostics are missing.");
+            else
+                Require(attempt.FinishedAt is not null && !string.IsNullOrWhiteSpace(attempt.Error),
+                    "Retained Manager interruption diagnostics are missing.");
+        }
         foreach (var read in ledger.Reads.Where(IsPhotoOmitted))
             foreach (var attempt in read.Attempts)
                 Require(File.Exists(Within(attempt.ResultFile!)), "Omitted photo source evidence is missing.");
@@ -514,6 +565,9 @@ public sealed partial class ExportSession
         => Require(ledger.Reads.Any(read => read.Kind == kind && read.Target == SourceTarget(kind, target) && read.State == "completed"),
             $"Source read is not completed in the shared invocation record: {kind} {target}.");
 
+    private static IEnumerable<SourceAttempt> SourceAttempts(SourceRead read)
+        => read.PreviousObservations.SelectMany(history => history.Attempts).Concat(read.Attempts);
+
     private static IEnumerable<JsonObject> SourceObjects(JsonNode node)
     {
         if (node is JsonObject obj)
@@ -533,7 +587,8 @@ public sealed partial class ExportSession
     {
         foreach (var name in new[] { "statusCode", "httpStatusCode", "status" })
             if (SourceStatusCode(obj[name]) is { } status) yield return status;
-        if (obj["error"] is not JsonValue error || !error.TryGetValue<string>(out var message)) yield break;
+        var message = obj["error"] is JsonObject error ? SourceText(error["message"]) : SourceText(obj["error"]);
+        if (message.Length == 0) yield break;
         const string prefix = "Status code is ";
         foreach (var part in message.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             if (part.StartsWith(prefix, StringComparison.Ordinal)
