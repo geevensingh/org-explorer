@@ -51,6 +51,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `photo RUN DIRECTORY-ID BLOB.json` | Materializes the full successful `fetch_blob` JSON response, verifying MIME/magic and decoded length. |
 | `photos RUN INPUTS.json` | Batch input: `[{"directoryId":"...","responseFile":"..."}]`. |
 | `publish RUN` | Checks the actual app preview, copies verified photo cache entries and atomically publishes a new immutable export. |
+| `publish-partial RUN OMIT-PERSON-ID OMIT-PHOTO-PERSON-ID REASON` | Coordinator only, after explicit approval of both exact omissions: publishes a validated partial refresh, preserving the two failed lookups and recording the exceptions. |
 
 Use `plan` paths verbatim. It requires fresh root details, all subtree reporting
 pages and leaves, and the ancestor Manager chain. An actual Manager-relationship
@@ -477,6 +478,35 @@ source evidence; missing data is not removal. Missing photos always preserve a
 saved image. Normalize sourced US country spellings to `USA`; keep sourced state
 names or abbreviations consistently rather than inventing missing geography.
 
+## Explicitly approved partial publication
+
+The default `publish` remains strict. If the user explicitly chooses a partial
+refresh instead, the coordinator can use `publish-partial` after all workers and
+claims stop. Supply the exact directory ID of one Person to omit, the distinct
+directory ID of one Person whose photo update to omit, and the approval reason.
+This bounded path is not a general skip-errors flag.
+
+The omitted Person must be a non-root leaf in the retained reporting population
+with an already recorded profile deferral. No included reporting relationship may
+depend on that Person. The photo omission must match an already deferred HTTP 503
+metadata lookup. Both exceptions are bound to their latest failed claims; the
+original failures, attempts, source files and recovery limits stay unchanged.
+An active claim, denial, incomplete directory, unrelated failed read, unresolved
+profile input or invalid photo still blocks publication.
+
+The Person is absent from `people`, which leaves any existing Workspace record
+unchanged rather than deleting or archiving it. The other Person remains included,
+with `photoPath` omitted, never null. Their photo remains unresolved, not confirmed
+absent, and any existing Workspace image is preserved. No new source call is made.
+
+The shared publication path still validates included observations, reporting
+references, actual photo bytes and the real app's non-UI Import preview. The
+source ledger retains `partialPublications`; `partial-publication.json`,
+coverage and review flags record the exact approved omissions. Coverage
+distinguishes requested/exported People, confirmed-absent photos and unresolved
+photo updates. The helper's result and validation record explicitly mark the
+export partial. A recorded approval never makes ordinary `publish` permissive.
+
 ## Completion and retained data
 
 Every invocation starts a new run and fresh source reads. Photo reuse also checks
@@ -486,7 +516,8 @@ mutable staging or reuse its batch UUID for changed content.
 An interrupted, sealed publication is not editable staging: start a fresh run
 and reuse its verified photo bytes rather than changing the sealed batch.
 
-Await all workers, then `publish`. A ready folder contains `updates.json`, relative
+Await all workers, then `publish`, or the explicitly approved partial path above.
+A ready folder contains `updates.json`, relative
 `photos` files, coverage, profile/source receipts, review flags, photo provenance
 and exact-candidate validation evidence. These are private local deliverables;
 only the skill, helpers and fictitious tests are versioned.

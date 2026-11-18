@@ -19,12 +19,15 @@ public sealed partial class ExportSession
         public List<MetadataDeferral> MetadataDeferrals { get; set; } = [];
         public List<ProfileDeferral> ProfileDeferrals { get; set; } = [];
         public List<PhotoAbsenceConfirmation> PhotoAbsenceConfirmations { get; set; } = [];
+        public List<PartialPublicationApproval> PartialPublications { get; set; } = [];
     }
     public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
     public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record MetadataDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record ProfileDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
     public sealed record PhotoAbsenceConfirmation(DateTimeOffset ConfirmedAt, string Reason, string Target, Guid SourceClaimId);
+    public sealed record PartialPublicationApproval(Guid ApprovalId, Guid BatchId, DateTimeOffset AuthorizedAt,
+        string Reason, string OmittedPersonId, string OmittedPhotoPersonId, ServiceRecoveryTarget[] SourceExceptions);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
@@ -392,13 +395,26 @@ public sealed partial class ExportSession
         return (error, transient && delayError is null, retryAt, denied);
     }
 
-    private SourceLedger RequireSourcesComplete()
+    private SourceLedger RequireSourcesComplete(PartialPublicationApproval? approval = null)
     {
         var ledger = SourceStatus();
-        var unresolved = ledger.Reads.Where(read => read.State != "completed").ToArray();
+        if (approval is not null)
+            Require(ledger.PartialPublications.Any(saved => saved.ApprovalId == approval.ApprovalId
+                && JsonSerializer.Serialize(saved, Json) == JsonSerializer.Serialize(approval, Json)),
+                "The exact partial-publication approval is missing from this run.");
+        RequireSourcesComplete(ledger, approval);
+        return ledger;
+    }
+
+    private static void RequireSourcesComplete(SourceLedger ledger, PartialPublicationApproval? approval)
+    {
+        Require(approval is null || approval.BatchId == ledger.BatchId, "Partial-publication approval belongs to another run.");
+        var unresolved = ledger.Reads.Where(read => read.State != "completed"
+            && !(approval is not null && read.State == "failed" && read.Attempts.Count == 2
+                && approval.SourceExceptions.Any(target => target.Kind == read.Kind && target.Target == read.Target
+                    && target.FailedClaimId == read.Attempts[^1].ClaimId))).ToArray();
         Require(ledger.StopReason is null && unresolved.Length == 0, "Source collection is incomplete: " + ledger.StopReason + string.Join("; ",
             unresolved.Select(read => $"{read.Kind} {read.Target}: {read.State}; {read.Attempts.LastOrDefault()?.Error}")));
-        return ledger;
     }
 
     private static void RequireCompletedSource(SourceLedger ledger, string kind, string target)

@@ -450,21 +450,64 @@ public sealed partial class ExportSession : IDisposable
         return new { directoryId = id, evidence.SizeBytes, evidence.Sha256 };
     }
 
-    public object Publish()
+    public object Publish() => PublishCore(null);
+
+    public object PublishPartial(string omittedPersonId, string omittedPhotoPersonId, string reason)
     {
-        var sources = RequireSourcesComplete();
+        omittedPersonId = SourceTarget("profile", omittedPersonId);
+        omittedPhotoPersonId = SourceTarget("profile", omittedPhotoPersonId);
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit approval of these exact partial-export omissions.");
+        var collection = Complete();
+        Require(collection.People.Any(person => person.Id == omittedPersonId)
+            && collection.People.Any(person => person.Id == omittedPhotoPersonId)
+            && omittedPersonId != omittedPhotoPersonId, "Name distinct retained People for the Person and photo omissions.");
+        Require(omittedPersonId != run.RootId && !collection.People.Any(person => person.ManagerId == omittedPersonId),
+            "Only a non-root leaf Person can be omitted; reporting dependencies cannot be rewritten or dropped.");
+        var approval = WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all source calls before partial publication.");
+            var profile = ledger.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == omittedPersonId);
+            var photo = ledger.Reads.SingleOrDefault(read => read.Kind == "structured" && read.Target == PhotoPath(omittedPhotoPersonId));
+            Require(profile is not null && IsDeferredProfile(ledger, profile), "The omitted Person must have an explicitly deferred profile failure.");
+            Require(photo is not null && IsDeferredMetadata(ledger, photo), "The omitted photo must have an explicitly deferred metadata failure.");
+            var profileRead = profile ?? throw new InvalidOperationException("The omitted profile source is missing.");
+            var photoRead = photo ?? throw new InvalidOperationException("The omitted photo source is missing.");
+            foreach (var attempt in profileRead.Attempts) RequireProfileReadFailure(attempt, profileRead.Target);
+            Require503SourceResult(photoRead);
+            var selected = new PartialPublicationApproval(Guid.NewGuid(), run.BatchId, sourceClock.GetUtcNow(), reason,
+                omittedPersonId, omittedPhotoPersonId,
+                [new(profileRead.Kind, profileRead.Target, profileRead.Attempts[^1].ClaimId),
+                    new(photoRead.Kind, photoRead.Target, photoRead.Attempts[^1].ClaimId)]);
+            RequireSourcesComplete(ledger, selected);
+            ledger.PartialPublications.Add(selected);
+            return selected;
+        });
+        return PublishCore(approval);
+    }
+
+    private object PublishCore(PartialPublicationApproval? partialPublication)
+    {
+        var sources = RequireSourcesComplete(partialPublication);
         var collection = Complete();
         foreach (var receipt in collection.Receipts.Values)
-            RequireCompletedSource(sources, "structured", receipt.Path);
+            if (partialPublication is null || receipt.Path != PhotoPath(partialPublication.OmittedPhotoPersonId))
+                RequireCompletedSource(sources, "structured", receipt.Path);
         var errors = System.IO.Path.Combine(path, "profile-errors");
         var failures = Directory.Exists(errors) ? Directory.GetFiles(errors, "*.json").Select(Read<ProfileFailure>).ToArray() : [];
         Require(failures.Length == 0, "Unresolved profile inputs: " + JsonSerializer.Serialize(failures, Json));
-        var byId = collection.People.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var population = collection.People.Where(person => person.Id != partialPublication?.OmittedPersonId).ToArray();
+        var byId = population.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var people = new List<Dictionary<string, object?>>();
         var warnings = collection.ExcludedAgentUsers
             .Select(agent => agent.DirectoryId + ": excluded agentUser; " + agent.Reason).ToList();
+        if (partialPublication is not null)
+            warnings.Add(collection.People.Single(person => person.Id == partialPublication.OmittedPersonId).Email
+                + ": omitted Person by explicit partial-export approval; existing Workspace record is unchanged.");
         var photos = new List<PhotoEvidence>();
-        foreach (var person in collection.People)
+        var confirmedAbsentPhotos = 0;
+        var unresolvedPhotos = 0;
+        foreach (var person in population)
         {
             RequireCompletedSource(sources, "profile", person.Id);
             var item = new Dictionary<string, object?>
@@ -491,9 +534,21 @@ public sealed partial class ExportSession : IDisposable
             warnings.AddRange(observation.Warnings.Select(w => person.Email + ": " + w));
             ApplyOffice(item, Text(person.Directory, "officeLocation"), warnings, person.Email);
             var metadata = PhotoMetadata(person.Id);
-            if (NoPhoto(metadata)) warnings.Add(person.Email + ": directory photo unavailable; photoPath omitted.");
+            if (person.Id == partialPublication?.OmittedPhotoPersonId)
+            {
+                unresolvedPhotos++;
+                warnings.Add(person.Email + ": photo unresolved; omitted by explicit partial-export approval, preserving any existing Workspace photo.");
+            }
+            else if (NoPhoto(metadata))
+            {
+                confirmedAbsentPhotos++;
+                warnings.Add(person.Email + ": directory photo unavailable; photoPath omitted.");
+            }
             else if (HasConfirmedPhotoAbsence(sources, person.Id))
+            {
+                confirmedAbsentPhotos++;
                 warnings.Add(person.Email + ": confirmed binary ImageNotFound supersedes earlier photo metadata; photoPath omitted.");
+            }
             else
             {
                 Success(metadata, "Photo metadata");
@@ -511,7 +566,8 @@ public sealed partial class ExportSession : IDisposable
         var candidate = System.IO.Path.Combine(path, "updates.candidate.json");
         Save(candidate, new { schemaVersion = 1, batchId = run.BatchId,
             observedAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-            producer = "update-org local WorkIQ producer", people });
+            producer = partialPublication is null ? "update-org local WorkIQ producer" : "update-org local WorkIQ producer (explicit partial refresh)",
+            people });
         using (var app = ApplicationWorkflow.CreateInMemory())
         {
             Require(app.OpenWorkspace("org-export-preview-" + run.BatchId), app.Status);
@@ -520,21 +576,26 @@ public sealed partial class ExportSession : IDisposable
             warnings.AddRange(preview.Warnings);
         }
         var hash = Hash(File.ReadAllBytes(candidate));
+        var subtreeCount = collection.SubtreeCount - (partialPublication is null ? 0 : 1);
+        if (partialPublication is not null)
+            Save(System.IO.Path.Combine(path, "partial-publication.json"), partialPublication);
         Save(System.IO.Path.Combine(path, "coverage.json"), new
         {
             run.RootId, run.AccountId, run.StartedAt, completedAt = DateTimeOffset.UtcNow,
-            people = people.Count, collection.SubtreeCount, ancestorCount = people.Count - collection.SubtreeCount,
+            requestedPeople = collection.People.Length, people = people.Count, subtreeCount, ancestorCount = people.Count - subtreeCount,
             excludedAlternateIds = collection.Excluded, collection.ExcludedAgentUsers, photos = photos.Count,
-            unavailablePhotos = people.Count - photos.Count, updatesSha256 = hash,
-            directoryUserIds = collection.People.ToDictionary(p => p.Email, p => p.Id),
+            unavailablePhotos = people.Count - photos.Count, confirmedAbsentPhotos, unresolvedPhotos, partialPublication, updatesSha256 = hash,
+            directoryUserIds = population.ToDictionary(p => p.Email, p => p.Id),
             policy = "Refresh only; unknown fields and unavailable photos omitted; no archival or Workspace apply."
         });
         Save(System.IO.Path.Combine(path, "review-required.json"), warnings);
         Save(System.IO.Path.Combine(path, "photo-source.json"), photos);
         Save(System.IO.Path.Combine(path, "validation.json"), new
         {
-            status = "passed", importSha256 = hash, checkedAt = DateTimeOffset.UtcNow,
-            checks = new[] { "Complete reporting receipts and ancestor chain", "All profile and photo lookups accounted for",
+            status = "passed", partial = partialPublication is not null, importSha256 = hash, checkedAt = DateTimeOffset.UtcNow,
+            checks = new[] { "Complete reporting receipts and ancestor chain",
+                partialPublication is null ? "All profile and photo lookups accounted for"
+                    : "Included profile/photo lookups complete except the exact user-approved partial omissions",
                 "Real app in-memory file preview, graph validation and image decoding", "Photo byte hashes" }
         });
         foreach (var photo in photos.Where(p => p.Etag.Length > 0))
@@ -553,7 +614,8 @@ public sealed partial class ExportSession : IDisposable
         Dispose();
         Directory.Move(path, destination);
         return new { importPath = System.IO.Path.Combine(destination, "updates.json"), people = people.Count,
-            photos = photos.Count, unavailablePhotos = people.Count - photos.Count, warningCount = warnings.Count };
+            photos = photos.Count, unavailablePhotos = people.Count - photos.Count, confirmedAbsentPhotos, unresolvedPhotos,
+            partial = partialPublication is not null, warningCount = warnings.Count };
     }
 
     public static string UserPath(string id) => $"/users/{id}?$select={Fields}";

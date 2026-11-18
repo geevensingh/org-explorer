@@ -1797,6 +1797,162 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == AltId).Attempts.Count);
     }
 
+    [Fact]
+    public async Task Explicit_partial_publication_omits_only_the_named_person_and_unknown_photo_without_clearing_source_failures()
+    {
+        var path = SeedPartialExport();
+        string originalFailures;
+        using (var session = ExportSession.Open(path))
+            originalFailures = JsonSerializer.Serialize(session.SourceStatus().Reads.Where(read => read.State == "failed"),
+                ExportSession.Json);
+        var strict = await RunCli("publish", path);
+        Assert.Equal(1, strict.ExitCode);
+        Assert.Contains("Source collection is incomplete", strict.Error);
+        const string reason = "User explicitly approved omitting the failed leaf Person and leaving the other Person's photo unchanged.";
+
+        var result = await RunCli("publish-partial", path, ChildId, AltId, reason);
+
+        Assert.True(result.ExitCode == 0, result.Error);
+        var output = JsonNode.Parse(result.Output)!;
+        Assert.True(output["partial"]!.GetValue<bool>());
+        Assert.Equal(2, output["people"]!.GetValue<int>());
+        Assert.Equal(1, output["photos"]!.GetValue<int>());
+        var import = output["importPath"]!.GetValue<string>();
+        var directory = Path.GetDirectoryName(import)!;
+        Assert.False(Directory.Exists(path));
+        var people = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray();
+        Assert.DoesNotContain(people, person => person!["email"]!.GetValue<string>() == "person2@example.test");
+        var photoPerson = people.Single(person => person!["email"]!.GetValue<string>() == "alternate@example.test")!.AsObject();
+        Assert.False(photoPerson.ContainsKey("photoPath"));
+        Assert.Equal("person1@example.test", photoPerson["managerEmail"]!.GetValue<string>());
+        var rootPerson = people.Single(person => person!["email"]!.GetValue<string>() == "person1@example.test")!;
+        Assert.Equal(Png, File.ReadAllBytes(Path.Combine(directory, rootPerson["photoPath"]!.GetValue<string>())));
+        var ledger = JsonSerializer.Deserialize<ExportSession.SourceLedger>(
+            File.ReadAllText(Path.Combine(directory, "source-coordination.json")), ExportSession.Json)!;
+        Assert.Equal(originalFailures, JsonSerializer.Serialize(ledger.Reads.Where(read => read.State == "failed"), ExportSession.Json));
+        var approval = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "partial-publication.json")))!;
+        Assert.Equal(ChildId, approval["omittedPersonId"]!.GetValue<string>());
+        Assert.Equal(AltId, approval["omittedPhotoPersonId"]!.GetValue<string>());
+        Assert.Equal(reason, approval["reason"]!.GetValue<string>());
+        Assert.Equal(2, approval["sourceExceptions"]!.AsArray().Count);
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "coverage.json")))!;
+        Assert.Equal(3, coverage["requestedPeople"]!.GetValue<int>());
+        Assert.Equal(2, coverage["people"]!.GetValue<int>());
+        Assert.Equal(2, coverage["subtreeCount"]!.GetValue<int>());
+        Assert.Equal(0, coverage["ancestorCount"]!.GetValue<int>());
+        Assert.Equal(1, coverage["unresolvedPhotos"]!.GetValue<int>());
+        Assert.Equal(0, coverage["confirmedAbsentPhotos"]!.GetValue<int>());
+        Assert.NotNull(coverage["partialPublication"]);
+        Assert.DoesNotContain("person2@example.test", coverage["directoryUserIds"]!.AsObject().Select(pair => pair.Key));
+        Assert.True(JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "validation.json")))!["partial"]!.GetValue<bool>());
+        var warnings = File.ReadAllText(Path.Combine(directory, "review-required.json"));
+        Assert.Contains("omitted Person", warnings);
+        Assert.Contains("photo unresolved", warnings);
+    }
+
+    [Theory]
+    [InlineData("blank-reason")]
+    [InlineData("root")]
+    [InlineData("referenced-person")]
+    [InlineData("wrong-photo")]
+    [InlineData("swapped")]
+    [InlineData("extra-failure")]
+    [InlineData("denial")]
+    [InlineData("active")]
+    [InlineData("photo-bytes")]
+    [InlineData("profile-input")]
+    public async Task Partial_publication_cannot_bypass_scope_dependencies_or_other_validation(string scenario)
+    {
+        var path = SeedPartialExport(omittedHasReport: scenario == "referenced-person");
+        using (var session = ExportSession.Open(path))
+        {
+            if (scenario is "extra-failure" or "denial")
+                FinishSource(session, session.ClaimSource("other", "profile", [AccountId]),
+                    new JsonObject { ["statusCode"] = scenario == "denial" ? 403 : 503 });
+            else if (scenario == "active")
+                Assert.NotNull(session.ClaimSource("active", "profile", [AccountId]).ClaimId);
+            else if (scenario == "photo-bytes")
+                File.WriteAllBytes(Path.Combine(path, "photos", RootId + ".png"), [1, 2, 3]);
+            else if (scenario == "profile-input")
+            {
+                var person = session.Plan().People.Single(person => person.Id == RootId);
+                var input = ProfileInput(session, person);
+                var observation = JsonNode.Parse(File.ReadAllText(input))!;
+                observation["error"] = "Fictitious unresolved observation input.";
+                Save(input, observation);
+                Assert.Throws<InvalidOperationException>(() => session.Profile(RootId, input));
+            }
+        }
+        var omittedPerson = scenario == "root" ? RootId : scenario == "swapped" ? AltId : ChildId;
+        var omittedPhoto = scenario == "wrong-photo" ? RootId : scenario == "swapped" ? ChildId : AltId;
+        var reason = scenario == "blank-reason" ? "" : "User approved only the two named omissions.";
+
+        var result = await RunCli("publish-partial", path, omittedPerson, omittedPhoto, reason);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
+        Assert.False(File.Exists(Path.Combine(path, ".sealed")));
+        using (var session = ExportSession.Open(path))
+        {
+            var ledger = session.SourceStatus();
+            Assert.Equal(2, ledger.Reads.Single(read => read.Kind == "profile" && read.Target == ChildId).Attempts.Count);
+            Assert.Equal("failed", ledger.Reads.Single(read => read.Target == ExportSession.PhotoPath(AltId)).State);
+            if (scenario is "photo-bytes" or "profile-input") Assert.Single(ledger.PartialPublications);
+            else Assert.Empty(ledger.PartialPublications);
+        }
+        var strict = await RunCli("publish", path);
+        Assert.Equal(1, strict.ExitCode);
+        Assert.Contains("Source collection is incomplete", strict.Error);
+    }
+
+    [Fact]
+    public async Task Partial_publication_requires_an_exclusive_run_lease_before_recording_approval()
+    {
+        var path = SeedPartialExport();
+        using var worker = ExportSession.Open(path);
+
+        var result = await RunCli("publish-partial", path, ChildId, AltId, "User approved the two named omissions.");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(".lease", result.Error);
+        Assert.Empty(worker.SourceStatus().PartialPublications);
+    }
+
+    private string SeedPartialExport(bool omittedHasReport = false)
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var reports = new JsonArray(User(ChildId, "Fictitious omitted Person"));
+        if (!omittedHasReport) reports.Add(User(AltId, "Fictitious photo Person"));
+        Ingest(session,
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = reports })),
+            (ExportSession.UserPath(ChildId), Ok(User(ChildId, "Fictitious omitted Person"))),
+            (ExportSession.ReportsPath(ChildId), omittedHasReport
+                ? Ok(new JsonObject { ["value"] = new JsonArray(User(AltId, "Fictitious photo Person")) }) : Empty()),
+            (ExportSession.UserPath(AltId), Ok(User(AltId, "Fictitious photo Person"))),
+            (ExportSession.ReportsPath(AltId), Empty()),
+            (ExportSession.PhotoPath(RootId), Metadata("fictitious-photo")),
+            (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
+        foreach (var person in session.Plan().People.Where(person => person.Id != ChildId))
+            session.Profile(person.Id, ProfileInput(session, person));
+        session.Photo(RootId, Blob());
+        CompleteSource(session, "photo", $"/users/{RootId}/photo/$value", Ok(new JsonObject()));
+        JsonObject Unavailable() => new()
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
+        };
+        Ingest(session, (ExportSession.PhotoPath(AltId), Unavailable()));
+        session.BeginSourceRecovery();
+        Ingest(session, (ExportSession.PhotoPath(AltId), Unavailable()));
+        session.Defer503PhotoMetadata("User requested completing unrelated unread collection.");
+        JsonObject ProfileFailure() => new() { ["error"] = "Profile details couldn't be retrieved for this person right now." };
+        FinishSource(session, session.ClaimSource("profile", "profile", [ChildId]), ProfileFailure());
+        session.BeginProfileOpenRecovery(ChildId, "User approved one retry.");
+        FinishSource(session, session.ClaimSource("profile-retry", "profile", [ChildId]), ProfileFailure());
+        session.DeferProfile(ChildId, "User requested completing unrelated unread profiles.");
+        return path;
+    }
+
     private string Seed(string office = "NORTH/001.2", string account = AccountId)
     {
         var path = NewRun(account);

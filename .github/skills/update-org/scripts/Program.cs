@@ -13,7 +13,7 @@ try
     else
     {
         if (args.Length < 2) throw new ArgumentException("A staging run path is required.");
-        using var session = ExportSession.Open(args[1], publishing: args[0] == "publish");
+        using var session = ExportSession.Open(args[1], publishing: args[0] is "publish" or "publish-partial");
         result = args[0] switch
         {
             "source-status" when args.Length == 2 => session.SourceStatus(),
@@ -38,6 +38,7 @@ try
             "photo" when args.Length == 4 => session.Photo(args[2], args[3]),
             "photos" when args.Length == 3 => session.Photos(args[2]),
             "publish" when args.Length == 2 => session.Publish(),
+            "publish-partial" when args.Length == 5 => session.PublishPartial(args[2], args[3], args[4]),
             _ => throw new ArgumentException("Invalid command or arguments. See collection.md.")
         };
     }

@@ -99,10 +99,14 @@ errors or incomplete hierarchy block publication. Retain local progress and
 diagnostics; report the blocker rather than a ready import path. A new invocation
 queries hierarchy, profile evidence and photo metadata anew; verified photo bytes
 from an interrupted run can still be reused.
+If the user explicitly chooses a partial export instead, follow
+[the bounded partial-publication contract](collection.md#explicitly-approved-partial-publication);
+never silently skip failures or relabel them as successful observations.
 
 ## 5. Publish once
 
-After all workers stop, run `publish`. The helper checks coverage, field semantics,
+After all workers stop, run `publish`, or the explicitly approved partial command
+defined in the collection protocol. The helper checks coverage, field semantics,
 the complete proposed graph and photo bytes through the real app's non-UI Import
 preview. It does not open or apply changes to the user's Workspace.
 The user's app preview remains authoritative for existing Workspace state,
