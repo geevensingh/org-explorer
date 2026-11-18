@@ -309,7 +309,7 @@ internal static partial class Program
         using (var before = OpenSmokeWorkspace(target))
         {
             if (before.Synchronization.LocalRevision != normalContinuation ||
-                before.Synchronization.WorkspaceId != identity)
+                before.Synchronization.WorkspaceId != identity || before.Synchronization.Folder != incoming)
                 throw new InvalidOperationException("Controlled startup changed the clean local Workspace before admission.");
             if (remembered.NoteId is { } rememberedNote &&
                 remembered.Source is SearchSource.PersonNote or SearchSource.OwnedTeamNote)
@@ -472,6 +472,11 @@ internal static partial class Program
         SetSettingsVisible(window, true);
         Await(() => Find(window, "OpenWorkspace").Current.IsEnabled && Activity(window) == "Ready");
         SetSettingsVisible(window, false);
+        using (var normalReturn = OpenSmokeWorkspace(target))
+            if (normalReturn.Synchronization.Folder != incoming || normalReturn.Synchronization.WorkspaceId != identity ||
+                normalReturn.Synchronization.LocalRevision != continuation ||
+                normalReturn.Synchronization.PublishedRevision != continuation)
+                throw new InvalidOperationException("The normal return changed the original incoming transport or completed adopted version.");
         AssertProfileValue(window, "OfficeNumber", "009D");
         using var process = Process.GetProcessById(window.Current.ProcessId);
         using var executable = File.OpenRead(process.MainModule!.FileName);

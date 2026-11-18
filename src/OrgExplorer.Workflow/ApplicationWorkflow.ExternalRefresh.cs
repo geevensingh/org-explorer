@@ -108,8 +108,9 @@ public sealed partial class ApplicationWorkflow
         try
         {
             if (onlyIfRevisionChanged && workspaceCurrent && LocalSqliteRevision() == revision) return true;
-            OpenLocalSqlite(create: false);
-            Status = "Workspace refreshed from committed local SQLite data.";
+            var walReady = OpenLocalSqlite(create: false);
+            if (!walReady) return Fail(localWalFault!.Message);
+            Status = localWalFault?.Message ?? "Workspace refreshed from committed local SQLite data.";
             return true;
         }
         catch (Exception ex) when (StorageError(ex))

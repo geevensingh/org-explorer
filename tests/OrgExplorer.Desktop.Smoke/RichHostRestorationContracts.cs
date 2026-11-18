@@ -35,12 +35,15 @@ internal static partial class Program
                     throw new InvalidOperationException(preferences.PreferenceError ?? seed.Status);
             }
 
-            void Reopen(string expectedEmail, bool selectReport)
+            void Reopen(string expectedEmail, bool selectReport, bool automatic)
             {
                 var expected = ReadSmokeWorkspacePreferences();
                 using var adoption = new SnapshotAdoptionCommitControl();
-                using var store = ApplicationWorkflow.CreateFileBacked(fileObserver: adoption);
-                var window = CreateHeldSnapshotWindow(windowType, store, path);
+                var observation = new RestorationObserver(adoption);
+                using var store = ApplicationWorkflow.CreateFileBacked(fileObserver: observation);
+                var clock = new SnapshotClock();
+                var window = automatic ? CreateAutomaticSnapshotWindow(windowType, store, path, clock) :
+                    CreateHeldSnapshotWindow(windowType, store, path);
                 T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
                 var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
                 var closed = false;
@@ -60,6 +63,13 @@ internal static partial class Program
                     WorkspaceRestoration.AssertRemembered(Observe, path, expected, PumpUntil);
                     if (Observe().Email != expectedEmail)
                         throw new InvalidOperationException("The actual rich host restored the wrong independently remembered Person.");
+                    if (automatic)
+                    {
+                        var before = observation.LocalReads;
+                        clock.Advance(TimeSpan.FromSeconds(60));
+                        PumpUntil(() => observation.LocalReads > before && !model.IsSynchronizing &&
+                            Control<Button>("SyncNowButton").IsEnabled);
+                    }
                     if (selectReport)
                     {
                         if (model.TeamNotesView.SelectedNote?.Id != note ||
@@ -85,8 +95,17 @@ internal static partial class Program
                 finally { if (!closed) ClosePublishedCompiledWindow(window); }
             }
 
-            Reopen("morgan@example.com", selectReport: true);
-            Reopen("avery@example.com", selectReport: false);
+            foreach (var automatic in new[] { true, false })
+            {
+                var preferences = ReadSmokeWorkspacePreferences();
+                if (!preferences.SetLastView(path, new("morgan@example.com", SearchSource.OwnedTeamNote,
+                    note, "morgan@example.com")))
+                    throw new InvalidOperationException(preferences.PreferenceError);
+                Reopen("morgan@example.com", selectReport: true, automatic);
+                Reopen("avery@example.com", selectReport: false, automatic);
+                Console.WriteLine("PASS: actual " + (automatic ? "automatic rich injected-clock" : "held-adoption") +
+                    " factory preserves Loaded/Ready/Open readiness, remembered exact Read note/Person and normal Closed without a native window.");
+            }
             using (var adoption = new SnapshotAdoptionCommitControl())
             {
                 var host = LaunchHeldSnapshotFixture(Path.ChangeExtension(windowType.Assembly.Location, ".exe"),
@@ -108,5 +127,17 @@ internal static partial class Program
             Console.WriteLine("PASS: actual controlled-host construction and Loaded restore independently remembered Person/note, then the next saved Person; current grouped search and real normal Closed remain intact without a native window.");
         }
         finally { Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings); }
+    }
+
+    private sealed class RestorationObserver(SnapshotAdoptionCommitControl adoption) : IWorkspaceFileObserver
+    {
+        internal int LocalReads;
+        public void Observe(WorkspaceFileEffect effect) => adoption.Observe(effect);
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name == "snapshot.local-read" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+                Interlocked.Increment(ref LocalReads);
+            adoption.ObservePhase(phase);
+        }
     }
 }

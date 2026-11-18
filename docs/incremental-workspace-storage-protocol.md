@@ -46,6 +46,11 @@ later writer's Commit. SQLite still serializes writers; the one-second busy
 setting, three-second oldest-request stall, unknown-outcome fences and explicit
 recovery are unchanged. Compatible format-3 state is fully validated before WAL
 negotiation, and a failure never silently selects rollback journaling.
+Complete validated cold-open data remains available for read-only browsing if
+mode negotiation fails. Its sticky local WAL recovery fault blocks ordinary
+write admission until explicit successful reconciliation, without replacing an
+independent unknown transaction fault or clearing buffers. Incomplete/invalid
+validation cannot enter this recovery state.
 Default SQLite checkpoints remain independent of provider work. A confirmed
 Commit may live in WAL while an old reader delays checkpointing; live main/WAL/
 SHM files stay local and are never copied/deleted as a substitute for logical export.

@@ -1882,7 +1882,8 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(first.SyncNow(), first.Synchronization.Error);
         Deliver("outgoing", "incoming");
         using var readEntered = new ManualResetEventSlim();
-        var observer = new SnapshotReadObserver(readEntered);
+        using var releaseRead = new ManualResetEventSlim();
+        var observer = new SnapshotReadObserver(readEntered, releaseRead);
         var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
         var boundary = (SnapshotSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
@@ -1929,11 +1930,6 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         boundary.BeforeDiscard = () => discarding.Set();
         var recovery = Task.Run(second.ReconcileLocalSaves);
         Assert.True(reconciledCore.Wait(TimeSpan.FromSeconds(5)));
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Local("second"), "workspace.sqlite")};Pooling=False");
-        connection.Open();
-        using var exclusive = connection.CreateCommand();
-        exclusive.CommandText = "BEGIN EXCLUSIVE;";
-        exclusive.ExecuteNonQuery();
         observer.Armed = true;
         Task<bool>? sync = null;
         var browsedWhileHeld = false;
@@ -1946,14 +1942,13 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.True(discarding.Wait(TimeSpan.FromSeconds(5)), "Reconciliation never reached the actual core draft acknowledgment.");
             Assert.True(await Task.Run(() => second.NavigatePerson(owner == "report@example.com"
                 ? "manager@example.com" : "report@example.com")).WaitAsync(TimeSpan.FromSeconds(5)), second.Status);
-            browsedWhileHeld = observer.Active && !sync.IsCompleted &&
+            browsedWhileHeld = observer.Active && observer.OperationId != Guid.Empty && !releaseRead.IsSet && !sync.IsCompleted &&
                 second.Synchronization.Phase == WorkspaceSynchronizationPhase.Checking;
         }
         finally
         {
             continueReconcile.Set();
-            exclusive.CommandText = "ROLLBACK;";
-            exclusive.ExecuteNonQuery();
+            releaseRead.Set();
             if (sync is not null) await sync.WaitAsync(TimeSpan.FromSeconds(10));
             await recovery.WaitAsync(TimeSpan.FromSeconds(10));
             observer.Armed = false;
@@ -2343,16 +2338,22 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         }
     }
 
-    private sealed class SnapshotReadObserver(ManualResetEventSlim reading) : IWorkspaceFileObserver
+    private sealed class SnapshotReadObserver(ManualResetEventSlim reading, ManualResetEventSlim release) : IWorkspaceFileObserver
     {
         public volatile bool Armed;
         public volatile bool Active;
+        public Guid OperationId;
         public void Observe(WorkspaceFileEffect effect) { }
         public void ObservePhase(WorkspaceStoragePhase phase)
         {
-            if (!Armed || phase.Name != "snapshot.local-read") return;
+            if (!Armed || phase.Name != "local-sqlite-read-snapshot") return;
             Active = phase.Kind == WorkspaceStoragePhaseKind.Begin;
-            if (Active) reading.Set();
+            if (Active)
+            {
+                OperationId = phase.Id;
+                reading.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The owning snapshot-read test did not release its known-held physical snapshot.");
+            }
         }
     }
 

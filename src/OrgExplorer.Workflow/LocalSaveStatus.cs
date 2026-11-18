@@ -88,9 +88,11 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     private LocalSaveStatus? localSaveFault;
+    // Mode readiness remains independent of transaction outcomes and cannot be cleared by an ordinary write retry.
+    private LocalSaveStatus? localWalFault;
     private bool localSavingRecovered;
     private readonly LocalSaveRequests localRequests;
-    public LocalSaveStatus LocalSave => Volatile.Read(ref localSaveFault) ??
+    public LocalSaveStatus LocalSave => Volatile.Read(ref localSaveFault) ?? Volatile.Read(ref localWalFault) ??
         (localRequests.Status.Phase != LocalSavePhase.Ready ? localRequests.Status with { CommittedRevision = revision } :
             new(localSavingRecovered ? LocalSavePhase.Recovered : LocalSavePhase.Ready,
                 LocalSaveOutcome.None, CommittedRevision: revision));
@@ -104,6 +106,13 @@ public sealed partial class ApplicationWorkflow
             if (!RefreshWorkspaceCore()) return false;
             if (!ReconcileLocalWriteEvidence()) return false;
             localSaveFault = null;
+            localWalFault = null;
+            compatibility = compatibility with
+            {
+                Guidance = LocalSqliteDescription(3),
+                SupportsOrdinaryEdits = !Synchronization.Diverged,
+                SupportsNoteEdits = !Synchronization.Diverged
+            };
             localSavingRecovered = true;
             Status = "Local storage recovered. Retained drafts are not saved until explicitly retried.";
             return true;
@@ -125,6 +134,7 @@ public sealed partial class ApplicationWorkflow
     private bool CanBeginLocalSave()
     {
         if (!localSqlite) return true;
+        if (localWalFault is { } walFault) return Fail(walFault.Message);
         if (Synchronization.Diverged)
             return Fail("Edits are paused for preserved divergent Workspace versions.");
         if (localSaveFault?.Outcome == LocalSaveOutcome.Unknown ||

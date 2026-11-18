@@ -37,8 +37,14 @@ is a different contract and is unchanged.
 SQLite uses verified WAL mode, `synchronous=FULL`, foreign keys and transactions.
 Each actual connection verifies FULL, and ordinary connections refuse non-WAL
 operation. Compatible existing format-3 data is fully validated before WAL is
-established; a refused/failed negotiation remains explicit without changing its
-logical data. Unsupported formats are not converted. Success means `Commit` completed, not dispatch/enqueue, timer
+established. If that negotiation is unavailable after complete validation,
+including on a cold open, the full validated graph/resources remain browsable
+but explicitly read-only with a retained WAL error. Ordinary writes, automatic
+retry and normal exit stay blocked until explicit successful reconciliation;
+a later background/manual refresh alone cannot clear that fault. Independent
+unknown transaction/receipt faults remain independent. Invalid or unsupported
+data still fails closed, not as an empty or read-only fallback.
+Unsupported formats are not converted. Success means `Commit` completed, not dispatch/enqueue, timer
 expiry or an optimistic view-model value. Creation, reviewed Imports, profiles,
 photos, favorites, archival, Manager changes and note edits commit coherent
 state with the new revision. OS/storage-device durability limits still apply.

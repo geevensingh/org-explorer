@@ -159,6 +159,104 @@ public sealed class WalWorkspaceTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("Retained negotiation draft", reopened.GetRelationships("report@example.com")!.Person.Department);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Cold_validated_DELETE_workspace_remains_browsable_and_paused_until_explicit_WAL_recovery(bool independentRecoveryFault)
+    {
+        var local = Path.Combine(root, "cold");
+        Guid noteId;
+        Guid? identity, revision;
+        string saved, history, teamNotes, timeline;
+        var photo = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(seed.OpenWorkspace(local), seed.Status);
+            Assert.True(seed.ApplyImport(seed.PreviewImport(Initial).Id), seed.Status);
+            noteId = seed.CreatePersonNote("report@example.com", "Exact cold note", "# Saved cold writing")!.Id;
+            Assert.NotNull(seed.CreateTeamNote("manager@example.com", "Cold owned context", "# Saved Team writing"));
+            Assert.True(seed.BeginProfileEdit("manager@example.com"), seed.Status);
+            Assert.True(seed.StageProfileTeamName("Private cold Team"), seed.Status);
+            Assert.True(seed.SaveProfileEdit(), seed.Status);
+            var file = Path.Combine(root, "cold-photo.png");
+            File.WriteAllBytes(file, photo);
+            Assert.True(seed.EditPhoto("report@example.com", file), seed.Status);
+            Assert.True(seed.EditPersonManager("report@example.com", null), seed.Status);
+            identity = seed.Synchronization.WorkspaceId;
+            revision = seed.Synchronization.LocalRevision;
+            saved = JsonSerializer.Serialize(seed.People);
+            history = JsonSerializer.Serialize(seed.GetHistoricalTeamContexts("report@example.com"));
+            teamNotes = JsonSerializer.Serialize(seed.GetTeamNotes("manager@example.com", true));
+            timeline = JsonSerializer.Serialize(seed.GetProfileTimeline("report@example.com"));
+        }
+        using var cold = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        var receipt = Path.Combine(local, $"local-write-{Guid.NewGuid():N}.json");
+        if (independentRecoveryFault) File.WriteAllText(receipt, "Interrupted independent transaction evidence");
+        using (var external = new SqliteConnection($"Data Source={Path.Combine(local, "workspace.sqlite")};Pooling=False"))
+        {
+            external.Open();
+            using var command = external.CreateCommand();
+            command.CommandText = "PRAGMA journal_mode=DELETE;";
+            Assert.Equal("delete", command.ExecuteScalar());
+            using var reader = external.BeginTransaction(deferred: true);
+            command.Transaction = reader;
+            command.CommandText = "PRAGMA schema_version;";
+            command.ExecuteScalar();
+            Assert.True(cold.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly), cold.Status);
+            Assert.Equal(saved, JsonSerializer.Serialize(cold.People));
+            Assert.Equal(identity, cold.Synchronization.WorkspaceId);
+            Assert.Equal(revision, cold.Synchronization.LocalRevision);
+            Assert.Equal("# Saved cold writing", cold.BeginNoteDraft(NoteScope.Person, "report@example.com", noteId)!.Markdown);
+            Assert.Equal(teamNotes, JsonSerializer.Serialize(cold.GetTeamNotes("manager@example.com", true)));
+            Assert.Equal(history, JsonSerializer.Serialize(cold.GetHistoricalTeamContexts("report@example.com")));
+            Assert.Equal(timeline, JsonSerializer.Serialize(cold.GetProfileTimeline("report@example.com")));
+            Assert.Equal(photo, cold.GetPhoto("report@example.com")!.Bytes.ToArray());
+            Assert.True(cold.IsWorkspaceCurrent);
+            Assert.True(cold.CanNavigatePeople);
+            Assert.False(cold.CanEditLocalWorkspace);
+            Assert.False(cold.Compatibility.SupportsOrdinaryEdits);
+            Assert.False(cold.Compatibility.SupportsNoteEdits);
+            Assert.Contains("WAL", cold.Compatibility.Guidance);
+            Assert.Contains("read-only", cold.Compatibility.Guidance);
+            if (independentRecoveryFault) Assert.True(cold.LocalSave.HasUnresolvedOutcome);
+            else Assert.Contains("WAL", cold.LocalSave.Error);
+            Assert.False(cold.ReconcileLocalSaves());
+            Assert.Equal(saved, JsonSerializer.Serialize(cold.People));
+            Assert.Equal(history, JsonSerializer.Serialize(cold.GetHistoricalTeamContexts("report@example.com")));
+            Assert.Equal(photo, cold.GetPhoto("report@example.com")!.Bytes.ToArray());
+            reader.Rollback();
+        }
+        var originalError = cold.LocalSave.Error;
+        Assert.True(cold.RefreshWorkspace(), cold.Status);
+        Assert.Equal(originalError, cold.LocalSave.Error);
+        Assert.False(cold.EditFavorite("report@example.com", true));
+        Assert.False(cold.CanEditLocalWorkspace);
+        Assert.False(cold.CanSafelyClose);
+        Assert.Equal(revision, cold.Synchronization.LocalRevision);
+        Assert.Equal(saved, JsonSerializer.Serialize(cold.People));
+        Assert.True(cold.NavigatePerson("report@example.com"), cold.Status);
+        if (independentRecoveryFault)
+        {
+            Assert.False(cold.ReconcileLocalSaves());
+            Assert.True(cold.LocalSave.HasUnresolvedOutcome);
+            Assert.Equal(originalError, cold.LocalSave.Error);
+            Assert.Equal("Interrupted independent transaction evidence", File.ReadAllText(receipt));
+            File.Delete(receipt);
+        }
+        Assert.True(cold.ReconcileLocalSaves(), cold.Status);
+        Assert.True(cold.CanEditLocalWorkspace);
+        Assert.True(cold.Compatibility.SupportsOrdinaryEdits);
+        Assert.True(cold.Compatibility.SupportsNoteEdits);
+        Assert.Equal("# Saved cold writing", cold.BeginNoteDraft(NoteScope.Person, "report@example.com", noteId)!.Markdown);
+        Assert.True(cold.EditFavorite("report@example.com", true), cold.Status);
+        using var independent = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(independent.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly), independent.Status);
+        Assert.True(independent.GetRelationships("report@example.com")!.Person.IsFavorite);
+        Assert.Equal("# Saved cold writing", independent.BeginNoteDraft(NoteScope.Person, "report@example.com", noteId)!.Markdown);
+        output.WriteLine("COLD-WAL-READONLY: complete validated graph/identity/revision/note browsable through genuine mode-change refusal; no direct-write auto-recovery; only explicit reconciliation enables writing.");
+    }
+
     [Fact]
     public void Actual_writer_refuses_an_externally_changed_non_WAL_mode_until_explicit_recovery()
     {

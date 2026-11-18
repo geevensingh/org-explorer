@@ -256,6 +256,12 @@ Fixtures expecting ordinary process exit first establish its real publication
 precondition through the existing Settings Configure/Sync controls and an
 independently reopened exact local/published revision. Opening Settings for this
 preparation must preserve an underlying Import view and its selected owner.
+Publication/close preparation preserves an already configured transport by
+default; the smoke sibling folder is only for an unconfigured Workspace.
+Strict normal-close preparation additionally rejects a changed configured
+folder, not just a changed head. Its two-store compiled close/reopen replay
+performs both normal closes on the original incoming folder and observes a
+delivered continuation entering/completing the actual adoption Commit phase.
 The rich normal-note phase publishes to its existing isolated transport after
 the unchanged latency samples and before its original 10-second close check;
 the publication stage still counts toward the whole suite budget. A pending
@@ -473,18 +479,23 @@ unpublished until its own complete revision is exported.
 Both note scopes also hold the actual successful SaveNoteDraft return, retain a
 newer generation, independently publish that committed revision and deliver its
 real child. The non-base admission lease must prevent adoption through that VM
-handoff even when core saving is complete. A real SQLite reader holds the final
-adoption commit after clean admission; the existing storage-phase observer only
-records entry into `snapshot.adopt-commit`. Browsing and later profile draft
+handoff even when core saving is complete. After clean admission/seal and actual
+transaction writes, the existing observer waits at `snapshot.adopt-commit`
+**before** invoking SQLite Commit; it is not an engine blocked by a reader.
+Explicit release permits that same operation's real Commit, and the fixture's
+failure/expiry state cannot stand in for a live phase. Browsing and later profile draft
 admission must return while the same commit is still held, and installation
 must preserve that later draft. Both note scopes additionally retain their exact
 owner/writing/immutable base after that seal, then commit/reopen and publish a
 valid child which the first store must accept. A failed/timed-out commit cannot
 satisfy this structural nonblocking proof.
 The joint #95 cases create a real committed-but-lost note return in both scopes,
-with and without newer generations. Actual SQLite exclusive locking holds
-`snapshot.local-read` while reconciliation reaches its real core draft
-acknowledgment. Browsing must return before that same observed read ends; a read
+with and without newer generations. The observer gates the actual public reader
+at `local-sqlite-read-snapshot`, after its committed identity/revision read under
+the explicit deferred transaction, while reconciliation reaches its real core
+draft acknowledgment. This is a known-held snapshot, not an outer phase or
+`BEGIN EXCLUSIVE` assumed to exclude WAL readers. Browsing must return before
+that same identified read is released and disposed; a read
 failure or merely pending task is not sufficient. Committed-ack removal must
 release adoption admission, whereas newer writing must survive, retry/reopen and
 refuse a truly divergent child. Explicit buffer discard cannot erase an unknown
@@ -561,10 +572,15 @@ labelled normal EXE. Preparation time is not subtracted from any acceptance
 clock. An observation `Passed` proves only this held interval; the existing later
 commit, immutable draft/base, data/revision, original-Workspace restoration, close
 and complete scenario results remain independently required.
-`--verify-rich-host-restoration` also executes the actual host's Ready/Open/
-remembered-view/normal-close path in an owned no-window child, while its ordinary
-compiled checks verify the same factory and exact remembered note. This is
-startup/IPC evidence, not the hosted native segment.
+`--verify-rich-host-restoration` independently replays **both** actual factories:
+the rich automatic factory with its injected clock, and the held-adoption factory.
+Each raises actual Loaded, waits for current/Ready/enabled Open, restores exact
+remembered Read note/Person and reaches normal Closed without Show/Hwnd.
+Advancing the rich factory's real supplied 60-second clock must reach an actual
+periodic snapshot-local-read, so the two-argument held factory cannot satisfy
+that contract accidentally. The held factory additionally executes its Ready/
+remembered-view/normal-close path in an owned no-window child. This is startup/
+IPC evidence, not the hosted native segment.
 `nativeUsability` retains accepted before-input, after-input and destination
 readbacks plus the last actual person/editor frames when a predicate rejects.
 Unavailable/nonfinite bounds remain invalid (named floating values are serialized
@@ -600,8 +616,9 @@ It independently reopens the exact latest owner writing before release and
 requires the original publisher callback to remain active. Its elapsed local
 commit observations are diagnostic; the ordinary and rich background-export
 native percentile targets remain unchanged.
-The combined #97/#98 case admits an exact-version choice while clean, then holds
-the actual isolated validation Commit with a real SQLite reader. Both note scopes
+The combined #97/#98 case admits an exact-version choice while clean, then waits
+at the real isolated candidate's `snapshot.validate-commit` observer phase after
+its writes and **before** SQLite Commit invocation. Both note scopes
 commit locally and lose their real return while that same validation remains
 held; explicit buffer discard cannot authorize installation or replace the newly
 committed child. Reconciliation and a fresh review allow deliberate selection;
@@ -609,8 +626,11 @@ the complete local child, note and photo remain recoverable afterwards.
 This is a combined stale-authorization/Unknown refusal proof, not an isolated
 causal proof of the fault lease: the later commit independently invalidates the
 shown review. The admitted timer/manual cases above isolate that lease.
-`snapshot.validate-write` and `snapshot.validate-commit` observe real candidate
-I/O without replacing it or changing its existing transaction timeout.
+`snapshot.validate-write` controls preparation and `snapshot.validate-commit`
+holds/releases that real candidate transaction; neither substitutes a pending
+task or a WAL reader lock for the phase. The original owner/generation/error/
+revision and cleanup assertions remain. Their bounded fixture hold is not a
+claim about an engine busy-wait duration, and no transaction timeout changes.
 The invisible compiled snapshot selection additionally observes automatic
 publication/status, writable exact owner notes and Person switches during a real
 export, later publication and selected-Person incoming refresh. It never shows a

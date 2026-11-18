@@ -98,5 +98,6 @@ internal static partial class Program
             receiver.GetRelationships(selected!)?.Person.OfficeNumber != "Latest reviewed Import")
             throw new InvalidOperationException("Independent complete-snapshot joining did not receive the exact latest Import.");
         Console.WriteLine("PASS: actual Configure/Sync publishes a genuinely newer Import before normal close, preserves its Import view/owner and independently joins the exact complete version. No Exit anyway or native process-exit acceptance.");
+        VerifyConfiguredTransportCloseAndReopen(windowType, root);
     }
 }
