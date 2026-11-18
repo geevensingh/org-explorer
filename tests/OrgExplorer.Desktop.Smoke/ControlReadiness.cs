@@ -28,6 +28,12 @@ internal static class ControlReadiness
         awaitState(peopleVisible);
     }
 
+    internal static void AwaitSearchBrowsing(Func<bool> isCompact, Func<bool, bool> isReady,
+        Action<Func<bool>> awaitState)
+    {
+        awaitState(() => isReady(isCompact()));
+    }
+
     internal static void AssertCollapsed(IEnumerable<string> sections, Func<string, bool> isCollapsed,
         Action<Func<bool>> awaitState)
     {
