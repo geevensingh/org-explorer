@@ -64,11 +64,10 @@ internal static partial class Program
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
                 () => release.WaitOne(TimeSpan.FromSeconds(args[0] == "--rich-scale-snapshot-fixture" ? 180 : 30)),
                 () => ended.Set());
-            var window = (Window)Activator.CreateInstance(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
-                BindingFlags.Instance | BindingFlags.NonPublic, null,
-                [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
+            var window = CreateAutomaticSnapshotWindow(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
+                ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
                     fileObserver: profileHold is null ? null : new RichScaleCommitBoundary(profileHold, profileEntered!, profileRelease!)),
-                    (Func<Window, string?>)(_ => args[2]), (Action<string>)(_ => { }), clock], null)!;
+                args[2], clock);
             application.Run(window);
             return 0;
         }
@@ -78,6 +77,11 @@ internal static partial class Program
             AssemblyLoadContext.Default.Resolving -= Resolve;
         }
     }
+
+    private static Window CreateAutomaticSnapshotWindow(Type windowType, IApplicationWorkflow workflow,
+        string workspace, TimeProvider clock) =>
+        (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [workflow, (Func<Window, string?>)(_ => workspace), (Action<string>)(_ => { }), clock], null)!;
 
     private static void RunHostedAutomaticSnapshots(string executable, string root)
     {

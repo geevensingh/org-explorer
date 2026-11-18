@@ -2298,6 +2298,16 @@ browsing workload and independently reopened local writing. Its older publicatio
 cannot acknowledge the later local revision; subsequent Sync now must publish
 that exact latest revision.
 
+The controlled host and following normal-EXE reopen inherit the fixture's saved
+view, not an empty profile. Their exact expected Person comes from an independent
+prelaunch preference snapshot. Missing or unreadable preferences cannot become a
+blank-view fallback. `--verify-rich-host-restoration`, also in the full compiled
+selection, replays the actual controlled-host construction and Loaded handlers,
+exact saved Person/Team-note reading, subsequent Person restoration, grouped
+search and normal Closed without creating a native window. It does not replace
+the hosted rich lifecycle, change its 180-second readiness observation or extend
+the whole 660-second scale budget.
+
 Rich ordinary typing uses six predetermined inputs at nominal 250-ms spacing,
 not a new 60-ms stress deadline. Raw native request/observation arrays, nearest-rank
 `ceil(0.95 * count)` p95, sample counts, exact candidate/run/attempt, product EXE/

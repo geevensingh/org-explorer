@@ -26,10 +26,9 @@ internal static partial class Program
     private static void SelectRichNoteReport(AutomationElement window)
     {
         Set(window, "SearchQuery", "handle01000");
-        AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("Local matches: 1 "));
+        AwaitScale(() => Find(window, "SearchCount").Current.Name.Contains("People found: 1 "));
         SelectScaleResult(window);
-        AwaitScale(() => CurrentPersonEmail(window) == ScaleFixture.Target);
-        Click(window, "ClearSearch");
+        AwaitScale(() => CurrentPersonEmail(window) == ScaleFixture.Target && Value(window, "SearchQuery") == "");
         EnsurePeopleBrowsing(window);
     }
 
@@ -63,6 +62,7 @@ internal static partial class Program
             Path.GetFullPath(executable), fixture.Workspace }.Concat(names)) start.ArgumentList.Add(argument);
         var productHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable)));
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(executable, ".dll"))));
+        var remembered = ReadSmokeWorkspacePreferences();
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The owned rich export host did not start.");
         string? hostExecutable = null, hostHash = null;
         Guid? latestRevision = null;
@@ -85,7 +85,7 @@ internal static partial class Program
             var window = Window(process);
             hostExecutable = process.MainModule!.FileName;
             hostHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(hostExecutable)));
-            AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
+            AwaitRememberedWorkspace(window, fixture.Workspace, remembered, AwaitScale);
             SelectRichNoteReport(window);
             ScaleFixture.Measure("UI-profile-mutation", () =>
             {

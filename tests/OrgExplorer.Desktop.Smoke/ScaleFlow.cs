@@ -194,9 +194,10 @@ internal static partial class Program
             ScaleFixture.Measure("UI-close-before-held-export", () => Close(process));
             process = null;
             ScaleFixture.Measure("UI-background-export-independence", () => RunRichBackgroundExport(executable, fixture));
+            var remembered = ReadSmokeWorkspacePreferences();
             process = Launch(executable);
             window = Window(process);
-            AwaitRestoredWorkspace(window, fixture.Workspace, awaitState: AwaitScale);
+            AwaitRememberedWorkspace(window, fixture.Workspace, remembered, AwaitScale);
             SelectRichNoteReport(window);
             AssertProfileValue(window, "OfficeNumber", "0009U");
             ScaleFixture.Measure("UI-ordinary-profile-latency", () => RunRichProfileLatency(window, fixture, executable));
