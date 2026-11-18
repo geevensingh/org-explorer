@@ -18,7 +18,9 @@ public sealed class DesktopScenarioSelectionTests
         try
         {
             File.WriteAllText(Path.Combine(root, "DesktopScenarios.json"), """["first","second"]""");
-            File.WriteAllText(Path.Combine(root, "HighResolutionScenarios.json"), """["high-resolution"]""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionScenarios.json"), """["high-first","high-second"]""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionPartitions.json"),
+                """{"reading":["high-first"],"context":["high-second"]}""");
             File.WriteAllText(Path.Combine(root, "UiScaleScenarios.json"), """["scale"]""");
             File.WriteAllText(Path.Combine(root, "DesktopPartitions.json"), partitions);
             Assert.Throws<InvalidOperationException>(() => new DesktopScenarioSelection(root));
@@ -51,6 +53,43 @@ public sealed class DesktopScenarioSelectionTests
         Assert.Empty(selection.Select(null).Intersect(expected));
         Assert.Empty(selection.Select("--ui-scale").Intersect(expected));
         Assert.Equal(["responsive-team-history"], selection.Select("responsive-team-history"));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void High_resolution_partitions_preserve_every_required_scenario_once_without_other_lanes()
+    {
+        var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
+        var reading = selection.Select("--high-resolution-reading");
+        var context = selection.Select("--high-resolution-context");
+
+        Assert.Equal(["responsive-workspace"], reading);
+        Assert.Equal(["responsive-draft-navigation", "responsive-team-history"], context);
+        Assert.Equal(selection.HighResolution, reading.Concat(context));
+        Assert.Empty(reading.Intersect(context));
+        Assert.Empty(reading.Concat(context).Intersect(selection.Smoke.Concat(selection.Scale)));
+    }
+
+    [Theory]
+    [InlineData("""{"reading":["high-first"],"context":["high-first"]}""")]
+    [InlineData("""{"reading":["high-first"],"context":[]}""")]
+    [InlineData("""{"reading":["high-first"],"context":["high-second","scale"]}""")]
+    [InlineData("""{"reading":["high-first"],"unknown":["high-second"]}""")]
+    [Trait("Category", "Runner")]
+    public void Incomplete_overlapping_or_unexpected_high_resolution_partitions_are_refused(string partitions)
+    {
+        var root = Path.GetFullPath(Path.Combine(".test-workspaces", "selection-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "DesktopScenarios.json"), """["first","second"]""");
+            File.WriteAllText(Path.Combine(root, "DesktopPartitions.json"), """{"people":["first"],"workspace":["second"]}""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionScenarios.json"), """["high-first","high-second"]""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionPartitions.json"), partitions);
+            File.WriteAllText(Path.Combine(root, "UiScaleScenarios.json"), """["scale"]""");
+            Assert.Throws<InvalidOperationException>(() => new DesktopScenarioSelection(root));
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     [Fact]

@@ -30,16 +30,19 @@ foreach ($lane in @('core', 'filesystem', 'desktop', 'high-resolution', 'ci')) {
     if ([int]$minutes -ne $expected) { throw "Required lane $lane changed its established execution deadline." }
     if ($lane -ne 'ci' -and $job -match '(?m)^\s+needs:') { throw "Required lane $lane was serialized" }
     if ($lane -ne 'ci' -and $job -notmatch "Run-CiLane.ps1 $lane") { throw "Required lane $lane skipped the meaningful runner" }
-    if ($lane -eq 'desktop') {
+    if ($lane -in @('desktop', 'high-resolution')) {
+        $partitionPattern = if ($lane -eq 'desktop') { 'partition:\s*\[people,\s*workspace\]' } `
+            else { 'partition:\s*\[reading,\s*context\]' }
+        $argumentPattern = if ($lane -eq 'desktop') { 'DesktopPartition.*matrix.partition' } `
+            else { 'HighResolutionPartition.*matrix.partition' }
         if ($job -notmatch 'fail-fast:\s*false' -or
-            $job -notmatch 'partition:\s*\[people,\s*workspace\]' -or
-            $job -notmatch 'DesktopPartition.*matrix.partition') {
-            throw 'Both isolated desktop partitions must execute without fail-fast cancellation.'
+            $job -notmatch $partitionPattern -or $job -notmatch $argumentPattern) {
+            throw "Both isolated $lane partitions must execute without fail-fast cancellation."
         }
         $budget += [int]$minutes
     }
 }
-if ($budget -ne 63) { throw "The partitioned four-lane execution ceiling must total sixty-three minutes: $budget" }
+if ($budget -ne 78) { throw "The partitioned four-lane execution ceiling must total seventy-eight minutes: $budget" }
 if (!$workflow.Contains('needs: [core, filesystem, desktop, high-resolution]') -or
     !$workflow.Contains('HIGH_RESOLUTION_RESULT: ${{ needs.high-resolution.result }}') -or
     !$workflow.Contains('$env:HIGH_RESOLUTION_RESULT')) {
@@ -50,5 +53,11 @@ if (!$workflow.Contains('Assert-DesktopPartitions') -or
     !$workflow.Contains('desktop-*-attempt-${{ github.run_attempt }}')) {
     throw 'The CI gate must collect and validate both exact-attempt desktop artifacts.'
 }
+if (!$workflow.Contains('high-resolution-${{ matrix.partition }}-attempt-${{ github.run_attempt }}') -or
+    !$workflow.Contains('high-resolution-*-attempt-${{ github.run_attempt }}') -or
+    !$workflow.Contains('Assert-DesktopPartitions -Path .ci-results\high-resolution-collection') -or
+    !$workflow.Contains('-RunAttempt $env:GITHUB_RUN_ATTEMPT -HighResolution')) {
+    throw 'The CI gate must collect and validate both exact-attempt high-resolution artifacts.'
+}
 if ($workflow -match '(?m)^\s+paths(?:-ignore)?:') { throw 'Required CI cannot disappear on docs/test-only changes' }
-Write-Host "PASS: four required logical lanes include both isolated desktop workers; summed ceiling $budget minutes."
+Write-Host "PASS: four required logical lanes include two ordinary and two high-resolution workers; summed ceiling $budget minutes."

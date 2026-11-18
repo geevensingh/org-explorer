@@ -95,9 +95,13 @@ jobs:
             .ci-results/desktop-${{ matrix.partition }}/*.png
 
   high-resolution:
-    name: High-resolution Windows smoke
+    name: High-resolution Windows smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [reading, context]
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -107,15 +111,15 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - run: .\eng\Run-CiLane.ps1 high-resolution
+      - run: .\eng\Run-CiLane.ps1 high-resolution -HighResolutionPartition ${{ matrix.partition }}
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: high-resolution-timings
+          name: high-resolution-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
           path: |
-            .ci-results/high-resolution/*.json
-            .ci-results/high-resolution/*.log
-            .ci-results/high-resolution/*.png
+            .ci-results/high-resolution-${{ matrix.partition }}/*.json
+            .ci-results/high-resolution-${{ matrix.partition }}/*.log
+            .ci-results/high-resolution-${{ matrix.partition }}/*.png
 
   ci:
     name: CI
@@ -129,6 +133,10 @@ jobs:
         with:
           pattern: desktop-*-attempt-${{ github.run_attempt }}
           path: .ci-results/desktop-collection
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: high-resolution-*-attempt-${{ github.run_attempt }}
+          path: .ci-results/high-resolution-collection
       - name: Require every test lane to succeed
         env:
           CORE_RESULT: ${{ needs.core.result }}
@@ -140,6 +148,7 @@ jobs:
           Assert-CiResults @($env:CORE_RESULT, $env:FILESYSTEM_RESULT, $env:DESKTOP_RESULT, $env:HIGH_RESOLUTION_RESULT)
           . .\eng\DesktopResults.ps1
           Assert-DesktopPartitions -Path .ci-results\desktop-collection -Revision $env:GITHUB_SHA -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT
+          Assert-DesktopPartitions -Path .ci-results\high-resolution-collection -Revision $env:GITHUB_SHA -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT -HighResolution
 
   scale-verification:
     name: Optional manual scale verification

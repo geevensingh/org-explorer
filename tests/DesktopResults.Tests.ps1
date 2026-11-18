@@ -73,17 +73,25 @@ try {
         people = @('profile-journey', 'draft-navigation', 'person-note-rendering', 'team-context-history', 'search-favorites')
         workspace = @('archival-navigation', 'compatibility-settings', 'update-settings', 'external-refresh')
     }
-    function Write-Partitions {
-        foreach ($partition in @('people', 'workspace')) {
-            $directory = Join-Path $collection "desktop-$partition-attempt-2"
+    $highCollection = Join-Path $root 'high-resolution'
+    $highPartitionCases = @{
+        reading = @('responsive-workspace')
+        context = @('responsive-draft-navigation', 'responsive-team-history')
+    }
+    function Write-Partitions([switch] $HighResolution) {
+        $lane = if ($HighResolution) { 'high-resolution' } else { 'desktop' }
+        $destination = if ($HighResolution) { $highCollection } else { $collection }
+        $cases = if ($HighResolution) { $highPartitionCases } else { $partitionCases }
+        foreach ($partition in $cases.Keys) {
+            $directory = Join-Path $destination "$lane-$partition-attempt-2"
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
             $names = @('restore-app', 'restore-tests', 'build-app', 'display-prerequisite', 'desktop-flows')
             if ($partition -eq 'workspace') { $names += @('profile-note-refresh', 'update-yield', 'release-isolation') }
-            @{ schemaVersion = 1; lane = 'desktop'; partition = $partition; revision = $revision; runId = '123';
+            @{ schemaVersion = 1; lane = $lane; partition = $partition; revision = $revision; runId = '123';
                 runAttempt = '2'; complete = $true; ceilingSeconds = 900; executionSeconds = 120
                 steps = @($names | ForEach-Object { @{ name = $_; status = 'Passed'; seconds = 1 } })
             } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $directory 'execution.json')
-            @{ schemaVersion = 1; scenarios = @($partitionCases[$partition] | ForEach-Object {
+            @{ schemaVersion = 1; scenarios = @($cases[$partition] | ForEach-Object {
                 @{ name = $_; status = 'Passed'; startedAt = '2026-11-01T17:00:00Z';
                     finishedAt = '2026-11-01T17:00:01Z'; seconds = 1; error = $null }
             }) } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $directory 'scenarios.json')
@@ -140,11 +148,52 @@ try {
     Assert-Rejected { Assert-DesktopPartitions $collection $revision '123' '2' }
     Remove-Item -LiteralPath $unexpected
     Assert-DesktopPartitions $collection $revision '123' '2'
+
+    Assert-Rejected { Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution }
+    Write-Partitions -HighResolution
+    Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution
+    $context = Join-Path $highCollection 'high-resolution-context-attempt-2'
+    foreach ($field in @('lane', 'partition', 'revision', 'runId', 'runAttempt', 'complete', 'ceilingSeconds')) {
+        Write-Partitions -HighResolution
+        $path = Join-Path $context 'execution.json'
+        $metadata = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $metadata.$field = if ($field -eq 'complete') { $false } elseif ($field -eq 'ceilingSeconds') { 901 } else { 'wrong' }
+        $metadata | ConvertTo-Json -Depth 6 | Set-Content $path
+        Assert-Rejected { Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution }
+    }
+    foreach ($failure in @('late', 'missing-command', 'failed-scenario')) {
+        Write-Partitions -HighResolution
+        $path = Join-Path $context 'execution.json'
+        $metadata = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        if ($failure -eq 'late') { $metadata.executionSeconds = 901 }
+        elseif ($failure -eq 'missing-command') { $metadata.steps = @($metadata.steps | Where-Object name -ne 'desktop-flows') }
+        else {
+            $path = Join-Path $context 'scenarios.json'
+            $metadata = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $metadata.scenarios[0].status = 'Failed'
+        }
+        $metadata | ConvertTo-Json -Depth 6 | Set-Content $path
+        Assert-Rejected { Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution }
+    }
+    Write-Partitions -HighResolution
+    Remove-Item -LiteralPath (Join-Path $highCollection 'high-resolution-reading-attempt-2') -Recurse -Force
+    Assert-Rejected { Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution }
+    Write-Partitions -HighResolution
+    $unexpected = Join-Path $highCollection 'desktop-people-attempt-2'
+    New-Item -ItemType Directory -Path $unexpected | Out-Null
+    Assert-Rejected { Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution }
+    Remove-Item -LiteralPath $unexpected
+    Assert-DesktopPartitions $highCollection $revision '123' '2' -HighResolution
+    Assert-DesktopPartitions $collection $revision '123' '2'
+
     $configuration = Join-Path $root 'invalid-partitions'
     New-Item -ItemType Directory -Path $configuration | Out-Null
     '["first","second"]' | Set-Content (Join-Path $configuration 'DesktopScenarios.json')
     '{"people":["first"],"workspace":["first"]}' | Set-Content (Join-Path $configuration 'DesktopPartitions.json')
     Assert-Rejected { Get-DesktopPartitions $configuration }
-    Write-Host 'PASS: both exact-run desktop partitions and every native/compiled/update/release result are required.'
+    '["first","second"]' | Set-Content (Join-Path $configuration 'HighResolutionScenarios.json')
+    '{"reading":["first"],"context":["first"]}' | Set-Content (Join-Path $configuration 'HighResolutionPartitions.json')
+    Assert-Rejected { Get-DesktopPartitions $configuration -HighResolution }
+    Write-Host 'PASS: both ordinary and high-resolution partition pairs require complete exact-run evidence and all companion commands.'
 }
 finally { Remove-Item $root -Recurse -Force }

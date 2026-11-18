@@ -1454,16 +1454,19 @@ Every PR and `main` commit, including docs/test-only changes, retains four
 required logical lanes: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop. Ordinary desktop uses two parallel, isolated
 GitHub-hosted Windows jobs (`people` and `workspace`), approved on 2026-11-16.
+High-resolution desktop likewise uses two isolated workers (`reading` and
+`context`), with owner approval after the complete serial suite exhausted
+its existing fifteen-minute limit.
 Each native worker has its own disposable desktop; UI automation never runs
 concurrently on one desktop.
 The stable aggregate `CI` requires all four lanes, including both ordinary
-desktop workers. Failure, required skip,
+and both high-resolution desktop workers. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the 5-minute
 workflow/view-model, 11-minute filesystem, 15-minute limit for each ordinary
-desktop worker, 15-minute high-resolution desktop and 2-minute aggregate
-deadlines: 63 minutes
+desktop worker, 15-minute limit for each high-resolution worker and 2-minute aggregate
+deadlines: 78 minutes
 summed, at most 17 minutes on the parallel critical path, excluding queues and
-later CD. All three native desktop workers enforce matching 900-second whole-execution
+later CD. All four native desktop workers enforce matching 900-second whole-execution
 budgets, including setup, temporarily raised with owner approval on 2026-11-15.
 Both full scenario/size/assertion matrices, including profile-copy and SQLite
 save coverage, remain required. Core/filesystem deadlines, separate scale-suite
@@ -1478,15 +1481,19 @@ journeys. The `workspace` worker runs archival, compatibility, update and extern
 refresh journeys, followed by every existing compiled profile/note-refresh,
 update-yield, release-isolation, release-trust and application-icon check.
 Neither partition removes actions, samples, size matrices or assertions.
-The original unpartitioned desktop command remains available for an explicitly
-isolated desktop; high-resolution and explicit scale selections are unchanged.
+`HighResolutionPartitions.json` assigns `responsive-workspace` to `reading`
+and the complete responsive draft and Team/history journeys to `context`.
+Every original scenario, input, check and screen size remains required exactly
+once. The original unpartitioned desktop and full high-resolution commands
+remain available for an explicitly isolated desktop; explicit scale is unchanged.
 
-Each ordinary worker uploads `scenarios.json`, `execution.json`, timing, logs and
-captures in an artifact named `desktop-<partition>-attempt-<runAttempt>`.
-`CI` validates both current-attempt artifacts against the exact candidate/run,
+Each worker uploads `scenarios.json`, `execution.json`, timing, logs and captures
+in an artifact named `desktop-<partition>-attempt-<runAttempt>` or
+`high-resolution-<partition>-attempt-<runAttempt>`.
+`CI` validates both pairs of current-attempt artifacts against the exact candidate/run,
 complete native selections and successful required companion commands. Missing,
 duplicate, unexpected, stale or partial results fail closed even when a matrix
-job reports success. Rerun both partitions together; an earlier attempt's
+job reports success. Rerun each complete partition pair together; an earlier attempt's
 successful artifact cannot fill a missing current-attempt result.
 This changes execution capacity, not application performance targets or the
 unidentified cause of longer UI observation calls.
@@ -2010,9 +2017,13 @@ without changing its display. They cover:
   and Team typing across delivery also verifies first-autosave/retry rejection,
   retained editor/delivered writing and deliberate discard through real WPF.
 
-The fourth required lane is `.\eng\Run-CiLane.ps1 high-resolution`, restricted
-to its disposable GitHub-hosted Windows VM. Its exact named selection is
-`tests\HighResolutionScenarios.json`, invoked with `--high-resolution`:
+The fourth required lane uses
+`.\eng\Run-CiLane.ps1 high-resolution -HighResolutionPartition reading` and
+`-HighResolutionPartition context` on separate disposable GitHub-hosted Windows
+VMs. Its complete selection remains `tests\HighResolutionScenarios.json`;
+`HighResolutionPartitions.json` supplies the exact disjoint split through
+`--high-resolution-reading` and `--high-resolution-context`. The original
+`--high-resolution` selector still requests the whole suite:
 
 - `responsive-workspace`: the search/Favorites journey plus the complete
   700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
@@ -2038,7 +2049,7 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
 
 The split is by explicit scenario name, never a conditional screen-size skip.
 The two smoke manifests and explicit UI-scale manifest are nonempty, unique and
-disjoint; each lane requires its own complete named `scenarios.json`. Ordinary
+disjoint; each worker requires its own complete named `scenarios.json`. Ordinary
 results cannot stand in for the high-resolution suite.
 
 Before any app launch, the high-resolution fixture requires GitHub Actions,
