@@ -1118,16 +1118,22 @@ internal static partial class Program
                 });
 
                 interaction.Restart();
+                var tempReportRequest = tempNativeBoundarySession?.Arm(scope, sample, id, 1, reportEmail) ?? default; // TEMP-NATIVE-BOUNDARY
                 selectReport.Select();
+                tempNativeBoundarySession?.Returned(tempReportRequest); // TEMP-NATIVE-BOUNDARY
                 nativeMs = interaction.Elapsed.TotalMilliseconds;
                 polls = ObserveNoteLatency(() => PersonReady(reportEmail, reportHeading));
+                tempNativeBoundarySession?.Usable(tempReportRequest); // TEMP-NATIVE-BOUNDARY
                 navigation.Add(interaction.Elapsed.TotalMilliseconds);
                 navigationRequests.Add(nativeMs);
                 navigationPolls.Add(polls);
                 interaction.Restart();
+                var tempManagerRequest = tempNativeBoundarySession?.Arm(scope, sample, id, 2, ownerEmail) ?? default; // TEMP-NATIVE-BOUNDARY
                 manager.Invoke();
+                tempNativeBoundarySession?.Returned(tempManagerRequest); // TEMP-NATIVE-BOUNDARY
                 nativeMs = interaction.Elapsed.TotalMilliseconds;
                 polls = ObserveNoteLatency(() => PersonReady(ownerEmail, ownerHeading));
+                tempNativeBoundarySession?.Usable(tempManagerRequest); // TEMP-NATIVE-BOUNDARY
                 navigation.Add(interaction.Elapsed.TotalMilliseconds);
                 navigationRequests.Add(nativeMs);
                 navigationPolls.Add(polls);

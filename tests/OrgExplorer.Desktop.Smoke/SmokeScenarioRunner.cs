@@ -7,7 +7,7 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal sealed record SmokeScenario(string Name, Action<string> Execute);
 
-internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios)
+internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios, bool diagnosticOnly = false) // TEMP-NATIVE-BOUNDARY
 {
     internal bool Run(string fixtureRoot, string resultsPath)
     {
@@ -61,7 +61,11 @@ internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios
         void Save()
         {
             var staging = resultsPath + ".writing";
-            File.WriteAllText(staging, JsonSerializer.Serialize(new { schemaVersion = 1, scenarios = results }, Json));
+            // TEMP-NATIVE-BOUNDARY: caller metadata only; linked consumers keep their original default schema.
+            var json = diagnosticOnly
+                ? JsonSerializer.Serialize(new { schemaVersion = 1, scenarios = results, diagnosticOnly = true, acceptanceEligible = false }, Json)
+                : JsonSerializer.Serialize(new { schemaVersion = 1, scenarios = results }, Json);
+            File.WriteAllText(staging, json);
             File.Move(staging, resultsPath, true);
         }
     }

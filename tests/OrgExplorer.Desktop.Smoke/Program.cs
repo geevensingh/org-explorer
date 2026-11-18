@@ -15,6 +15,9 @@ internal static partial class Program
     {
         try
         {
+            // TEMP-NATIVE-BOUNDARY: protocol-only owned child; no WPF window.
+            if (args.Length == 2 && args[0] == "--temp-native-boundary-child")
+                return RunTempNativeBoundaryChild(args[1]);
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
                 return RunLocalSaveRecoveryFixture(args);
             if (args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--rich-scale-snapshot-fixture")
@@ -28,6 +31,9 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
+            // TEMP-NATIVE-BOUNDARY
+            if (args.Length == 2 && args[1] == "--verify-temp-native-boundary")
+                return VerifyTempNativeBoundary();
             if (args.Length == 2 && args[1] == "--verify-cutover-publication")
                 return VerifyHostedCutoverContracts(executable, VerifyHostedPublicationContract);
             if (args.Length == 2 && args[1] == "--verify-cutover-note-modes")
@@ -127,15 +133,26 @@ internal static partial class Program
                 diagnostics = Path.Combine(results, name + "-ui.log");
                 var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
                 Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", Path.Combine(root, "app-settings"));
+                Exception? tempPrimary = null; // TEMP-NATIVE-BOUNDARY
                 try { actions[name](root); }
+                catch (Exception error) { tempPrimary = error; throw; } // TEMP-NATIVE-BOUNDARY
                 finally
                 {
-                    foreach (var process in Applications) { StopApplication(process); process.Dispose(); }
+                    foreach (var process in Applications)
+                    {
+                        try { StopApplication(process); process.Dispose(); }
+                        catch (Exception cleanup) when (tempPrimary is not null && TempBoundarySession.Expected(cleanup))
+                        {
+                            Console.Error.WriteLine($"TEMP-NATIVE-BOUNDARY secondaryCleanup={cleanup.GetType().Name}/{cleanup.HResult}");
+                        }
+                    }
                     Applications.Clear();
                     Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
                 }
             })).ToArray();
-            return new SmokeScenarioRunner(scenarios).Run(fixtures, Path.Combine(results, "scenarios.json")) ? 0 : 1;
+            var passed = new SmokeScenarioRunner(scenarios, diagnosticOnly: TempNativeBoundaryEver)
+                .Run(fixtures, Path.Combine(results, "scenarios.json")); // TEMP-NATIVE-BOUNDARY: Smoke caller supplies classification.
+            return passed && !TempNativeBoundaryEver ? 0 : 1; // TEMP-NATIVE-BOUNDARY: terminal only, never acceptance.
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
@@ -145,8 +162,11 @@ internal static partial class Program
         var settings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
         if (string.IsNullOrWhiteSpace(settings) || !Path.IsPathFullyQualified(settings))
             throw new InvalidOperationException("Desktop fixtures require an explicit isolated app-settings directory before launching.");
-        var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
+        var start = new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false };
+        tempNativeBoundarySession?.Configure(start); // TEMP-NATIVE-BOUNDARY: owned launch environment only.
+        var process = Process.Start(start)
             ?? throw new InvalidOperationException("WPF application did not launch.");
+        tempNativeBoundarySession?.Attach(process); // TEMP-NATIVE-BOUNDARY
         Applications.Add(process);
         return process;
     }

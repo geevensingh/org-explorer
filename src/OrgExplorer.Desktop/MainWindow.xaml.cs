@@ -67,6 +67,7 @@ public partial class MainWindow : Window
             else RefreshExternalWorkspace();
         });
         InitializeExit();
+        InitializeTempNativeBoundary(); // TEMP-NATIVE-BOUNDARY
     }
     private static string? ChooseWorkspaceFolder(Window owner)
     {
@@ -228,6 +229,9 @@ public partial class MainWindow : Window
     }
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
+        var tempSpan = tempNativeBoundary?.BeginHandler((e.NewValue as ReportingNode)?.Person.Email, 1, loading) ?? default; // TEMP-NATIVE-BOUNDARY
+        try
+        {
         if (loading || e.NewValue is not ReportingNode node) return;
         var overlay = workflow.PeopleNavigation.OverlayOpen;
         RememberPeopleBrowsing();
@@ -237,6 +241,8 @@ public partial class MainWindow : Window
             RefreshArchivedPeople();
             if (overlay) FocusPersonAfterOverlay();
         }
+        }
+        finally { tempNativeBoundary?.EndHandler(tempSpan); } // TEMP-NATIVE-BOUNDARY
     }
     private void RestorePersonSelection()
     {
@@ -264,6 +270,9 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person, bool navigation = true)
     {
+        var tempSpan = tempNativeBoundary?.BeginDispatch(person.Email, navigation) ?? default; // TEMP-NATIVE-BOUNDARY
+        try
+        {
         if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) &&
             !TryLeaveLocalEdits(browsing: true))
             return false;
@@ -291,6 +300,8 @@ public partial class MainWindow : Window
         RefreshSearchAndFavorites();
         UpdatePeopleNavigation();
         return true;
+        }
+        finally { tempNativeBoundary?.EndDispatch(tempSpan); } // TEMP-NATIVE-BOUNDARY
     }
     private void RefreshPeople()
     {
@@ -346,7 +357,12 @@ public partial class MainWindow : Window
     }
     private void NavigateManager(object sender, RoutedEventArgs e)
     {
+        var tempSpan = tempNativeBoundary?.BeginHandler(Manager.Tag as string, 2, ignored: false) ?? default; // TEMP-NATIVE-BOUNDARY
+        try
+        {
         if (Manager.Tag is string email) NavigateTo(email);
+        }
+        finally { tempNativeBoundary?.EndHandler(tempSpan); } // TEMP-NATIVE-BOUNDARY
     }
     private void NavigateReport(object sender, SelectionChangedEventArgs e)
     {

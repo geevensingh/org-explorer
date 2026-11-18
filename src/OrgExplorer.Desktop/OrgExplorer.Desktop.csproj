@@ -13,6 +13,8 @@
     <UpdateTrustFile Condition="'$(UpdateTrustFile)' == ''">$(MSBuildProjectDirectory)\update-trust.json</UpdateTrustFile>
   </PropertyGroup>
   <ItemGroup>
+    <!-- TEMP-NATIVE-BOUNDARY -->
+    <Compile Include="..\..\tests\TEMP-NATIVE-BOUNDARY.cs" Link="TEMP-NATIVE-BOUNDARY.Transport.cs" />
     <Compile Remove="UpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <Compile Include="$(UpdateEffectsFile)" Link="ControlledUpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />

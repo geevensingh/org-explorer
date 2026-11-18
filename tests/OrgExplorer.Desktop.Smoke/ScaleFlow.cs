@@ -171,6 +171,9 @@ internal static partial class Program
         Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
         fixture.Build();
         Process? process = null;
+        using var tempTrace = new TempBoundarySession(); // TEMP-NATIVE-BOUNDARY
+        tempNativeBoundarySession = tempTrace; // TEMP-NATIVE-BOUNDARY
+        Exception? tempPrimary = null; // TEMP-NATIVE-BOUNDARY
         try
         {
             process = Launch(executable);
@@ -187,7 +190,8 @@ internal static partial class Program
             AwaitScale(() => Find(window, "ProfileHeading").Current.Name == "Reference 01000");
             AwaitScale(() => Value(window, "SearchQuery") == "");
             ScaleFixture.Measure("UI-ordinary-save-latency", () =>
-                RunLocalNoteAutosaveJourney(window, fixture.Workspace, fixture, executable, "normal-executable"));
+                RunTempNativeBoundary(tempTrace, () => // TEMP-NATIVE-BOUNDARY
+                    RunLocalNoteAutosaveJourney(window, fixture.Workspace, fixture, executable, "normal-executable")));
             ScaleFixture.Measure("UI-publish-before-held-export", () =>
                 PrepareSmokeNormalClose(fixture.Workspace, () =>
                     PublishSmokeWorkspace(window, fixture.Workspace, fixture.SynchronizationFolder)));
@@ -294,9 +298,16 @@ internal static partial class Program
             process = null;
             Console.WriteLine("PASS: actual rich 10,000-Person WPF usable-editor/navigation and durable-save percentiles, browsing during a held real commit/export, favorite/import/snapshot adoption and durable reopen.");
         }
+        catch (Exception error) // TEMP-NATIVE-BOUNDARY: capture before existing process cleanup; preserve primary.
+        {
+            tempPrimary = error;
+            tempTrace.Capture(error);
+            tempNativeBoundarySession = null;
+            throw;
+        }
         finally
         {
-            if (process is not null) StopApplication(process);
+            if (process is not null) StopTempNativeBoundaryApplication(process, tempPrimary, tempTrace); // TEMP-NATIVE-BOUNDARY
         }
     }
 
