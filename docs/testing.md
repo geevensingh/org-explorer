@@ -541,8 +541,10 @@ actual `IsReadOnly=false`. Fresh post-input owner/heading/editor/value observati
 must agree before the one selection. The destination then requires fresh exact
 Morgan identity/heading with visible positive bounds, not visibility of Avery's
 now-hidden editor. These are bounded element-cache observations. A fixed-size
-same-host named mapping transfers only primitive phase/identity/clock fields,
-with committed-record validation; missing/faulted/incomplete state cannot pass.
+same-host named mapping transfers only primitive phase/identity/clock fields.
+Two bounded slots keep the last complete record readable while its successor
+is assembled; publication changes the committed sequence only after the full
+payload. Missing/faulted/incomplete state cannot pass.
 `--verify-snapshot-adoption` is a narrow invisible compiled replay of this driver;
 its fixed 1.2-second preparation delay precedes admission. The controlled hold
 retains the original one-second observation horizon, explicitly as a fixture

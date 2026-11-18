@@ -2294,6 +2294,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             if (sync is not null) synchronized = await sync.WaitAsync(TimeSpan.FromSeconds(10));
         }
         Assert.NotNull(observed);
+        Assert.True(observed.DiagnosticsComplete, observed.DiagnosticErrorType);
         Assert.All(observed.Milestones.Where(value => value.Stage.StartsWith("prepare-controls", StringComparison.Ordinal)),
             value => Assert.False(value.CommitPhaseHeld));
         if (lateAction)

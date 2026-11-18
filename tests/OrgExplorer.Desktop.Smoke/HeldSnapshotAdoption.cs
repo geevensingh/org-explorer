@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Text.Json;
+using System.Runtime.ExceptionServices;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
@@ -40,7 +41,7 @@ internal sealed class SnapshotAdoptionCommitControl : IWorkspaceFileObserver, ID
         arm = armName is null ? new(false, EventResetMode.ManualReset, ArmName) : EventWaitHandle.OpenExisting(ArmName);
         release = releaseName is null ? new(false, EventResetMode.ManualReset, ReleaseName) : EventWaitHandle.OpenExisting(ReleaseName);
         fault = armName is null ? new(false, EventResetMode.ManualReset, ArmName + "-fault") : EventWaitHandle.OpenExisting(ArmName + "-fault");
-        mapping = armName is null ? MemoryMappedFile.CreateNew(ArmName + "-state", 128) :
+        mapping = armName is null ? MemoryMappedFile.CreateNew(ArmName + "-state", 256) :
             MemoryMappedFile.OpenExisting(ArmName + "-state");
         state = mapping.CreateViewAccessor();
     }
@@ -59,12 +60,14 @@ internal sealed class SnapshotAdoptionCommitControl : IWorkspaceFileObserver, ID
         {
             var before = state.ReadInt32(0);
             if (before == 0) return null;
-            if ((before & 1) != 0) continue;
+            if (before < 0 || (before & 1) != 0)
+                throw new InvalidOperationException("The owned adoption commit sequence is invalid.");
+            var slot = 8 + ((before / 2) % 2) * 64;
             var identity = new byte[16];
-            state.ReadArray(8, identity, 0, identity.Length);
-            var observed = new SnapshotAdoptionCommitState(new(identity), state.ReadInt32(4),
-                (WorkspaceStoragePhaseKind)state.ReadInt32(48), state.ReadInt64(24), state.ReadInt64(32),
-                state.ReadInt64(40), state.ReadInt32(52) != 0, state.ReadInt64(56));
+            state.ReadArray(slot + 4, identity, 0, identity.Length);
+            var observed = new SnapshotAdoptionCommitState(new(identity), state.ReadInt32(slot),
+                (WorkspaceStoragePhaseKind)state.ReadInt32(slot + 48), state.ReadInt64(slot + 24), state.ReadInt64(slot + 32),
+                state.ReadInt64(slot + 40), state.ReadInt32(slot + 52) != 0, state.ReadInt64(slot + 56));
             Thread.MemoryBarrier();
             if (state.ReadInt32(0) != before) continue;
             if (observed.OperationId == Guid.Empty || observed.ProcessId <= 0 ||
@@ -107,16 +110,16 @@ internal sealed class SnapshotAdoptionCommitControl : IWorkspaceFileObserver, ID
         {
             var value = active!;
             var committed = sequence += 2;
-            state.Write(0, committed - 1);
-            Thread.MemoryBarrier();
-            state.Write(4, value.ProcessId);
-            state.WriteArray(8, value.OperationId.ToByteArray(), 0, 16);
-            state.Write(24, value.KnownTransactionAt);
-            state.Write(32, value.HoldEndedAt);
-            state.Write(40, value.CompletedAt);
-            state.Write(48, (int)value.Kind);
-            state.Write(52, value.HoldExpired ? 1 : 0);
-            state.Write(56, value.TimestampFrequency);
+            var slot = 8 + ((committed / 2) % 2) * 64;
+            // The previous committed slot remains readable until this complete payload is published.
+            state.Write(slot, value.ProcessId);
+            state.WriteArray(slot + 4, value.OperationId.ToByteArray(), 0, 16);
+            state.Write(slot + 24, value.KnownTransactionAt);
+            state.Write(slot + 32, value.HoldEndedAt);
+            state.Write(slot + 40, value.CompletedAt);
+            state.Write(slot + 48, (int)value.Kind);
+            state.Write(slot + 52, value.HoldExpired ? 1 : 0);
+            state.Write(slot + 56, value.TimestampFrequency);
             Thread.MemoryBarrier();
             state.Write(0, committed);
         }
@@ -141,6 +144,8 @@ internal sealed class SnapshotAdoptionObservation
     public string Outcome { get; set; } = "Interrupted";
     public string? ErrorType { get; set; }
     public string? Error { get; set; }
+    public bool DiagnosticsComplete { get; set; } = true;
+    public string? DiagnosticErrorType { get; set; }
 }
 
 internal static class HeldSnapshotAdoption
@@ -206,15 +211,21 @@ internal static class HeldSnapshotAdoption
         finally
         {
             control.Release();
-            try { Record("outcome-observed"); report(observation); }
-            catch (Exception reportingError)
+            Exception? reportingError = null;
+            try { Record("outcome-observed"); }
+            catch (Exception error) { reportingError = error; }
+            observation.DiagnosticsComplete = reportingError is null;
+            observation.DiagnosticErrorType = reportingError?.GetType().Name;
+            try { report(observation); }
+            catch (Exception error) { reportingError ??= error; }
+            if (reportingError is not null)
             {
                 if (failure is not null)
                 {
                     failure.Data["AdoptionObservationFailure"] = reportingError;
                     Console.Error.WriteLine($"ADOPTION-REPORT-FAULT type={reportingError.GetType().Name}; hresult=0x{reportingError.HResult:X8}");
                 }
-                else throw;
+                else ExceptionDispatchInfo.Capture(reportingError).Throw();
             }
         }
     }

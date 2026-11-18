@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.IO.MemoryMappedFiles;
 using Microsoft.Data.Sqlite;
+using OrgExplorer.Desktop.Smoke;
 using OrgExplorer.Workflow;
 using Xunit;
 using Xunit.Abstractions;
@@ -17,6 +19,36 @@ public sealed class WalWorkspaceTests(ITestOutputHelper output) : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null},
          {"email":"report@example.com","displayName":"Report","managerEmail":"manager@example.com"}]}
         """;
+
+    [Fact]
+    public async Task Commit_control_keeps_the_last_complete_record_while_the_next_transport_slot_is_uncommitted()
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The WPF control transport uses Windows named mappings.");
+        using var control = new SnapshotAdoptionCommitControl();
+        var id = Guid.NewGuid();
+        control.Arm();
+        var publishing = Task.Run(() =>
+        {
+            control.ObservePhase(new(id, "snapshot.adopt-commit", WorkspaceStoragePhaseKind.Begin, 0));
+            control.ObservePhase(new(id, "snapshot.adopt-commit", WorkspaceStoragePhaseKind.End, 0));
+        });
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(() => control.Read()?.Held == true, TimeSpan.FromSeconds(5)));
+            using var mapping = MemoryMappedFile.OpenExisting(control.ArmName + "-state");
+            using var view = mapping.CreateViewAccessor();
+            var committed = view.ReadInt32(0);
+            var inactiveSlot = 8 + ((committed / 2 + 1) % 2) * 64;
+            view.Write(inactiveSlot, int.MinValue);
+            var stillCommitted = Assert.IsType<SnapshotAdoptionCommitState>(control.Read());
+            Assert.Equal(id, stillCommitted.OperationId);
+            Assert.Equal(Environment.ProcessId, stillCommitted.ProcessId);
+            Assert.True(stillCommitted.Held);
+        }
+        finally { control.Release(); await publishing.WaitAsync(TimeSpan.FromSeconds(5)); }
+        Assert.Equal(id, control.Read()!.OperationId);
+        Assert.Equal(WorkspaceStoragePhaseKind.End, control.Read()!.Kind);
+    }
 
     [Fact]
     public async Task Uncheckpointed_committed_WAL_state_publishes_complete_notes_profiles_photos_and_history()
