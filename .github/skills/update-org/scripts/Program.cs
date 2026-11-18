@@ -20,9 +20,22 @@ try
             "source-claim" when args.Length == 5 => session.ClaimSource(args[2], args[3], args[4]),
             "source-finish" when args.Length == 4 => session.FinishSource(Guid.Parse(args[2]), args[3]),
             "source-recover" when args.Length == 2 => session.BeginSourceRecovery(),
+            "source-authorize-best-effort" when args.Length == 3 =>
+                new { bestEffortEnrichment = session.AuthorizeBestEffortEnrichment(args[2]) },
+            "source-authorize-per-read-recovery" when args.Length == 3 =>
+                new { perReadRecovery = session.AuthorizePerReadSourceRecovery(args[2]) },
+            "source-authorize-unclassified-recovery" when args.Length == 5 =>
+                new { unclassifiedRecovery = session.AuthorizeUnclassifiedSourceRecovery(args[2], args[3], args[4]) },
+            "source-authorize-matching-error-recovery" when args.Length == 5 =>
+                new { matchingErrorRecovery = session.AuthorizeMatchingErrorSourceRecovery(args[2], args[3], args[4]) },
+            "source-authorize-not-found-recovery" when args.Length == 5 =>
+                new { notFoundRecovery = session.AuthorizeNotFoundSourceRecovery(args[2], args[3], args[4]) },
+            "source-omit-photo" when args.Length == 4 =>
+                new { photoOmission = session.AuthorizePhotoOmission(args[2], args[3]) },
             "source-interrupt" when args.Length == 4 => session.InterruptSource(Guid.Parse(args[2]), args[3]),
             "capture-start" when args.Length == 4 => session.BeginCapture(args[2], args[3]),
             "capture" when args.Length == 3 => session.Capture(args[2]),
+            "capture-fail" when args.Length == 5 => session.FailCapture(Guid.Parse(args[2]), args[3], args[4]),
             "ingest" when args.Length == 4 => session.Ingest(args[2], args[3]),
             "plan" when args.Length == 2 => session.Jobs(),
             "profile" when args.Length == 4 => session.Profile(args[2], args[3]),

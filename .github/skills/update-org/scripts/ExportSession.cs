@@ -36,7 +36,7 @@ public sealed partial class ExportSession : IDisposable
         string Sha256, string PhotoPath, DateTimeOffset DownloadedAt, bool Reused);
     public sealed record Person(string Id, string Email, string Name, string? ManagerId, JsonObject Directory);
     public sealed record Collection(Person[] People, string[] Pending, string[] Errors, string[] Excluded,
-        int SubtreeCount, Dictionary<string, Receipt> Receipts);
+        int SubtreeCount, Dictionary<string, Receipt> Receipts, string[] ReviewFlags);
     public sealed record ProfileOutcome(int Index, string InputFile, string? DirectoryId, bool Recorded, string? Error);
     public sealed record ProfileBatchResult(int Succeeded, int Failed, ProfileOutcome[] Items);
     private sealed record ProfileFailure(string InputFile, string? DirectoryId, DateTimeOffset? ObservedAt, string Error);
@@ -115,6 +115,8 @@ public sealed partial class ExportSession : IDisposable
         var errors = new List<string>();
         var users = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
         var managers = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var reportingParents = new Dictionary<string, Dictionary<string, DateTimeOffset>>(StringComparer.OrdinalIgnoreCase);
+        var reconciled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var subtree = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         JsonObject? Get(string request, bool missingManager = false)
@@ -141,7 +143,8 @@ public sealed partial class ExportSession : IDisposable
             var id = Text(user, "id");
             Require(Guid.TryParse(id, out _), "A directory user is missing its authoritative ID.");
             var type = Text(user, "@odata.type");
-            Require(type.Length == 0 || type == "#microsoft.graph.user", "Unsupported directory object type: " + type);
+            Require(type.Length == 0 || type is "#microsoft.graph.user" or "#microsoft.graph.agentUser",
+                "Unsupported directory object type: " + type);
             users[id] = user;
         }
 
@@ -170,8 +173,11 @@ public sealed partial class ExportSession : IDisposable
                     var child = node as JsonObject ?? throw new InvalidOperationException("Invalid report object.");
                     User(child);
                     var childId = Text(child, "id");
-                    if (managers.TryGetValue(childId, out var oldManager) && oldManager != id)
-                        errors.Add("Conflicting reporting parents for " + childId);
+                    if (!reportingParents.TryGetValue(childId, out var parents))
+                        reportingParents[childId] = parents = new(StringComparer.OrdinalIgnoreCase);
+                    var observedAt = latest[request].ObservedAt;
+                    if (!parents.TryGetValue(id, out var previousObservation) || observedAt > previousObservation)
+                        parents[id] = observedAt;
                     managers[childId] = id;
                     queue.Enqueue(childId);
                 }
@@ -181,6 +187,28 @@ public sealed partial class ExportSession : IDisposable
                 Require(request.Split('?')[0] == $"/users/{id}/directReports",
                     "Reporting continuation changed its source or relationship.");
             }
+        }
+
+        foreach (var (id, parents) in reportingParents.Where(pair => pair.Value.Count > 1))
+        {
+            managers.Remove(id);
+            var request = ManagerPath(id);
+            var manager = Get(request);
+            if (manager is null) continue;
+            var managerId = Text(manager, "id");
+            if (!parents.ContainsKey(managerId))
+            {
+                errors.Add("Conflicting reporting parents require an exact Manager matching a sourced parent for " + id);
+                continue;
+            }
+            if (latest[request].ObservedAt < parents.Values.Max())
+            {
+                errors.Add("Manager confirmation predates conflicting reporting evidence for " + id);
+                continue;
+            }
+            User(manager);
+            managers[id] = managerId;
+            reconciled.Add(id);
         }
 
         var ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -228,7 +256,9 @@ public sealed partial class ExportSession : IDisposable
         Require(people.Select(p => p.Email).Distinct(StringComparer.OrdinalIgnoreCase).Count() == people.Count,
             "Different directory IDs resolve to the same email. Resolve this without merging by name.");
         return new Collection(people.ToArray(), pending.ToArray(), errors.ToArray(), excluded.ToArray(),
-            people.Count(p => subtree.Contains(p.Id)), latest);
+            people.Count(p => subtree.Contains(p.Id)), latest, people.Where(p => reconciled.Contains(p.Id))
+                .Select(p => p.Email + ": conflicting reporting parents reconciled using the fresh exact Manager relationship; source receipts retained.")
+                .ToArray());
     }
 
     public object Jobs()
@@ -237,7 +267,8 @@ public sealed partial class ExportSession : IDisposable
         var sources = SourceStatus();
         var jobs = new List<string>();
         if (collection.Pending.Length == 0 && collection.Errors.Length == 0
-            && sources.StopReason is null && sources.Reads.All(read => read.State != "failed"))
+            && sources.StopReason is null && (sources.BestEffortEnrichment is not null
+                || sources.Reads.All(read => read.State != "failed" || read.AccountedFor)))
             foreach (var group in collection.People.Chunk(16))
             {
                 var name = System.IO.Path.Combine(path, "workers", group[0].Id + ".json");
@@ -245,7 +276,7 @@ public sealed partial class ExportSession : IDisposable
                 jobs.Add(name);
             }
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
-            collection.Errors, sources, jobFiles = jobs,
+            collection.Errors, collection.ReviewFlags, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
@@ -259,7 +290,12 @@ public sealed partial class ExportSession : IDisposable
         return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
     }
 
-    public object CachedPhotos(string idsFile) => Read<string[]>(idsFile).Select(ReusePhoto).ToArray();
+    public object CachedPhotos(string idsFile)
+    {
+        var ids = Read<string[]>(idsFile);
+        var sources = SourceStatus();
+        return ids.Select(id => ReusePhoto(id, sources)).ToArray();
+    }
 
     public sealed record PhotoInput(string DirectoryId, string ResponseFile);
     public object Photos(string inputsFile) => Read<PhotoInput[]>(inputsFile)
@@ -368,9 +404,21 @@ public sealed partial class ExportSession : IDisposable
     private static bool MatchesPerson(Observation observation, Person person)
         => observation.DirectoryId == person.Id && observation.Email.Equals(person.Email, StringComparison.OrdinalIgnoreCase);
 
-    public object ReusePhoto(string id)
+    public object ReusePhoto(string id) => ReusePhoto(id, SourceStatus());
+
+    private object ReusePhoto(string id, SourceLedger sources)
     {
+        var unavailable = sources.Reads.FirstOrDefault(read => IsEnrichmentUnavailable(read)
+            && (read.Kind == "photo" && read.Target == $"/users/{id}/photo/$value"
+                || read.Kind == "structured" && read.Target == PhotoPath(id)));
+        if (unavailable is not null)
+            return new { reused = false, lookupUnavailable = true, directoryId = id, reason = unavailable.Unavailable!.Reason };
         var metadata = PhotoMetadata(id);
+        if (sources.Reads.Any(read => read.Target == $"/users/{id}/photo/$value" && IsPhotoOmitted(read)))
+        {
+            Success(metadata, "Fresh photo metadata");
+            return new { reused = false, omitted = true, directoryId = id };
+        }
         if (NoPhoto(metadata)) return new { reused = false, unavailable = true };
         Success(metadata, "Photo metadata");
         var etag = Text(metadata["data"]!.AsObject(), "@odata.mediaEtag");
@@ -437,17 +485,25 @@ public sealed partial class ExportSession : IDisposable
         var sources = RequireSourcesComplete();
         var collection = Complete();
         foreach (var receipt in collection.Receipts.Values)
-            RequireCompletedSource(sources, "structured", receipt.Path);
+            if (!sources.Reads.Any(read => read.Kind == "structured" && read.Target == receipt.Path && IsEnrichmentUnavailable(read)))
+                RequireCompletedSource(sources, "structured", receipt.Path);
         var errors = System.IO.Path.Combine(path, "profile-errors");
         var failures = Directory.Exists(errors) ? Directory.GetFiles(errors, "*.json").Select(Read<ProfileFailure>).ToArray() : [];
         Require(failures.Length == 0, "Unresolved profile inputs: " + JsonSerializer.Serialize(failures, Json));
         var byId = collection.People.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
         var people = new List<Dictionary<string, object?>>();
-        var warnings = new List<string>();
+        var warnings = new List<string>(collection.ReviewFlags);
         var photos = new List<PhotoEvidence>();
+        var omitted = sources.Reads.Where(IsPhotoOmitted).ToDictionary(read => read.Target);
+        var unavailable = sources.Reads.Where(IsEnrichmentUnavailable).ToArray();
+        var unavailableProfiles = unavailable.Where(read => read.Kind == "profile").ToDictionary(read => read.Target);
+        var unavailablePhotoIds = unavailable.Where(read => read.Kind != "profile")
+            .Select(read => read.Target.Split('/')[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var confirmedAbsentPhotos = 0;
         foreach (var person in collection.People)
         {
-            RequireCompletedSource(sources, "profile", person.Id);
+            if (Text(person.Directory, "@odata.type") == "#microsoft.graph.agentUser")
+                warnings.Add(person.Email + ": directory agentUser account retained; review this non-human reporting identity.");
             var item = new Dictionary<string, object?>
             {
                 ["email"] = person.Email, ["displayName"] = person.Name,
@@ -456,34 +512,56 @@ public sealed partial class ExportSession : IDisposable
             foreach (var field in new[] { "jobTitle", "department" })
                 if (Text(person.Directory, field) is { Length: > 0 } value && !Placeholder(value)) item[field] = value;
                 else warnings.Add(person.Email + ": directory " + field + " unknown; omitted unless work-profile evidence resolves it.");
-            var observation = Read<Observation>(System.IO.Path.Combine(path, "profiles", person.Id + ".json"));
-            CheckObservation(observation, person);
-            Require(observation.Error is null, person.Email + ": " + observation.Error);
-            Require(MatchesPerson(observation, person), "Profile receipt identity changed.");
-            foreach (var source in observation.EvidenceFiles) Require(File.Exists(Within(source)), "Profile evidence is missing.");
-            foreach (var (field, value) in observation.Fields)
-            {
-                if (value.State == "unknown") warnings.Add($"{person.Email}: {field}: {value.Reason}");
-                else if (value.State == "clear") item[field] = null;
-                else item[field] = field == "officeCountry"
-                    && new[] { "US", "USA", "United States", "United States of America" }
-                        .Contains(value.Value, StringComparer.OrdinalIgnoreCase) ? "USA" : value.Value;
-            }
-            warnings.AddRange(observation.Warnings.Select(w => person.Email + ": " + w));
-            ApplyOffice(item, Text(person.Directory, "officeLocation"), warnings, person.Email);
-            var metadata = PhotoMetadata(person.Id);
-            if (NoPhoto(metadata)) warnings.Add(person.Email + ": directory photo unavailable; photoPath omitted.");
+            if (unavailableProfiles.TryGetValue(person.Id, out var unavailableProfile))
+                warnings.Add(person.Email + ": indexed profile enrichment unavailable; unsourced fields omitted to preserve "
+                    + "existing Workspace values. " + unavailableProfile.Unavailable!.Reason);
             else
             {
-                Success(metadata, "Photo metadata");
-                var photo = Read<PhotoEvidence>(System.IO.Path.Combine(path, "photos", person.Id + ".json"));
-                if (!photo.Reused) RequireCompletedSource(sources, "photo", $"/users/{person.Id}/photo/$value");
-                Require(photo.DirectoryId == person.Id
-                    && photo.Etag == Text(metadata["data"]!.AsObject(), "@odata.mediaEtag"), "Photo metadata changed.");
-                var bytes = File.ReadAllBytes(Within(photo.PhotoPath));
-                Require(bytes.Length == photo.SizeBytes && Hash(bytes) == photo.Sha256, "Photo changed after collection.");
-                item["photoPath"] = photo.PhotoPath;
-                photos.Add(photo);
+                RequireCompletedSource(sources, "profile", person.Id);
+                var observation = Read<Observation>(System.IO.Path.Combine(path, "profiles", person.Id + ".json"));
+                CheckObservation(observation, person);
+                Require(observation.Error is null, person.Email + ": " + observation.Error);
+                Require(MatchesPerson(observation, person), "Profile receipt identity changed.");
+                foreach (var source in observation.EvidenceFiles) Require(File.Exists(Within(source)), "Profile evidence is missing.");
+                foreach (var (field, value) in observation.Fields)
+                {
+                    if (value.State == "unknown") warnings.Add($"{person.Email}: {field}: {value.Reason}");
+                    else if (value.State == "clear") item[field] = null;
+                    else item[field] = field == "officeCountry"
+                        && new[] { "US", "USA", "United States", "United States of America" }
+                            .Contains(value.Value, StringComparer.OrdinalIgnoreCase) ? "USA" : value.Value;
+                }
+                warnings.AddRange(observation.Warnings.Select(w => person.Email + ": " + w));
+            }
+            ApplyOffice(item, Text(person.Directory, "officeLocation"), warnings, person.Email);
+            if (unavailablePhotoIds.Contains(person.Id))
+                warnings.Add(person.Email + ": photo lookup unavailable; photoPath omitted to preserve any existing Workspace photo.");
+            else
+            {
+                var metadata = PhotoMetadata(person.Id);
+                if (omitted.TryGetValue($"/users/{person.Id}/photo/$value", out var omittedPhoto))
+                {
+                    Success(metadata, "Fresh photo metadata");
+                    warnings.Add(person.Email + ": photoPath omitted by explicit user authorization after failed downloads; "
+                        + "preserves any existing Workspace photo. " + omittedPhoto.PhotoOmission!.Reason);
+                }
+                else if (NoPhoto(metadata))
+                {
+                    confirmedAbsentPhotos++;
+                    warnings.Add(person.Email + ": directory photo unavailable; photoPath omitted.");
+                }
+                else
+                {
+                    Success(metadata, "Photo metadata");
+                    var photo = Read<PhotoEvidence>(System.IO.Path.Combine(path, "photos", person.Id + ".json"));
+                    if (!photo.Reused) RequireCompletedSource(sources, "photo", $"/users/{person.Id}/photo/$value");
+                    Require(photo.DirectoryId == person.Id
+                        && photo.Etag == Text(metadata["data"]!.AsObject(), "@odata.mediaEtag"), "Photo metadata changed.");
+                    var bytes = File.ReadAllBytes(Within(photo.PhotoPath));
+                    Require(bytes.Length == photo.SizeBytes && Hash(bytes) == photo.Sha256, "Photo changed after collection.");
+                    item["photoPath"] = photo.PhotoPath;
+                    photos.Add(photo);
+                }
             }
             people.Add(item);
         }
@@ -499,15 +577,19 @@ public sealed partial class ExportSession : IDisposable
             warnings.AddRange(preview.Warnings);
         }
         var hash = Hash(File.ReadAllBytes(candidate));
+        var enrichmentStatus = unavailable.Length > 0 || omitted.Count > 0 ? "degraded" : "complete";
         Save(System.IO.Path.Combine(path, "coverage.json"), new
         {
             run.RootId, run.AccountId, run.StartedAt, completedAt = DateTimeOffset.UtcNow,
             people = people.Count, collection.SubtreeCount, ancestorCount = people.Count - collection.SubtreeCount,
             excludedAlternateIds = collection.Excluded, photos = photos.Count,
-            unavailablePhotos = people.Count - photos.Count, updatesSha256 = hash,
+            unavailablePhotos = confirmedAbsentPhotos, omittedPhotos = omitted.Count,
+            enrichmentStatus, unavailableProfileLookups = unavailableProfiles.Count,
+            unavailablePhotoLookups = unavailablePhotoIds.Count, updatesSha256 = hash,
             directoryUserIds = collection.People.ToDictionary(p => p.Email, p => p.Id),
-            policy = "Refresh only; unknown fields and unavailable photos omitted; no archival or Workspace apply."
+            policy = "Verified identity/reporting required; unavailable enrichment and photos explicitly reported and omitted; no archival or Workspace apply."
         });
+        Save(System.IO.Path.Combine(path, "unavailable-enrichment.json"), unavailable);
         Save(System.IO.Path.Combine(path, "review-required.json"), warnings);
         Save(System.IO.Path.Combine(path, "photo-source.json"), photos);
         Save(System.IO.Path.Combine(path, "validation.json"), new
@@ -532,7 +614,9 @@ public sealed partial class ExportSession : IDisposable
         Dispose();
         Directory.Move(path, destination);
         return new { importPath = System.IO.Path.Combine(destination, "updates.json"), people = people.Count,
-            photos = photos.Count, unavailablePhotos = people.Count - photos.Count, warningCount = warnings.Count };
+            photos = photos.Count, unavailablePhotos = confirmedAbsentPhotos,
+            omittedPhotos = omitted.Count, enrichmentStatus, unavailableProfileLookups = unavailableProfiles.Count,
+            unavailablePhotoLookups = unavailablePhotoIds.Count, warningCount = warnings.Count };
     }
 
     public static string UserPath(string id) => $"/users/{id}?$select={Fields}";
