@@ -19,16 +19,17 @@ function Assert-DesktopResults([string] $Path, [string[]] $Expected) {
     }
 }
 
-function Get-DesktopPartitions([string] $Directory = (Join-Path $PSScriptRoot '..\tests')) {
-    $expected = @(Get-Content -LiteralPath (Join-Path $Directory 'DesktopScenarios.json') -Raw | ConvertFrom-Json)
-    $partitions = Get-Content -LiteralPath (Join-Path $Directory 'DesktopPartitions.json') -Raw |
+function Get-DesktopPartitions([string] $Directory = (Join-Path $PSScriptRoot '..\tests'), [switch] $HighResolution) {
+    $prefix = if ($HighResolution) { 'HighResolution' } else { 'Desktop' }
+    $required = if ($HighResolution) { @('reading', 'context') } else { @('people', 'workspace') }
+    $expected = @(Get-Content -LiteralPath (Join-Path $Directory "${prefix}Scenarios.json") -Raw | ConvertFrom-Json)
+    $partitions = Get-Content -LiteralPath (Join-Path $Directory "${prefix}Partitions.json") -Raw |
         ConvertFrom-Json -AsHashtable
-    if ($partitions.Count -ne 2 -or $partitions.Keys -cnotcontains 'people' -or
-        $partitions.Keys -cnotcontains 'workspace' -or !$expected) {
-        throw 'Desktop execution requires the people and workspace partitions.'
+    if ($partitions.Count -ne 2 -or @($required | Where-Object { $partitions.Keys -cnotcontains $_ }).Count -or !$expected) {
+        throw "$prefix execution requires its two declared partitions."
     }
     $selected = @()
-    foreach ($partition in @('people', 'workspace')) {
+    foreach ($partition in $required) {
         $names = $partitions[$partition]
         if ($names -isnot [Collections.IList] -or $names.Count -eq 0 -or
             @($names | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count) {
@@ -38,7 +39,7 @@ function Get-DesktopPartitions([string] $Directory = (Join-Path $PSScriptRoot '.
     }
     if ($selected.Count -ne $expected.Count -or @($selected | Select-Object -Unique).Count -ne $expected.Count -or
         (Compare-Object @($expected | Sort-Object) @($selected | Sort-Object) -CaseSensitive)) {
-        throw 'Desktop partitions must execute every ordinary scenario exactly once.'
+        throw "$prefix partitions must execute every required scenario exactly once."
     }
     return $partitions
 }
@@ -49,25 +50,27 @@ function Get-DesktopPartitionSteps([string] $Partition) {
     return $names
 }
 
-function Assert-DesktopPartitions([string] $Path, [string] $Revision, [string] $RunId, [string] $RunAttempt) {
+function Assert-DesktopPartitions([string] $Path, [string] $Revision, [string] $RunId, [string] $RunAttempt,
+    [switch] $HighResolution) {
     if ([string]::IsNullOrWhiteSpace($Revision) -or [string]::IsNullOrWhiteSpace($RunId) -or
         [string]::IsNullOrWhiteSpace($RunAttempt)) {
         throw 'Desktop collection requires an explicit candidate, run and attempt.'
     }
-    $partitions = Get-DesktopPartitions
-    $expectedDirectories = @($partitions.Keys | ForEach-Object { "desktop-$_-attempt-$RunAttempt" })
+    $partitions = Get-DesktopPartitions -HighResolution:$HighResolution
+    $lane = if ($HighResolution) { 'high-resolution' } else { 'desktop' }
+    $expectedDirectories = @($partitions.Keys | ForEach-Object { "$lane-$_-attempt-$RunAttempt" })
     if (!(Test-Path -LiteralPath $Path -PathType Container)) { throw 'Missing desktop partition artifacts.' }
     $directories = @(Get-ChildItem -LiteralPath $Path -Directory)
     if ($directories.Count -ne 2 -or
         (Compare-Object @($expectedDirectories | Sort-Object) @($directories.Name | Sort-Object) -CaseSensitive)) {
         throw 'Both current-attempt desktop partition artifacts are required.'
     }
-    foreach ($partition in @('people', 'workspace')) {
-        $directory = Join-Path $Path "desktop-$partition-attempt-$RunAttempt"
+    foreach ($partition in $partitions.Keys) {
+        $directory = Join-Path $Path "$lane-$partition-attempt-$RunAttempt"
         $metadataPath = Join-Path $directory 'execution.json'
         if (!(Test-Path -LiteralPath $metadataPath -PathType Leaf)) { throw 'Missing desktop execution binding.' }
         $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
-        if ($metadata.schemaVersion -ne 1 -or $metadata.lane -cne 'desktop' -or
+        if ($metadata.schemaVersion -ne 1 -or $metadata.lane -cne $lane -or
             $metadata.partition -cne $partition -or $metadata.revision -cne $Revision -or
             $metadata.runId -cne $RunId -or $metadata.runAttempt -cne $RunAttempt -or
             $metadata.complete -isnot [bool] -or !$metadata.complete -or

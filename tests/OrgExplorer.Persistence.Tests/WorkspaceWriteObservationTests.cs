@@ -11,6 +11,80 @@ public sealed class WorkspaceWriteObservationTests : IDisposable
         ".test-workspaces", Guid.NewGuid().ToString("N")));
 
     [Fact]
+    public void Public_reopen_pairs_a_known_held_snapshot_with_completed_physical_disposal()
+    {
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            Assert.True(seed.OpenWorkspace(folder), seed.Status);
+        var observer = new RecordingObserver();
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+        var phases = observer.Phases.Where(phase => phase.Name == "local-sqlite-read-snapshot").ToArray();
+        Assert.Equal(2, phases.Length);
+        Assert.NotEqual(Guid.Empty, phases[0].Id);
+        Assert.Equal(phases[0].Id, phases[1].Id);
+        Assert.Equal(WorkspaceStoragePhaseKind.Begin, phases[0].Kind);
+        Assert.Equal(WorkspaceStoragePhaseKind.End, phases[1].Kind);
+    }
+
+    [Theory]
+    [InlineData(WorkspaceStoragePhaseKind.Begin)]
+    [InlineData(WorkspaceStoragePhaseKind.End)]
+    public void Read_observer_faults_do_not_change_real_open_or_committed_data(WorkspaceStoragePhaseKind fault)
+    {
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            Assert.True(seed.OpenWorkspace(folder), seed.Status);
+        var observed = new List<WorkspaceStoragePhase>();
+        var observer = new CallbackObserver(phase =>
+        {
+            if (phase.Name != "local-sqlite-read-snapshot") return;
+            observed.Add(phase);
+            if (phase.Kind == fault) throw new IOException("Controlled read observation failure.");
+        });
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        Assert.True(reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reader.Status);
+        Assert.True(reader.CanSafelyClose);
+        Assert.Null(reader.LocalSaveError);
+        Assert.Equal(2, observed.Count);
+        Assert.Equal(observed[0].Id, observed[1].Id);
+        Assert.Equal(WorkspaceStoragePhaseKind.End, observed[1].Kind);
+    }
+
+    [Fact]
+    public async Task Public_read_End_callback_can_be_held_without_blocking_a_real_independent_commit()
+    {
+        using var writer = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(writer.OpenWorkspace(folder), writer.Status);
+        Assert.True(writer.ApplyImport(writer.PreviewImport("""
+            {"schemaVersion":1,"batchId":"41000000-0000-4000-8000-000000000092",
+             "observedAt":"2026-11-01T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery","managerEmail":null}]}
+            """).Id), writer.Status);
+        var note = Assert.IsType<PersonNote>(writer.CreatePersonNote("avery@example.com", "One exact note", "Before disposal"));
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timedOut = false;
+        var observer = new CallbackObserver(phase =>
+        {
+            if (phase.Name != "local-sqlite-read-snapshot" || phase.Kind != WorkspaceStoragePhaseKind.End) return;
+            entered.TrySetResult();
+            timedOut = !release.Wait(TimeSpan.FromSeconds(10));
+        });
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        var reading = Task.Run(() => reader.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(writer.EditPersonNote(note.Id, "One exact note", "After physical read disposal"), writer.Status);
+            Assert.False(release.IsSet);
+        }
+        finally { release.Set(); Assert.True(await reading.WaitAsync(TimeSpan.FromSeconds(5)), reader.Status); }
+        Assert.False(timedOut);
+        using var independent = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(independent.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), independent.Status);
+        Assert.Equal("After physical read disposal", independent.GetPersonNotes("avery@example.com").Single().Markdown);
+    }
+
+    [Fact]
     public void Storage_phases_bracket_the_real_local_commit_and_reopen_its_saved_data()
     {
         var observer = new RecordingObserver();
@@ -122,5 +196,10 @@ public sealed class WorkspaceWriteObservationTests : IDisposable
         public void ObservePhase(WorkspaceStoragePhase phase) => Phases.Enqueue(phase);
     }
 
+    private sealed class CallbackObserver(Action<WorkspaceStoragePhase> callback) : IWorkspaceFileObserver
+    {
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase) => callback(phase);
+    }
     public void Dispose() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
 }

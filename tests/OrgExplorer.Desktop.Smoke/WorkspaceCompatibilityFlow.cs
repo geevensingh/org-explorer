@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows.Automation;
 using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -224,16 +225,34 @@ internal static partial class Program
     private static void AwaitRestoredWorkspace(AutomationElement window, string workspace, string expectedEmail = "",
         Action<Func<bool>>? awaitState = null)
     {
-        WorkspaceRestoration.AssertRestored(() =>
-        {
-            var recovery = window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
-            var viewRecovery = window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewPreferenceStatus"));
-            return new(Find(window, "WorkspaceName").Current.HelpText, Activity(window),
-                Freshness(window), CurrentPersonEmail(window),
-                viewRecovery?.Current.IsOffscreen == false ? false : recovery?.Current.IsOffscreen);
-        }, Path.GetFullPath(workspace), awaitState ?? Await, expectedEmail);
+        WorkspaceRestoration.AssertRestored(() => ObserveWorkspaceRestoration(window),
+            Path.GetFullPath(workspace), awaitState ?? Await, expectedEmail);
+    }
+
+    private static WorkspaceRestoration.Observation ObserveWorkspaceRestoration(AutomationElement window)
+    {
+        var recovery = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
+        var viewRecovery = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewPreferenceStatus"));
+        return new(Find(window, "WorkspaceName").Current.HelpText, Activity(window),
+            Freshness(window), CurrentPersonEmail(window),
+            viewRecovery?.Current.IsOffscreen == false ? false : recovery?.Current.IsOffscreen);
+    }
+
+    private static WorkspaceSettings ReadSmokeWorkspacePreferences()
+    {
+        var directory = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory))
+            throw new InvalidOperationException("Remembered reopening requires the fixture's isolated app-settings directory.");
+        return new(Path.Combine(directory, "workspace-settings.json"));
+    }
+
+    private static void AwaitRememberedWorkspace(AutomationElement window, string workspace,
+        WorkspaceSettings preferences, Action<Func<bool>> awaitState)
+    {
+        WorkspaceRestoration.AssertRemembered(() => ObserveWorkspaceRestoration(window),
+            Path.GetFullPath(workspace), preferences, awaitState);
     }
 
     private static void AwaitUnavailableView(AutomationElement window, string workspace)

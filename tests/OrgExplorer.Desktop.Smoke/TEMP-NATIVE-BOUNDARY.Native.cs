@@ -156,8 +156,8 @@ internal static partial class Program
                     JsonSerializer.Serialize(new
                     {
                         diagnosticOnly = true, acceptanceEligible = false, instrumentedSource = true,
-                        shippingBaseRevision = "1e86c7a8a3a4c11b3298ab966139c8a356243e86",
-                        parentTraceRevision = "47a0c646e1b16fd7ff6d43a71bfecb3224899d06",
+                        shippingBaseRevision = "732c9faeceaaa7fd9f9178797d16b6e62d15b594",
+                        parentTraceRevision = "a0ea10265b27570670719328a3603960c94de100",
                         revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                         runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                         runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),

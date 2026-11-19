@@ -312,9 +312,9 @@ internal static partial class Program
                 throw new InvalidOperationException("TEMP-NATIVE-BOUNDARY partial failure was mislabeled as accepting/complete.");
             var provenance = manifest.RootElement;
             if (!provenance.TryGetProperty("shippingBaseRevision", out var shipping) ||
-                shipping.GetString() != "1e86c7a8a3a4c11b3298ab966139c8a356243e86" ||
+                shipping.GetString() != "732c9faeceaaa7fd9f9178797d16b6e62d15b594" ||
                 !provenance.TryGetProperty("parentTraceRevision", out var parent) ||
-                parent.GetString() != "47a0c646e1b16fd7ff6d43a71bfecb3224899d06" ||
+                parent.GetString() != "a0ea10265b27570670719328a3603960c94de100" ||
                 provenance.TryGetProperty("baseRevision", out _) ||
                 provenance.GetProperty("eventSchemaVersion").GetInt32() != 2 ||
                 provenance.GetProperty("recordFormatVersion").GetInt32() != 1 ||

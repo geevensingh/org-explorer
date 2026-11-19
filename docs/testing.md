@@ -186,6 +186,28 @@ that engine, not reinterpreted as SQLite page-write measurements. The
 [storage protocol](incremental-workspace-storage-protocol.md)
 defines local recovery, independent snapshots and guarded retention.
 
+The `local-sqlite-read-snapshot` observation uses that same observer seam.
+Begin follows the successful committed identity/revision read under the actual
+explicit deferred transaction: it is a known-held snapshot point, not the
+earlier acquisition time. The same operation's End is emitted only after its
+transaction and connection dispose successfully. Failed is conservative and
+does not confirm release when read/cleanup failed. Observer callback faults are
+diagnostic, never a new storage outcome. Its elapsed time includes observer
+work/holds; the default CPU field is not a CPU measurement for this phase.
+Real-store contracts gate the public reader there, and separately hold its End
+callback while another workflow successfully commits, proving the distinction
+between a live method/task and a still-held physical reader. The original causal
+RED is retained in session evidence. Its Person/Team regression now requires a
+later same-owner/GUID generation to commit and independently reopen while that
+same actual public reader remains held, without retry; the old reader still
+returns its coherent prefix. Separate real WAL write refusal preserves known
+noncommit/recovery coverage. Additional cases prove safe mode negotiation and
+complete logical publication/peer Join of notes, profiles, photos and history
+while an older public reader prevents checkpointing. Owned abrupt-death cases
+observe a live committed WAL before process termination and then reconcile it.
+None of these is hosted-actor attribution, a natural-duration benchmark or
+native acceptance.
+
 The #99 close cases use that same real-storage workflow/observable view-model
 seam: both note scopes commit/reopen current writing during an older held
 publication, and close readiness requires the latest actual published revision.
@@ -199,6 +221,9 @@ repeated/canceled intents, newer writing and late exports. Nine owned non-UI
 child processes invoke the compiled Exit anyway action with unconfigured/failed/
 hung publication, pending/stalled precommit writes, postcommit lost acknowledgment,
 failed local saving, an active explicit profile Save and real divergence.
+The existing pending-save case also holds a real same-process public SQLite
+reader at its known-held snapshot point; actual Exit anyway must terminate both
+it and the admitted writer without waiting for either disposal.
 It requires actual process death without returning through secondary Closed/
 disposal guards, then independently reopens and reconciles committed versus
 incomplete data, retained conflict versions and unpublished work. This never
@@ -231,6 +256,12 @@ Fixtures expecting ordinary process exit first establish its real publication
 precondition through the existing Settings Configure/Sync controls and an
 independently reopened exact local/published revision. Opening Settings for this
 preparation must preserve an underlying Import view and its selected owner.
+Publication/close preparation preserves an already configured transport by
+default; the smoke sibling folder is only for an unconfigured Workspace.
+Strict normal-close preparation additionally rejects a changed configured
+folder, not just a changed head. Its two-store compiled close/reopen replay
+performs both normal closes on the original incoming folder and observes a
+delivered continuation entering/completing the actual adoption Commit phase.
 The rich normal-note phase publishes to its existing isolated transport after
 the unchanged latency samples and before its original 10-second close check;
 the publication stage still counts toward the whole suite budget. A pending
@@ -249,6 +280,27 @@ same helper through actual compiled Sync controls and two real stores, verifies
 new incoming profile/note data and matching current/published revisions, and
 separately requires close-only preparation to reject an unexpectedly advanced
 head without losing the adopted version. It is also in the full compiled selection.
+
+The Team/history journey preserves the exact reopened secondary note across owner
+navigation, then deliberately uses Open ongoing before inspecting that owner's
+ongoing note. Owner return does not silently replace an exact selection.
+The held automatic-publication journey deliberately reenters Edit after its
+newer writing commits and clean owner return opens Read, then reacquires the
+current editor provider before applying the unchanged finite-positive geometry,
+viewport, exact identity/value and writability predicates. Its evidence counts
+that one public Edit preparation separately from its one input and two Person
+selections, all under the same first publisher hold.
+`--verify-current1eee-note-contexts`, also in the full compiled selection, replays
+these contracts through actual invisible BAML controls and real SQLite/snapshot
+storage, including the continuing incoming-profile refresh and local writing
+while the provider is unavailable. Neither logical attachment nor a fresh
+provider binding substitutes for native geometry/interaction evidence. Genuine
+SQLite noncommit still retains paused Edit and must fail a healthy-writable
+predicate; these fixture preparations never reconcile/retry or enable it.
+The same selector seeds a never-edited saved Read note and requires deliberate
+public Edit before admitting the copy fixture's unrelated invalid-title draft:
+assigning an already-empty hidden Read TextBox does not issue writing or create
+a save failure. The original copy/error/owner/profile-draft assertions remain.
 
 The exit host's one preparation Open waits for the actual compiled Ready activity
 and enabled Open control inside its original bounded preparation observation.
@@ -427,18 +479,23 @@ unpublished until its own complete revision is exported.
 Both note scopes also hold the actual successful SaveNoteDraft return, retain a
 newer generation, independently publish that committed revision and deliver its
 real child. The non-base admission lease must prevent adoption through that VM
-handoff even when core saving is complete. A real SQLite reader holds the final
-adoption commit after clean admission; the existing storage-phase observer only
-records entry into `snapshot.adopt-commit`. Browsing and later profile draft
+handoff even when core saving is complete. After clean admission/seal and actual
+transaction writes, the existing observer waits at `snapshot.adopt-commit`
+**before** invoking SQLite Commit; it is not an engine blocked by a reader.
+Explicit release permits that same operation's real Commit, and the fixture's
+failure/expiry state cannot stand in for a live phase. Browsing and later profile draft
 admission must return while the same commit is still held, and installation
 must preserve that later draft. Both note scopes additionally retain their exact
 owner/writing/immutable base after that seal, then commit/reopen and publish a
 valid child which the first store must accept. A failed/timed-out commit cannot
 satisfy this structural nonblocking proof.
 The joint #95 cases create a real committed-but-lost note return in both scopes,
-with and without newer generations. Actual SQLite exclusive locking holds
-`snapshot.local-read` while reconciliation reaches its real core draft
-acknowledgment. Browsing must return before that same observed read ends; a read
+with and without newer generations. The observer gates the actual public reader
+at `local-sqlite-read-snapshot`, after its committed identity/revision read under
+the explicit deferred transaction, while reconciliation reaches its real core
+draft acknowledgment. This is a known-held snapshot, not an outer phase or
+`BEGIN EXCLUSIVE` assumed to exclude WAL readers. Browsing must return before
+that same identified read is released and disposed; a read
 failure or merely pending task is not sufficient. Committed-ack removal must
 release adoption admission, whereas newer writing must survive, retry/reopen and
 refuse a truly divergent child. Explicit buffer discard cannot erase an unknown
@@ -468,11 +525,21 @@ scenario or a deadline/assertion change. `*-sqlite-snapshots.json` binds source
 revision/run/attempt/product hash, process, independent stores, Workspace/version
 IDs, actual artifact hashes and exact photo/Team/history evidence. Captures are
 `sqlite-sync-folder-published`, `sqlite-sync-joined-person-history`,
-`sqlite-sync-held-adoption-draft` and
+`sqlite-sync-normal-incoming-continuation`, `sqlite-sync-held-adoption-draft` and
 `sqlite-sync-incoming-continuation`, with the shared actual-pixel metadata.
-The normal receiving phase and actual live SQLite journal bind the native held
-adoption observation: a real reader remains held through native post-seal input,
-Person selection and capture, then is deliberately released. The exact owner
+Normal-EXE fresh Join and an unpaused incoming continuation remain native checks.
+Only the forced held-adoption segment relaunches at an independently verified
+clean setup seam into a controlled actual-WPF host, using the identified production
+Desktop DLL/MainWindow and normal FileBacked/WAL/FULL store. It uses no production
+startup flag or replacement save path. Saved Workspace/revision/Person/exact-note
+preferences, empty query and actual size must survive; no intent is implicitly
+saved, discarded or recreated to make the seam clean. The normal EXE resumes
+before the original conflict/restoration tail.
+The existing observer gates the real admitted `snapshot.adopt-commit` operation
+after its transaction/seal, **before** invoking SQLite Commit. It is not an
+engine waiting behind an external reader. The same unique operation and live
+phase are required through native post-seal input, selection and capture, then
+explicit release and actual Commit completion. The exact owner
 draft must survive success before its explicit Cancel exposes the new committed
 reading. `heldAdoption` records the real phase/action timestamps and boundaries;
 no busy-time extension or new latency claim is used.
@@ -484,22 +551,36 @@ onscreen, finite positive size and expose a supported writable ValuePattern with
 actual `IsReadOnly=false`. Fresh post-input owner/heading/editor/value observations
 must agree before the one selection. The destination then requires fresh exact
 Morgan identity/heading with visible positive bounds, not visibility of Avery's
-now-hidden editor. These are bounded element-cache observations. The same shared driver holds the real
-SQLite reader through actions/capture and retains the live-journal verdict.
+now-hidden editor. These are bounded element-cache observations. A fixed-size
+same-host named mapping transfers only primitive phase/identity/clock fields.
+Two bounded slots keep the last complete record readable while its successor
+is assembled; publication changes the committed sequence only after the full
+payload. Missing/faulted/incomplete state cannot pass.
 `--verify-snapshot-adoption` is a narrow invisible compiled replay of this driver;
-its fixed 1.2-second control-preparation delay must precede reader acquisition,
-not consume or extend the real commit's busy timeout. Public real-store cases also
-delay the actual action by 1.2 seconds and require the unchanged held verdict to
-fail, so late success or failure cannot satisfy the proof.
+its fixed 1.2-second preparation delay precedes admission. The controlled hold
+retains the original one-second observation horizon, explicitly as a fixture
+maximum rather than an engine busy-time guarantee. Delaying the actual action
+by 1.2 seconds must reject the expired/ended phase even when the real WAL adoption
+has successfully completed; neither late success nor failure proves a held phase.
 `*-sqlite-held-adoption-observation.json` is written on success or failure, even
 when the later main snapshot marker is absent. It binds candidate/run/attempt,
-executable hash/process, raw Stopwatch timestamps/frequency, bounded preparation/
-request/observation/capture/release milestones, real reader connection and journal
-state, attempted input/selection counts, and non-atomic window feedback observed
-before reader disposal. Preparation time is not subtracted from any acceptance
+separate controlled-host EXE/PID and production DLL hashes, raw Stopwatch
+timestamps/frequency, bounded preparation/request/observation/capture/release
+milestones, unique actual operation/lifetime, attempted input/selection counts
+and non-atomic window feedback before host cleanup. The controlled host is never
+labelled normal EXE. Preparation time is not subtracted from any acceptance
 clock. An observation `Passed` proves only this held interval; the existing later
 commit, immutable draft/base, data/revision, original-Workspace restoration, close
 and complete scenario results remain independently required.
+`--verify-rich-host-restoration` independently replays **both** actual factories:
+the rich automatic factory with its injected clock, and the held-adoption factory.
+Each raises actual Loaded, waits for current/Ready/enabled Open, restores exact
+remembered Read note/Person and reaches normal Closed without Show/Hwnd.
+Advancing the rich factory's real supplied 60-second clock must reach an actual
+periodic snapshot-local-read, so the two-argument held factory cannot satisfy
+that contract accidentally. The held factory additionally executes its Ready/
+remembered-view/normal-close path in an owned no-window child. This is startup/
+IPC evidence, not the hosted native segment.
 `nativeUsability` retains accepted before-input, after-input and destination
 readbacks plus the last actual person/editor frames when a predicate rejects.
 Unavailable/nonfinite bounds remain invalid (named floating values are serialized
@@ -535,8 +616,9 @@ It independently reopens the exact latest owner writing before release and
 requires the original publisher callback to remain active. Its elapsed local
 commit observations are diagnostic; the ordinary and rich background-export
 native percentile targets remain unchanged.
-The combined #97/#98 case admits an exact-version choice while clean, then holds
-the actual isolated validation Commit with a real SQLite reader. Both note scopes
+The combined #97/#98 case admits an exact-version choice while clean, then waits
+at the real isolated candidate's `snapshot.validate-commit` observer phase after
+its writes and **before** SQLite Commit invocation. Both note scopes
 commit locally and lose their real return while that same validation remains
 held; explicit buffer discard cannot authorize installation or replace the newly
 committed child. Reconciliation and a fresh review allow deliberate selection;
@@ -544,8 +626,11 @@ the complete local child, note and photo remain recoverable afterwards.
 This is a combined stale-authorization/Unknown refusal proof, not an isolated
 causal proof of the fault lease: the later commit independently invalidates the
 shown review. The admitted timer/manual cases above isolate that lease.
-`snapshot.validate-write` and `snapshot.validate-commit` observe real candidate
-I/O without replacing it or changing its existing transaction timeout.
+`snapshot.validate-write` controls preparation and `snapshot.validate-commit`
+holds/releases that real candidate transaction; neither substitutes a pending
+task or a WAL reader lock for the phase. The original owner/generation/error/
+revision and cleanup assertions remain. Their bounded fixture hold is not a
+claim about an engine busy-wait duration, and no transaction timeout changes.
 The invisible compiled snapshot selection additionally observes automatic
 publication/status, writable exact owner notes and Person switches during a real
 export, later publication and selected-Person incoming refresh. It never shows a
@@ -1005,6 +1090,13 @@ These checks use the existing bounded dispatcher/commit observations and never
 show a window or create a native main-window handle; they are not hosted
 interaction or latency acceptance.
 
+`--verify-preferred-name-snapshot-deferral` isolates the full profile-refresh
+selection's compiled incoming-archival/Preferred-name deferral case, including
+real source/peer snapshot Join and exact retained writing until Cancel. Peer
+fixture folders use compact GUID basenames instead of repeating scenario names,
+leaving room for native SQLite's nested validation/journal paths without
+changing the working directory or global temporary-folder configuration.
+
 ### Retired-engine coverage reconciliation (#100)
 
 `WorkspaceFixtures.CopyCurrent` now caches durable bytes produced by normal
@@ -1196,6 +1288,21 @@ that permission. The obsolete query/refresh/Workspace publication and stale
 eligibility negatives remain. `--verify-current-search-storage` and the narrower
 `--verify-person-search-integration` expose these existing public/BAML checks
 without running unrelated suites or claiming native input/focus acceptance.
+The compact-identity regression additionally gates real public search returns
+after an actual profile Save produces immediate and deferred same-query refreshes.
+One selected-row ListBox Enter must use the existing fresh-result activation,
+not disappear because the displayed request was superseded. Same-query refreshes
+are not new query intent; text changes (including away-and-back), Workspace
+replacement and intervening Manager/report browsing invalidate delayed activation.
+A separate no-selection Enter still waits for pending result publication.
+These actual-BAML/real-SQLite cases observe the routed async handler's completion
+through a forwarding synchronization context, so rejection is not inferred from
+a sleep or pending task. They are in the existing profile-refresh selection;
+`--verify-compact-identity` exposes them plus the unchanged original caller and
+full compact identity/editor matrix. They do not prove which identity or refresh
+overlap occurred in the historical hosted timeout, physical keyboard behavior,
+native/rich acceptance or performance. Existing workload/scenario counts, clocks
+and budgets are unchanged.
 The compiled note surfaces render current Read title/body directly from their
 immutable presentation snapshot; hidden edit TextBoxes are populated only for
 actual Edit, creation or retained Edit restoration. This projection neither
@@ -1437,16 +1544,19 @@ Every PR and `main` commit, including docs/test-only changes, retains four
 required logical lanes: workflow/view-model, filesystem, ordinary desktop,
 and high-resolution desktop. Ordinary desktop uses two parallel, isolated
 GitHub-hosted Windows jobs (`people` and `workspace`), approved on 2026-11-16.
+High-resolution desktop likewise uses two isolated workers (`reading` and
+`context`), with owner approval after the complete serial suite exhausted
+its existing fifteen-minute limit.
 Each native worker has its own disposable desktop; UI automation never runs
 concurrently on one desktop.
 The stable aggregate `CI` requires all four lanes, including both ordinary
-desktop workers. Failure, required skip,
+and both high-resolution desktop workers. Failure, required skip,
 cancellation, missing result and timeout cannot pass. Preserve the 5-minute
 workflow/view-model, 11-minute filesystem, 15-minute limit for each ordinary
-desktop worker, 15-minute high-resolution desktop and 2-minute aggregate
-deadlines: 63 minutes
+desktop worker, 15-minute limit for each high-resolution worker and 2-minute aggregate
+deadlines: 78 minutes
 summed, at most 17 minutes on the parallel critical path, excluding queues and
-later CD. All three native desktop workers enforce matching 900-second whole-execution
+later CD. All four native desktop workers enforce matching 900-second whole-execution
 budgets, including setup, temporarily raised with owner approval on 2026-11-15.
 Both full scenario/size/assertion matrices, including profile-copy and SQLite
 save coverage, remain required. Core/filesystem deadlines, separate scale-suite
@@ -1461,15 +1571,19 @@ journeys. The `workspace` worker runs archival, compatibility, update and extern
 refresh journeys, followed by every existing compiled profile/note-refresh,
 update-yield, release-isolation, release-trust and application-icon check.
 Neither partition removes actions, samples, size matrices or assertions.
-The original unpartitioned desktop command remains available for an explicitly
-isolated desktop; high-resolution and explicit scale selections are unchanged.
+`HighResolutionPartitions.json` assigns `responsive-workspace` to `reading`
+and the complete responsive draft and Team/history journeys to `context`.
+Every original scenario, input, check and screen size remains required exactly
+once. The original unpartitioned desktop and full high-resolution commands
+remain available for an explicitly isolated desktop; explicit scale is unchanged.
 
-Each ordinary worker uploads `scenarios.json`, `execution.json`, timing, logs and
-captures in an artifact named `desktop-<partition>-attempt-<runAttempt>`.
-`CI` validates both current-attempt artifacts against the exact candidate/run,
+Each worker uploads `scenarios.json`, `execution.json`, timing, logs and captures
+in an artifact named `desktop-<partition>-attempt-<runAttempt>` or
+`high-resolution-<partition>-attempt-<runAttempt>`.
+`CI` validates both pairs of current-attempt artifacts against the exact candidate/run,
 complete native selections and successful required companion commands. Missing,
 duplicate, unexpected, stale or partial results fail closed even when a matrix
-job reports success. Rerun both partitions together; an earlier attempt's
+job reports success. Rerun each complete partition pair together; an earlier attempt's
 successful artifact cannot fill a missing current-attempt result.
 This changes execution capacity, not application performance targets or the
 unidentified cause of longer UI observation calls.
@@ -1993,9 +2107,13 @@ without changing its display. They cover:
   and Team typing across delivery also verifies first-autosave/retry rejection,
   retained editor/delivered writing and deliberate discard through real WPF.
 
-The fourth required lane is `.\eng\Run-CiLane.ps1 high-resolution`, restricted
-to its disposable GitHub-hosted Windows VM. Its exact named selection is
-`tests\HighResolutionScenarios.json`, invoked with `--high-resolution`:
+The fourth required lane uses
+`.\eng\Run-CiLane.ps1 high-resolution -HighResolutionPartition reading` and
+`-HighResolutionPartition context` on separate disposable GitHub-hosted Windows
+VMs. Its complete selection remains `tests\HighResolutionScenarios.json`;
+`HighResolutionPartitions.json` supplies the exact disjoint split through
+`--high-resolution-reading` and `--high-resolution-context`. The original
+`--high-resolution` selector still requests the whole suite:
 
 - `responsive-workspace`: the search/Favorites journey plus the complete
   700 x 500, 1100 x 900, host-width 959/960/961 and maximized matrix, actual
@@ -2021,7 +2139,7 @@ to its disposable GitHub-hosted Windows VM. Its exact named selection is
 
 The split is by explicit scenario name, never a conditional screen-size skip.
 The two smoke manifests and explicit UI-scale manifest are nonempty, unique and
-disjoint; each lane requires its own complete named `scenarios.json`. Ordinary
+disjoint; each worker requires its own complete named `scenarios.json`. Ordinary
 results cannot stand in for the high-resolution suite.
 
 Before any app launch, the high-resolution fixture requires GitHub Actions,
@@ -2298,6 +2416,16 @@ browsing workload and independently reopened local writing. Its older publicatio
 cannot acknowledge the later local revision; subsequent Sync now must publish
 that exact latest revision.
 
+The controlled host and following normal-EXE reopen inherit the fixture's saved
+view, not an empty profile. Their exact expected Person comes from an independent
+prelaunch preference snapshot. Missing or unreadable preferences cannot become a
+blank-view fallback. `--verify-rich-host-restoration`, also in the full compiled
+selection, replays the actual controlled-host construction and Loaded handlers,
+exact saved Person/Team-note reading, subsequent Person restoration, grouped
+search and normal Closed without creating a native window. It does not replace
+the hosted rich lifecycle, change its 180-second readiness observation or extend
+the whole 660-second scale budget.
+
 Rich ordinary typing uses six predetermined inputs at nominal 250-ms spacing,
 not a new 60-ms stress deadline. Raw native request/observation arrays, nearest-rank
 `ceil(0.95 * count)` p95, sample counts, exact candidate/run/attempt, product EXE/
@@ -2373,6 +2501,10 @@ Native rich profile samples repeat that explicit Save path in both normal-EXE
 and actual held-export WPF phases, with exact whole-Person and decoded-photo/hash
 reopen checks. `*-sqlite-rich-profile-latency-*.json` separates native
 request-to-postcommit-acknowledgment from full-reopen verification.
+These observations use the real Directory-name editor's automation provider:
+visible in Edit and offscreen after Save, alongside the exact owner/value,
+enabled Edit action and Ready state. The layout-only `ProfileForm` StackPanel
+has no WPF automation peer and cannot be a native UI Automation target.
 
 Only the fixture's synchronization cadence is controlled through its independent
 TimeProvider. Actual save-request/latency/three-second clocks remain real for

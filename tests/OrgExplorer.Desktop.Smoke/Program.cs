@@ -24,6 +24,8 @@ internal static partial class Program
                 return RunAutomaticSnapshotFixture(args);
             if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
                 return RunWorkspaceExitFixture(args);
+            if (args.Length > 0 && args[0] == "--held-snapshot-fixture")
+                return RunHeldSnapshotFixture(args);
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
                 return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
@@ -66,10 +68,16 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyNoteReadDemand);
             if (args.Length == 2 && args[1] == "--verify-normal-close-publication-preparation")
                 return VerifyHostedCutoverContracts(executable, VerifyNormalClosePublicationPreparation);
+            if (args.Length == 2 && args[1] == "--verify-rich-host-restoration")
+                return VerifyHostedCutoverContracts(executable, VerifyRichHostRestoration);
+            if (args.Length == 2 && args[1] == "--verify-compact-identity")
+                return VerifyHostedCutoverContracts(executable, VerifyCompactIdentityReplay);
             if (args.Length == 2 && args[1] == "--verify-incoming-smoke-publication")
                 return VerifyHostedCutoverContracts(executable, VerifyIncomingSmokePublication);
             if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")
                 return VerifyHostedCutoverContracts(executable, VerifyActualC38NoteReadinessContracts);
+            if (args.Length == 2 && args[1] == "--verify-current1eee-note-contexts")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrent1eeeNoteContracts);
             if (args.Length == 2 && args[1] == "--verify-person-search-integration")
                 return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
             if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
@@ -87,6 +95,8 @@ internal static partial class Program
                 return VerifyCompiledXaml(executable, verifyLegacySaveFeedback: true);
             if (args.Length == 2 && args[1] == "--verify-preferred-name-retention")
                 return VerifyCompiledXaml(executable, verifyPreferredNameRetention: true);
+            if (args.Length == 2 && args[1] == "--verify-preferred-name-snapshot-deferral")
+                return VerifyCompiledXaml(executable, verifyPreferredSnapshotDeferral: true);
             if (args.Length == 2 && args[1] == "--verify-profile-note-refresh")
                 return HarnessRuntime.Run("compiled-profile-note-refresh",
                     () => VerifyCompiledXaml(executable, verifyProfileNoteRefresh: true));

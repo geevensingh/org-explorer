@@ -64,11 +64,10 @@ internal static partial class Program
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
                 () => release.WaitOne(TimeSpan.FromSeconds(args[0] == "--rich-scale-snapshot-fixture" ? 180 : 30)),
                 () => ended.Set());
-            var window = (Window)Activator.CreateInstance(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
-                BindingFlags.Instance | BindingFlags.NonPublic, null,
-                [ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
+            var window = CreateAutomaticSnapshotWindow(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
+                ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
                     fileObserver: profileHold is null ? null : new RichScaleCommitBoundary(profileHold, profileEntered!, profileRelease!)),
-                    (Func<Window, string?>)(_ => args[2]), (Action<string>)(_ => { }), clock], null)!;
+                args[2], clock);
             application.Run(window);
             return 0;
         }
@@ -78,6 +77,11 @@ internal static partial class Program
             AssemblyLoadContext.Default.Resolving -= Resolve;
         }
     }
+
+    private static Window CreateAutomaticSnapshotWindow(Type windowType, IApplicationWorkflow workflow,
+        string workspace, TimeProvider clock) =>
+        (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [workflow, (Func<Window, string?>)(_ => workspace), (Action<string>)(_ => { }), clock], null)!;
 
     private static void RunHostedAutomaticSnapshots(string executable, string root)
     {
@@ -184,6 +188,7 @@ internal static partial class Program
             Await(() => CurrentPersonEmail(window) == "morgan@example.com" &&
                 ReopenedWriting("Newer writing during automatic export"));
             native.RequireHeld("before-returned-note-reveal");
+            native.PrepareReturnedEditor();
             native.RevealNote();
             native.ObserveReturned("Newer writing during automatic export");
             if (release.WaitOne(0) || !hold.WaitOne(0))
@@ -191,8 +196,8 @@ internal static partial class Program
             var continuedEditingAt = Stopwatch.GetTimestamp();
             native.Capture("continued-editing", () => CaptureVisualEvidence(window, "sqlite-automatic-export-continued-editing"),
                 () => native.ObserveReturned("Newer writing during automatic export"));
-            if (native.InputRequests != 1 || native.SelectionRequests != 2)
-                throw new InvalidOperationException("Held export requires exactly one input and two Person selections.");
+            if (native.InputRequests != 1 || native.SelectionRequests != 2 || native.EditPreparationRequests != 1)
+                throw new InvalidOperationException("Held export requires exactly one input, two Person selections and one explicit returned Edit preparation.");
             native.Record("release-requested");
             hold.Reset();
             release.Set();

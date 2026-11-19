@@ -19,6 +19,22 @@ internal static partial class Program
     private static readonly string[] ExitProcessCases =
         ["unconfigured", "failed-export", "active-export", "pending-save", "stalled-save", "committed-unknown", "failed-save", "profile-saving", "divergence"];
 
+    private sealed class ExitHeldReader(string root) : IWorkspaceFileObserver
+    {
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Name != "local-sqlite-read-snapshot" || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            File.WriteAllText(Path.Combine(root, "reader-held.json"), JsonSerializer.Serialize(new
+            {
+                processId = Environment.ProcessId, operationId = phase.Id,
+                knownHeldAt = Stopwatch.GetTimestamp(), frequency = Stopwatch.Frequency,
+                boundary = "Actual public reader known-held snapshot; Exit anyway must bypass its disposal."
+            }));
+            Thread.Sleep(Timeout.Infinite);
+        }
+    }
+
     private sealed class ExitProcessBoundary(string root, string mode) : IWorkspaceFileObserver, IWorkspaceFilePublisher
     {
         public bool Armed;
@@ -124,6 +140,7 @@ internal static partial class Program
         SignedReleaseFixture? release = null;
         LocalReleaseServer? server = null;
         Guid? noteId = null;
+        IApplicationWorkflow? heldReader = null;
         var preparationStarted = false;
         void Prepare()
         {
@@ -151,6 +168,13 @@ internal static partial class Program
             Control<TreeView>("PeopleList").RaiseEvent(new RoutedPropertyChangedEventArgs<object>(
                 null!, model.ReportingRoots.Single(), TreeView.SelectedItemChangedEvent));
             effects.Armed = true;
+            if (mode == "pending-save")
+            {
+                var reading = ApplicationWorkflow.CreateFileBacked(fileObserver: new ExitHeldReader(root));
+                heldReader = reading;
+                _ = Task.Run(() => reading.OpenWorkspace(path, WorkspaceOpenMode.ExistingOnly));
+                PumpUntil(() => File.Exists(Path.Combine(root, "reader-held.json")));
+            }
             if (mode is "pending-save" or "stalled-save" or "committed-unknown")
             {
                 var notes = Control<UserControl>("TeamNotes");
@@ -236,6 +260,7 @@ internal static partial class Program
         GC.KeepAlive(storageLock);
         GC.KeepAlive(release);
         GC.KeepAlive(server);
+        GC.KeepAlive(heldReader);
         return mode == "normal-latest" ? 0 : 31;
     }
 
@@ -291,6 +316,13 @@ internal static partial class Program
                     File.Exists(Path.Combine(root, "force-returned")) || File.Exists(Path.Combine(root, "closed")))
                     throw new InvalidOperationException($"Owned {mode} did not terminate through the compiled force action: {process.ExitCode}; {error}");
                 VerifyExitedWorkspace(root, mode);
+                if (mode == "pending-save")
+                {
+                    using var reader = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "reader-held.json")));
+                    if (reader.RootElement.GetProperty("processId").GetInt32() != process.Id ||
+                        reader.RootElement.GetProperty("operationId").GetGuid() == Guid.Empty)
+                        throw new InvalidOperationException("The forced exit did not identify its actual same-process held public reader.");
+                }
                 Console.WriteLine("OWNED-EXIT-PROCESS-OBSERVATION " + JsonSerializer.Serialize(new
                 {
                     mode, fixtureStartedAt, processExitedObservedAt, frequency = Stopwatch.Frequency,

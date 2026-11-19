@@ -473,7 +473,8 @@ photo pixels, Markdown rendering, draft protection, navigation, current/Historic
 context and external refresh rather than repeating every business permutation.
 Required smoke contains nine ordinary 1024 x 768 scenarios, including authenticated
 update/settings, plus three explicitly selected responsive scenarios on a separate
-required disposable hosted 1920 x 1080 runner. The high-resolution job verifies
+required disposable hosted 1920 x 1080 workers. The two high-resolution partitions
+retain all three responsive scenarios and each verifies
 an advertised/tested native mode before launching the app; it never changes a
 local or shared display. Neither smoke suite uses the complete scale fixture.
 The explicit UI-scale command runs two independent rich 10,000-Person scenarios

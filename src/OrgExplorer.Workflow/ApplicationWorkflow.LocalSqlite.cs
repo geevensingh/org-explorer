@@ -11,8 +11,11 @@ public sealed partial class ApplicationWorkflow
     private const string SqliteDiscriminator = "local-workspace.format";
     private const string SqliteFormat = "OrgExplorer local SQLite Workspace";
     private bool localSqlite;
+    private static string LocalSqliteDescription(int version) =>
+        $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and reviewed Imports are available. " +
+        "Explicit complete-snapshot synchronization is available in Settings. Provider delivery remains independent.";
 
-    private SqliteConnection OpenLocalConnection(bool create = false)
+    private SqliteConnection OpenLocalConnection(bool create = false, bool validateOnly = false)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -25,8 +28,17 @@ public sealed partial class ApplicationWorkflow
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA synchronous=EXTRA; PRAGMA foreign_keys=ON;";
+            command.CommandText = "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;";
             command.ExecuteNonQuery();
+            command.CommandText = "PRAGMA synchronous;";
+            if (Convert.ToInt32(command.ExecuteScalar()) != 2)
+                throw new IOException("Local SQLite FULL durability is unavailable. No write was started.");
+            if (!validateOnly)
+            {
+                command.CommandText = create ? "PRAGMA journal_mode=WAL;" : "PRAGMA journal_mode;";
+                if (!string.Equals(command.ExecuteScalar() as string, "wal", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Local SQLite WAL mode is unavailable. Reopen to reconcile before writing; no rollback-journal fallback is used.");
+            }
             return connection;
         }
         catch
@@ -36,7 +48,18 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void OpenLocalSqlite(bool create)
+    private void EstablishLocalWal()
+    {
+        using var connection = OpenLocalConnection(validateOnly: true);
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+        if (string.Equals(command.ExecuteScalar() as string, "wal", StringComparison.OrdinalIgnoreCase)) return;
+        command.CommandText = "PRAGMA journal_mode=WAL;";
+        if (!string.Equals(command.ExecuteScalar() as string, "wal", StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Local SQLite WAL mode could not be established. The validated data is unchanged; close other local clients and reopen. No rollback-journal fallback is used.");
+    }
+
+    private bool OpenLocalSqlite(bool create)
     {
         RequireLocalSqliteLocation(workspace!);
         if (File.Exists(Path.Combine(workspace!, "workspace.json")))
@@ -91,7 +114,8 @@ public sealed partial class ApplicationWorkflow
         var loadedPhotos = new Dictionary<string, byte[]>();
         string committedRevision;
         int version;
-        using (var connection = OpenLocalConnection())
+        using var readObservation = fileObserver is null ? null : new LocalReadSnapshotObservation(fileObserver);
+        using (var connection = OpenLocalConnection(validateOnly: true))
         using (var transaction = connection.BeginTransaction(deferred: true))
         using (var command = connection.CreateCommand())
         {
@@ -112,6 +136,7 @@ public sealed partial class ApplicationWorkflow
                 throw new FormatException("Invalid local SQLite Workspace identity or revision.");
             committedRevision = commit.ToString("D");
             reader.Close();
+            readObservation?.KnownHeld();
             command.CommandText = "SELECT email, profile FROM people;";
             using (var profiles = command.ExecuteReader())
                 while (profiles.Read())
@@ -243,6 +268,17 @@ public sealed partial class ApplicationWorkflow
                     throw new FormatException("Local Profile evidence requires its accepted Import.");
             }
         }
+        readObservation?.Released();
+        var walReady = false;
+        try { EstablishLocalWal(); walReady = true; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or SqliteException)
+        {
+            localWalFault ??= new(LocalSavePhase.Failed, LocalSaveOutcome.NotCommitted,
+                CommittedRevision: committedRevision, Error:
+                $"Validated local Workspace is read-only: WAL mode is unavailable ({error.GetType().Name}). " +
+                "No ordinary write was attempted. Browsing remains available. Explicitly reconcile local storage before editing. " +
+                error.Message);
+        }
         people = loaded;
         batches = accepted;
         profileHistory = history;
@@ -256,14 +292,15 @@ public sealed partial class ApplicationWorkflow
         InvalidateProjections();
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
-            $"Local SQLite Workspace (format {version}). Person profiles, photos, Team names, notes, history and reviewed Imports are available. " +
-            "Explicit complete-snapshot synchronization is available in Settings. Provider delivery remains independent.",
+            localWalFault?.Message ?? LocalSqliteDescription(version),
             workspace, version)
         {
-            SupportsOrdinaryEdits = !synchronization.Diverged, SupportsNoteEdits = !synchronization.Diverged,
+            SupportsOrdinaryEdits = walReady && localWalFault is null && !synchronization.Diverged,
+            SupportsNoteEdits = walReady && localWalFault is null && !synchronization.Diverged,
             SupportsNonblockingNoteAutosave = true, SupportedWorkspaceVersion = 3
         };
         ReconcileLocalWriteEvidence();
+        return walReady;
     }
 
     private string LocalSqliteRevision()
