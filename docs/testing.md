@@ -1288,6 +1288,21 @@ that permission. The obsolete query/refresh/Workspace publication and stale
 eligibility negatives remain. `--verify-current-search-storage` and the narrower
 `--verify-person-search-integration` expose these existing public/BAML checks
 without running unrelated suites or claiming native input/focus acceptance.
+The compact-identity regression additionally gates real public search returns
+after an actual profile Save produces immediate and deferred same-query refreshes.
+One selected-row ListBox Enter must use the existing fresh-result activation,
+not disappear because the displayed request was superseded. Same-query refreshes
+are not new query intent; text changes (including away-and-back), Workspace
+replacement and intervening Manager/report browsing invalidate delayed activation.
+A separate no-selection Enter still waits for pending result publication.
+These actual-BAML/real-SQLite cases observe the routed async handler's completion
+through a forwarding synchronization context, so rejection is not inferred from
+a sleep or pending task. They are in the existing profile-refresh selection;
+`--verify-compact-identity` exposes them plus the unchanged original caller and
+full compact identity/editor matrix. They do not prove which identity or refresh
+overlap occurred in the historical hosted timeout, physical keyboard behavior,
+native/rich acceptance or performance. Existing workload/scenario counts, clocks
+and budgets are unchanged.
 The compiled note surfaces render current Read title/body directly from their
 immutable presentation snapshot; hidden edit TextBoxes are populated only for
 actual Edit, creation or retained Edit restoration. This projection neither

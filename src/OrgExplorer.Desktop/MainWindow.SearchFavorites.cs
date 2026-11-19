@@ -26,6 +26,7 @@ public partial class MainWindow
     private bool queryDirty = true;
     private string? lastQuery;
     private int queryRequest;
+    private int queryIntent;
     private Task searchRefresh = Task.CompletedTask;
     private bool PeopleSearchWorkBlocked => workPending && !ordinaryLocalWorkPending && !localImportPending;
     private bool activatingSearch;
@@ -81,6 +82,11 @@ public partial class MainWindow
     {
         if (e.Key != Key.Enter) return;
         e.Handled = true;
+        if (SearchResults.SelectedItem is PersonSearchResult selected)
+        {
+            await ActivateSearchResult(selected);
+            return;
+        }
         if (!await AwaitSearchResults()) return;
         if (SearchResults.SelectedItem is PersonSearchResult result) await ActivateSearchResult(result);
     }
@@ -101,6 +107,7 @@ public partial class MainWindow
 
     private void ChangeSearchQuery(object sender, TextChangedEventArgs e)
     {
+        queryIntent++;
         if (SearchResults is null || loading) return;
         var wasBrowsing = workflow.PeopleNavigation.IsBrowsing;
         if (wasBrowsing && !string.IsNullOrWhiteSpace(SearchQuery.Text) && PeoplePanel.Visibility == Visibility.Visible)
@@ -191,8 +198,13 @@ public partial class MainWindow
         try
         {
             var query = SearchQuery.Text;
+            var intent = queryIntent;
+            var browsing = peopleBrowseRequest;
+            var workspace = workflow.Compatibility.WorkspacePath;
+            var identity = workflow.Synchronization.WorkspaceId;
             var current = await Task.Run(() => workflow.SearchPeople(query).FirstOrDefault(r => SameSearchPerson(r, result)));
-            if (query != SearchQuery.Text) return;
+            if (query != SearchQuery.Text || intent != queryIntent || browsing != peopleBrowseRequest ||
+                workspace != workflow.Compatibility.WorkspacePath || identity != workflow.Synchronization.WorkspaceId) return;
             if (PeopleSearchWorkBlocked)
             {
                 TryLeaveLocalEdits();
