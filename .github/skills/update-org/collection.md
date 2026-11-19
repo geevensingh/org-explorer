@@ -46,18 +46,22 @@ Ask only for missing/ambiguous inputs or decisions outside this policy.
 
 ## Helper commands
 
+Use the [primary workflow](workflow.md) for startup, dispatch, request preparation,
+observations and compact progress. The commands below also retain the lower-level
+interfaces used for diagnostics and compatible earlier strict runs.
+
 Commands below run from the repository root in PowerShell. Use absolute helper/run
 paths in workers. Prerequisites are the repository's .NET SDK and configured
 WorkIQ tools; no Python, Graph SDK, credentials file or previous session is needed.
 
 ```powershell
 $project = Join-Path $PWD '.github\skills\update-org\scripts\OrgExport.csproj'
-dotnet restore $project --locked-mode --verbosity quiet
+# Restore locked dependencies only if the build reports missing restore assets.
 dotnet build $project --no-restore --verbosity quiet
 $tool = Join-Path (Split-Path $project) 'bin\Debug\net10.0\OrgExport.dll'
 # Use values actually resolved from the directory and /me, not these variable names.
-$run = (& dotnet $tool init $rootDisplayName $rootDirectoryId $connectedUserId) | ConvertFrom-Json
-dotnet $tool source-authorize-best-effort $run 'Standing /update-org policy authorizes bounded per-target recovery and explicit unavailable enrichment/photos, preserving verified reporting, denial stops, returned delays and two total attempts.'
+$started = (& dotnet $tool start $rootDisplayName $rootDirectoryId $connectedUserId) | ConvertFrom-Json
+$run = $started.runPath
 dotnet $tool plan $run
 ```
 
@@ -75,6 +79,16 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 
 | Command after `dotnet $tool` | Input/output |
 |---|---|
+| `start LABEL ROOT-ID ACCOUNT-ID [WORKER-LIMIT]` | Atomically creates a versioned private run and records the standing policy. Default two workers; one for genuine serial operation. Returns collector/protocol identity and host limits. |
+| `status RUN` | Compact phase, counts, next bounded directory/metadata work, retry deadline, sample-based estimate and collector identity; no source payloads. |
+| `next-job RUN WORKER` | Persists one immutable disjoint assignment when a worker slot is free. Repeated claims do not create duplicate jobs. |
+| `finish-job RUN WORKER JOB-ID` | Validates source/observation/photo coverage and hashes before completing the current owner's job. |
+| `resume-job RUN JOB-ID NEW-WORKER REASON` | Reassigns a confirmed stopped worker's job after affected source claims settle; preserves attempts and appends the handoff. |
+| `prepare-next RUN WORKER PHASE TOOL-NAME EVENTS.jsonl [AGENT-ID]` | Selects the next bounded directory/metadata/profile/photo request and creates its exact claim-bound descriptor and capture ticket. Call WorkIQ only when the returned claim is granted. |
+| `prepare-source RUN WORKER KIND TARGETS.json TOOL-NAME EVENTS.jsonl [AGENT-ID]` | Advanced explicit-target equivalent of prepared requests; enforces the host's 25/4/1 limits and assigned enrichment scope. |
+| `finish-capture RUN TICKET.json` | Captures/finishes one bound structured or binary call, ingesting complete mixed batches or validating successful photo bytes without hand-written response JSON. Profiles retain explicit per-identity outcome association. |
+| `record-profile RUN DIRECTORY-ID CAPTURE.json DRAFT.json` | Writes the observation with exact directory email, original captured lookup time and evidence array; fields/reasons remain the worker's grounded interpretation. |
+| `upgrade-run RUN REASON` | Explicitly upgrades stopped compatible unversioned state with original byte snapshots and a resumable journal, without resetting policy or attempts. Refuses unknown policy schemas, active work and sealed exports. |
 | `init LABEL ROOT-ID ACCOUNT-ID` | Returns a new private staging path below local `OrgExplorer\Imports`. |
 | `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
 | `capture RUN TICKET.json` | Returns original response/request file references, tool-call identity, source-result counts and outer tool outcome. Incomplete/ambiguous capture fails explicitly. |
@@ -112,7 +126,10 @@ directory user; a failed person lookup does not establish a missing Manager.
 For mandatory directory reads, empty 200 payloads and unclassified 404s remain
 blockers; denials stop the invocation. Continuations must remain
 on the returned user's relationship and expected Graph service; preserve tokens.
-Batch requests within the WorkIQ limit rather than calling one person at a time.
+Use at most 25 structured paths in this host, within WorkIQ's generic 50-path
+ceiling. A mixed failure can otherwise expose only one 25-result native chunk.
+Prepared requests enforce this bound; batch independent requests rather than
+calling one person at a time.
 Keep `$select`, `$top` and `$value` literal: use parsed path strings or
 single-quoted PowerShell literals, not interpolated query strings.
 

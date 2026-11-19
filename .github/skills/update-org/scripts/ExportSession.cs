@@ -27,7 +27,12 @@ public sealed partial class ExportSession : IDisposable
     private FileStream? lease;
     private Collection? complete;
 
-    public sealed record Run(Guid BatchId, string Label, string RootId, string AccountId, DateTimeOffset StartedAt);
+    public sealed record Run(Guid BatchId, string Label, string RootId, string AccountId, DateTimeOffset StartedAt)
+    {
+        public int StateVersion { get; init; }
+        public CollectorIdentity? Collector { get; init; }
+        public int WorkerLimit { get; init; } = 2;
+    }
     public sealed record Receipt(string Path, DateTimeOffset ObservedAt, JsonObject Response);
     public sealed record Field(string State, string? Value, string Reason);
     public sealed record Observation(string DirectoryId, string Email, Dictionary<string, Field> Fields,
@@ -46,31 +51,19 @@ public sealed partial class ExportSession : IDisposable
         => (this.path, this.run, this.lease, this.sourceClock) = (path, run, lease, sourceClock);
 
     public static string Create(string label, string rootId, string accountId, string? importsRoot = null)
-    {
-        Require(!string.IsNullOrWhiteSpace(label), "A root display label is required.");
-        Require(Guid.TryParse(rootId, out _) && Guid.TryParse(accountId, out _),
-            "Use the resolved directory root ID and signed-in WorkIQ user ID.");
-        var root = importsRoot ?? System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OrgExplorer", "Imports");
-        Local(root);
-        var state = new Run(Guid.NewGuid(), label, rootId, accountId, DateTimeOffset.UtcNow);
-        var staging = System.IO.Path.Combine(root, ".staging", state.BatchId.ToString());
-        Directory.CreateDirectory(staging);
-        foreach (var name in new[] { "receipts", "profiles", "photos", "sources", "workers" })
-            Directory.CreateDirectory(System.IO.Path.Combine(staging, name));
-        Save(System.IO.Path.Combine(staging, "state.json"), state);
-        Save(System.IO.Path.Combine(staging, "source-coordination.json"), new SourceLedger(state.BatchId, []));
-        File.WriteAllBytes(System.IO.Path.Combine(staging, ".lease"), []);
-        return staging;
-    }
+        => CreateRun(label, rootId, accountId, importsRoot, bestEffort: false, workerLimit: 2);
 
     public static ExportSession Open(string path, bool publishing = false, TimeProvider? sourceClock = null)
     {
         path = System.IO.Path.GetFullPath(path);
         Local(path);
-        var state = Read<Run>(System.IO.Path.Combine(path, "state.json"));
+        var state = ReadRunState(System.IO.Path.Combine(path, "state.json"));
+        var upgradeFile = System.IO.Path.Combine(path, "state-upgrade", "upgrade.json");
+        Require(!File.Exists(upgradeFile) || Read<StateUpgrade>(upgradeFile).CompletedAt is not null,
+            "Finish the recorded upgrade with upgrade-run RUN REASON before resuming.");
         Require(Guid.TryParse(state.RootId, out _) && Guid.TryParse(state.AccountId, out _),
             "The staging source identities are invalid.");
+        Require(state.WorkerLimit is 1 or 2, "The recorded worker limit is invalid.");
         Require(System.IO.Path.GetFileName(path) == state.BatchId.ToString()
             && System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path)) == ".staging",
             "Only an unfinished staging run can be modified. Completed exports are immutable.");
@@ -443,7 +436,7 @@ public sealed partial class ExportSession : IDisposable
                 Local(staging);
                 var previousFile = System.IO.Path.Combine(staging, "state.json");
                 if (!File.Exists(previousFile)) continue;
-                var previous = Read<Run>(previousFile);
+                var previous = ReadRunState(previousFile, allowLegacy: true);
                 var record = System.IO.Path.Combine(staging, "photos", id + ".json");
                 if (previous.AccountId != run.AccountId || !File.Exists(record)) continue;
                 var candidate = Read<PhotoEvidence>(record);

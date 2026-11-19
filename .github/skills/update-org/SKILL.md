@@ -6,8 +6,9 @@ disable-model-invocation: true
 
 # Update org
 
-Run `/update-org from <full name or email>` in a fresh **local Windows**
-org-explorer session. Produce an import path; the user imports it in the app.
+Run `/update-org from <full name or email>` or `/update-org for <full name or email>`
+in a fresh **local Windows** org-explorer session. Produce an import path; the user
+imports it in the app.
 Verified directory identity and reporting are required; indexed work-profile
 enrichment and photos are best-effort. Report unavailable enrichment explicitly.
 This is not archival reconciliation or an automatic Workspace change.
@@ -21,24 +22,28 @@ collection milestone.
 ## 1. Establish the source and local run
 
 Verify the execution context is local Windows before collecting workplace data.
+RDP alone does not make that runtime a cloud agent.
 If remote/cloud execution or the source connection is unavailable, stop and
 explain the prerequisite; do not install tools, change accounts or switch providers.
 
-Read [the collection protocol](collection.md). Invoke `workiq` and follow its
-current people, structured-read, grounding, binary-download and recovery contracts.
+Read [the primary command workflow](workflow.md) and the
+[standing policy](collection.md#standing-execution-policy). Use the collection
+protocol for its detailed source/capture/recovery contracts. Invoke `workiq` and
+follow its current people, structured-read, grounding, binary-download and recovery contracts.
 Resolve the exact directory root and connected user's directory ID; ask for
 selection when identity is ambiguous. A missing argument requires a root.
 Resolve these prerequisites serially. A failed prerequisite lookup stops here;
 do not perform an unrecorded recovery before the shared run exists.
 
-Build the bundled helper, then initialize the private staging run. Completion:
+Build the bundled helper, then use `start` to initialize the private staging run
+and standing policy atomically. Completion:
 one unambiguous root and a helper-created local run path, outside Git/cloud sync.
-Register the standing best-effort policy before coordinated collection.
+Retain the returned collector/protocol identity and host limits.
 Use current source results, not any previous conversation or employee fixture.
 
 ## 2. Establish the complete reporting subtree
 
-Use helper-generated pending paths and the shared
+Use `prepare-next` for helper-generated pending paths and the shared
 [capture sequence](collection.md#capture-one-source-call) to ingest original
 structured WorkIQ results. Use the same capture path for profile evidence and
 photo downloads; normal output is counts and local references, not source payloads.
@@ -67,12 +72,16 @@ agent for the next independent batch, not a reusable message-driven worker pool.
 If subagents or worker capture are genuinely unavailable, report the limitation
 and continue serially under the standing policy.
 
-Give each worker the original requested root, its job path, run path, helper path,
-and [worker protocol](collection.md#worker-protocol). Workers query fresh indexed
+Use `next-job` for persistent disjoint assignments. Give each worker the original
+requested root, its job path, run path, helper path, and
+[worker protocol](collection.md#worker-protocol). Workers query fresh indexed
 M365 work-profile evidence, preserve source identity, record field uncertainty,
 and materialize or verifiably reuse photos locally. They return only job identity,
 counts, local paths and errors. Neither image payloads nor employee lists belong
 in coordinator messages, Git, issues, Libraries or shared attachments.
+Use `record-profile` for source-bound lookup timestamps/evidence arrays and
+`finish-job` for validated completion; stopped workers use `resume-job`, not a
+fresh assignment or reset.
 
 Completion: every job finishes, every retained person has a fresh accounted-for
 profile lookup with either a valid observation or helper-recorded unavailability,

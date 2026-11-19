@@ -10,6 +10,10 @@ try
     object result;
     if (args[0] == "init" && args.Length == 4)
         result = ExportSession.Create(args[1], args[2], args[3]);
+    else if (args[0] == "start" && args.Length is 4 or 5)
+        result = ExportSession.Start(args[1], args[2], args[3], args.Length == 5 ? int.Parse(args[4]) : 2);
+    else if (args[0] == "upgrade-run" && args.Length == 3)
+        result = ExportSession.UpgradeRun(args[1], args[2]);
     else
     {
         if (args.Length < 2) throw new ArgumentException("A staging run path is required.");
@@ -17,6 +21,16 @@ try
         result = args[0] switch
         {
             "source-status" when args.Length == 2 => session.SourceStatus(),
+            "status" when args.Length == 2 => session.Status(),
+            "next-job" when args.Length == 3 => session.NextJob(args[2]),
+            "finish-job" when args.Length == 4 => session.FinishJob(args[2], args[3]),
+            "resume-job" when args.Length == 5 => session.ResumeJob(args[2], args[3], args[4]),
+            "prepare-source" when args.Length is 7 or 8 => session.PrepareSource(args[2], args[3], args[4], args[5], args[6],
+                args.Length == 8 ? args[7] : null),
+            "prepare-next" when args.Length is 6 or 7 => session.PrepareNextSource(args[2], args[3], args[4], args[5],
+                args.Length == 7 ? args[6] : null),
+            "finish-capture" when args.Length == 3 => session.FinishCapturedSource(args[2]),
+            "record-profile" when args.Length == 5 => session.RecordProfileDraft(args[2], args[3], args[4]),
             "source-claim" when args.Length == 5 => session.ClaimSource(args[2], args[3], args[4]),
             "source-finish" when args.Length == 4 => session.FinishSource(Guid.Parse(args[2]), args[3]),
             "source-recover" when args.Length == 2 => session.BeginSourceRecovery(),

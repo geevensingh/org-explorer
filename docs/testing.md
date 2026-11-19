@@ -64,6 +64,14 @@ evidence, publication rejection, earlier-success rejection, identity correction,
 JSON array cardinality and process exit status.
 No live M365 connection or desktop automation is involved.
 
+The collector workflow cases cross the same public helper/compiled-CLI seam:
+atomic standing-policy startup, serial/two-worker leasing, exact prepared
+requests, original lookup timestamps, stopped-worker handoff, compact sampled
+estimates and complete/degraded publication. Versioned-state cases retain exact
+legacy snapshots, attempts and policy through an explicit resumable upgrade,
+and reject future/unknown policy formats, active work and sealed exports.
+All source responses, native event streams, identities and images are fictitious.
+
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.

@@ -302,8 +302,16 @@ public sealed partial class ExportSession
         }
         else
             text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") ?? "" : "";
-        if (!outcome.GetProperty("success").GetBoolean()) text = StripNativeErrorPrefix(text);
-        return UnwrapPayload(text);
+        var failed = !outcome.GetProperty("success").GetBoolean();
+        if (failed) text = StripNativeErrorPrefix(text);
+        try { return UnwrapPayload(text); }
+        catch (InvalidOperationException failure) when (failed
+            && failure.Message.StartsWith("Unverified host-saved output reference:", StringComparison.Ordinal)
+            && outcome.TryGetProperty("error", out var nativeError)
+            && OptionalString(nativeError, "message") is { Length: > 0 })
+        {
+            return UnwrapPayload(StripNativeErrorPrefix(nativeError.GetProperty("message").GetString()!));
+        }
     }
 
     private static string StripNativeErrorPrefix(string text)
@@ -328,7 +336,10 @@ public sealed partial class ExportSession
     {
         Require(depth < 8, "Unsupported deeply wrapped tool result.");
         const string savedPrefix = "Output too large to display.\nFull output saved to: ";
-        Require(!text.Replace("\r\n", "\n", StringComparison.Ordinal).StartsWith(savedPrefix, StringComparison.Ordinal),
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
+        Require(!normalized.StartsWith(savedPrefix, StringComparison.Ordinal)
+            && !(normalized.StartsWith("Output too large to read at once (", StringComparison.Ordinal)
+                && normalized.Contains("). Saved to: ", StringComparison.Ordinal)),
             "Unverified host-saved output reference: capture requires a supported immutable per-invocation file contract or source-provided digest.");
         using var payload = JsonDocument.Parse(text);
         var body = payload.RootElement;

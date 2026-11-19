@@ -8,7 +8,7 @@ using Xunit;
 namespace OrgExplorer.Core.Tests;
 
 [Trait("Category", "Filesystem")]
-public sealed class OrgExportTests : IDisposable
+public sealed partial class OrgExportTests : IDisposable
 {
     private const string RootId = "10000000-0000-0000-0000-000000000001";
     private const string ChildId = "10000000-0000-0000-0000-000000000002";
@@ -200,6 +200,79 @@ public sealed class OrgExportTests : IDisposable
         Assert.Equal(RootId, session.Plan().Receipts[requests[0]].Response["data"]!["id"]!.GetValue<string>());
         Assert.Equal("AccessDenied", session.Plan().Receipts[requests[1]].Response["error"]!["error"]!["code"]!.GetValue<string>());
         Assert.NotEmpty(session.Plan().Errors);
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("MCP error -32603: ", false)]
+    [InlineData("MCP server 'workiq': ", false)]
+    [InlineData("", true)]
+    [InlineData("MCP error -32603: ", true)]
+    [InlineData("MCP server 'workiq': ", true)]
+    public void Capture_recovers_complete_native_error_json_without_reading_a_capped_display_file(string prefix, bool alternateMarker)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "capped-native.jsonl");
+        File.WriteAllText(events, "");
+        var targets = new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId) };
+        var claim = session.ClaimSource("coordinator", "structured", targets);
+        var arguments = new { entityUrls = targets };
+        var request = Path.Combine(root, "capped-request.json");
+        Save(request, new { toolName = "workiq-fetch", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "capped", toolName = "workiq-fetch", arguments });
+        var responses = new[] { Ok(User(RootId)), new JsonObject { ["statusCode"] = 503 } };
+        var payload = JsonSerializer.Serialize(new { results = responses });
+        var unverified = Path.Combine(root, "unverified-display.json");
+        File.WriteAllText(unverified, "{\"results\":[]}");
+        var display = alternateMarker
+            ? "Output too large to read at once (28.8 KB). Saved to: " + unverified
+            : "Output too large to display.\nFull output saved to: " + unverified;
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "capped", success = false,
+            result = new { content = display }, error = new { message = prefix + payload } });
+
+        var captured = session.Capture(ticket);
+
+        Assert.Equal(payload, File.ReadAllText(captured.ResponseFile));
+        Assert.Equal(1, captured.NonSuccessResults);
+        var results = Path.Combine(root, "capped-outcomes.json");
+        Save(results, targets.Select((target, index) => new ExportSession.SourceResult(target, responses[index])).ToArray());
+        session.FinishSource(claim.ClaimId!.Value, results);
+        Assert.Equal("completed", session.SourceStatus().Reads.Single(read => read.Target == targets[0]).State);
+        Assert.Equal("failed", session.SourceStatus().Reads.Single(read => read.Target == targets[1]).State);
+        Assert.Empty(captured.SavedFiles);
+    }
+
+    [Theory]
+    [InlineData("incomplete")]
+    [InlineData("truncated")]
+    [InlineData("missing")]
+    [InlineData("outer-success")]
+    public void Capped_display_does_not_authorize_unbound_files_or_incomplete_inline_errors(string fault)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "invalid-capped.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { entityUrls = new[] { ExportSession.UserPath(RootId) } };
+        var request = Path.Combine(root, "invalid-capped-request.json");
+        Save(request, new { toolName = "workiq-fetch", arguments });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "capped", toolName = "workiq-fetch", arguments });
+        var payload = fault switch
+        {
+            "incomplete" => "{\"results\":[]}",
+            "truncated" => "{\"results\":[",
+            "missing" => "",
+            _ => JsonSerializer.Serialize(new { results = new[] { Ok(User(RootId)) } })
+        };
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "capped", success = fault == "outer-success",
+            result = new { content = "Output too large to read at once (28.8 KB). Saved to: " + Path.Combine(root, "missing.json") },
+            error = new { message = "MCP server 'workiq': " + payload } });
+
+        Assert.NotNull(Record.Exception(() => session.Capture(ticket)));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
     }
 
     [Theory]
