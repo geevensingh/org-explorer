@@ -205,6 +205,16 @@ noncommit/recovery coverage. Additional cases prove safe mode negotiation and
 complete logical publication/peer Join of notes, profiles, photos and history
 while an older public reader prevents checkpointing. Owned abrupt-death cases
 observe a live committed WAL before process termination and then reconcile it.
+If the existing immediate public reopen fails, a bounded owning-thread
+first-chance observation retains SQLite code/extended code/HResult and the first
+managed frames in memory, then detaches reliably. Only after that failed Open
+returns does it emit those facts and non-atomic database/WAL/SHM existence,
+size and read/share probes. These later facts are not original I/O timestamps
+or contemporaneous lock-holder proof. Diagnostic faults remain explicit without
+replacing the original failing Open assertion. There is no retry, delay, repair,
+checkpoint, write-capable probe or live-file deletion; a successful Open performs
+no diagnostic logging or metadata probes. Local nonreproduction is not evidence
+that a hosted Error 10 is safe, unrelated or attributable to its host.
 None of these is hosted-actor attribution, a natural-duration benchmark or
 native acceptance.
 
