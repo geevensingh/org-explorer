@@ -1,9 +1,18 @@
 param([string] $RequestPath, [string] $CleanupRoot)
 $ErrorActionPreference = 'Stop'
+$script:CpuWaitPersistenceFailures = [Collections.Generic.List[string]]::new()
+
+function Write-TempCpuWaitPersistenceFault([string] $Context, [Exception] $Error) {
+    $message = "CPU/wait persistence failure [$Context]: $($Error.Message)"
+    $script:CpuWaitPersistenceFailures.Add($message)
+    try { [Console]::Error.WriteLine($message) }
+    catch [IO.IOException] { $script:CpuWaitPersistenceFailures.Add("CPU/wait persistence stderr failure: $($_.Exception.Message)") }
+}
 
 function Invoke-TempCpuWaitSession(
     [hashtable] $Request, [scriptblock] $Tool, [scriptblock] $AwaitStop, [scriptblock] $Ready
 ) {
+    $script:CpuWaitPersistenceFailures = [Collections.Generic.List[string]]::new()
     $directory = $Request.directory
     $instance = $Request.instance
     if ($instance -cnotmatch '^OrgExplorerCpuWait_[0-9a-f]{32}$') { throw 'Invalid owned CPU/wait instance.' }
@@ -22,9 +31,12 @@ function Invoke-TempCpuWaitSession(
         observedLossStatus = [Collections.Generic.List[object]]::new()
         symbols = 'No symbol download or generation; public Microsoft/.NET resolution is a separate analysis prerequisite.'
         commands = [Collections.Generic.List[object]]::new()
+        persistenceFailures = $script:CpuWaitPersistenceFailures
+        terminationState = 'not-started'
     }
     function Save-CpuWaitState {
-        [IO.File]::WriteAllText((Join-Path $directory 'cpu-wait-session.json'), ($state | ConvertTo-Json -Depth 10))
+        try { [IO.File]::WriteAllText((Join-Path $directory 'cpu-wait-session.json'), ($state | ConvertTo-Json -Depth 10)) }
+        catch [IO.IOException], [UnauthorizedAccessException] { Write-TempCpuWaitPersistenceFault 'session-state' $_.Exception }
     }
     function Invoke-OwnedWpr([string] $Label, [string[]] $Arguments, [int] $Timeout = 15) {
         $arguments = @($Arguments) + @('-instancename', $instance)
@@ -48,6 +60,7 @@ function Invoke-TempCpuWaitSession(
         finally { Save-CpuWaitState }
     }
     Save-CpuWaitState
+    if ($state.persistenceFailures.Count) { throw 'CPU/wait persistence failed before any start; no recording attempted.' }
     try {
         $before = Invoke-OwnedWpr 'before-start' @('-status')
         if ($before.exitCode -eq 0 -or $before.output -notmatch '0xc5583000') {
@@ -55,6 +68,8 @@ function Invoke-TempCpuWaitSession(
         }
         $state.startAttempted = $true
         Save-CpuWaitState
+        if ($state.persistenceFailures.Count) { throw 'CPU/wait persistence failed before owned start.' }
+        $state.terminationState = 'unknown-after-start-attempt'
         $start = Invoke-OwnedWpr 'start' @('-start', ($Request.profile + '!OrgExplorerCpuWait.Verbose'),
             '-recordtempto', $directory)
         if ($start.exitCode -ne 0) { throw "Owned CPU/wait start failed: $($start.exitCode)." }
@@ -72,6 +87,7 @@ function Invoke-TempCpuWaitSession(
         $state.status = 'recording'
         $state.startedQpc = [Diagnostics.Stopwatch]::GetTimestamp()
         Save-CpuWaitState
+        if ($state.persistenceFailures.Count) { throw 'CPU/wait persistence failed after start; refusing phase readiness.' }
         & $Ready
         $reason = & $AwaitStop
         $state.status = $reason
@@ -92,6 +108,7 @@ function Invoke-TempCpuWaitSession(
                     throw "Owned CPU/wait stop failed or ETL missing: $($stop.exitCode)."
                 }
                 $state.stopped = $true
+                $state.terminationState = 'stop-command-succeeded'
                 $state.etlBytes = (Get-Item -LiteralPath $etl).Length
                 $state.etlSha256 = (Get-FileHash -LiteralPath $etl -Algorithm SHA256).Hash
                 if ($state.etlBytes -gt $state.outputGuardBytes) { throw 'CPU/wait ETL exceeded the polled output guard.' }
@@ -103,13 +120,16 @@ function Invoke-TempCpuWaitSession(
                 try {
                     $cancel = Invoke-OwnedWpr 'cancel-owned-after-stop-failure' @('-cancel') 10
                     if ($cancel.exitCode -ne 0) { $state.cleanupFailure += "; named cancel exit=$($cancel.exitCode)" }
+                    else { $state.terminationState = 'cancel-command-succeeded; saved-trace-state-unconfirmed' }
                 } catch { $state.cleanupFailure += "; named cancel: $($_.Exception.Message)" }
             }
         }
-        $state.status = if ($state.failure -or $state.cleanupFailure) { 'failed-or-incomplete' } else { 'saved-needs-stack-loss-clock-coverage-analysis' }
+        $state.status = if ($state.failure -or $state.cleanupFailure -or $state.persistenceFailures.Count) { 'failed-or-incomplete' } else { 'saved-needs-stack-loss-clock-coverage-analysis' }
         Save-CpuWaitState
     }
-    if ($state.failure -or $state.cleanupFailure) { throw "CPU/wait diagnostic incomplete: $($state.failure); $($state.cleanupFailure)" }
+    if ($state.failure -or $state.cleanupFailure -or $state.persistenceFailures.Count) {
+        throw "CPU/wait diagnostic incomplete: $($state.failure); $($state.cleanupFailure); $($state.persistenceFailures -join '; ')"
+    }
 }
 
 function Invoke-TempCpuWaitTool([string] $Label, [string[]] $Arguments, [int] $Timeout,
@@ -126,13 +146,23 @@ function Invoke-TempCpuWaitTool([string] $Label, [string[]] $Arguments, [int] $T
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $stderr = $null
     $peakBytes = 0L
+    $guardReadFailed = $false
+    $isCancel = $Arguments -contains '-cancel'
     try {
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         $watch = [Diagnostics.Stopwatch]::StartNew()
         while (!$process.WaitForExit(100)) {
-            $bytes = (Get-ChildItem -LiteralPath $script:CpuWaitDirectory -File -Recurse |
-                Measure-Object -Property Length -Sum).Sum
+            $bytes = 0L
+            if (!$isCancel) {
+                try {
+                    $bytes = (Get-ChildItem -LiteralPath $script:CpuWaitDirectory -File -Recurse |
+                        Measure-Object -Property Length -Sum).Sum
+                } catch [IO.IOException], [UnauthorizedAccessException] {
+                    if (!$guardReadFailed) { Write-TempCpuWaitPersistenceFault "$Label-size-observation-unknown" $_.Exception }
+                    $guardReadFailed = $true
+                }
+            }
             $peakBytes = [Math]::Max($peakBytes, [long]$bytes)
             if ($watch.Elapsed.TotalSeconds -ge $timeout -or [DateTimeOffset]::UtcNow -ge $script:CpuWaitDeadline -or
                 $bytes -gt 536870912) {
@@ -141,17 +171,24 @@ function Invoke-TempCpuWaitTool([string] $Label, [string[]] $Arguments, [int] $T
                 throw 'Owned WPR command timed out or exceeded polled512MiB output guard (overshoot possible).'
             }
         }
+        if (![Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout, $stderr), 2000)) {
+            throw [TimeoutException]::new('Owned tool output did not close within its bounded drain window.')
+        }
         $text = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
         return @{ exitCode = $process.ExitCode; output = $text
             elapsedSeconds = $watch.Elapsed.TotalSeconds; maximumObservedOutputBytes = $peakBytes }
     } finally {
         try {
             if ($stdout -and $stderr -and $process.HasExited) {
-                if (![Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout, $stderr), 2000)) {
-                    throw 'Owned tool output did not close within its bounded drain window.'
+                try {
+                    if (![Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout, $stderr), 2000)) {
+                        throw [TimeoutException]::new('Owned tool output unavailable after bounded drain.')
+                    }
+                    [IO.File]::WriteAllText((Join-Path $script:CpuWaitDirectory "$Label.log"),
+                        ($stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()))
+                } catch [IO.IOException], [UnauthorizedAccessException], [TimeoutException], [AggregateException] {
+                    Write-TempCpuWaitPersistenceFault "$Label-tool-output" $_.Exception
                 }
-                [IO.File]::WriteAllText((Join-Path $script:CpuWaitDirectory "$Label.log"),
-                    ($stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()))
             }
         } finally { $process.Dispose() }
     }
@@ -160,7 +197,7 @@ function Invoke-TempCpuWaitTool([string] $Label, [string[]] $Arguments, [int] $T
 if ($RequestPath) {
     $request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json -AsHashtable
     $script:CpuWaitDirectory = $request.directory
-    $script:CpuWaitDeadline = [DateTimeOffset]::Parse($request.budgetDeadline)
+    $script:CpuWaitDeadline = [DateTimeOffset]$request.budgetDeadline
     $script:CpuWaitTool = Join-Path $env:SystemRoot 'System32\wpr.exe'
     if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
         $env:RUNNER_OS -cne 'Windows' -or ![Environment]::Is64BitProcess -or
@@ -205,29 +242,59 @@ if ($RequestPath) {
     } finally { $readySignal.Dispose(); $stopSignal.Dispose() }
 }
 if ($CleanupRoot) {
+    $script:CpuWaitPersistenceFailures = [Collections.Generic.List[string]]::new()
     $requests = @(Get-ChildItem -LiteralPath $CleanupRoot -Filter cpu-wait-request.json -File -Recurse -ErrorAction SilentlyContinue)
     if ($requests.Count -gt 1) { throw 'More than one CPU/wait recording request; refusing ambiguous cleanup.' }
     foreach ($file in $requests) {
         $request = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
         $statePath = Join-Path $request.directory 'cpu-wait-session.json'
-        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-        if (!$state.stopped -and $state.startAttempted -and
-            $request.instance -cmatch '^OrgExplorerCpuWait_[0-9a-f]{32}$' -and
-            $state.instance -ceq $request.instance) {
+        $state = $null
+        try { $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json }
+        catch { Write-TempCpuWaitPersistenceFault 'ownership-state-unreadable; termination-unknown' $_.Exception }
+        if ($state -and ($state.stopped -isnot [bool] -or $state.startAttempted -isnot [bool] -or !$state.instance)) {
+            Write-TempCpuWaitPersistenceFault 'ownership-state-incomplete; termination-unknown' `
+                ([IO.InvalidDataException]::new('Mutable session ledger is incomplete; immutable request identity retained.'))
+            $state = $null
+        }
+        if ($request.instance -cnotmatch '^OrgExplorerCpuWait_[0-9a-f]{32}$' -or
+            ![string]::Equals($request.directory, $file.Directory.FullName, [StringComparison]::OrdinalIgnoreCase) -or
+            ($state -and $state.instance -cne $request.instance)) {
+            throw 'Cannot establish exact immutable CPU/wait ownership; no broad cleanup permitted.'
+        }
+        if (!$state -or (!$state.stopped -and $state.startAttempted)) {
             $script:CpuWaitDirectory = $request.directory
-            $script:CpuWaitDeadline = [DateTimeOffset]::Parse($request.budgetDeadline)
+            $script:CpuWaitDeadline = [DateTimeOffset]$request.budgetDeadline
             $script:CpuWaitTool = Join-Path $env:SystemRoot 'System32\wpr.exe'
-            [IO.File]::WriteAllText((Join-Path $request.directory 'cpu-wait-emergency.json'), (@{
-                diagnosticOnly = $true; acceptanceEligible = $false; instance = $request.instance
-                reason = 'Owner interrupted or stop incomplete; this is censored evidence, not a second recording.'
-                qpc = [Diagnostics.Stopwatch]::GetTimestamp(); frequency = [Diagnostics.Stopwatch]::Frequency
-            } | ConvertTo-Json))
-            $result = Invoke-TempCpuWaitTool 'outer-finally-stop-owned' @('-stop',
-                (Join-Path $request.directory 'cpu-wait-emergency.etl'), 'TEMP interrupted owner', '-skipPdbGen',
-                '-instancename', $request.instance) 30
-            if ($result.exitCode -ne 0) {
-                $cancel = Invoke-TempCpuWaitTool 'outer-finally-cancel-owned' @('-cancel', '-instancename', $request.instance) 10
-                throw "Interrupted owned recording incomplete; stop=$($result.exitCode); cancel=$($cancel.exitCode)."
+            try {
+                [IO.File]::WriteAllText((Join-Path $request.directory 'cpu-wait-emergency.json'), (@{
+                    diagnosticOnly = $true; acceptanceEligible = $false; instance = $request.instance
+                    reason = 'Owner interrupted or stop incomplete; termination unknown, censored evidence, not a second recording.'
+                    qpc = [Diagnostics.Stopwatch]::GetTimestamp(); frequency = [Diagnostics.Stopwatch]::Frequency
+                } | ConvertTo-Json))
+            } catch [IO.IOException], [UnauthorizedAccessException] {
+                Write-TempCpuWaitPersistenceFault 'emergency-state' $_.Exception
+            }
+            try {
+                $remaining = [int][Math]::Floor(($script:CpuWaitDeadline - [DateTimeOffset]::UtcNow).TotalSeconds)
+                if ($remaining -le 0) { throw 'Original660 budget exhausted before emergency stop.' }
+                $result = Invoke-TempCpuWaitTool 'outer-finally-stop-owned' @('-stop',
+                    (Join-Path $request.directory 'cpu-wait-emergency.etl'), 'TEMP interrupted owner', '-skipPdbGen',
+                    '-instancename', $request.instance) ([Math]::Min(30, $remaining))
+                if ($result.exitCode -ne 0) { throw "Emergency owned stop exit=$($result.exitCode)." }
+            } catch {
+                $stopFailure = $_.Exception.Message
+                $cancelOutcome = 'not-attempted; termination-unknown'
+                try {
+                    $remaining = [int][Math]::Floor(($script:CpuWaitDeadline - [DateTimeOffset]::UtcNow).TotalSeconds)
+                    if ($remaining -le 0) { throw 'Original660 budget exhausted before named cancel; termination unknown.' }
+                    $cancel = Invoke-TempCpuWaitTool 'outer-finally-cancel-owned' @('-cancel',
+                        '-instancename', $request.instance) ([Math]::Min(10, $remaining))
+                    $cancelOutcome = "exit=$($cancel.exitCode); saved-trace-state-unconfirmed"
+                } catch { $cancelOutcome = "failed: $($_.Exception.Message)" }
+                throw "Interrupted owned recording incomplete; stop=$stopFailure; named cancel=$cancelOutcome; $($script:CpuWaitPersistenceFailures -join '; ')"
+            }
+            if ($script:CpuWaitPersistenceFailures.Count) {
+                throw "CPU/wait emergency persistence failed; $($script:CpuWaitPersistenceFailures -join '; ')"
             }
         }
     }

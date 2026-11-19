@@ -93,8 +93,132 @@ function Assert-DefaultScaleVerdict([string] $Suite, [int] $ObservationSeconds) 
         throw 'Default660 acceptance or the existing900 non-verifying verdict changed.'
     }
 }
+function Assert-CpuWaitEmergency([string] $Fault) {
+    $CleanupRoot = Join-Path $results "cpu-emergency-$Fault"
+    New-Item -ItemType Directory $CleanupRoot | Out-Null
+    $owned = @{ directory = $CleanupRoot; instance = 'OrgExplorerCpuWait_' + [guid]::NewGuid().ToString('N')
+        budgetDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60).ToString('O') }
+    [IO.File]::WriteAllText((Join-Path $CleanupRoot 'cpu-wait-request.json'), ($owned | ConvertTo-Json))
+    [IO.File]::WriteAllText((Join-Path $CleanupRoot 'cpu-wait-session.json'),
+        (@{ instance = $owned.instance; stopped = $false; startAttempted = $true } | ConvertTo-Json))
+    if ($Fault -eq 'write') {
+        New-Item -ItemType Directory (Join-Path $CleanupRoot 'cpu-wait-emergency.json') | Out-Null
+    }
+    if ($Fault -eq 'state') {
+        Remove-Item -LiteralPath (Join-Path $CleanupRoot 'cpu-wait-session.json')
+        New-Item -ItemType Directory (Join-Path $CleanupRoot 'cpu-wait-session.json') | Out-Null
+    }
+    if ($Fault -eq 'partial-state') {
+        [IO.File]::WriteAllText((Join-Path $CleanupRoot 'cpu-wait-session.json'), '{}')
+    }
+    if ($Fault -eq 'expired') { $owned.budgetDeadline = [DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('O')
+        [IO.File]::WriteAllText((Join-Path $CleanupRoot 'cpu-wait-request.json'), ($owned | ConvertTo-Json)) }
+    $calls = [Collections.Generic.List[string]]::new()
+    function Invoke-TempCpuWaitTool([string] $Label, [string[]] $Arguments, [int] $Timeout) {
+        $calls.Add($Label)
+        if ($Arguments[-2] -cne '-instancename' -or $Arguments[-1] -cne $owned.instance -or
+            $Timeout -gt 30 -or [DateTimeOffset]::UtcNow -ge $script:CpuWaitDeadline -or
+            $script:CpuWaitDeadline -ne [DateTimeOffset]::Parse($owned.budgetDeadline)) {
+            throw "Emergency teardown escaped its exact ownership/original remaining budget: instance=$($Arguments[-1]); expected=$($owned.instance); timeout=$Timeout; deadline=$script:CpuWaitDeadline; expectedDeadline=$($owned.budgetDeadline)."
+        }
+        if ($Label -eq 'outer-finally-stop-owned') {
+            if ($Fault -eq 'throw') { throw [TimeoutException]::new('PRIMARY-EMERGENCY-STOP-TIMEOUT') }
+            return @{ exitCode = 5; output = 'fixture stop failure' }
+        }
+        return @{ exitCode = 0; output = 'fixture named cancellation' }
+    }
+    $tokens = $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile("$root\eng\TEMP-CPU-WAIT.ps1",
+        [ref]$tokens, [ref]$errors)
+    $cleanup = $ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$CleanupRoot'
+    }, $true)
+    if (!$cleanup -or $errors.Count) { throw 'Cannot execute the actual emergency-cleanup branch in the mocked contract.' }
+    $body = $cleanup.Clauses[0].Item2.Statements.Extent.Text -join "`n"
+    $failure = $null
+    try { & ([scriptblock]::Create($body)) } catch { $failure = $_.Exception.Message }
+    if ($Fault -eq 'expired') {
+        if ($calls.Count -ne 0 -or !$failure.Contains('Original660 budget exhausted')) {
+            throw 'Emergency teardown attempted a command outside the original exhausted budget.'
+        }
+        Write-Host 'PASS: emergency cleanup records unknown termination without issuing commands after original budget exhaustion.'
+        return
+    }
+    if ($calls -notcontains 'outer-finally-stop-owned' -or
+        $calls -notcontains 'outer-finally-cancel-owned' -or !$failure) {
+        throw "CPUWAIT emergency $Fault suppressed exact bounded teardown: calls=$($calls -join ','); failure=$failure"
+    }
+    if ($Fault -in @('write', 'state', 'partial-state') -and !$failure.Contains('persistence')) {
+        throw 'Emergency metadata persistence failure was silently lost.'
+    }
+    if ($Fault -eq 'throw' -and !$failure.Contains('PRIMARY-EMERGENCY-STOP-TIMEOUT')) {
+        throw 'Emergency cancellation replaced the original stop timeout.'
+    }
+    Write-Host "PASS: actual emergency $Fault branch attempts bounded same-instance stop/cancel and preserves failure evidence."
+}
 try {
     . "$root\eng\TEMP-CPU-WAIT.ps1"
+    foreach ($fault in @('state', 'log')) {
+        $directory = Join-Path $results "cpu-write-fault-$fault"
+        New-Item -ItemType Directory $directory | Out-Null
+        $request = @{ directory = $directory; instance = 'OrgExplorerCpuWait_' + [guid]::NewGuid().ToString('N')
+            profile = 'fixture.wprp' }
+        $calls = [Collections.Generic.List[string]]::new()
+        $failure = $null
+        try {
+            Invoke-TempCpuWaitSession $request {
+                param($label, $arguments, $timeout)
+                $calls.Add($label)
+                if ($arguments[-1] -cne $request.instance -or $arguments[-2] -cne '-instancename') {
+                    throw 'Write-fault cleanup escaped exact ownership.'
+                }
+                if ($label -eq 'before-start') { return @{ exitCode = 1; output = '0xc5583000' } }
+                if ($label -eq 'ready-status') {
+                    return @{ exitCode = 0; output = "$($request.instance) Memory System Stacks CSwitch ReadyThread SampledProfile Microsoft-Windows-DotNETRuntime Microsoft-Windows-DotNETRuntimeRundown" }
+                }
+                if ($label -in @('stop', 'cancel-owned-after-stop-failure')) {
+                    if ($fault -eq 'log') {
+                        $script:CpuWaitDirectory = $directory
+                        $script:CpuWaitDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+                        return Invoke-TempCpuWaitTool $label @('-NoProfile', '-Command',
+                            $(if ($label -eq 'stop') { 'exit 5' } else { 'exit 0' })) $timeout (Get-Process -Id $PID).Path
+                    }
+                    return @{ exitCode = $(if ($label -eq 'stop') { 5 } else { 0 }); output = 'fixture teardown' }
+                }
+                return @{ exitCode = 0; output = 'fixture' }
+            } { throw 'PRIMARY-AFTER-OWNED-START' } {
+                if ($fault -eq 'state') {
+                    Remove-Item -LiteralPath (Join-Path $directory 'cpu-wait-session.json')
+                    New-Item -ItemType Directory (Join-Path $directory 'cpu-wait-session.json') | Out-Null
+                } else {
+                    foreach ($name in @('stop.log', 'cancel-owned-after-stop-failure.log')) {
+                        New-Item -ItemType Directory (Join-Path $directory $name) | Out-Null
+                    }
+                }
+            }
+        } catch { $failure = $_.Exception.Message }
+        if ($calls -notcontains 'stop' -or $calls -notcontains 'cancel-owned-after-stop-failure' -or
+            !$failure.Contains('PRIMARY-AFTER-OWNED-START') -or !$failure.Contains('persistence')) {
+            throw "CPUWAIT-1 $fault output fault suppressed teardown/primary/fault evidence: calls=$($calls -join ','); failure=$failure"
+        }
+        if ($fault -eq 'log') {
+            $state = Get-Content (Join-Path $directory 'cpu-wait-session.json') -Raw | ConvertFrom-Json
+            if ($state.persistenceFailures.Count -lt 2 -or $state.stopped -or
+                ($state.commands | Where-Object label -eq 'stop').exitCode -ne 5 -or
+                ($state.commands | Where-Object label -eq 'cancel-owned-after-stop-failure').exitCode -ne 0 -or
+                $state.terminationState -notmatch 'unconfirmed') {
+                throw 'Teardown log faults replaced actual tool exits or falsely claimed saved/stopped evidence.'
+            }
+        }
+        Write-Host "PASS: CPUWAIT-1 $fault persistence failure cannot suppress exact-owned stop/cancel or replace the primary."
+    }
+    Assert-CpuWaitEmergency 'write'
+    Assert-CpuWaitEmergency 'state'
+    Assert-CpuWaitEmergency 'partial-state'
+    Assert-CpuWaitEmergency 'throw'
+    Assert-CpuWaitEmergency 'expired'
     foreach ($case in @('saved', 'foreign-instance', 'start-failure', 'missing-stacks', 'deadline', 'status-failure', 'lost-events', 'stop-failure')) {
         $directory = Join-Path $results "cpu-wait-$case"
         New-Item -ItemType Directory $directory | Out-Null
