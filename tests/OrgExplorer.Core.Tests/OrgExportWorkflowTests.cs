@@ -126,6 +126,10 @@ public sealed partial class OrgExportTests
     public async Task Persistent_job_leases_enforce_serial_or_two_worker_limits_without_duplicate_assignments(int workers)
     {
         var path = SeedWorkflow(33, workers);
+        string[] planned;
+        using (var planner = ExportSession.Open(path))
+            planned = JsonSerializer.SerializeToNode(planner.Jobs())!["jobFiles"]!.AsArray()
+                .Select(file => file!.GetValue<string>()).ToArray();
         var dispatched = await Task.WhenAll(Enumerable.Range(0, 4).Select(index => Task.Run(() =>
         {
             using var session = ExportSession.Open(path);
@@ -138,6 +142,7 @@ public sealed partial class OrgExportTests
         foreach (var lease in granted) Assert.Null(resumed.NextJob(lease.Worker).Job);
         Assert.Equal(workers, resumed.SourceStatus().CollectionJobs.Count(job => job.State == "assigned"));
         Assert.Equal(33, resumed.SourceStatus().CollectionJobs.Sum(job => job.DirectoryIds.Length));
+        Assert.Equal(planned.Order(), resumed.SourceStatus().CollectionJobs.Select(job => Path.Combine(path, job.JobFile)).Order());
     }
 
     [Fact]
@@ -193,7 +198,7 @@ public sealed partial class OrgExportTests
         var draft = Path.Combine(root, "workflow-fields.json");
         Save(draft, new ExportSession.ProfileDraft(UnknownFields()));
 
-        session.RecordProfileDraft(people[0].Id, Path.Combine(Path.GetDirectoryName(prepared.TicketFile!)!, "capture.json"), draft);
+        session.RecordProfileDraft(people[0].Id, Path.Combine(Path.GetDirectoryName(prepared.TicketFile!)!, "capture.json"), draft, "worker");
 
         var observation = JsonSerializer.Deserialize<ExportSession.Observation>(
             File.ReadAllText(Path.Combine(path, "profiles", people[0].Id + ".json")), ExportSession.Json)!;
@@ -201,7 +206,7 @@ public sealed partial class OrgExportTests
         var actual = JsonNode.Parse(File.ReadAllText(captured.StartFile))!["timestamp"]!.GetValue<DateTimeOffset>();
         Assert.Equal(actual, observation.ObservedAt);
         Assert.Throws<InvalidOperationException>(() => session.RecordProfileDraft(people[1].Id,
-            Path.Combine(Path.GetDirectoryName(prepared.TicketFile!)!, "capture.json"), draft));
+            Path.Combine(Path.GetDirectoryName(prepared.TicketFile!)!, "capture.json"), draft, "worker"));
         Assert.Throws<InvalidOperationException>(() => session.FinishJob("worker", lease.JobId));
     }
 
@@ -275,7 +280,7 @@ public sealed partial class OrgExportTests
         }
         var draft = Path.Combine(root, "cli-workflow-fields.json");
         Save(draft, new ExportSession.ProfileDraft(UnknownFields()));
-        var recorded = await RunCli("record-profile", path, RootId,
+        var recorded = await RunCli("record-profile", path, "cli-worker", RootId,
             Path.Combine(Path.GetDirectoryName(prepared.TicketFile!)!, "capture.json"), draft);
         Assert.True(recorded.ExitCode == 0, recorded.Error);
         var resumed = await RunCli("resume-job", path, lease.JobId, "coordinator", "The original worker confirmed stopped after persisting its observation.");
@@ -463,10 +468,10 @@ public sealed partial class OrgExportTests
         var draft = Path.Combine(root, "mixed-profile-draft.json");
         Save(draft, new ExportSession.ProfileDraft(UnknownFields()));
 
-        session.RecordProfileDraft(people[0].Id, prepared.CaptureFile!, draft);
+        session.RecordProfileDraft(people[0].Id, prepared.CaptureFile!, draft, "coordinator");
 
         Assert.True(File.Exists(Path.Combine(path, "profiles", people[0].Id + ".json")));
-        Assert.Throws<InvalidOperationException>(() => session.RecordProfileDraft(people[1].Id, prepared.CaptureFile!, draft));
+        Assert.Throws<InvalidOperationException>(() => session.RecordProfileDraft(people[1].Id, prepared.CaptureFile!, draft, "coordinator"));
         FinishSource(session, session.ClaimSource("coordinator", "profile", [people[1].Id]), failure.DeepClone().AsObject());
         session.FinishJob("coordinator", job.JobId);
         Assert.Equal("complete", session.SourceStatus().CollectionJobs.Single().State);
@@ -545,6 +550,131 @@ public sealed partial class OrgExportTests
         Assert.Null(session.SourceStatus().BestEffortEnrichment);
     }
 
+    [Theory]
+    [InlineData("record-profile")]
+    [InlineData("profile")]
+    [InlineData("profiles")]
+    public void Observation_writes_without_current_ownership_cannot_overwrite_retained_interpretations_after_handoff(string command)
+    {
+        var path = SeedWorkflow(people: 1);
+        using var session = ExportSession.Open(path);
+        var person = session.Plan().People.Single();
+        session.Profile(RootId, ProfileInput(session, person, sourceCompleted: false));
+        var original = session.NextJob("original").Job!;
+        var prepared = CompleteCapturedWorkflowProfile(session, "original", "ownerless-profile");
+        session.ResumeJob(original.JobId, "replacement", "The original worker stopped after completing its lookup.");
+        var prior = File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json"));
+        var ledger = File.ReadAllBytes(Path.Combine(path, "source-coordination.json"));
+        var input = ProfileInput(session, person, sourceCompleted: false);
+        var late = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(input), ExportSession.Json)!;
+        late.Fields["officeCountry"] = new("value", "Fictitious stale country", "Stale worker interpretation.");
+        Save(input, late);
+        var draft = Path.Combine(root, "ownerless-fields.json");
+        Save(draft, new ExportSession.ProfileDraft(late.Fields));
+        var batch = Path.Combine(root, "ownerless-batch.json");
+        Save(batch, new[] { input });
+
+        Assert.ThrowsAny<InvalidOperationException>(() =>
+        {
+            if (command == "record-profile") session.RecordProfileDraft(RootId, prepared.CaptureFile!, draft);
+            else if (command == "profile") session.Profile(RootId, input);
+            else session.Profiles(batch);
+        });
+
+        Assert.Equal(prior, File.ReadAllBytes(Path.Combine(path, "profiles", RootId + ".json")));
+        Assert.Equal(ledger, File.ReadAllBytes(Path.Combine(path, "source-coordination.json")));
+        Assert.False(Directory.Exists(Path.Combine(path, "profile-errors")));
+        Assert.False(File.Exists(Path.Combine(path, "workers", "observations", RootId + ".json")));
+    }
+
+    [Fact]
+    public async Task Cli_observation_handoff_reuses_completed_evidence_and_rejects_all_late_owner_write_paths()
+    {
+        var path = SeedWorkflow(people: 1);
+        using var session = ExportSession.Open(path);
+        var original = session.NextJob("original").Job!;
+        var prepared = CompleteCapturedWorkflowProfile(session, "original", "retained-owner-profile");
+        session.ResumeJob(original.JobId, "replacement", "The original worker stopped after preserving complete evidence.");
+        var draft = Path.Combine(root, "replacement-fields.json");
+        Save(draft, new ExportSession.ProfileDraft(UnknownFields()));
+
+        var recorded = await RunCli("record-profile", path, "replacement", RootId, prepared.CaptureFile!, draft);
+
+        Assert.True(recorded.ExitCode == 0, recorded.Error);
+        var observationFile = Path.Combine(path, "profiles", RootId + ".json");
+        var inputFile = Path.Combine(path, "workers", "observations", RootId + ".json");
+        var priorObservation = File.ReadAllBytes(observationFile);
+        var priorInput = File.ReadAllBytes(inputFile);
+        var priorLedger = File.ReadAllBytes(Path.Combine(path, "source-coordination.json"));
+        var late = JsonSerializer.Deserialize<ExportSession.Observation>(
+            File.ReadAllText(observationFile), ExportSession.Json)!;
+        late.Fields["officeCountry"] = new("value", "Fictitious stale country", "Stale worker interpretation.");
+        Save(draft, new ExportSession.ProfileDraft(late.Fields));
+        var lateInput = Path.Combine(root, "late-owner-observation.json");
+        Save(lateInput, late);
+        var batch = Path.Combine(root, "late-owner-batch.json");
+        Save(batch, new[] { lateInput });
+        foreach (var arguments in new[]
+        {
+            new[] { "record-profile", path, "original", RootId, prepared.CaptureFile!, draft },
+            new[] { "profile", path, RootId, lateInput, "original" },
+            new[] { "profiles", path, batch, "original" }
+        })
+        {
+            var stale = await RunCli(arguments);
+            Assert.Equal(1, stale.ExitCode);
+            Assert.Contains("current", stale.Error);
+            Assert.Equal(priorObservation, File.ReadAllBytes(observationFile));
+            Assert.Equal(priorInput, File.ReadAllBytes(inputFile));
+            Assert.Equal(priorLedger, File.ReadAllBytes(Path.Combine(path, "source-coordination.json")));
+            Assert.False(Directory.Exists(Path.Combine(path, "profile-errors")));
+        }
+        var observation = JsonSerializer.Deserialize<ExportSession.Observation>(
+            File.ReadAllText(observationFile), ExportSession.Json)!;
+        var capture = JsonSerializer.Deserialize<ExportSession.CapturedResult>(
+            File.ReadAllText(prepared.CaptureFile!), ExportSession.Json)!;
+        Assert.Equal(JsonNode.Parse(File.ReadAllText(capture.StartFile))!["timestamp"]!.GetValue<DateTimeOffset>(),
+            observation.ObservedAt);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Kind == "profile").Attempts);
+        session.FinishJob("replacement", original.JobId);
+    }
+
+    [Fact]
+    public void Batch_observations_cannot_write_another_owners_person_or_failure_diagnostics()
+    {
+        var path = SeedWorkflow();
+        using var session = ExportSession.Open(path);
+        session.NextJob("first");
+        var other = session.NextJob("other").Job!;
+        var person = JsonSerializer.Deserialize<ExportSession.Person[]>(
+            File.ReadAllText(other.JobFile), ExportSession.Json)!.Single();
+        var input = ProfileInput(session, person, sourceCompleted: false);
+        var batch = Path.Combine(root, "wrong-owner-batch.json");
+        Save(batch, new[] { input });
+        var priorLedger = File.ReadAllBytes(Path.Combine(path, "source-coordination.json"));
+
+        Assert.ThrowsAny<InvalidOperationException>(() => session.Profiles(batch, "first"));
+
+        Assert.Empty(Directory.GetFiles(Path.Combine(path, "profiles")));
+        Assert.False(Directory.Exists(Path.Combine(path, "profile-errors")));
+        Assert.Equal(priorLedger, File.ReadAllBytes(Path.Combine(path, "source-coordination.json")));
+    }
+
+    private ExportSession.PreparedSource CompleteCapturedWorkflowProfile(ExportSession session, string worker, string name)
+    {
+        var events = Path.Combine(root, name + ".jsonl");
+        File.WriteAllText(events, "");
+        var agent = "native-" + worker;
+        var prepared = session.PrepareNextSource(worker, "profile", "workiq-retrieve", events, agent);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = name, toolName = prepared.Request!.ToolName,
+            arguments = prepared.Request.Arguments }, agent);
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = name, success = true,
+            result = new { content = "{\"hits\":[]}" } }, agent);
+        var captured = session.Capture(prepared.TicketFile!);
+        FinishSource(session, prepared.Claim, Ok(JsonNode.Parse(File.ReadAllText(captured.ResponseFile))!.AsObject()));
+        return prepared;
+    }
+
     private string SeedWorkflow(int people = 17, int workers = 2, bool unavailableMetadata = false, bool rootPhoto = false)
     {
         var path = ExportSession.Start("Fictitious root", RootId, AccountId, workers, root).RunPath;
@@ -594,7 +724,7 @@ public sealed partial class OrgExportTests
             {
                 if (!session.SourceStatus().Reads.Any(read => read.Kind == "profile" && read.Target == person.Id && read.State == "completed"))
                     FinishSource(session, session.ClaimSource(lease.Worker, "profile", [person.Id]), Ok(new JsonObject()));
-                session.Profile(person.Id, ProfileInput(session, person, sourceCompleted: false));
+                session.Profile(person.Id, ProfileInput(session, person, sourceCompleted: false), lease.Worker);
             }
         }
     }

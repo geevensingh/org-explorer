@@ -55,7 +55,8 @@ Inspect the returned `claim.claimId`. A null claim authorizes no call: honor the
 blocker/retry deadline or materialize already captured results. The prepared
 `request.toolName` and `request.arguments` are the one exact invocation to copy.
 The helper has already stored the descriptor, bound its claim and bookmarked
-the event stream in `ticketFile`. Do not retype or add employer qualifiers.
+the event stream in `ticketFile`. Continue with that ticket: preparation replaces
+the manual `source-claim` and `capture-start` steps. Do not retype or add employer qualifiers.
 
 Invoke that configured WorkIQ tool once. Structured and binary calls finish
 without rebuilding response JSON:
@@ -122,7 +123,7 @@ profile lookup, write only its interpreted fields/reasons to a local draft:
 Then call:
 
 ```powershell
-dotnet $tool record-profile $run $directoryId $captureJsonFile $draftFile
+dotnet $tool record-profile $run $worker $directoryId $captureJsonFile $draftFile
 ```
 
 Use the prepared request's `captureFile` after the capture completes; do not
@@ -132,6 +133,11 @@ The helper supplies the exact directory email, original captured lookup time,
 evidence array and stable observation-input path. It requires the latest
 completed, claim-bound grounding lookup. Verify source identity and interpret
 the evidence before writing the draft; the helper does not invent geography.
+The current job owner must be supplied for every observation write, including
+manual `profile`/`profiles` repairs. Ownership and publication are checked under
+the handoff lock; stale or ownerless calls cannot overwrite observations, draft
+inputs or correction diagnostics. A replacement owner may interpret the same
+retained successful capture without another source read.
 Unavailable lookups need no success/unknown observation. Correct only failed
 local drafts using retained evidence; preserve earlier successes.
 

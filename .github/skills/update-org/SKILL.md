@@ -43,13 +43,12 @@ Use current source results, not any previous conversation or employee fixture.
 
 ## 2. Establish the complete reporting subtree
 
-Use `prepare-next` for helper-generated pending paths and the shared
-[capture sequence](collection.md#capture-one-source-call) to ingest original
-structured WorkIQ results. Use the same capture path for profile evidence and
-photo downloads; normal output is counts and local references, not source payloads.
-Claim and finish every source call through the shared
-[source coordination gate](collection.md#source-coordination), including the
-coordinator's directory reads.
+Use the [prepared source-call workflow](workflow.md#prepare-one-source-call):
+`prepare-next` selects pending paths, claims them and bookmarks capture once.
+Invoke its exact returned request once, then finish the returned ticket as directed
+for structured results, profile evidence or photo bytes. Output counts and local
+references, not source payloads. The [manual capture alternative](collection.md#capture-one-source-call)
+is only for calls not already prepared; it creates its own claim and bookmark.
 Traverse every direct-report page, including leaves and excluded accounts.
 Follow the root's Manager chain to its sourced endpoint; ancestors supply context,
 not permission to enumerate their other reports.
@@ -65,7 +64,7 @@ disjoint local job files. Never silently truncate the requested subtree.
 
 ## 3. Enrich in bounded parallel batches
 
-Fetch fresh photo metadata for all retained people, at most 50 paths per
+Fetch fresh photo metadata for all retained people, at most 25 paths per
 structured-read call, and ingest every individual result. Dispatch the job files
 to **up to two concurrent subagents**, each with one disjoint batch. Use a fresh
 agent for the next independent batch, not a reusable message-driven worker pool.

@@ -87,7 +87,7 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `prepare-next RUN WORKER PHASE TOOL-NAME EVENTS.jsonl [AGENT-ID]` | Selects the next bounded directory/metadata/profile/photo request and creates its exact claim-bound descriptor and capture ticket. Call WorkIQ only when the returned claim is granted. |
 | `prepare-source RUN WORKER KIND TARGETS.json TOOL-NAME EVENTS.jsonl [AGENT-ID]` | Advanced explicit-target equivalent of prepared requests; enforces the host's 25/4/1 limits and assigned enrichment scope. |
 | `finish-capture RUN TICKET.json` | Captures/finishes one bound structured or binary call, ingesting complete mixed batches or validating successful photo bytes without hand-written response JSON. Profiles retain explicit per-identity outcome association. |
-| `record-profile RUN DIRECTORY-ID CAPTURE.json DRAFT.json` | Writes the observation with exact directory email, original captured lookup time and evidence array; fields/reasons remain the worker's grounded interpretation. |
+| `record-profile RUN WORKER DIRECTORY-ID CAPTURE.json DRAFT.json` | Writes the current job owner's observation with exact directory email, original captured lookup time and evidence array; fields/reasons remain the worker's grounded interpretation. |
 | `upgrade-run RUN REASON` | Explicitly upgrades stopped compatible unversioned state with original byte snapshots and a resumable journal, without resetting policy or attempts. Refuses unknown policy schemas, active work and sealed exports. |
 | `init LABEL ROOT-ID ACCOUNT-ID` | Returns a new private staging path below local `OrgExplorer\Imports`. |
 | `capture-start RUN EVENTS.jsonl REQUEST.json` | Bookmarks the caller's local session event stream for one exact tool invocation; returns a private capture-ticket path. See below. |
@@ -107,8 +107,8 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 | `source-omit-photo RUN DIRECTORY-ID REASON` | Coordinator only: records the standing exhausted-photo omission for that exact ID, retaining failed receipts and omitting `photoPath` to preserve an existing app photo. |
 | `source-interrupt RUN CLAIM-ID REASON` | Coordinator only: releases a claim after confirming its worker stopped, preserving uncertain reads as failures. |
 | `ingest RUN REQUESTS.json RESPONSE.json` | The request file is an array of 1-50 exact relative paths, in order. The response is the full WorkIQ `fetch` envelope, `{"results":[...]}`. Saves every nested status, including failures. |
-| `profile RUN DIRECTORY-ID OBSERVATION.json` | Records a grounded work-profile observation and copies its relevant evidence into the run. |
-| `profiles RUN FILES.json` | Processes every observation file path; returns [counts and correlated item outcomes](#profile-batch-outcomes), exiting nonzero if any fail. |
+| `profile RUN DIRECTORY-ID OBSERVATION.json [WORKER]` | Records a grounded work-profile observation and copies its relevant evidence into the run. Current owner is required once persistent jobs exist. |
+| `profiles RUN FILES.json [WORKER]` | Processes every observation file path for the current owner; returns [counts and correlated item outcomes](#profile-batch-outcomes), exiting nonzero if any fail. |
 | `cache RUN DIRECTORY-ID` | Reuses photo bytes only with matching fresh metadata, connected-user identity and byte hash. A miss returns `reused:false`. |
 | `cached-photos RUN IDS.json` | Runs cache checks for an array of assigned directory IDs. |
 | `photo RUN DIRECTORY-ID BLOB.json` | Materializes the full successful `fetch_blob` JSON response, verifying MIME/magic and decoded length. |
@@ -118,6 +118,8 @@ payloads go under `$run` or the host's local temporary output area, not the chec
 The other `source-authorize-*`, `source-recover` and `source-omit-photo` commands
 remain available for earlier strict runs. New best-effort runs do not need those
 per-failure approval/enrollment steps.
+Ownerless observation commands remain compatible only before persistent jobs exist;
+after dispatch, supply the current worker even when repairing retained evidence.
 
 Use `plan` paths verbatim. It requires fresh root details, all subtree reporting
 pages and leaves, and the ancestor Manager chain. An actual Manager-relationship
@@ -145,11 +147,16 @@ reads stay completed.
 Retain supported agent-user accounts as distinct identities with review
 flags rather than excluding them or merging them by name.
 
-The helper never calls M365 itself. Use the shared capture sequence below for
-directory, profile-evidence and binary source reads. It transfers original results
-without copying JSON or base64 through the model.
+The helper never calls M365 itself. Use the [prepared source-call workflow](workflow.md#prepare-one-source-call)
+for directory, profile-evidence and binary reads. The manual sequence below is an
+alternative when no preparation command has already granted a claim and ticket.
 
 ### Capture one source call
+
+**Manual alternative only:** `prepare-next` and `prepare-source` already claim,
+write the descriptor and bookmark capture. For those calls, invoke the returned
+request and finish its returned ticket through the [prepared workflow](workflow.md#prepare-one-source-call).
+Start at step 1 below only when no prepared claim/ticket exists.
 
 Use the **calling session's** runtime-provided `events.jsonl` path. A worker with
 its own event file uses that file. A native worker sharing its parent's event
@@ -260,7 +267,7 @@ Use explicit PowerShell arrays at the JSON boundary, including zero/one inputs:
 ```powershell
 [string[]]$observationFiles = @($firstObservation, $secondObservation)
 ConvertTo-Json -InputObject $observationFiles | Set-Content -LiteralPath $filesJson -Encoding utf8
-$output = & dotnet $tool profiles $run $filesJson
+$output = & dotnet $tool profiles $run $filesJson $worker
 $exitCode = $LASTEXITCODE
 $result = ($output -join "`n") | ConvertFrom-Json
 # Retain $result.items and report $exitCode plus every failed item to the coordinator.
@@ -283,7 +290,8 @@ old payloads.
 
 The private `source-coordination.json` is shared by the coordinator and every
 worker for this invocation. The helper serializes updates across processes.
-Before each WorkIQ call, write a target array and run `source-claim`:
+Prepared requests enter this gate automatically. For the manual alternative,
+write a target array and run `source-claim`:
 
 - `structured`: 1-50 exact relative directory or photo-metadata paths.
 - `profile`: 1-4 assigned directory IDs per grounded People query.
@@ -299,8 +307,9 @@ In best-effort runs, an isolated failure leaves unrelated queued jobs dispatchab
 honor global stop reasons and returned retry deadlines. Earlier strict runs retain
 their invocation-wide recovery gate.
 
-Use the [capture sequence](#capture-one-source-call) before `source-finish`. Its input is an
-array of `{"target":"exact claimed target","response":{...}}`, one per target.
+Complete the prepared capture flow, or the manual alternative for an unprepared
+call. For explicit `source-finish`, supply an array of
+`{"target":"exact claimed target","response":{...}}`, one per target.
 Structured and photo responses retain the actual status and nested errors. For a
 grounded People query, associate each identity's actual result with that ID; wrap
 a successful tool completion as `{"statusCode":200,"data":FULL_RESULT}` where
@@ -464,7 +473,8 @@ coordination, not additional assignments. All workers share the compiled helper 
 write individual inputs/evidence under your own `$run\workers\<batch-id>` folder.
 Only the coordinator collects directory/photo-metadata receipts and publishes.
 
-1. Invoke `workiq`; claim source calls through the shared gate above. Search fresh
+1. Invoke `workiq`; use the [prepared source-call workflow](workflow.md#prepare-one-source-call)
+   for each lookup, or the manual alternative only when no prepared claim exists. Search fresh
    indexed **M365 People work-profile evidence** with explicit grounding, using
    at most four assigned identities per granted query.
    Verify each hit against its exact directory ID/email; similar names are not
@@ -477,7 +487,8 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    reads instead retain errors in `source-finish`. Follow its queued retry or
    unavailable outcome; never submit a failed lookup as an unknown observation.
    Keep unrelated reads running; do not expand providers.
-3. Use `profiles` to persist observations in one helper call per batch. Inspect
+3. Use `record-profile` with the current worker name for captured interpretations,
+   or `profiles RUN FILES.json WORKER` for manual observations in one call per batch. Inspect
    the complete [batch outcome](#profile-batch-outcomes), retain its successes,
    and report every failed item for coordinated correction/recovery. Use
    `cached-photos`; download only cache misses whose fresh metadata succeeded.
@@ -488,9 +499,10 @@ Only the coordinator collects directory/photo-metadata receipts and publishes.
    other profile/photo requirements.
    For `lookupUnavailable:true`, preserve the failed-lookup diagnostics and omit
    the unsourced image; do not count it as confirmed absence.
-4. Claim and capture remaining `/users/{exact-directory-id}/photo/$value` reads through
-   WorkIQ's configured `fetch_blob` tool using the shared capture sequence.
-   Keep supplied image resolution; pass captured response files to `photo`/`photos`.
+4. Prepare remaining `/users/{exact-directory-id}/photo/$value` reads through
+   WorkIQ's configured `fetch_blob` tool and finish the returned capture ticket.
+   Keep supplied image resolution. For the manual alternative, pass captured
+   response files to `photo`/`photos` instead of automatic `finish-capture`.
    Return counts, file paths and errors, never base64. An invalid cache is a
    reported blocker, not permission to silently use corrupted bytes.
 

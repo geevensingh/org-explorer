@@ -47,15 +47,18 @@ public sealed partial class ExportSession
         });
     }
 
-    private void EnsureCollectionJobs(SourceLedger ledger, Collection collection)
-    {
-        var planned = collection.People.Chunk(16).Select(group =>
+    private CollectionJob[] CreateJobFiles(Collection collection)
+        => collection.People.Chunk(16).Select(group =>
         {
             var relative = "workers\\" + group[0].Id + ".json";
             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(group, Json) + "\n");
             Immutable(Within(relative), bytes);
             return new CollectionJob(group[0].Id, relative, Hash(bytes), group.Select(person => person.Id).ToArray(), "pending");
         }).ToArray();
+
+    private void EnsureCollectionJobs(SourceLedger ledger, Collection collection)
+    {
+        var planned = CreateJobFiles(collection);
         if (ledger.CollectionJobs.Count == 0) ledger.CollectionJobs.AddRange(planned);
         Require(ledger.CollectionJobs.Count == planned.Length && planned.All(expected =>
             ledger.CollectionJobs.Any(job => job.JobId == expected.JobId && job.JobFile == expected.JobFile
@@ -112,6 +115,15 @@ public sealed partial class ExportSession
                 "Enrichment requests must stay within the worker's assigned job.");
         }
         else Require(assigned is null, "Only the coordinator collects structured directory and metadata reads.");
+    }
+
+    private sealed class ObservationOwnershipException(string message, Exception inner) : InvalidOperationException(message, inner);
+
+    private static void RequireObservationOwner(SourceLedger sources, string? worker, string[] ids)
+    {
+        if (sources.CollectionJobs.Count == 0) return;
+        try { RequireJobSource(sources, worker ?? "", "profile", ids); }
+        catch (InvalidOperationException error) { throw new ObservationOwnershipException(error.Message, error); }
     }
 
     public object FinishJob(string worker, string jobId)
@@ -303,7 +315,7 @@ public sealed partial class ExportSession
         return new { capture = captured, source = completion, materialized };
     }
 
-    public object RecordProfileDraft(string id, string captureFile, string draftFile)
+    public object RecordProfileDraft(string id, string captureFile, string draftFile, string? worker = null)
     {
         id = SourceTarget("profile", id);
         captureFile = System.IO.Path.GetFullPath(captureFile);
@@ -313,22 +325,26 @@ public sealed partial class ExportSession
         var ticketFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(captureFile)!, "ticket.json");
         var ticket = Read<CaptureTicket>(ticketFile);
         RequireCaptureBinding(ticketFile, ticket, active: false);
-        var source = SourceStatus().Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id);
-        Require(source is not null && source.State == "completed" && source.Attempts[^1].ClaimId == ticket.Request.ClaimId,
-            "Record an observation only from that identity's latest completed profile lookup.");
-        Require(ticket.Request.Arguments["strategy"]?.GetValue<string>() == "grounding",
-            "A profile observation requires a grounding request.");
-        var person = Complete().People.Single(person => person.Id == id);
-        var started = Read<JsonObject>(captured.StartFile);
-        var observedAt = DateTimeOffset.Parse(Text(started, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.None);
-        var draft = Read<ProfileDraft>(draftFile);
-        var observation = new Observation(id, person.Email, draft.Fields,
-            [captured.ResponseFile, .. draft.EvidenceFiles ?? []], draft.Warnings ?? [], null, observedAt);
-        var directory = Within("workers\\observations");
-        Directory.CreateDirectory(directory);
-        var input = System.IO.Path.Combine(directory, id + ".json");
-        Save(input, observation);
-        return Profile(id, input);
+        return WithSources(sources =>
+        {
+            RequireObservationOwner(sources, worker, [id]);
+            var source = sources.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id);
+            Require(source is not null && source.State == "completed" && source.Attempts[^1].ClaimId == ticket.Request.ClaimId,
+                "Record an observation only from that identity's latest completed profile lookup.");
+            Require(ticket.Request.Arguments["strategy"]?.GetValue<string>() == "grounding",
+                "A profile observation requires a grounding request.");
+            var person = Complete().People.Single(person => person.Id == id);
+            var started = Read<JsonObject>(captured.StartFile);
+            var observedAt = DateTimeOffset.Parse(Text(started, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.None);
+            var draft = Read<ProfileDraft>(draftFile);
+            var observation = new Observation(id, person.Email, draft.Fields,
+                [captured.ResponseFile, .. draft.EvidenceFiles ?? []], draft.Warnings ?? [], null, observedAt);
+            var directory = Within("workers\\observations");
+            Directory.CreateDirectory(directory);
+            var input = System.IO.Path.Combine(directory, id + ".json");
+            Save(input, observation);
+            return Profile(id, input, sources, worker);
+        });
     }
 
     public object Status()

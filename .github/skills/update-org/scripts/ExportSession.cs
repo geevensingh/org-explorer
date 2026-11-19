@@ -272,26 +272,23 @@ public sealed partial class ExportSession : IDisposable
         if (collection.Pending.Length == 0 && collection.Errors.Length == 0
             && sources.StopReason is null && (sources.BestEffortEnrichment is not null
                 || sources.Reads.All(read => read.State != "failed" || read.AccountedFor)))
-            foreach (var group in collection.People.Chunk(16))
-            {
-                var name = System.IO.Path.Combine(path, "workers", group[0].Id + ".json");
-                Immutable(name, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(group, Json) + "\n"));
-                jobs.Add(name);
-            }
+            jobs.AddRange(CreateJobFiles(collection).Select(job => Within(job.JobFile)));
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
             collection.Errors, collection.ReviewFlags, collection.ManagerRefreshes, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
-    public ProfileBatchResult Profiles(string inputsFile)
-    {
-        var inputs = Read<string[]>(inputsFile);
-        Require(inputs.All(file => !string.IsNullOrWhiteSpace(file)),
-            "Expected an array of nonempty observation file paths.");
-        var items = inputs.Select((file, index) => RecordProfile(index, null, file)).ToArray();
-        var succeeded = items.Count(item => item.Recorded);
-        return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
-    }
+    public ProfileBatchResult Profiles(string inputsFile, string? worker = null)
+        => WithSources(sources =>
+        {
+            RequireObservationOwner(sources, worker, []);
+            var inputs = Read<string[]>(inputsFile);
+            Require(inputs.All(file => !string.IsNullOrWhiteSpace(file)),
+                "Expected an array of nonempty observation file paths.");
+            var items = inputs.Select((file, index) => RecordProfile(index, null, file, sources, worker)).ToArray();
+            var succeeded = items.Count(item => item.Recorded);
+            return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
+        });
 
     public object CachedPhotos(string idsFile)
     {
@@ -304,14 +301,21 @@ public sealed partial class ExportSession : IDisposable
     public object Photos(string inputsFile) => Read<PhotoInput[]>(inputsFile)
         .Select(input => Photo(input.DirectoryId, input.ResponseFile)).ToArray();
 
-    public object Profile(string id, string input)
+    public object Profile(string id, string input, string? worker = null)
+        => WithSources(sources =>
+        {
+            RequireObservationOwner(sources, worker, [id]);
+            return Profile(id, input, sources, worker);
+        });
+
+    private object Profile(string id, string input, SourceLedger sources, string? worker)
     {
-        var outcome = RecordProfile(0, id, input);
+        var outcome = RecordProfile(0, id, input, sources, worker);
         Require(outcome.Recorded, outcome.Error!);
         return new { directoryId = id, recorded = true };
     }
 
-    private ProfileOutcome RecordProfile(int index, string? id, string input)
+    private ProfileOutcome RecordProfile(int index, string? id, string input, SourceLedger sources, string? worker)
     {
         var errors = System.IO.Path.Combine(path, "profile-errors");
         var inputKey = Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(input)));
@@ -325,6 +329,7 @@ public sealed partial class ExportSession : IDisposable
             failureFile = System.IO.Path.Combine(errors, "input-" + inputKey + ".json");
             var observation = Read<Observation>(input);
             id ??= observation.DirectoryId;
+            RequireObservationOwner(sources, worker, [id]);
             var person = Complete().People.SingleOrDefault(p => p.Id == id)
                 ?? throw new InvalidOperationException("Profile is outside the retained population: " + id);
             if (MatchesPerson(observation, person))
@@ -369,8 +374,8 @@ public sealed partial class ExportSession : IDisposable
             foreach (var file in resolved) File.Delete(file);
             return new ProfileOutcome(index, input, id, true, null);
         }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException
-            or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException)
+        catch (Exception error) when (error is not ObservationOwnershipException && error is (ArgumentException or InvalidOperationException
+            or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException))
         {
             Local(errors);
             Directory.CreateDirectory(errors);
