@@ -65,6 +65,10 @@ jobs:
           ref: ${{ inputs.revision || github.sha }}
       - name: Identify the exact checked-out candidate
         run: |
+          if ('${{ inputs.cpu_wait_trace || false }}' -eq 'true' -and
+              (![bool]::Parse($env:DIAGNOSTIC_ONLY) -or '${{ inputs.extended_observation || false }}' -eq 'true')) {
+            throw 'CPU/wait opt-in requires BOTH companions nonaccepting and the unchanged660 window.'
+          }
           $revision = git rev-parse HEAD
           if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
             throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
@@ -108,6 +112,10 @@ jobs:
           ref: ${{ inputs.revision || github.sha }}
       - name: Identify the exact checked-out candidate
         run: |
+          if ('${{ inputs.cpu_wait_trace || false }}' -eq 'true' -and
+              (![bool]::Parse($env:DIAGNOSTIC_ONLY) -or '${{ inputs.extended_observation || false }}' -eq 'true')) {
+            throw 'CPU/wait opt-in requires BOTH companions nonaccepting and the unchanged660 window.'
+          }
           $revision = git rev-parse HEAD
           if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
             throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'

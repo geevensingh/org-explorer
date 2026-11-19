@@ -264,9 +264,25 @@ try {
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
             ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'),
             'DIAGNOSTIC_ONLY: ${{ inputs.diagnostic_only || false }}',
-            '-DiagnosticOnly:([bool]::Parse($env:DIAGNOSTIC_ONLY))', '$env:GITHUB_SHA -ne $revision')) {
+            '-DiagnosticOnly:([bool]::Parse($env:DIAGNOSTIC_ONLY))', '$env:GITHUB_SHA -ne $revision',
+            'CPU/wait opt-in requires BOTH companions nonaccepting and the unchanged660 window.')) {
             if (!$job.Contains($required)) { throw "$($suite.job) is missing $required" }
         }
+        $guard = [regex]::Match($job, '(?ms)        run: \|\r?\n(?<guard>.*?)(?=          \$revision)').Groups['guard'].Value
+        $previousDiagnostic = $env:DIAGNOSTIC_ONLY
+        try {
+            foreach ($case in @(@('false', 'false', 'false', $false), @('true', 'true', 'false', $false),
+                @('true', 'false', 'false', $true), @('true', 'true', 'true', $true))) {
+                $env:DIAGNOSTIC_ONLY = $case[1]
+                $script = $guard.Replace('${{ inputs.cpu_wait_trace || false }}', $case[0]).
+                    Replace('${{ inputs.extended_observation || false }}', $case[2])
+                $rejected = $false
+                try { & ([scriptblock]::Create($script)) } catch { $rejected = $true }
+                if (!$guard -or $rejected -ne $case[3]) {
+                    throw 'Both actual job guards must reject eligible or extended CPU/wait requests before workload execution.'
+                }
+            }
+        } finally { $env:DIAGNOSTIC_ONLY = $previousDiagnostic }
         $prefix = if ($suite.job -eq 'ui-scale') {
             "(inputs.diagnostic_only || inputs.extended_observation) && 'diagnostic-' || ''"
         } else { "inputs.diagnostic_only && 'diagnostic-' || ''" }
