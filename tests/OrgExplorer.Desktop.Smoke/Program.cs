@@ -64,6 +64,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyNormalClosePublicationPreparation);
             if (args.Length == 2 && args[1] == "--verify-rich-host-restoration")
                 return VerifyHostedCutoverContracts(executable, VerifyRichHostRestoration);
+            if (args.Length == 2 && args[1] == "--verify-compact-identity")
+                return VerifyHostedCutoverContracts(executable, VerifyCompactIdentityReplay);
             if (args.Length == 2 && args[1] == "--verify-incoming-smoke-publication")
                 return VerifyHostedCutoverContracts(executable, VerifyIncomingSmokePublication);
             if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")

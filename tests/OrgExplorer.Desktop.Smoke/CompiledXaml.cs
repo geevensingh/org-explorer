@@ -269,6 +269,7 @@ internal static partial class Program
                 finally { ClosePublishedCompiledWindow(teamNameWindow); }
                 VerifyProfileSaveRefresh(window, settings, heldPublisher!);
                 VerifyPeopleSearchRestoration(window, settings);
+                VerifyCompactSearchActivation(type, Path.Combine(settings, "compact-activation"));
             }
             if (verifyPreferredSnapshotDeferral)
                 VerifyPreferredNameSnapshotDeferral(window, settings);
@@ -780,7 +781,7 @@ internal static partial class Program
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher,
-        bool noteRefreshOnly = false)
+        bool noteRefreshOnly = false, bool compactIdentityOnly = false)
     {
         var folder = Path.Combine(settings, "workspace");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -843,6 +844,7 @@ internal static partial class Program
             VerifyPhotoViewportLayout(window);
             VerifyHeaderTextAndReadingOrder(window);
             VerifyCompactIdentityStates(window);
+            if (compactIdentityOnly) return;
             VerifyIdentityContext(window);
             VerifyAdaptiveReadingLayout(window);
             if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
@@ -1607,7 +1609,28 @@ internal static partial class Program
             results.SelectedItem = results.Items.Cast<PersonSearchResult>().Single(result => result.Person.Email == state.Email);
             results.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
                 { RoutedEvent = Keyboard.PreviewKeyDownEvent });
-            PumpUntil(() => Control<TextBlock>("Email").Text == state.Email);
+            try { PumpUntil(() => Control<TextBlock>("Email").Text == state.Email); }
+            catch (TimeoutException)
+            {
+                var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+                Console.WriteLine("COMPACT-IDENTITY-FAILURE " + JsonSerializer.Serialize(new
+                {
+                    expected = state.Email, actual = Control<TextBlock>("Email").Text,
+                    query = Control<TextBox>("SearchQuery").Text,
+                    selected = (results.SelectedItem as PersonSearchResult)?.Person.Email,
+                    highlighted = model.PeopleNavigation.HighlightedResult?.Person.Email,
+                    results = results.Items.Cast<PersonSearchResult>().Select(result => result.Person.Email).ToArray(),
+                    activity = Control<TextBlock>("WorkflowActivity").Text,
+                    openEnabled = Control<Button>("OpenWorkspaceButton").IsEnabled,
+                    searchEnabled = Control<TextBox>("SearchQuery").IsEnabled, resultsEnabled = results.IsEnabled,
+                    profileOwner = model.ProfileEdit?.Basis.Email,
+                    profileActions = Control<FrameworkElement>("ProfileSessionActions").Visibility.ToString(),
+                    profileEditEnabled = Control<Button>("EditProfileButton").IsEnabled,
+                    model.LocalSave, navigation = model.PeopleNavigation.SelectedEmail,
+                    status = Control<TextBlock>("StatusText").Text
+                }));
+                throw;
+            }
             Layout();
             var fullName = state.PreferredName ?? state.DirectoryName;
             var manager = Control<Button>("Manager");
