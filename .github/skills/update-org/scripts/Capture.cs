@@ -2,18 +2,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 
 namespace OrgExplorer.OrgExport;
 
 public sealed partial class ExportSession
 {
     public sealed record CaptureRequest(string ToolName, JsonObject Arguments,
-        string? AgentId = null, string? ParentToolCallId = null);
+        string? AgentId = null, string? ParentToolCallId = null, Guid? ClaimId = null);
     private sealed record CaptureTicket(Guid BatchId, string EventsFile, long Offset, string PrefixSha256,
-        CaptureRequest Request, CaptureReconciliation? Reconciliation = null);
-    private sealed record CaptureReconciliation(Guid SourceClaimId, string ToolCallId, string Reason,
-        DateTimeOffset RecordedAt);
+        CaptureRequest Request);
     public sealed record CapturedResult(string ToolCallId, bool ToolSucceeded, int ResultCount, int? NonSuccessResults,
         string ResponseFile, string? RequestsFile, string StartFile, string CompletionFile, string[] SavedFiles);
 
@@ -24,6 +21,8 @@ public sealed partial class ExportSession
         var request = Read<CaptureRequest>(requestFile);
         Require(!string.IsNullOrWhiteSpace(request.ToolName), "Use the exact configured WorkIQ tool name.");
         Require(request.AgentId is null || request.ParentToolCallId is null, "Choose one native worker scope.");
+        Require(request.ClaimId is not null || SourceStatus().BestEffortEnrichment is null,
+            "Best-effort collection requires claimId in every capture descriptor.");
         using var events = OpenEvents(eventsFile);
         var offset = events.Length;
         if (offset > 0)
@@ -37,75 +36,26 @@ public sealed partial class ExportSession
         var ticketFile = System.IO.Path.Combine(directory, "ticket.json");
         Save(ticketFile, ticket);
         File.WriteAllBytes(System.IO.Path.Combine(directory, ".lock"), []);
+        if (request.ClaimId is { } claimId)
+            WithSources(ledger =>
+            {
+                var active = ledger.Reads.Where(read => read.State == "active" && read.Attempts[^1].ClaimId == claimId).ToArray();
+                Require(active.Length > 0 && active.All(read => read.Attempts[^1].CaptureTicket is null),
+                    "Bind one capture ticket to an active source claim.");
+                if (active[0].Kind == "structured")
+                    Require(request.Arguments["entityUrls"] is JsonArray urls
+                        && urls.Select(url => url!.GetValue<string>()).SequenceEqual(active.Select(read => read.Target)),
+                        "Capture requests must match the granted structured targets in order.");
+                else if (active[0].Kind == "photo")
+                    Require(request.Arguments["path"]?.GetValue<string>() == active.Single().Target,
+                        "Capture path must match the granted photo target.");
+                var relative = System.IO.Path.GetRelativePath(path, ticketFile);
+                var hash = Hash(File.ReadAllBytes(ticketFile));
+                foreach (var read in active)
+                    read.Attempts[^1] = read.Attempts[^1] with { CaptureTicket = relative, CaptureTicketSha256 = hash };
+                return claimId;
+            });
         return ticketFile;
-    }
-
-    public string ReconcileCapture(string ticketFile, Guid sourceClaimId, string toolCallId, string reason)
-    {
-        Require(!string.IsNullOrWhiteSpace(reason) && !string.IsNullOrWhiteSpace(toolCallId),
-            "Record explicit approval and the original runtime tool-call identity.");
-        ticketFile = System.IO.Path.GetFullPath(ticketFile);
-        Require(ticketFile.StartsWith(path + "\\captures\\", StringComparison.OrdinalIgnoreCase),
-            "Use this run's original capture ticket.");
-        var originalBytes = File.ReadAllBytes(ticketFile);
-        var ticket = Read<CaptureTicket>(ticketFile);
-        Require(ticket.BatchId == run.BatchId && ticket.Reconciliation is null,
-            "Use an original, unreconciled ticket from this run.");
-        var request = ticket.Request;
-        Require(request.ToolName == "workiq-retrieve"
-            && request.Arguments["strategy"]?.GetValue<string>() == "grounding"
-            && request.Arguments["capabilities"] is JsonArray { Count: 1 } capabilities
-            && capabilities[0]?["name"]?.GetValue<string>() == "People",
-            "Reconciliation is limited to the original People-only grounded profile lookup.");
-        var ledger = SourceStatus();
-        Require(ledger.StopReason is null, ledger.StopReason ?? "");
-        var reads = ledger.Reads.Where(read => read.State == "active" && read.Attempts[^1].ClaimId == sourceClaimId).ToArray();
-        Require(reads.Length is > 0 and <= 4 && reads.All(read => read.Kind == "profile"),
-            "Use the still-active profile source claim for this invocation.");
-        using var events = OpenEvents(ticket.EventsFile);
-        Require(events.Length >= ticket.Offset && PrefixHash(events, ticket.Offset) == ticket.PrefixSha256,
-            "The original session event stream changed; reconciliation cannot establish provenance.");
-        events.Position = ticket.Offset;
-        using var reader = new StreamReader(events, new UTF8Encoding(false, true));
-        var starts = new List<JsonObject>();
-        var completions = 0;
-        while (reader.ReadLine() is { } line)
-        {
-            using var document = JsonDocument.Parse(line);
-            var entry = document.RootElement;
-            if (!entry.TryGetProperty("type", out var type) || !entry.TryGetProperty("data", out var data)
-                || !CaptureScope(entry, data, request) || OptionalString(data, "toolCallId") != toolCallId) continue;
-            if (type.GetString() == "tool.execution_start" && OptionalString(data, "toolName") == request.ToolName)
-                starts.Add(JsonNode.Parse(data.GetProperty("arguments").GetRawText())!.AsObject());
-            if (type.GetString() == "tool.execution_complete") completions++;
-        }
-        Require(starts.Count == 1 && completions == 1, "The exact scoped original invocation must have one start and completion.");
-        var actual = starts[0];
-        var expectedQuery = request.Arguments["query"]?.GetValue<string>()
-            ?? throw new InvalidOperationException("The original profile query is missing.");
-        var actualQuery = actual["query"]?.GetValue<string>()
-            ?? throw new InvalidOperationException("The invoked profile query is missing.");
-        var otherArguments = actual.DeepClone().AsObject();
-        otherArguments["query"] = expectedQuery;
-        Require(JsonNode.DeepEquals(otherArguments, request.Arguments),
-            "Reconciliation cannot change source capabilities, strategy or other arguments.");
-        var duplicatedWord = Regex.Matches(actualQuery, @"(?<!\S)(Private)[ \t]+\1(?=\s|$)", RegexOptions.CultureInvariant)
-            .Any(match => actualQuery.Remove(match.Index + match.Groups[1].Length, match.Length - match.Groups[1].Length)
-                == expectedQuery);
-        Require(duplicatedWord, "Only one duplicated Private employer qualifier can be reconciled; other edits remain blockers.");
-        var identities = Regex.Matches(actualQuery,
-            @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-            .Select(match => Guid.Parse(match.Value).ToString()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Require(identities.SetEquals(reads.Select(read => read.Target)),
-            "The original invocation must name exactly the claimed directory identities.");
-        var audit = new CaptureReconciliation(sourceClaimId, toolCallId, reason, DateTimeOffset.UtcNow);
-        var directory = Within("captures\\" + Guid.NewGuid());
-        Directory.CreateDirectory(directory);
-        Immutable(System.IO.Path.Combine(directory, "original-ticket.json"), originalBytes);
-        var reconciledFile = System.IO.Path.Combine(directory, "ticket.json");
-        Save(reconciledFile, ticket with { Request = request with { Arguments = actual }, Reconciliation = audit });
-        File.WriteAllBytes(System.IO.Path.Combine(directory, ".lock"), []);
-        return reconciledFile;
     }
 
     public CapturedResult Capture(string ticketFile)
@@ -115,6 +65,7 @@ public sealed partial class ExportSession
             "Use this run's capture ticket.");
         var ticket = Read<CaptureTicket>(ticketFile);
         Require(ticket.BatchId == run.BatchId, "Capture ticket belongs to another run.");
+        if (ticket.Request.ClaimId is not null) RequireCaptureBinding(ticketFile, ticket, active: false);
         var directory = System.IO.Path.GetDirectoryName(ticketFile)!;
         using var captureLock = new FileStream(System.IO.Path.Combine(directory, ".lock"), FileMode.Open,
             FileAccess.ReadWrite, FileShare.None);
@@ -122,11 +73,10 @@ public sealed partial class ExportSession
         Require(events.Length >= ticket.Offset && PrefixHash(events, ticket.Offset) == ticket.PrefixSha256,
             "The original session event stream changed; capture cannot establish request identity.");
         events.Position = ticket.Offset;
-        using var reader = new StreamReader(events, new UTF8Encoding(false, true));
         var starts = new List<(string Id, string Line, long Position)>();
         var completions = new Dictionary<string, List<(string Line, long Position)>>(StringComparer.Ordinal);
         long position = 0;
-        while (reader.ReadLine() is { } line)
+        foreach (var line in CompleteEventLines(events))
         {
             position++;
             using var document = JsonDocument.Parse(line);
@@ -136,7 +86,6 @@ public sealed partial class ExportSession
             if (!CaptureScope(entry, data, ticket.Request)) continue;
             if (type.GetString() == "tool.execution_start"
                 && data.GetProperty("toolName").GetString() == ticket.Request.ToolName
-                && (ticket.Reconciliation is null || OptionalString(data, "toolCallId") == ticket.Reconciliation.ToolCallId)
                 && JsonNode.DeepEquals(JsonNode.Parse(data.GetProperty("arguments").GetRawText()), ticket.Request.Arguments))
             {
                 Require(entry.TryGetProperty("timestamp", out var timestamp) && timestamp.TryGetDateTimeOffset(out var observed)
@@ -204,6 +153,127 @@ public sealed partial class ExportSession
         return captured;
     }
 
+    public SourceCompletion FailCapture(Guid claimId, string ticketFile, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record why the original invocation is known to have stopped.");
+        ticketFile = System.IO.Path.GetFullPath(ticketFile);
+        Require(ticketFile.StartsWith(path + "\\captures\\", StringComparison.OrdinalIgnoreCase),
+            "Use this run's capture ticket.");
+        var ticket = Read<CaptureTicket>(ticketFile);
+        Require(ticket.BatchId == run.BatchId && ticket.Request.ClaimId == claimId,
+            "Capture failure must identify its original source claim.");
+        RequireCaptureBinding(ticketFile, ticket, active: true);
+        string diagnostic;
+        try { Capture(ticketFile); }
+        catch (Exception error) when (error is InvalidOperationException or JsonException or IOException)
+        {
+            diagnostic = error.Message;
+            return WithSources(ledger =>
+            {
+                var active = ledger.Reads.Where(read => read.State == "active" && read.Attempts[^1].ClaimId == claimId).ToArray();
+                Require(active.Length > 0, "The original source claim has already settled.");
+                var directory = System.IO.Path.GetDirectoryName(ticketFile)!;
+                var completionFile = System.IO.Path.Combine(directory, "completion.json");
+                Require(File.Exists(completionFile),
+                    "The matching completion diagnostics cannot be inspected safely; keep the claim active and recapture before authorizing a replacement.");
+                var outcome = Read<JsonObject>(completionFile)["data"] as JsonObject
+                    ?? throw new InvalidOperationException("The correlated capture completion has no diagnostic data.");
+                var classified = CaptureFailureOutcome(active[0].Kind, active[0].Target, outcome);
+                if (classified.Denied) ledger.StopReason = "Source authorization/access/policy denial in capture diagnostics stops this invocation.";
+                else if (classified.InvalidDelay)
+                    ledger.StopReason = "The returned source retry delay in capture diagnostics cannot be honored.";
+                var failureFile = System.IO.Path.GetRelativePath(path, System.IO.Path.Combine(directory, "failure.json"));
+                Immutable(Within(failureFile), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+                {
+                    claimId, ticket = System.IO.Path.GetRelativePath(path, ticketFile), reason, diagnostic,
+                    payloadDiagnostics = classified.Diagnostics,
+                    recordedAt = sourceClock.GetUtcNow(), denied = classified.Denied, retryAt = classified.RetryAt,
+                    completion = outcome
+                }, Json)));
+                foreach (var read in active)
+                {
+                    read.Attempts[^1] = read.Attempts[^1] with
+                    {
+                        FinishedAt = sourceClock.GetUtcNow(), Error = "Unverifiable capture: " + diagnostic,
+                        Retryable = !classified.Denied && !classified.InvalidDelay, RetryAt = classified.RetryAt,
+                        CaptureFailureFile = failureFile
+                    };
+                    ledger.Reads[ledger.Reads.IndexOf(read)] = SettleBestEffortRead(ledger,
+                        read with { State = "failed", RecoveryEligible = false }, retryable: !classified.Denied && !classified.InvalidDelay);
+                }
+                return new SourceCompletion(ledger.BatchId, claimId,
+                    ledger.Reads.Where(read => read.Attempts.LastOrDefault()?.ClaimId == claimId).ToArray(),
+                    ledger.RecoveryConsumed, ledger.StopReason);
+            });
+        }
+        throw new InvalidOperationException("The complete original response is available; finish that capture instead of repeating the source read.");
+    }
+
+    private (bool Denied, DateTimeOffset? RetryAt, bool InvalidDelay, string[] Diagnostics) CaptureFailureOutcome(
+        string kind, string target, JsonObject? completion)
+    {
+        var denied = false;
+        var invalidDelay = false;
+        DateTimeOffset? retryAt = null;
+        var diagnostics = new List<string>();
+        void Inspect(JsonNode? node, bool errorContext, int depth)
+        {
+            if (node is null || depth >= 12) return;
+            if (node is JsonArray array)
+            {
+                foreach (var child in array) Inspect(child, errorContext, depth + 1);
+                return;
+            }
+            if (node is not JsonObject obj) return;
+            var classified = SourceOutcome(kind, target, obj);
+            denied |= classified.Denied;
+            invalidDelay |= classified.InvalidDelay;
+            if (classified.RetryAt is { } deadline && (retryAt is null || deadline > retryAt)) retryAt = deadline;
+            errorContext |= obj["error"] is not null || obj["isError"] is JsonValue errorFlag
+                && errorFlag.TryGetValue<bool>(out var isError) && isError
+                || obj["success"] is JsonValue successFlag && successFlag.TryGetValue<bool>(out var success) && !success;
+            foreach (var (name, value) in obj)
+            {
+                if (value is not JsonValue json || !json.TryGetValue<string>(out var text))
+                {
+                    Inspect(value, errorContext, depth + 1);
+                    continue;
+                }
+                if (name is not ("content" or "detailedContent" or "text" or "message" or "error")) continue;
+                if (errorContext || name is "message" or "error")
+                {
+                    denied |= SourceDenialText(text);
+                    try { text = StripNativeErrorPrefix(text); }
+                    catch (InvalidOperationException error)
+                    {
+                        diagnostics.Add(error.Message);
+                        continue;
+                    }
+                }
+                if (text.TrimStart().StartsWith('{') || text.TrimStart().StartsWith('['))
+                {
+                    try { Inspect(JsonNode.Parse(text), errorContext, depth + 1); }
+                    catch (JsonException error) { diagnostics.Add(error.Message); }
+                }
+            }
+        }
+        Inspect(completion, false, 0);
+        return (denied, retryAt, invalidDelay, diagnostics.ToArray());
+    }
+
+    private void RequireCaptureBinding(string ticketFile, CaptureTicket ticket, bool active)
+        => WithSources(ledger =>
+        {
+            var read = ledger.Reads.FirstOrDefault(read => SourceAttempts(read).Any(attempt => attempt.ClaimId == ticket.Request.ClaimId));
+            var attempt = read is null ? null : SourceAttempts(read).Single(item => item.ClaimId == ticket.Request.ClaimId);
+            Require(attempt is not null && attempt.CaptureTicket == System.IO.Path.GetRelativePath(path, ticketFile)
+                && attempt.CaptureTicketSha256 == Hash(File.ReadAllBytes(ticketFile))
+                && attempt.CaptureFailureFile is null && (!active || read!.State == "active"
+                    && read.Attempts[^1].ClaimId == ticket.Request.ClaimId),
+                "The original capture ticket must match its source claim and remain unchanged.");
+            return true;
+        });
+
     private static bool CaptureScope(JsonElement entry, JsonElement data, CaptureRequest request)
     {
         var agent = OptionalString(entry, "agentId");
@@ -231,50 +301,34 @@ public sealed partial class ExportSession
                     ?? throw new InvalidOperationException("The original tool result has no supported content.");
         }
         else
-            text = FailurePayloadText(outcome) ?? throw new InvalidOperationException("The original tool failure has no supported content.");
-        if (HostSavedReference(text) && !outcome.GetProperty("success").GetBoolean()
-            && FailurePayloadText(outcome) is { Length: > 0 } failure)
-            text = failure;
-        if (!outcome.GetProperty("success").GetBoolean())
-            text = UnwrapFailurePrefix(text);
+            text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") ?? "" : "";
+        if (!outcome.GetProperty("success").GetBoolean()) text = StripNativeErrorPrefix(text);
         return UnwrapPayload(text);
     }
 
-    private static string? FailurePayloadText(JsonElement outcome)
-    {
-        var text = outcome.TryGetProperty("error", out var error) ? OptionalString(error, "message") : null;
-        return text is null ? null : UnwrapFailurePrefix(text);
-    }
-
-    private static string UnwrapFailurePrefix(string text)
+    private static string StripNativeErrorPrefix(string text)
     {
         if (text.StartsWith("MCP error ", StringComparison.Ordinal))
         {
             var separator = text.IndexOf(": ", StringComparison.Ordinal);
             Require(separator > 10 && int.TryParse(text[10..separator], out _), "Unsupported MCP error wrapper.");
-            text = text[(separator + 2)..];
+            return text[(separator + 2)..];
         }
-        else if (text.StartsWith("MCP server '", StringComparison.Ordinal))
+        if (text.StartsWith("MCP server '", StringComparison.Ordinal))
         {
             var separator = text.IndexOf("': ", 12, StringComparison.Ordinal);
-            Require(separator > 12 && !string.IsNullOrWhiteSpace(text[12..separator]), "Unsupported MCP server error wrapper.");
-            text = text[(separator + 3)..];
+            Require(separator > 12 && text.AsSpan(12, separator - 12).IndexOfAny('\r', '\n', '\'') < 0,
+                "Unsupported MCP server error wrapper.");
+            return text[(separator + 3)..];
         }
         return text;
-    }
-
-    private static bool HostSavedReference(string text)
-    {
-        text = text.Replace("\r\n", "\n", StringComparison.Ordinal);
-        return text.StartsWith("Output too large to display.\nFull output saved to: ", StringComparison.Ordinal)
-            || (text.StartsWith("Output too large to read at once (", StringComparison.Ordinal)
-                && text.Split('\n')[0].Contains("). Saved to: ", StringComparison.Ordinal));
     }
 
     private static string UnwrapPayload(string text, int depth = 0)
     {
         Require(depth < 8, "Unsupported deeply wrapped tool result.");
-        Require(!HostSavedReference(text),
+        const string savedPrefix = "Output too large to display.\nFull output saved to: ";
+        Require(!text.Replace("\r\n", "\n", StringComparison.Ordinal).StartsWith(savedPrefix, StringComparison.Ordinal),
             "Unverified host-saved output reference: capture requires a supported immutable per-invocation file contract or source-provided digest.");
         using var payload = JsonDocument.Parse(text);
         var body = payload.RootElement;
@@ -303,6 +357,38 @@ public sealed partial class ExportSession
     {
         Local(file);
         return new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    }
+
+    private static IEnumerable<string> CompleteEventLines(FileStream events)
+    {
+        var remaining = events.Length - events.Position;
+        var buffer = new byte[81920];
+        var encoding = new UTF8Encoding(false, true);
+        var first = true;
+        using var line = new MemoryStream();
+        while (remaining > 0)
+        {
+            var count = events.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+            Require(count > 0, "Session events were truncated during capture.");
+            remaining -= count;
+            var start = 0;
+            for (var index = 0; index < count; index++)
+            {
+                if (buffer[index] != '\n') continue;
+                line.Write(buffer, start, index - start);
+                var bytes = line.GetBuffer();
+                var length = checked((int)line.Length);
+                if (length > 0 && bytes[length - 1] == '\r') length--;
+                var preamble = first && length >= 3 && bytes[0] == 0xEF
+                    && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+                first = false;
+                yield return encoding.GetString(bytes, preamble, length - preamble);
+                line.SetLength(0);
+                line.Position = 0;
+                start = index + 1;
+            }
+            line.Write(buffer, start, count - start);
+        }
     }
 
     private static string PrefixHash(FileStream stream, long length)

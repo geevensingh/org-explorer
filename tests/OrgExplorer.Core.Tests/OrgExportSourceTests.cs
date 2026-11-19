@@ -106,17 +106,458 @@ public sealed class OrgExportSourceTests : IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Authorized_per_read_recovery_keeps_delays_successes_and_the_two_attempt_limit()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using var session = ExportSession.Open(path, sourceClock: clock);
+        var authorization = session.AuthorizePerReadSourceRecovery("Explicit user approval for this fictitious run.");
+        var first = session.ClaimSource("first", "profile", [Identity(1)]);
+        var unavailable = new JsonObject
+        {
+            ["statusCode"] = 503, ["retryAfterSeconds"] = 5,
+            ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" }
+        };
+        Finish(session, first, unavailable);
+        session.BeginSourceRecovery();
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        var waiting = session.ClaimSource("retry", "profile", [Identity(1)]);
+        Assert.Null(waiting.ClaimId);
+        Assert.Equal(clock.Now.AddSeconds(5), waiting.RetryAt);
+        clock.Now = clock.Now.AddSeconds(5);
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        var later = session.ClaimSource("later", "profile", [Identity(2), Identity(3)]);
+        Finish(session, later, Ok(), unavailable);
+        session.BeginSourceRecovery();
+        Assert.Null(session.ClaimSource("queued", "profile", [Identity(4)]).ClaimId);
+        clock.Now = clock.Now.AddSeconds(5);
+        var retry = session.ClaimSource("later-retry", "profile", [Identity(2), Identity(3)]);
+        Assert.Equal([Identity(3)], retry.Targets);
+        Finish(session, retry, unavailable);
+        clock.Now = clock.Now.AddSeconds(5);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [Identity(3)]).ClaimId);
+        var ledger = session.SourceStatus();
+        Assert.Equal(authorization, ledger.PerReadRecovery);
+        Assert.Equal(2, ledger.Reads.Single(read => read.Target == Identity(1)).Attempts.Count);
+        Assert.Single(ledger.Reads.Single(read => read.Target == Identity(2)).Attempts);
+        Assert.Equal(2, ledger.Reads.Single(read => read.Target == Identity(3)).Attempts.Count);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Fact]
+    public void Per_read_recovery_requires_a_reason_and_settled_claims_and_cannot_replace_its_authorization()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePerReadSourceRecovery(" "));
+        var active = session.ClaimSource("worker", "profile", [Identity(1)]);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePerReadSourceRecovery("Explicit approval."));
+        Finish(session, active, Ok());
+        var authorization = session.AuthorizePerReadSourceRecovery("Explicit approval.");
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePerReadSourceRecovery("Replacement approval."));
+        Assert.Equal(authorization, session.SourceStatus().PerReadRecovery);
+    }
+
+    [Fact]
+    public void Approved_unclassified_read_keeps_its_original_delay_and_failure_after_the_global_pass()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using var session = ExportSession.Open(path, sourceClock: clock);
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" }
+        });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+        var unclassified = new JsonObject
+        {
+            ["statusCode"] = 200, ["retryAfterSeconds"] = 7,
+            ["error"] = new JsonObject { ["message"] = "Fictitious indexed evidence could not be opened." }
+        };
+        Finish(session, session.ClaimSource("later", "profile", [Identity(2), Identity(3)]), unclassified, Ok());
+        var original = session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts.Single();
+        Assert.False(original.Retryable);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        clock.Now = clock.Now.AddSeconds(2);
+        var approval = session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(2), "User approved only this read.");
+        var waiting = session.ClaimSource("later-retry", "profile", [Identity(2), Identity(3)]);
+        Assert.Null(waiting.ClaimId);
+        Assert.Equal(original.RetryAt, waiting.RetryAt);
+        clock.Now = clock.Now.AddSeconds(5);
+        var retry = session.ClaimSource("later-retry", "profile", [Identity(2), Identity(3)]);
+        Assert.Equal([Identity(2)], retry.Targets);
+        Finish(session, retry, unclassified);
+        clock.Now = clock.Now.AddSeconds(7);
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [Identity(2)]).ClaimId);
+        Assert.Throws<InvalidOperationException>(() =>
+            session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(2), "Cannot approve a third attempt."));
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        var failed = session.SourceStatus().Reads.Single(read => read.Target == Identity(2));
+        Assert.Equal(approval, failed.UnclassifiedRecovery);
+        Assert.Equal(original, failed.Attempts[0]);
+        Assert.Equal(2, failed.Attempts.Count);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(3)).Attempts);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Fact]
+    public void Unclassified_recovery_requires_a_reason_settled_claims_and_one_immutable_approval()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var failed = session.ClaimSource("failed", "profile", [Identity(1)]);
+        var active = session.ClaimSource("active", "profile", [Identity(2)]);
+        Finish(session, failed, new JsonObject { ["error"] = new JsonObject { ["message"] = "Fictitious failure." } });
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(1), " "));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(1), "Approval."));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(1), "Approval."));
+        Finish(session, active, Ok());
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("photo", Identity(1), "Wrong kind."));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(3), "Unrecorded."));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(2), "Already succeeded."));
+        var approval = session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(1), "Explicit approval.");
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(1), "Replacement."));
+        Assert.Equal(approval, session.SourceStatus().Reads.Single(read => read.Target == Identity(1)).UnclassifiedRecovery);
+    }
+
+    [Fact]
+    public void Matching_error_approval_recovers_later_occurrences_without_renewing_the_two_attempt_limit()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" }
+        });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+        var failure = new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Fictitious indexed evidence could not be opened." }
+        };
+        Finish(session, session.ClaimSource("later", "profile", [Identity(2)]), failure);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(2), " "));
+        var approval = session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(2), "Explicit approval for this exact error.");
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(2), "Replacement."));
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("later-retry", "profile", [Identity(2)]), Ok());
+        Finish(session, session.ClaimSource("recurrence", "profile", [Identity(3)]), failure);
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("recurrence-retry", "profile", [Identity(3)]), failure);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        Assert.Null(session.ClaimSource("third-attempt", "profile", [Identity(3)]).ClaimId);
+        var ledger = session.SourceStatus();
+        Assert.Equal(approval, ledger.MatchingErrorRecovery);
+        Assert.Null(ledger.PerReadRecovery);
+        Assert.All(ledger.Reads, read => Assert.Equal(2, read.Attempts.Count));
+        Assert.Equal("failed", ledger.Reads.Single(read => read.Target == Identity(3)).State);
+    }
+
+    [Fact]
+    public void Matching_error_approval_excludes_other_kinds_errors_classified_failures_and_later_transients()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var transient = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" } };
+        Finish(session, session.ClaimSource("first", "profile", [Identity(9)]), transient);
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(9)]), Ok());
+        var profiles = session.ClaimSource("profiles", "profile", [Identity(1), Identity(2), Identity(3), Identity(4)]);
+        var photo = session.ClaimSource("photo", "photo", [$"/users/{RootId}/photo/$value"]);
+        var failure = new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Fictitious indexed evidence could not be opened." }
+        };
+        var classified = (JsonObject)failure.DeepClone();
+        classified["code"] = "KnownFailure";
+        Finish(session, profiles, failure, new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "A different fictitious error." }
+        }, classified, transient);
+        Finish(session, photo, failure);
+        var before = session.SourceStatus();
+        Assert.Equal(before.Reads.Single(read => read.Target == Identity(1)).Attempts.Single().Error,
+            before.Reads.Single(read => read.Target == Identity(3)).Attempts.Single().Error);
+        session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(1), "Explicit approval for this exact profile error.");
+        session.BeginSourceRecovery();
+        Assert.Equal(Identity(1), Assert.Single(session.SourceStatus().Reads, read => read.RecoveryEligible
+            && read.State == "failed").Target);
+    }
+
+    [Fact]
+    public void Matching_error_recovery_accepts_the_same_message_in_string_and_object_wrappers()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        const string message = "Fictitious indexed evidence could not be opened.";
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = message }
+        });
+        var approval = session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(1), "Approval for this exact error.");
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+        var matching = session.ClaimSource("matching", "profile", [Identity(2)]);
+        var different = session.ClaimSource("different", "profile", [Identity(3)]);
+        Finish(session, matching, new JsonObject { ["statusCode"] = 200, ["error"] = message });
+        Finish(session, different, new JsonObject { ["statusCode"] = 200, ["error"] = message + " Different failure." });
+        var original = session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts.Single();
+
+        session.BeginSourceRecovery();
+
+        var ledger = session.SourceStatus();
+        Assert.True(ledger.Reads.Single(read => read.Target == Identity(2)).RecoveryEligible);
+        Assert.False(ledger.Reads.Single(read => read.Target == Identity(3)).RecoveryEligible);
+        Assert.Equal(original, ledger.Reads.Single(read => read.Target == Identity(2)).Attempts.Single());
+        Assert.Equal(approval, ledger.MatchingErrorRecovery);
+        Finish(session, session.ClaimSource("matching-retry", "profile", [Identity(2)]), Ok());
+        Assert.Null(session.ClaimSource("unapproved-retry", "profile", [Identity(3)]).ClaimId);
+    }
+
+    [Fact]
+    public void A_second_explicit_error_approval_preserves_the_first_without_authorizing_other_errors()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = "First fictitious indexed evidence failure."
+        });
+        var first = session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(1), "Explicit first-error approval.");
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
+        var second = session.ClaimSource("second", "profile", [Identity(2)]);
+        var unapproved = session.ClaimSource("unapproved", "profile", [Identity(3)]);
+        Finish(session, second, new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = "Second fictitious indexed evidence failure."
+        });
+        Finish(session, unapproved, new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = "Unapproved fictitious indexed evidence failure."
+        });
+        var original = session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts.Single();
+
+        var additional = session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(2), "Explicit second-error approval.");
+
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeMatchingErrorSourceRecovery(
+            "profile", Identity(2), "Cannot replace the second approval."));
+        using var reopened = ExportSession.Open(path);
+        reopened.BeginSourceRecovery();
+        var ledger = reopened.SourceStatus();
+        Assert.Equal(first, ledger.MatchingErrorRecovery);
+        var approvals = JsonSerializer.SerializeToNode(ledger, ExportSession.Json)!["additionalMatchingErrorRecoveries"]!.AsArray();
+        Assert.Equal(additional.Error, Assert.Single(approvals)!["error"]!.GetValue<string>());
+        Assert.Equal(additional.Reason, approvals[0]!["reason"]!.GetValue<string>());
+        Assert.Equal(original, ledger.Reads.Single(read => read.Target == Identity(2)).Attempts.Single());
+        Assert.True(ledger.Reads.Single(read => read.Target == Identity(2)).RecoveryEligible);
+        Assert.False(ledger.Reads.Single(read => read.Target == Identity(3)).RecoveryEligible);
+        Finish(reopened, reopened.ClaimSource("second-retry", "profile", [Identity(2)]), Ok());
+        Assert.Null(reopened.ClaimSource("unapproved-retry", "profile", [Identity(3)]).ClaimId);
+    }
+
     [Theory]
-    [InlineData(401, "InvalidAuthenticationToken")]
-    [InlineData(403, "Forbidden")]
-    [InlineData(200, "Authorization_RequestDenied")]
-    [InlineData(200, "PolicyDenied")]
-    public void Nested_denial_stops_active_and_queued_dispatch_even_when_wrapped_as_a_transient_error(int status, string code)
+    [InlineData("ServiceUnavailable", true, false, false)]
+    [InlineData("ServiceUnavailable", true, false, true)]
+    [InlineData("ServiceUnavailable; Status code is Forbidden", false, true, false)]
+    [InlineData("ServiceUnavailable; Status code is Forbidden", false, true, true)]
+    [InlineData("ServiceUnavailableButUnclassified", false, false, false)]
+    [InlineData("ServiceUnavailableButUnclassified", false, false, true)]
+    public void Explicit_named_statuses_in_source_error_text_preserve_transient_and_denial_rules(
+        string statusText, bool retryable, bool denied, bool messageOnly)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var message = "Status code is " + statusText;
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = messageOnly
+                ? new JsonObject { ["message"] = message } : JsonValue.Create(message)
+        });
+        var ledger = session.SourceStatus();
+        Assert.Equal(retryable, ledger.Reads.Single().Attempts.Single().Retryable);
+        Assert.Equal(denied, ledger.StopReason is not null);
+        if (retryable)
+        {
+            session.BeginSourceRecovery();
+            Assert.NotNull(session.ClaimSource("retry", "profile", [Identity(1)]).ClaimId);
+        }
+        else Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+    }
+
+    [Fact]
+    public void Best_effort_message_only_service_status_gets_its_permitted_retry_instead_of_unavailable()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Status code is ServiceUnavailable" }
+        });
+        var read = session.SourceStatus().Reads.Single();
+        Assert.True(read.RecoveryEligible);
+        Assert.False(read.AccountedFor);
+        Assert.True(read.Attempts.Single().Retryable);
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        Assert.Equal("completed", session.SourceStatus().Reads.Single().State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Recovery_classifies_retained_legacy_status_text_without_rewriting_attempts(bool denied)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizePerReadSourceRecovery("Explicit user approval for this fictitious run.");
+        var message = "Status code is ServiceUnavailable" + (denied ? "; Status code is Forbidden" : "");
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = message
+        });
+        var legacy = session.SourceStatus();
+        legacy.StopReason = null;
+        var original = legacy.Reads.Single().Attempts[0] with
+        {
+            Retryable = false, Error = "Source error: " + JsonSerializer.Serialize(message)
+        };
+        legacy.Reads.Single().Attempts[0] = original;
+        File.WriteAllText(Path.Combine(path, "source-coordination.json"), JsonSerializer.Serialize(legacy, ExportSession.Json));
+        var evidence = File.ReadAllBytes(Path.Combine(path, original.ResultFile!));
+
+        var recovered = session.BeginSourceRecovery();
+
+        Assert.Equal(original, recovered.Reads.Single().Attempts[0]);
+        Assert.Equal(evidence, File.ReadAllBytes(Path.Combine(path, original.ResultFile!)));
+        Assert.Equal(denied, recovered.StopReason is not null);
+        Assert.Equal(!denied, recovered.Reads.Single().RecoveryEligible);
+        if (denied) Assert.Null(session.ClaimSource("blocked-retry", "profile", [Identity(1)]).ClaimId);
+        else Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+    }
+
+    [Fact]
+    public void A_later_denial_still_stops_a_run_with_matching_error_approval()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Fictitious indexed evidence could not be opened." }
+        });
+        session.AuthorizeMatchingErrorSourceRecovery("profile", Identity(1), "Explicit approval for this exact error.");
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        Finish(session, session.ClaimSource("later", "profile", [Identity(2)]), new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["code"] = "PolicyDenied" }
+        });
+        Assert.NotNull(session.SourceStatus().StopReason);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        Assert.Null(session.ClaimSource("retry-denial", "profile", [Identity(2)]).ClaimId);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Theory]
+    [InlineData(400, "BadRequest", false)]
+    [InlineData(404, "Request_ResourceNotFound", false)]
+    [InlineData(200, "KnownFailure", false)]
+    [InlineData(503, "ServiceUnavailable", false)]
+    [InlineData(200, "", true)]
+    public void Unclassified_recovery_cannot_override_recognized_failures_or_invalid_delays(int status, string code, bool invalidDelay)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var response = new JsonObject
+        {
+            ["statusCode"] = status, ["error"] = new JsonObject { ["message"] = "Fictitious failure." }
+        };
+        if (code.Length > 0) response["error"]!["code"] = code;
+        if (invalidDelay) response["retryAfterSeconds"] = "invalid";
+        Finish(session, session.ClaimSource("failed", "profile", [Identity(1)]), response);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeUnclassifiedSourceRecovery("profile", Identity(1), "Approval."));
+        Assert.False(session.SourceStatus().Reads.Single().RecoveryEligible);
+        Assert.Null(session.SourceStatus().Reads.Single().UnclassifiedRecovery);
+    }
+
+    [Fact]
+    public void Approved_not_found_read_preserves_its_delay_and_failure_and_cannot_receive_a_third_attempt()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using var session = ExportSession.Open(path, sourceClock: clock);
+        Finish(session, session.ClaimSource("first", "profile", [Identity(1)]), new JsonObject
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" }
+        });
+        session.BeginSourceRecovery();
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        var target = $"/users/{RootId}/photo/$value";
+        var first = session.ClaimSource("photo", "photo", [target]);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeNotFoundSourceRecovery("photo", target, "Approval."));
+        var failure = new JsonObject
+        {
+            ["statusCode"] = 404, ["retryAfterSeconds"] = 7,
+            ["error"] = new JsonObject { ["code"] = "ErrorNonExistentStorage" }
+        };
+        Finish(session, first, failure);
+        var original = session.SourceStatus().Reads.Single(read => read.Kind == "photo").Attempts.Single();
+        clock.Now = clock.Now.AddSeconds(2);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeNotFoundSourceRecovery("photo", target, " "));
+        var approval = session.AuthorizeNotFoundSourceRecovery("photo", target, "Explicit approval for this photo read.");
+        var waiting = session.ClaimSource("photo-retry", "photo", [target]);
+        Assert.Null(waiting.ClaimId);
+        Assert.Equal(original.RetryAt, waiting.RetryAt);
+        clock.Now = clock.Now.AddSeconds(5);
+        Finish(session, session.ClaimSource("photo-retry", "photo", [target]), failure);
+        clock.Now = clock.Now.AddSeconds(7);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeNotFoundSourceRecovery("photo", target, "Third attempt."));
+        Assert.Null(session.ClaimSource("third-attempt", "photo", [target]).ClaimId);
+        var read = session.SourceStatus().Reads.Single(read => read.Kind == "photo");
+        Assert.Equal("failed", read.State);
+        Assert.Equal(approval, read.NotFoundRecovery);
+        Assert.Equal(original, read.Attempts[0]);
+        Assert.Equal(2, read.Attempts.Count);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Theory]
+    [InlineData(400, false)]
+    [InlineData(503, false)]
+    [InlineData(404, true)]
+    public void Not_found_approval_rejects_other_statuses_and_invalid_delays(int status, bool invalidDelay)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var target = $"/users/{RootId}/photo/$value";
+        var response = new JsonObject { ["statusCode"] = status, ["error"] = new JsonObject { ["code"] = "FictitiousFailure" } };
+        if (invalidDelay) response["retryAfterSeconds"] = "invalid";
+        Finish(session, session.ClaimSource("photo", "photo", [target]), response);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizeNotFoundSourceRecovery("photo", target, "Approval."));
+        Assert.Null(session.SourceStatus().Reads.Single().NotFoundRecovery);
+        Assert.False(session.SourceStatus().Reads.Single().RecoveryEligible);
+    }
+
+    [Theory]
+    [InlineData(401, "InvalidAuthenticationToken", false)]
+    [InlineData(403, "Forbidden", false)]
+    [InlineData(200, "Authorization_RequestDenied", false)]
+    [InlineData(200, "PolicyDenied", false)]
+    [InlineData(401, "InvalidAuthenticationToken", true)]
+    [InlineData(403, "Forbidden", true)]
+    [InlineData(200, "Authorization_RequestDenied", true)]
+    [InlineData(200, "PolicyDenied", true)]
+    public void Nested_denial_stops_active_and_queued_dispatch_even_when_wrapped_as_a_transient_error(
+        int status, string code, bool perReadRecovery)
     {
         var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
         Guid deniedClaim;
         using (var worker = ExportSession.Open(path))
         {
+            if (perReadRecovery) worker.AuthorizePerReadSourceRecovery("Explicit user approval for this fictitious run.");
             var claim = worker.ClaimSource("first", "profile", [Identity(1), Identity(2)]);
             deniedClaim = claim.ClaimId!.Value;
             var other = worker.ClaimSource("already-running", "profile", [Identity(3)]);
@@ -140,217 +581,17 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Null(coordinator.ClaimSource("queued", "profile", [Identity(4)]).ClaimId);
         Assert.Null(coordinator.ClaimSource("different-phase", "structured", [ExportSession.UserPath(RootId)]).ClaimId);
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSourceRecovery());
-        Assert.Throws<InvalidOperationException>(() => coordinator.BeginSource503Recovery("User-approved 503 continuation."));
-        Assert.Throws<InvalidOperationException>(() => coordinator.Defer503PhotoMetadata("User requested the rest."));
-        Assert.Throws<InvalidOperationException>(() => coordinator.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
+        Assert.Throws<InvalidOperationException>(() => coordinator.AuthorizePerReadSourceRecovery("Cannot override a denial."));
+        Assert.Throws<InvalidOperationException>(() =>
+            coordinator.AuthorizeUnclassifiedSourceRecovery("profile", Identity(2), "Cannot override a denial."));
+        Assert.Throws<InvalidOperationException>(() =>
+            coordinator.AuthorizeMatchingErrorSourceRecovery("profile", Identity(2), "Cannot override a denial."));
+        Assert.Throws<InvalidOperationException>(() =>
+            coordinator.AuthorizeNotFoundSourceRecovery("profile", Identity(2), "Cannot override a denial."));
+        Assert.Throws<InvalidOperationException>(() => coordinator.AuthorizePhotoOmission(RootId, "Cannot waive a denial."));
         Assert.Throws<InvalidOperationException>(() => coordinator.InterruptSource(deniedClaim, "Cannot undo a completed denial."));
         Assert.Contains("source", Assert.Throws<InvalidOperationException>(() => coordinator.Publish()).Message,
             StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Authorized_later_503_recovery_preserves_delays_and_requires_settled_claims_and_original_evidence()
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        var clock = new SourceClock(DateTimeOffset.UtcNow);
-        using (var session = ExportSession.Open(path, sourceClock: clock))
-        {
-            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit authorization."));
-            var first = session.ClaimSource("first", "profile", [Identity(1)]);
-            Finish(session, first, new JsonObject { ["statusCode"] = 503 });
-            session.BeginSourceRecovery();
-            Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
-            var later = session.ClaimSource("metadata", "structured", [ExportSession.PhotoPath(RootId)]);
-            var other = session.ClaimSource("already-running", "profile", [Identity(2)]);
-            Finish(session, later, new JsonObject
-            {
-                ["statusCode"] = 503, ["headers"] = new JsonObject { ["Retry-After"] = "450" }
-            });
-            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit authorization."));
-            Finish(session, other, Ok());
-            Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery(" "));
-            var status = session.BeginSource503Recovery("User authorized future delayed HTTP 503 retries.");
-            var authorization = Assert.Single(status.ServiceRecoveries);
-            Assert.Equal(clock.Now, authorization.AuthorizedAt);
-            Assert.Equal(new("structured", ExportSession.PhotoPath(RootId), later.ClaimId!.Value),
-                Assert.Single(authorization.Targets));
-            Assert.True(status.RecoveryConsumed);
-        }
-        using var resumed = ExportSession.Open(path, sourceClock: clock);
-        var blocked = resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
-        Assert.Null(blocked.ClaimId);
-        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
-        clock.Now = clock.Now.AddSeconds(449);
-        Assert.Null(resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
-        Assert.Null(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
-        clock.Now = clock.Now.AddSeconds(1);
-        var retry = resumed.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
-        Assert.NotNull(retry.ClaimId);
-        Assert.Null(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
-        Finish(resumed, retry, Ok());
-        Assert.NotNull(resumed.ClaimSource("queued", "profile", [Identity(3)]).ClaimId);
-        Assert.Single(resumed.SourceStatus().ServiceRecoveries);
-    }
-
-    [Theory]
-    [InlineData(429, "TooManyRequests", null)]
-    [InlineData(500, "InternalServerError", null)]
-    [InlineData(404, "Request_ResourceNotFound", null)]
-    [InlineData(403, "Forbidden", null)]
-    [InlineData(503, "Authorization_RequestDenied", null)]
-    [InlineData(503, "ServiceUnavailable", "invalid")]
-    public void Authorized_503_exception_cannot_bypass_other_failures_or_denials(int status, string code, string? delay)
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        using var session = ExportSession.Open(path);
-        var first = session.ClaimSource("first", "profile", [Identity(1)]);
-        Finish(session, first, new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        Finish(session, session.ClaimSource("first-retry", "profile", [Identity(1)]), Ok());
-        var later = session.ClaimSource("later", "profile", [Identity(2)]);
-        var response = new JsonObject
-        {
-            ["statusCode"] = status, ["error"] = new JsonObject { ["code"] = code }
-        };
-        if (delay is not null) response["headers"] = new JsonObject { ["Retry-After"] = delay };
-        Finish(session, later, response);
-
-        Assert.Throws<InvalidOperationException>(() => session.BeginSource503Recovery("Explicit user authorization."));
-
-        Assert.Empty(session.SourceStatus().ServiceRecoveries);
-        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts);
-        Assert.Null(session.ClaimSource("blocked-retry", "profile", [Identity(2)]).ClaimId);
-        Assert.True(session.SourceStatus().RecoveryConsumed);
-    }
-
-    [Fact]
-    public void Metadata_deferral_preserves_returned_delays_and_requires_explicit_reason_and_settled_calls()
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        var clock = new SourceClock(DateTimeOffset.UtcNow);
-        using (var session = ExportSession.Open(path, sourceClock: clock))
-        {
-            var first = session.ClaimSource("first", "structured", [ExportSession.PhotoPath(RootId)]);
-            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
-            Finish(session, first, new JsonObject { ["statusCode"] = 503 });
-            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
-            session.BeginSourceRecovery();
-            var retry = session.ClaimSource("retry", "structured", [ExportSession.PhotoPath(RootId)]);
-            Finish(session, retry, new JsonObject
-            {
-                ["statusCode"] = 503, ["headers"] = new JsonObject { ["Retry-After"] = "450" }
-            });
-            Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata(" "));
-            var ledger = session.Defer503PhotoMetadata("User requested unread entries.");
-            Assert.Equal(clock.Now, Assert.Single(ledger.MetadataDeferrals).RecordedAt);
-        }
-        using var resumed = ExportSession.Open(path, sourceClock: clock);
-        var blocked = resumed.ClaimSource("unread", "structured", [ExportSession.PhotoPath(Identity(2))]);
-        Assert.Null(blocked.ClaimId);
-        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
-        clock.Now = clock.Now.AddSeconds(450);
-        Assert.Null(resumed.ClaimSource("third-attempt", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
-        var unread = resumed.ClaimSource("unread", "structured", [ExportSession.PhotoPath(Identity(2))]);
-        Assert.NotNull(unread.ClaimId);
-        Finish(resumed, unread, Ok());
-        Assert.Equal("failed", resumed.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId)).State);
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => resumed.Publish()).Message);
-    }
-
-    [Theory]
-    [InlineData("profile", 503)]
-    [InlineData("photo", 503)]
-    [InlineData("directory", 503)]
-    [InlineData("metadata", 500)]
-    [InlineData("metadata", 403)]
-    public void Metadata_deferral_cannot_skip_other_source_types_or_non503_failures(string kind, int status)
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        using var session = ExportSession.Open(path);
-        var target = kind switch
-        {
-            "profile" => Identity(1),
-            "photo" => $"/users/{RootId}/photo/$value",
-            "directory" => ExportSession.ReportsPath(RootId),
-            _ => ExportSession.PhotoPath(RootId)
-        };
-        var sourceKind = kind is "profile" or "photo" ? kind : "structured";
-        Finish(session, session.ClaimSource("first", sourceKind, [target]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        Finish(session, session.ClaimSource("retry", sourceKind, [target]), new JsonObject { ["statusCode"] = status });
-
-        Assert.Throws<InvalidOperationException>(() => session.Defer503PhotoMetadata("User requested unread entries."));
-
-        Assert.Empty(session.SourceStatus().MetadataDeferrals);
-        Assert.Null(session.ClaimSource("unread", "profile", [Identity(2)]).ClaimId);
-        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == target).Attempts.Count);
-    }
-
-    [Theory]
-    [InlineData(403, null, "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(404, null, "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(503, null, "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(null, null, "Another source failure.")]
-    [InlineData(null, null, "Earlier diagnostic: Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(403, null, "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(503, null, "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(null, "PolicyDenied", "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(null, null, "Earlier diagnostic: Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(403, null, "Open '' Failure: Unable to open, Exception: Status code is .")]
-    [InlineData(503, null, "Open '' Failure: Unable to open, Exception: Status code is .")]
-    [InlineData(null, "PolicyDenied", "Open '' Failure: Unable to open, Exception: Status code is .")]
-    [InlineData(null, null, "Earlier diagnostic: Open '' Failure: Unable to open, Exception: Status code is .")]
-    public void Profile_open_recovery_cannot_reclassify_structured_or_unrelated_failures(int? status, string? code, string message)
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        using var session = ExportSession.Open(path);
-        Finish(session, session.ClaimSource("initial", "profile", [Identity(1)]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        Finish(session, session.ClaimSource("initial-retry", "profile", [Identity(1)]), Ok());
-        var response = new JsonObject { ["error"] = new JsonObject { ["message"] = message } };
-        if (status is not null) response["statusCode"] = status;
-        if (code is not null) response["error"]!["code"] = code;
-        Finish(session, session.ClaimSource("profile", "profile", [Identity(2)]), response);
-
-        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
-
-        Assert.Empty(session.SourceStatus().ServiceRecoveries);
-        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts);
-        Assert.Null(session.ClaimSource("blocked", "profile", [Identity(2)]).ClaimId);
-    }
-
-    [Theory]
-    [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData("Profile details couldn't be retrieved for this person right now.")]
-    [InlineData("Open '' Failure: Unable to open, Exception: Status code is .")]
-    public void Profile_open_recovery_requires_settled_calls_and_preserves_returned_delays(string diagnostic)
-    {
-        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
-        var clock = new SourceClock(DateTimeOffset.UtcNow);
-        using var session = ExportSession.Open(path, sourceClock: clock);
-        Finish(session, session.ClaimSource("initial", "profile", [Identity(1)]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        Finish(session, session.ClaimSource("initial-retry", "profile", [Identity(1)]), Ok());
-        var profile = session.ClaimSource("profile", "profile", [Identity(2)]);
-        var other = session.ClaimSource("other", "profile", [Identity(3)]);
-        Finish(session, profile, new JsonObject
-        {
-            ["error"] = new JsonObject { ["message"] = diagnostic },
-            ["retryAfterSeconds"] = 450
-        });
-        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), "User approved one retry."));
-        Finish(session, other, Ok());
-        Assert.Throws<InvalidOperationException>(() => session.BeginProfileOpenRecovery(Identity(2), ""));
-        session.BeginProfileOpenRecovery(Identity(2), "User approved one retry.");
-        var blocked = session.ClaimSource("retry", "profile", [Identity(2)]);
-        Assert.Null(blocked.ClaimId);
-        Assert.Equal(clock.Now.AddSeconds(450), blocked.RetryAt);
-        clock.Now = clock.Now.AddSeconds(450);
-        var retry = session.ClaimSource("retry", "profile", [Identity(2)]);
-        Assert.NotNull(retry.ClaimId);
-        Finish(session, retry, Ok());
-        Assert.All(session.SourceStatus().Reads, read => Assert.Equal("completed", read.State));
     }
 
     [Fact]
@@ -375,6 +616,34 @@ public sealed class OrgExportSourceTests : IDisposable
         Assert.Contains("Replacement also stopped", read.Attempts[1].Error);
         Assert.Throws<InvalidOperationException>(() => coordinator.BeginSourceRecovery());
         Assert.Throws<InvalidOperationException>(() => coordinator.Publish());
+    }
+
+    [Fact]
+    public void Best_effort_stopped_worker_handoffs_each_get_one_retry_without_resetting_other_reads()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        for (var index = 1; index <= 2; index++)
+        {
+            var stopped = session.ClaimSource("stopped-" + index, "profile", [Identity(index)]);
+            session.InterruptSource(stopped.ClaimId!.Value, "Coordinator confirmed the worker stopped.");
+            session.BeginSourceRecovery();
+            Finish(session, session.ClaimSource("replacement-" + index, "profile", [Identity(index)]), Ok());
+        }
+        Assert.All(session.SourceStatus().Reads, read =>
+        {
+            Assert.Equal("completed", read.State);
+            Assert.Equal(2, read.Attempts.Count);
+        });
+        var exhausted = session.ClaimSource("stopped-third", "profile", [Identity(3)]);
+        session.InterruptSource(exhausted.ClaimId!.Value, "Coordinator confirmed the next worker stopped.");
+        session.BeginSourceRecovery();
+        var retry = session.ClaimSource("replacement-third", "profile", [Identity(3)]);
+        session.InterruptSource(retry.ClaimId!.Value, "The replacement also stopped.");
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        Assert.Null(session.ClaimSource("forbidden-third-attempt", "profile", [Identity(3)]).ClaimId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == Identity(3)).Attempts.Count);
     }
 
     [Theory]
@@ -460,6 +729,127 @@ public sealed class OrgExportSourceTests : IDisposable
         var blocked = Assert.Throws<InvalidOperationException>(() => session.Publish());
         Assert.Contains($"HTTP {status}", blocked.Message);
         Assert.Contains(message, blocked.Message);
+    }
+
+    [Fact]
+    public void Best_effort_recovery_is_per_target_and_preserves_successes_without_renewing_attempts()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        var approval = session.AuthorizeBestEffortEnrichment("Standing policy approved for this fictitious run.");
+        var first = session.ClaimSource("first", "profile", [Identity(1), Identity(2)]);
+        var other = session.ClaimSource("other", "profile", [Identity(3)]);
+        var failure = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" } };
+        Finish(session, first, Ok(), failure);
+        var original = session.SourceStatus().Reads.Single(read => read.Target == Identity(2)).Attempts.Single();
+
+        var unrelated = session.ClaimSource("unrelated", "profile", [Identity(4)]);
+        Assert.NotNull(unrelated.ClaimId);
+        Finish(session, other, Ok());
+        Finish(session, unrelated, Ok());
+        var retry = session.ClaimSource("retry", "profile", [Identity(1), Identity(2)]);
+        Assert.Equal([Identity(2)], retry.Targets);
+        Finish(session, retry, failure);
+
+        using var reopened = ExportSession.Open(path);
+        var ledger = reopened.SourceStatus();
+        Assert.Equal(approval, ledger.BestEffortEnrichment);
+        var unavailable = ledger.Reads.Single(read => read.Target == Identity(2));
+        Assert.Equal("unavailable", unavailable.State);
+        Assert.True(unavailable.AccountedFor);
+        Assert.NotNull(unavailable.Unavailable);
+        Assert.Equal(original, unavailable.Attempts[0]);
+        Assert.Equal(2, unavailable.Attempts.Count);
+        Assert.All(ledger.Reads.Where(read => read.Target != Identity(2)), read => Assert.Single(read.Attempts));
+        Assert.Null(reopened.ClaimSource("third-attempt", "profile", [Identity(2)]).ClaimId);
+        Assert.Null(reopened.ClaimSource("replay", "profile", [Identity(1)]).ClaimId);
+        Assert.NotNull(reopened.ClaimSource("next", "profile", [Identity(5)]).ClaimId);
+    }
+
+    [Fact]
+    public void Best_effort_keeps_returned_delays_global_and_required_directory_failures_unresolved()
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        var clock = new SourceClock(DateTimeOffset.UtcNow);
+        using var session = ExportSession.Open(path, sourceClock: clock);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var target = ExportSession.UserPath(RootId);
+        var failure = new JsonObject
+        {
+            ["statusCode"] = 429, ["retryAfterSeconds"] = 7,
+            ["error"] = new JsonObject { ["code"] = "TooManyRequests" }
+        };
+        Finish(session, session.ClaimSource("directory", "structured", [target]), failure);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [Identity(1)]).ClaimId);
+        Assert.Null(session.ClaimSource("early-retry", "structured", [target]).ClaimId);
+        clock.Now = clock.Now.AddSeconds(7);
+        Finish(session, session.ClaimSource("retry", "structured", [target]), failure);
+        clock.Now = clock.Now.AddSeconds(7);
+
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Equal("failed", read.State);
+        Assert.False(read.AccountedFor);
+        Assert.Null(read.Unavailable);
+        Assert.Null(session.ClaimSource("third-attempt", "structured", [target]).ClaimId);
+        Assert.NotNull(session.ClaimSource("unrelated", "profile", [Identity(1)]).ClaimId);
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
+    [Theory]
+    [InlineData("Open '' Failure: Unable to open, Exception Caught.", true)]
+    [InlineData("An unfamiliar fictitious profile failure.", false)]
+    public void Best_effort_retries_known_errors_but_reports_nonretryable_enrichment_without_probing(string message, bool retry)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]),
+            new JsonObject { ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = message } });
+        var read = session.SourceStatus().Reads.Single();
+        Assert.Equal(retry, read.RecoveryEligible);
+        Assert.Equal(!retry, read.AccountedFor);
+        Assert.Equal(retry ? "failed" : "unavailable", read.State);
+        var original = JsonNode.Parse(File.ReadAllText(Path.Combine(path, read.Attempts.Single().ResultFile!)))!.AsArray().Single()!;
+        Assert.Equal(message, original["response"]!["error"]!["message"]!.GetValue<string>());
+        Assert.NotNull(session.ClaimSource("unrelated", "profile", [Identity(2)]).ClaimId);
+    }
+
+    [Theory]
+    [InlineData(403, "Forbidden", false)]
+    [InlineData(503, "CircuitOpen", true)]
+    public void Best_effort_cannot_account_away_denials_or_invalid_returned_delays(int status, string code, bool invalidDelay)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var failure = new JsonObject { ["statusCode"] = status, ["error"] = new JsonObject { ["code"] = code } };
+        if (invalidDelay) failure["retryAfterSeconds"] = "not-a-delay";
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), failure);
+
+        var ledger = session.SourceStatus();
+        Assert.NotNull(ledger.StopReason);
+        Assert.False(ledger.Reads.Single().AccountedFor);
+        Assert.Null(ledger.Reads.Single().Unavailable);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [Identity(2)]).ClaimId);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Theory]
+    [InlineData("HTTP 403")]
+    [InlineData("Access denied")]
+    [InlineData("Consent required")]
+    public void Best_effort_treats_explicit_diagnostic_denials_as_global_stops_not_unknown_enrichment(string message)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]),
+            new JsonObject { ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = message } });
+        var ledger = session.SourceStatus();
+        Assert.NotNull(ledger.StopReason);
+        Assert.False(ledger.Reads.Single().AccountedFor);
+        Assert.Null(ledger.Reads.Single().Unavailable);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [Identity(2)]).ClaimId);
     }
 
     private void Finish(ExportSession session, ExportSession.SourceClaim claim, params JsonObject[] responses)

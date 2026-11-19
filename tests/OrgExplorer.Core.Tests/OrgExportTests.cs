@@ -13,7 +13,6 @@ public sealed class OrgExportTests : IDisposable
     private const string RootId = "10000000-0000-0000-0000-000000000001";
     private const string ChildId = "10000000-0000-0000-0000-000000000002";
     private const string AltId = "10000000-0000-0000-0000-000000000003";
-    private const string AgentId = "10000000-0000-0000-0000-000000000004";
     private const string AccountId = "20000000-0000-0000-0000-000000000001";
     private readonly string root = Path.Combine(Path.GetTempPath(), "OrgExportTests-" + Guid.NewGuid());
     private static readonly byte[] Png = Convert.FromBase64String(
@@ -171,8 +170,11 @@ public sealed class OrgExportTests : IDisposable
         Assert.NotEqual(captures[0].ResponseFile, captures[1].ResponseFile);
     }
 
-    [Fact]
-    public void Capture_retains_successes_from_a_native_error_without_a_result_wrapper()
+    [Theory]
+    [InlineData("MCP error -32603: ", false)]
+    [InlineData("MCP server 'workiq': ", false)]
+    [InlineData("MCP server 'workiq': ", true)]
+    public void Capture_retains_successes_from_a_native_error_without_a_result_wrapper(string prefix, bool resultContent)
     {
         var path = NewRun();
         using var session = ExportSession.Open(path);
@@ -186,102 +188,18 @@ public sealed class OrgExportTests : IDisposable
         AppendEvent(events, "tool.execution_start", new { toolCallId = "failed-batch", toolName = "workiq-fetch", arguments });
         var payload = JsonSerializer.Serialize(new { results = new[] { Ok(User(RootId)), Missing("AccessDenied") } });
         AppendEvent(events, "tool.execution_complete", new { toolCallId = "failed-batch", success = false,
-            error = new { message = "MCP error -32603: " + payload } });
+            error = new { message = prefix + payload },
+            result = resultContent ? new { content = prefix + payload } : null });
 
         var capture = session.Capture(ticket);
 
         Assert.False(capture.ToolSucceeded);
         Assert.Equal(1, capture.NonSuccessResults);
+        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
         session.Ingest(capture.RequestsFile!, capture.ResponseFile);
         Assert.Equal(RootId, session.Plan().Receipts[requests[0]].Response["data"]!["id"]!.GetValue<string>());
         Assert.Equal("AccessDenied", session.Plan().Receipts[requests[1]].Response["error"]!["error"]!["code"]!.GetValue<string>());
         Assert.NotEmpty(session.Plan().Errors);
-    }
-
-    [Theory]
-    [InlineData("MCP server 'workiq': ", true)]
-    [InlineData("MCP error -32603: ", true)]
-    [InlineData("", true)]
-    [InlineData("MCP server 'workiq': ", false)]
-    [InlineData("MCP error -32603: ", false)]
-    public void Capture_uses_complete_inline_failure_json_in_native_display_and_error_envelopes(string prefix, bool capped)
-    {
-        var path = NewRun();
-        using var session = ExportSession.Open(path);
-        var events = Path.Combine(root, "capped-failure.jsonl");
-        File.WriteAllText(events, "");
-        var requests = new[] { ExportSession.ManagerPath(RootId) }.Concat(Enumerable.Range(1, 24)
-            .Select(index => ExportSession.UserPath($"30000000-0000-0000-0000-{index:000000000000}"))).ToArray();
-        var arguments = new { entityUrls = requests };
-        var requestFile = Path.Combine(root, "capped-failure-request.json");
-        Save(requestFile, new { toolName = "workiq-fetch", arguments });
-        var ticket = session.BeginCapture(events, requestFile);
-        var claim = session.ClaimSource("coordinator", "structured", requests);
-        AppendEvent(events, "tool.execution_start", new { toolCallId = "capped-failure", toolName = "workiq-fetch", arguments });
-        var responses = new[] { Missing("Request_ResourceNotFound") }.Concat(Enumerable.Range(1, 24)
-            .Select(index => Ok(User($"30000000-0000-0000-0000-{index:000000000000}")))).ToArray();
-        var payload = JsonSerializer.Serialize(new { results = responses });
-        var saved = Path.Combine(root, "untrusted-display-output.txt");
-        File.WriteAllText(saved, "Replaced display file; never read as source evidence.");
-        AppendEvent(events, "tool.execution_complete", new { toolCallId = "capped-failure", success = false,
-            error = new { message = prefix + payload },
-            result = new { content = capped
-                ? "Output too large to read at once (28.8 KB). Saved to: " + saved + "\nPreview only."
-                : prefix + payload } });
-
-        var capture = session.Capture(ticket);
-
-        Assert.False(capture.ToolSucceeded);
-        Assert.Equal(25, capture.ResultCount);
-        Assert.Equal(1, capture.NonSuccessResults);
-        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
-        var outcomes = Path.Combine(root, "capped-failure-outcomes.json");
-        Save(outcomes, requests.Select((request, index) => new ExportSession.SourceResult(request, responses[index])).ToArray());
-        session.FinishSource(claim.ClaimId!.Value, outcomes);
-        Assert.All(session.SourceStatus().Reads, read => Assert.Equal("completed", read.State));
-        session.Ingest(capture.RequestsFile!, capture.ResponseFile);
-        Assert.Equal(25, session.Plan().Receipts.Count);
-        Assert.Empty(capture.SavedFiles);
-    }
-
-    [Theory]
-    [InlineData("incomplete")]
-    [InlineData("truncated")]
-    [InlineData("missing")]
-    [InlineData("outer-success")]
-    public void Capped_display_results_never_substitute_unverified_files_or_incomplete_inline_failures(string fault)
-    {
-        var path = NewRun();
-        using var session = ExportSession.Open(path);
-        var events = Path.Combine(root, "incomplete-inline-failure.jsonl");
-        File.WriteAllText(events, "");
-        var arguments = new { entityUrls = new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId) } };
-        var requestFile = Path.Combine(root, "incomplete-inline-request.json");
-        Save(requestFile, new { toolName = "workiq-fetch", arguments });
-        var ticket = session.BeginCapture(events, requestFile);
-        AppendEvent(events, "tool.execution_start", new { toolCallId = "incomplete-inline", toolName = "workiq-fetch", arguments });
-        var payload = fault switch
-        {
-            "incomplete" => "{\"results\":[{\"statusCode\":200,\"data\":{}}]}",
-            "truncated" => "{\"results\":[",
-            "missing" => "",
-            _ => "{\"results\":[{\"statusCode\":200,\"data\":{}},{\"statusCode\":200,\"data\":{}}]}"
-        };
-        var saved = Path.Combine(root, "complete-but-unverified.json");
-        File.WriteAllText(saved, "{\"results\":[{\"statusCode\":200,\"data\":{}},{\"statusCode\":200,\"data\":{}}]}");
-        AppendEvent(events, "tool.execution_complete", new { toolCallId = "incomplete-inline", success = fault == "outer-success",
-            error = new { message = "MCP server 'workiq': " + payload },
-            result = new { content = "Output too large to read at once (28.8 KB). Saved to: " + saved } });
-
-        var error = Record.Exception(() => session.Capture(ticket));
-
-        Assert.NotNull(error);
-        Assert.True(error is InvalidOperationException or JsonException, error?.ToString() ?? "Capture unexpectedly succeeded.");
-        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
-        Assert.Empty(Directory.GetFiles(Path.Combine(path, "receipts")));
-        Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "completion.json")));
-        if (fault is "missing" or "outer-success")
-            Assert.Contains("Unverified host-saved output reference", Assert.IsType<InvalidOperationException>(error).Message);
     }
 
     [Theory]
@@ -295,6 +213,8 @@ public sealed class OrgExportTests : IDisposable
     [InlineData("foreign-worker")]
     [InlineData("foreign-completion")]
     [InlineData("duplicate")]
+    [InlineData("empty-server")]
+    [InlineData("truncated-server")]
     public void Capture_blocks_incomplete_unsupported_or_uncorrelated_results(string fault)
     {
         var path = NewRun();
@@ -316,6 +236,8 @@ public sealed class OrgExportTests : IDisposable
             "incomplete" => "{\"results\":[]}",
             "truncated" => "{\"results\":[",
             "unsupported" => "Payload excerpt only",
+            "empty-server" => "MCP server '': {\"results\":[]}",
+            "truncated-server" => "MCP server 'workiq': {\"results\":[",
             _ => JsonSerializer.Serialize(new { results = new[] { Ok(User(RootId)) } })
         };
         if (fault is "missing-saved" or "stale-saved")
@@ -328,7 +250,8 @@ public sealed class OrgExportTests : IDisposable
             }
             payload = "Output too large to display.\nFull output saved to: " + saved;
         }
-        AppendEvent(events, "tool.execution_complete", new { toolCallId = "blocked", success = true,
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "blocked",
+            success = fault is not ("empty-server" or "truncated-server"),
             result = new { content = payload } }, fault == "foreign-completion" ? "another-worker" : null);
 
         var error = Record.Exception(() => session.Capture(ticket));
@@ -436,126 +359,204 @@ public sealed class OrgExportTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Reconciliation_binds_the_original_call_without_editing_history_or_consuming_another_source_attempt()
+    [Theory]
+    [InlineData("#microsoft.graph.user")]
+    [InlineData("#microsoft.graph.agentUser")]
+    public void User_subtypes_retain_source_identity_and_their_complete_reporting_subtree(string type)
     {
         var path = NewRun();
-        using var session = ExportSession.Open(path);
-        var events = Path.Combine(root, "reconciliation.jsonl");
-        AppendEvent(events, "session.start", new { marker = "original" });
-        var claim = session.ClaimSource("worker", "profile", [RootId]);
-        var expected = new JsonObject
-        {
-            ["query"] = $"Find the current work profile for {RootId}, person1@example.test, Example Private Ltd.",
-            ["strategy"] = "grounding",
-            ["capabilities"] = new JsonArray(new JsonObject { ["name"] = "People" })
-        };
-        var request = Path.Combine(root, "reconciliation-request.json");
-        Save(request, new { toolName = "workiq-retrieve", arguments = expected, agentId = "worker-a" });
-        var originalTicket = session.BeginCapture(events, request);
-        var ticketBytes = File.ReadAllBytes(originalTicket);
-        var actual = expected.DeepClone().AsObject();
-        actual["query"] = expected["query"]!.GetValue<string>().Replace("Private", "Private Private", StringComparison.Ordinal);
-        AppendEvent(events, "tool.execution_start", new { toolCallId = "actual", toolName = "workiq-retrieve",
-            arguments = actual }, "worker-a");
-        const string payload = "{ \"markdown\": \"Fictitious work profile\", \"resultCount\": 1 }";
-        AppendEvent(events, "tool.execution_complete", new { toolCallId = "actual", success = true,
-            result = new { content = payload } }, "worker-a");
-        var history = File.ReadAllBytes(events);
-        Assert.Throws<InvalidOperationException>(() => session.Capture(originalTicket));
-        const string reason = "User approved reconciling one duplicated employer word against this original call.";
+        using var session = ExportSession.Open(path, publishing: true);
+        var report = User(ChildId, "Example Account");
+        report["@odata.type"] = type;
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(report) })));
+        Assert.Contains(ExportSession.ReportsPath(ChildId), session.Plan().Pending);
+        Ingest(session,
+            (ExportSession.ReportsPath(ChildId), Ok(new JsonObject { ["value"] = new JsonArray(User(AltId)) })),
+            (ExportSession.ReportsPath(AltId), Empty()));
 
-        var reconciled = await RunCli("capture-reconcile", path, originalTicket, claim.ClaimId!.Value.ToString(), "actual", reason);
+        var collection = session.Plan();
 
-        Assert.Equal(0, reconciled.ExitCode);
-        Assert.Empty(reconciled.Error);
-        var ticket = JsonSerializer.Deserialize<string>(reconciled.Output)!;
-        var audit = JsonNode.Parse(File.ReadAllText(ticket))!["reconciliation"]!;
-        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
-        Assert.Equal(claim.ClaimId.Value, audit["sourceClaimId"]!.GetValue<Guid>());
-        Assert.Equal("actual", audit["toolCallId"]!.GetValue<string>());
-        Assert.Equal(ticketBytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(ticket)!, "original-ticket.json")));
-        var capture = session.Capture(ticket);
-        Assert.Equal("actual", capture.ToolCallId);
-        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
-        Assert.Equal(actual.ToJsonString(), JsonNode.Parse(File.ReadAllText(capture.StartFile))!["data"]!["arguments"]!.ToJsonString());
-        Assert.Equal(ticketBytes, File.ReadAllBytes(originalTicket));
-        Assert.Equal(history, File.ReadAllBytes(events));
-        Assert.Throws<InvalidOperationException>(() => session.Capture(originalTicket));
-        var outcomes = Path.Combine(root, "reconciled-outcomes.json");
-        Save(outcomes, new[] { new ExportSession.SourceResult(RootId, new JsonObject
+        Assert.Empty(collection.Pending);
+        Assert.Empty(collection.Errors);
+        Assert.Empty(collection.Excluded);
+        Assert.Equal(3, collection.People.Length);
+        var retained = Assert.Single(collection.People, person => person.Id == ChildId);
+        Assert.Equal("person2@example.test", retained.Email);
+        Assert.Equal(RootId, retained.ManagerId);
+        Assert.Equal(type, retained.Directory["@odata.type"]!.GetValue<string>());
+        Assert.Equal(ChildId, Assert.Single(collection.People, person => person.Id == AltId).ManagerId);
+        foreach (var person in collection.People)
         {
-            ["statusCode"] = 200, ["data"] = JsonNode.Parse(File.ReadAllText(capture.ResponseFile))
-        }) });
-        session.FinishSource(claim.ClaimId.Value, outcomes);
-        var read = Assert.Single(session.SourceStatus().Reads);
-        Assert.Equal("completed", read.State);
-        Assert.Single(read.Attempts);
-        Assert.False(session.SourceStatus().RecoveryConsumed);
+            Ingest(session, (ExportSession.PhotoPath(person.Id), Missing("ImageNotFound")));
+            session.Profile(person.Id, ProfileInput(session, person));
+        }
+        var import = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
+        var people = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray();
+        Assert.Equal(3, people.Count);
+        Assert.Equal("person2@example.test", Assert.Single(people,
+            person => person!["email"]!.GetValue<string>() == "alternate@example.test")!["managerEmail"]!.GetValue<string>());
+        var warnings = JsonSerializer.Deserialize<string[]>(File.ReadAllText(
+            Path.Combine(Path.GetDirectoryName(import)!, "review-required.json")))!;
+        Assert.Equal(type == "#microsoft.graph.agentUser",
+            warnings.Any(warning => warning.Contains("person2@example.test") && warning.Contains("agentUser")));
     }
 
     [Theory]
-    [InlineData("identity")]
-    [InlineData("scope")]
-    [InlineData("strategy")]
-    [InlineData("query-edit")]
-    [InlineData("duplicate-start")]
-    [InlineData("changed-history")]
-    [InlineData("missing-completion")]
-    [InlineData("not-profile")]
-    [InlineData("blank-reason")]
-    [InlineData("claim-identity")]
-    [InlineData("non-qualifier-word")]
-    [InlineData("denial")]
-    public async Task Reconciliation_rejects_changed_identity_scope_arguments_history_or_unsupported_edits(string fault)
+    [InlineData("#microsoft.graph.group")]
+    [InlineData("#microsoft.graph.orgContact")]
+    public void Non_user_directory_objects_remain_explicit_blockers(string type)
     {
         var path = NewRun();
         using var session = ExportSession.Open(path);
-        var events = Path.Combine(root, "reconciliation-blocked.jsonl");
-        AppendEvent(events, "session.start", new { marker = "original" });
-        var claim = fault == "not-profile"
-            ? session.ClaimSource("worker", "structured", [ExportSession.UserPath(RootId)])
-            : session.ClaimSource("worker", "profile", [fault == "claim-identity" ? ChildId : RootId]);
-        var expected = new JsonObject
+        var report = User(ChildId);
+        report["@odata.type"] = type;
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(report) })));
+
+        var error = Assert.Throws<InvalidOperationException>(() => session.Plan());
+
+        Assert.Contains("Unsupported directory object type: " + type, error.Message);
+    }
+
+    [Fact]
+    public void Conflicting_reporting_lists_require_a_fresh_exact_Manager_and_preserve_review_evidence()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path, publishing: true);
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId), User(AltId)) })),
+            (ExportSession.ReportsPath(AltId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+            (ExportSession.ReportsPath(ChildId), Empty()));
+        Assert.Contains(ExportSession.ManagerPath(ChildId), session.Plan().Pending);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+
+        Ingest(session, (ExportSession.ManagerPath(ChildId), Ok(User(AltId))));
+        var collection = session.Plan();
+
+        Assert.Empty(collection.Pending);
+        Assert.Empty(collection.Errors);
+        Assert.Equal(3, collection.People.Length);
+        Assert.Equal(AltId, Assert.Single(collection.People, person => person.Id == ChildId).ManagerId);
+        Assert.Equal(6, collection.Receipts.Count);
+        foreach (var person in collection.People)
         {
-            ["query"] = $"Find the current work profile for {RootId}, person1@example.test, Example Private Ltd.",
-            ["strategy"] = "grounding",
-            ["capabilities"] = new JsonArray(new JsonObject { ["name"] = "People" })
-        };
-        var request = Path.Combine(root, "reconciliation-blocked-request.json");
-        Save(request, new { toolName = "workiq-retrieve", arguments = expected, agentId = "worker-a" });
-        var ticket = session.BeginCapture(events, request);
-        var actual = expected.DeepClone().AsObject();
-        actual["query"] = expected["query"]!.GetValue<string>().Replace("Private", "Private Private", StringComparison.Ordinal);
-        if (fault == "identity") actual["query"] = actual["query"]!.GetValue<string>().Replace(RootId, ChildId, StringComparison.Ordinal);
-        if (fault == "query-edit") actual["query"] = actual["query"]!.GetValue<string>().Replace("Find", "Find richer", StringComparison.Ordinal);
-        if (fault == "non-qualifier-word") actual["query"] = expected["query"]!.GetValue<string>().Replace("Find", "Find Find", StringComparison.Ordinal);
-        if (fault == "strategy") actual["strategy"] = "copilot";
-        var start = new { toolCallId = "actual", toolName = "workiq-retrieve", arguments = actual };
-        AppendEvent(events, "tool.execution_start", start, fault == "scope" ? "another-worker" : "worker-a");
-        if (fault == "duplicate-start") AppendEvent(events, "tool.execution_start", start, "worker-a");
-        if (fault != "missing-completion")
-            AppendEvent(events, "tool.execution_complete", new { toolCallId = "actual", success = true,
-                result = new { content = "{\"markdown\":\"Fictitious evidence\"}" } }, "worker-a");
-        if (fault == "changed-history")
-            File.WriteAllText(events, File.ReadAllText(events).Replace("original", "modified", StringComparison.Ordinal));
-        if (fault == "denial")
-            FinishSource(session, session.ClaimSource("denied", "profile", [ChildId]),
-                new JsonObject { ["statusCode"] = 403 });
-        var history = File.ReadAllBytes(events);
-        var originalTicket = File.ReadAllBytes(ticket);
+            Ingest(session, (ExportSession.PhotoPath(person.Id), Missing("ImageNotFound")));
+            session.Profile(person.Id, ProfileInput(session, person));
+        }
+        var import = JsonSerializer.SerializeToNode(session.Publish())!["importPath"]!.GetValue<string>();
+        var people = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray();
+        Assert.Equal("alternate@example.test", Assert.Single(people,
+            person => person!["email"]!.GetValue<string>() == "person2@example.test")!["managerEmail"]!.GetValue<string>());
+        var warnings = JsonSerializer.Deserialize<string[]>(File.ReadAllText(
+            Path.Combine(Path.GetDirectoryName(import)!, "review-required.json")))!;
+        Assert.Contains(warnings, warning => warning.Contains("person2@example.test")
+            && warning.Contains("conflicting reporting parents") && warning.Contains("Manager"));
+    }
 
-        var result = await RunCli("capture-reconcile", path, ticket, claim.ClaimId!.Value.ToString(), "actual",
-            fault == "blank-reason" ? "" : "Explicit reconciliation approval.");
+    [Theory]
+    [InlineData("unrelated")]
+    [InlineData("missing")]
+    [InlineData("stale")]
+    [InlineData("excluded")]
+    public void Manager_confirmation_cannot_resolve_a_conflict_with_unrelated_absent_stale_or_excluded_evidence(string fault)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var manager = User(AltId, fault == "excluded" ? "Example (NON EA SC ALT)" : "Example Person");
+        if (fault == "stale")
+            Ingest(session, (ExportSession.ManagerPath(ChildId), Ok(manager.DeepClone().AsObject())));
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject
+                { ["value"] = new JsonArray(User(ChildId), manager.DeepClone()) })),
+            (ExportSession.ReportsPath(AltId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+            (ExportSession.ReportsPath(ChildId), Empty()));
+        if (fault != "stale")
+            Ingest(session, (ExportSession.ManagerPath(ChildId), fault switch
+            {
+                "missing" => Missing("Request_ResourceNotFound"),
+                "unrelated" => Ok(User(AccountId)),
+                _ => Ok(manager)
+            }));
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Equal(originalTicket, File.ReadAllBytes(ticket));
-        Assert.Equal(history, File.ReadAllBytes(events));
-        var read = session.SourceStatus().Reads.Single(read => read.Attempts.Any(attempt => attempt.ClaimId == claim.ClaimId));
-        Assert.Equal("active", read.State);
-        Assert.Single(read.Attempts);
-        Assert.Empty(Directory.GetFiles(Path.Combine(path, "captures"), "original-ticket.json", SearchOption.AllDirectories));
+        if (fault == "stale") Assert.Contains(ExportSession.ManagerPath(ChildId), session.Plan().Pending);
+        else Assert.NotEmpty(session.Plan().Errors);
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Later_reporting_pages_allow_an_audited_Manager_refresh_without_replaying_other_successes(bool interrupted)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        const string thirdId = "10000000-0000-0000-0000-000000000004";
+        var third = User(thirdId, "Example Third Manager");
+        third["mail"] = "third@example.test";
+        var continuation = $"/users/{thirdId}/directReports?$skiptoken=fictitious-next-page";
+        Ingest(session,
+            (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId), User(AltId), third.DeepClone()) })),
+            (ExportSession.ReportsPath(AltId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
+            (ExportSession.ReportsPath(thirdId), Ok(new JsonObject
+                { ["value"] = new JsonArray(), ["@odata.nextLink"] = continuation })),
+            (ExportSession.ReportsPath(ChildId), Empty()));
+        var target = ExportSession.ManagerPath(ChildId);
+        if (interrupted)
+        {
+            var stopped = session.ClaimSource("stopped-manager", "structured", [target]);
+            session.InterruptSource(stopped.ClaimId!.Value, "Coordinator confirmed the worker stopped before a complete result was available.");
+            session.BeginSourceRecovery();
+        }
+        Ingest(session, (target, Ok(User(AltId))));
+        Assert.DoesNotContain(target, session.Plan().Pending);
+        var previous = session.SourceStatus().Reads.Single(read => read.Target == target).Attempts.ToArray();
+        var evidence = previous.Where(attempt => attempt.ResultFile is not null).ToDictionary(attempt => attempt.ResultFile!,
+            attempt => File.ReadAllBytes(Path.Combine(path, attempt.ResultFile!)));
+        Ingest(session, (continuation, Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })));
+        var unrelated = session.SourceStatus().Reads.Where(read => read.Target != target)
+            .ToDictionary(read => read.Target, read => read.Attempts.ToArray());
+
+        Assert.Contains(target, session.Plan().Pending);
+        Assert.Null(session.ClaimSource("replay", "structured", [target]).ClaimId);
+        var refreshed = await RunCli("source-refresh-manager", path, ChildId, "Newer conflicting reporting evidence requires fresh confirmation.");
+        Assert.Equal(0, refreshed.ExitCode);
+        Assert.Empty(refreshed.Error);
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Empty(read.Attempts);
+        var history = JsonSerializer.SerializeToNode(read, ExportSession.Json)!["previousObservations"]!.AsArray();
+        Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(previous, ExportSession.Json), history.Single()!["attempts"]));
+        Assert.NotEqual(0, (await RunCli("source-refresh-manager", path, ChildId, "Cannot reset an outstanding refresh.")).ExitCode);
+        FinishSource(session, session.ClaimSource("refresh", "structured", [target]),
+            new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" } });
+        FinishSource(session, session.ClaimSource("refresh-retry", "structured", [target]), Ok(third.DeepClone().AsObject()));
+        Ingest(session, (target, Ok(third.DeepClone().AsObject())));
+
+        Assert.Empty(session.Plan().Pending);
+        Assert.Empty(session.Plan().Errors);
+        Assert.Equal(thirdId, session.Plan().People.Single(person => person.Id == ChildId).ManagerId);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(item => item.Target == target).Attempts.Count);
+        Assert.NotEqual(0, (await RunCli("source-refresh-manager", path, ChildId, "No newer conflict to refresh.")).ExitCode);
+        foreach (var (file, bytes) in evidence) Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(path, file)));
+        foreach (var (otherTarget, attempts) in unrelated)
+            Assert.Equal(attempts, session.SourceStatus().Reads.Single(item => item.Target == otherTarget).Attempts);
+        foreach (var person in session.Plan().People)
+        {
+            Ingest(session, (ExportSession.PhotoPath(person.Id), Missing("ImageNotFound")));
+            session.Profile(person.Id, ProfileInput(session, person));
+        }
+        var published = JsonSerializer.SerializeToNode(session.Publish())!;
+        Assert.Equal(4, published["people"]!.GetValue<int>());
     }
 
     [Fact]
@@ -589,101 +590,6 @@ public sealed class OrgExportTests : IDisposable
     }
 
     [Fact]
-    public void Agent_users_are_recorded_and_excluded_without_skipping_their_reporting_coverage()
-    {
-        var path = NewRun();
-        using var session = ExportSession.Open(path, publishing: true);
-        Ingest(session,
-            (ExportSession.UserPath(RootId), Ok(User(RootId))),
-            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
-            (ExportSession.ReportsPath(RootId), Ok(new JsonObject
-            {
-                ["value"] = new JsonArray(new JsonObject
-                {
-                    ["id"] = AgentId, ["@odata.type"] = "#microsoft.graph.agentUser"
-                })
-            })));
-
-        Assert.Contains(ExportSession.ReportsPath(AgentId), session.Plan().Pending);
-        Assert.Throws<InvalidOperationException>(() => session.Publish());
-        Ingest(session, (ExportSession.ReportsPath(AgentId), Empty()));
-        var plan = session.Plan();
-        Assert.Empty(plan.Pending);
-        Assert.Empty(plan.Errors);
-        Assert.Equal(RootId, Assert.Single(plan.People).Id);
-        Assert.Empty(plan.Excluded);
-        Assert.Equal(1, plan.SubtreeCount);
-        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
-        var exclusion = Assert.Single(jobs["excludedAgentUsers"]!.AsArray())!;
-        Assert.Equal(AgentId, exclusion["directoryId"]!.GetValue<string>());
-        Assert.Contains("non-person", exclusion["reason"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(ExportSession.PhotoPath(RootId), Assert.Single(jobs["photoMetadataPaths"]!.AsArray())!.GetValue<string>());
-        var job = Assert.Single(jobs["jobFiles"]!.AsArray())!.GetValue<string>();
-        Assert.Equal(RootId, Assert.Single(JsonSerializer.Deserialize<ExportSession.Person[]>(
-            File.ReadAllText(job), ExportSession.Json)!).Id);
-
-        RecordProfile(session);
-        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
-        var published = JsonSerializer.SerializeToNode(session.Publish(), ExportSession.Json)!;
-        var export = Path.GetDirectoryName(published["importPath"]!.GetValue<string>())!;
-        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(export, "coverage.json")))!;
-        Assert.Equal(exclusion.ToJsonString(), Assert.Single(coverage["excludedAgentUsers"]!.AsArray())!.ToJsonString());
-        Assert.Empty(coverage["excludedAlternateIds"]!.AsArray());
-        var updates = JsonNode.Parse(File.ReadAllText(Path.Combine(export, "updates.json")))!;
-        Assert.Equal("person1@example.test", Assert.Single(updates["people"]!.AsArray())!["email"]!.GetValue<string>());
-        Assert.Contains(JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(export, "review-required.json")))!,
-            warning => warning.Contains(AgentId, StringComparison.Ordinal) && warning.Contains("agentUser", StringComparison.Ordinal));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Human_relationships_to_excluded_agent_users_block_jobs_and_publication(bool ancestor)
-    {
-        var path = NewRun();
-        using var session = ExportSession.Open(path, publishing: true);
-        var agent = User(AgentId, "Fictitious agent");
-        agent["@odata.type"] = "#microsoft.graph.agentUser";
-        Ingest(session, (ExportSession.UserPath(RootId), Ok(User(RootId))));
-        if (ancestor)
-            Ingest(session,
-                (ExportSession.ReportsPath(RootId), Empty()),
-                (ExportSession.ManagerPath(RootId), Ok(agent)),
-                (ExportSession.ManagerPath(AgentId), Missing("Request_ResourceNotFound")));
-        else
-            Ingest(session,
-                (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
-                (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(agent) })),
-                (ExportSession.ReportsPath(AgentId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId)) })),
-                (ExportSession.ReportsPath(ChildId), Empty()));
-
-        var plan = session.Plan();
-        Assert.Empty(plan.Pending);
-        Assert.Contains(plan.Errors, error => error.Contains("excluded agentUser", StringComparison.Ordinal));
-        Assert.DoesNotContain(plan.People, person => person.Id == AgentId);
-        Assert.Contains(plan.People, person => person.Id == (ancestor ? RootId : ChildId) && person.ManagerId == AgentId);
-        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
-        Assert.Empty(jobs["jobFiles"]!.AsArray());
-        Assert.Empty(jobs["photoMetadataPaths"]!.AsArray());
-        Assert.Contains("excluded agentUser", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
-        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
-    }
-
-    [Theory]
-    [InlineData("#microsoft.graph.agentUser", "Select a person, not an agentUser")]
-    [InlineData("#microsoft.graph.group", "Unsupported directory object type")]
-    public void Agent_roots_and_other_unsupported_directory_types_still_fail_explicitly(string type, string diagnostic)
-    {
-        var path = NewRun();
-        using var session = ExportSession.Open(path);
-        var user = User(RootId);
-        user["@odata.type"] = type;
-        Ingest(session, (ExportSession.UserPath(RootId), Ok(user)));
-
-        Assert.Contains(diagnostic, Assert.Throws<InvalidOperationException>(() => session.Plan()).Message);
-    }
-
-    [Fact]
     public void Unresolved_source_errors_do_not_publish_or_masquerade_as_no_photo()
     {
         var path = Seed();
@@ -698,125 +604,6 @@ public sealed class OrgExportTests : IDisposable
         Assert.Single(Directory.GetDirectories(root));
         Ingest(session, (ExportSession.PhotoPath(RootId), Missing("OtherImageNotFoundError")));
         Assert.Throws<InvalidOperationException>(() => session.Publish());
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Explicit_binary_photo_absence_preserves_original_failure_and_omits_photo_from_import(bool afterRetry)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        RecordProfile(session);
-        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
-        var metadata = session.Plan().Receipts[ExportSession.PhotoPath(RootId)].Response.ToJsonString();
-        var target = $"/users/{RootId}/photo/$value";
-        var photo = session.ClaimSource("photo", "photo", [target]);
-        if (afterRetry)
-        {
-            FinishSource(session, photo, new JsonObject { ["statusCode"] = 503 });
-            session.BeginSourceRecovery();
-            photo = session.ClaimSource("retry", "photo", [target]);
-        }
-        var other = afterRetry ? null : session.ClaimSource("other", "profile", [AltId]);
-        FinishSource(session, photo, Missing("ImageNotFound"));
-        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == target).Attempts,
-            ExportSession.Json);
-        const string reason = "User explicitly accepts this exact binary 404 ImageNotFound as photo absence.";
-        if (other is not null)
-        {
-            Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, reason)).ExitCode);
-            FinishSource(session, other, Ok(new JsonObject()));
-        }
-        Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, "")).ExitCode);
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
-
-        var confirmed = await RunCli("source-confirm-photo-absence", path, RootId, reason);
-
-        Assert.True(confirmed.ExitCode == 0, confirmed.Error);
-        Assert.Empty(confirmed.Error);
-        var audit = Assert.Single(JsonNode.Parse(confirmed.Output)!["photoAbsenceConfirmations"]!.AsArray())!;
-        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
-        Assert.Equal(target, audit["target"]!.GetValue<string>());
-        Assert.Equal(photo.ClaimId, audit["sourceClaimId"]!.GetValue<Guid>());
-        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
-        Assert.Equal("completed", read.State);
-        Assert.Equal(original, JsonSerializer.Serialize(read.Attempts, ExportSession.Json));
-        Assert.Equal(metadata, session.Plan().Receipts[ExportSession.PhotoPath(RootId)].Response.ToJsonString());
-        Assert.Equal(1, (await RunCli("source-confirm-photo-absence", path, RootId, reason)).ExitCode);
-        Assert.Null(session.ClaimSource("repeat", "photo", [target]).ClaimId);
-        var cache = JsonSerializer.SerializeToNode(session.ReusePhoto(RootId))!;
-        Assert.True(cache["unavailable"]!.GetValue<bool>());
-        Assert.False(cache["reused"]!.GetValue<bool>());
-        Assert.Throws<InvalidOperationException>(() => session.Photo(RootId, Blob()));
-        session.Dispose();
-        using var publisher = ExportSession.Open(path, publishing: true);
-        var import = JsonSerializer.SerializeToNode(publisher.Publish())!["importPath"]!.GetValue<string>();
-        var person = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray().Single()!.AsObject();
-        Assert.False(person.ContainsKey("photoPath"));
-        var warnings = File.ReadAllText(Path.Combine(Path.GetDirectoryName(import)!, "review-required.json"));
-        Assert.Contains("binary ImageNotFound", warnings);
-    }
-
-    [Theory]
-    [InlineData(404, "Request_ResourceNotFound", null, null)]
-    [InlineData(404, "OtherImageNotFoundError", null, null)]
-    [InlineData(404, "imagenotfound", null, null)]
-    [InlineData(404, "", null, null)]
-    [InlineData(403, "ImageNotFound", null, null)]
-    [InlineData(503, "ImageNotFound", null, null)]
-    [InlineData(404, "ImageNotFound", "PolicyDenied", null)]
-    [InlineData(404, "ImageNotFound", null, 503)]
-    [InlineData(404, "ImageNotFound", null, 200)]
-    public async Task Binary_photo_absence_cannot_reclassify_other_or_mixed_failures(
-        int status, string code, string? nestedCode, int? nestedStatus)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
-        var target = $"/users/{RootId}/photo/$value";
-        var response = Missing(code);
-        response["statusCode"] = status;
-        response["error"]!["innerError"] = new JsonObject { ["code"] = nestedCode, ["statusCode"] = nestedStatus };
-        FinishSource(session, session.ClaimSource("photo", "photo", [target]), response);
-        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == target).Attempts,
-            ExportSession.Json);
-
-        var result = await RunCli("source-confirm-photo-absence", path, RootId, "User approved exact binary ImageNotFound only.");
-
-        Assert.Equal(1, result.ExitCode);
-        var ledger = session.SourceStatus();
-        Assert.Empty(ledger.PhotoAbsenceConfirmations);
-        var read = ledger.Reads.Single(read => read.Target == target);
-        Assert.Equal("failed", read.State);
-        Assert.Equal(original, JsonSerializer.Serialize(read.Attempts, ExportSession.Json));
-    }
-
-    [Fact]
-    public async Task Binary_photo_absence_does_not_resolve_an_independent_metadata_deferral()
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        RecordProfile(session);
-        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("original-metadata")));
-        var metadataTarget = ExportSession.PhotoPath(ChildId);
-        FinishSource(session, session.ClaimSource("metadata", "structured", [metadataTarget]),
-            new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("metadata-retry", "structured", [metadataTarget]),
-            new JsonObject { ["statusCode"] = 503 });
-        session.Defer503PhotoMetadata("User requested fetching unread entries.");
-        var target = $"/users/{RootId}/photo/$value";
-        FinishSource(session, session.ClaimSource("photo", "photo", [target]), Missing("ImageNotFound"));
-
-        var confirmed = await RunCli("source-confirm-photo-absence", path, RootId, "User approved exact binary ImageNotFound.");
-
-        Assert.True(confirmed.ExitCode == 0, confirmed.Error);
-        var metadata = session.SourceStatus().Reads.Single(read => read.Target == metadataTarget);
-        Assert.Equal("failed", metadata.State);
-        Assert.Equal(2, metadata.Attempts.Count);
-        Assert.Single(session.SourceStatus().MetadataDeferrals);
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
     }
 
     [Fact]
@@ -892,6 +679,277 @@ public sealed class OrgExportTests : IDisposable
         var ledger = session.SourceStatus();
         Assert.Equal(3, ledger.Reads.Count);
         Assert.All(ledger.Reads, item => Assert.Equal("completed", item.State));
+    }
+
+    [Fact]
+    public async Task Cli_per_read_recovery_authorization_preserves_prior_attempts_and_recovers_a_later_failure()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var unavailable = new JsonObject
+        {
+            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" }
+        };
+        var firstTarget = $"/users/{RootId}/photo/$value";
+        var first = session.ClaimSource("first", "photo", [firstTarget]);
+        FinishSource(session, first, unavailable);
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("first-retry", "photo", [firstTarget]), Ok(new JsonObject()));
+        var laterTarget = $"/users/{ChildId}/photo/$value";
+        FinishSource(session, session.ClaimSource("later", "photo", [laterTarget]), unavailable);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+
+        const string reason = "User explicitly authorized one retry per transiently failed read for this run.";
+        var beforeAuthorization = DateTimeOffset.UtcNow;
+        var result = await RunCli("source-authorize-per-read-recovery", path, reason);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        var authorization = JsonNode.Parse(result.Output)!["perReadRecovery"]!;
+        Assert.Equal(reason, authorization["reason"]!.GetValue<string>());
+        Assert.True(authorization["authorizedAt"]!.GetValue<DateTimeOffset>() >= beforeAuthorization);
+        session.BeginSourceRecovery();
+        var retry = session.ClaimSource("later-retry", "photo", [laterTarget]);
+        Assert.Equal([laterTarget], retry.Targets);
+        FinishSource(session, retry, Ok(new JsonObject()));
+        var ledger = session.SourceStatus();
+        Assert.True(ledger.RecoveryConsumed);
+        Assert.All(ledger.Reads, read =>
+        {
+            Assert.Equal("completed", read.State);
+            Assert.Equal(2, read.Attempts.Count);
+            Assert.All(read.Attempts, attempt => Assert.NotNull(attempt.ResultFile));
+        });
+        Assert.Null(session.ClaimSource("replay", "photo", [firstTarget]).ClaimId);
+    }
+
+    [Fact]
+    public async Task Cli_unclassified_recovery_authorizes_only_the_approved_read_without_rewriting_its_failure()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        FinishSource(session, session.ClaimSource("success", "profile", [RootId]), Ok(new JsonObject()));
+        var failed = session.ClaimSource("failed", "profile", [ChildId]);
+        const string otherId = "30000000-0000-0000-0000-000000000099";
+        var other = session.ClaimSource("other", "profile", [otherId]);
+        var unclassified = new JsonObject
+        {
+            ["statusCode"] = 200, ["data"] = new JsonObject
+            {
+                ["error"] = new JsonObject { ["message"] = "Fictitious indexed profile could not be opened." }
+            }
+        };
+        FinishSource(session, failed, unclassified);
+        FinishSource(session, other, unclassified);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+        var before = session.SourceStatus();
+        var originalAttempt = before.Reads.Single(read => read.Target == ChildId).Attempts.Single();
+        var originalReceipt = File.ReadAllBytes(Path.Combine(path, originalAttempt.ResultFile!));
+
+        const string reason = "User explicitly approved one retry of this unclassified profile read.";
+        var result = await RunCli("source-authorize-unclassified-recovery", path, "profile", ChildId, reason);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(reason, JsonNode.Parse(result.Output)!["unclassifiedRecovery"]!["reason"]!.GetValue<string>());
+        var approved = session.SourceStatus();
+        Assert.True(approved.RecoveryConsumed);
+        Assert.Null(approved.PerReadRecovery);
+        Assert.True(approved.Reads.Single(read => read.Target == ChildId).RecoveryEligible);
+        Assert.False(approved.Reads.Single(read => read.Target == otherId).RecoveryEligible);
+        Assert.Equal(originalAttempt, approved.Reads.Single(read => read.Target == ChildId).Attempts.Single());
+        Assert.Equal(originalReceipt, File.ReadAllBytes(Path.Combine(path, originalAttempt.ResultFile!)));
+        var retry = session.ClaimSource("retry", "profile", [RootId, ChildId]);
+        Assert.Equal([ChildId], retry.Targets);
+        FinishSource(session, retry, Ok(new JsonObject()));
+        var after = session.SourceStatus();
+        Assert.Single(after.Reads.Single(read => read.Target == RootId).Attempts);
+        Assert.Equal(2, after.Reads.Single(read => read.Target == ChildId).Attempts.Count);
+        Assert.Equal("failed", after.Reads.Single(read => read.Target == otherId).State);
+        Assert.Null(session.ClaimSource("unapproved-retry", "profile", [otherId]).ClaimId);
+    }
+
+    [Fact]
+    public async Task Cli_matching_error_recovery_records_the_exact_saved_error_and_retains_other_failures()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var matching = session.ClaimSource("matching", "profile", [RootId]);
+        var different = session.ClaimSource("different", "profile", [ChildId]);
+        FinishSource(session, matching, new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "Fictitious indexed evidence could not be opened." }
+        });
+        FinishSource(session, different, new JsonObject
+        {
+            ["statusCode"] = 200, ["error"] = new JsonObject { ["message"] = "A different fictitious failure." }
+        });
+        var original = session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts.Single();
+
+        const string reason = "User approved one retry per occurrence of this exact error for this run.";
+        var result = await RunCli("source-authorize-matching-error-recovery", path, "profile", RootId, reason);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        var authorization = JsonNode.Parse(result.Output)!["matchingErrorRecovery"]!;
+        Assert.Equal("profile", authorization["kind"]!.GetValue<string>());
+        Assert.Equal(original.Error, authorization["error"]!.GetValue<string>());
+        Assert.Equal(reason, authorization["reason"]!.GetValue<string>());
+        session.BeginSourceRecovery();
+        var ledger = session.SourceStatus();
+        Assert.True(ledger.Reads.Single(read => read.Target == RootId).RecoveryEligible);
+        Assert.False(ledger.Reads.Single(read => read.Target == ChildId).RecoveryEligible);
+        Assert.Equal(original, ledger.Reads.Single(read => read.Target == RootId).Attempts.Single());
+        FinishSource(session, session.ClaimSource("retry", "profile", [RootId]), Ok(new JsonObject()));
+        Assert.Null(session.ClaimSource("unapproved-retry", "profile", [ChildId]).ClaimId);
+    }
+
+    [Fact]
+    public async Task Cli_not_found_recovery_grants_one_approved_download_retry_without_reclassifying_absence()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        var target = $"/users/{ChildId}/photo/$value";
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), new JsonObject
+        {
+            ["statusCode"] = 404, ["error"] = new JsonObject { ["code"] = "ErrorNonExistentStorage" }
+        });
+        var original = session.SourceStatus().Reads.Single().Attempts.Single();
+        Assert.False(original.Retryable);
+        Assert.Equal("failed", session.SourceStatus().Reads.Single().State);
+        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
+
+        const string reason = "User explicitly approved one retry of this not-found photo download.";
+        var result = await RunCli("source-authorize-not-found-recovery", path, "photo", target, reason);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(reason, JsonNode.Parse(result.Output)!["notFoundRecovery"]!["reason"]!.GetValue<string>());
+        Assert.Equal(original, session.SourceStatus().Reads.Single().Attempts.Single());
+        Assert.Equal("failed", session.SourceStatus().Reads.Single().State);
+        Assert.True(session.SourceStatus().Reads.Single().RecoveryEligible);
+        FinishSource(session, session.ClaimSource("retry", "photo", [target]), Ok(new JsonObject()));
+        Assert.Equal("completed", session.SourceStatus().Reads.Single().State);
+        Assert.Equal(2, session.SourceStatus().Reads.Single().Attempts.Count);
+        Assert.Null(session.ClaimSource("replay", "photo", [target]).ClaimId);
+    }
+
+    [Fact]
+    public async Task Cli_photo_omission_preserves_failed_receipts_and_existing_photo_without_waiving_profiles()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var child = User(ChildId, "Example Child");
+        Ingest(session, (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(child) })),
+            (ExportSession.UserPath(ChildId), Ok(User(ChildId, "Example Child"))),
+            (ExportSession.ManagerPath(ChildId), Ok(User(RootId))),
+            (ExportSession.ReportsPath(ChildId), Empty()),
+            (ExportSession.PhotoPath(RootId), Metadata("v1")),
+            (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
+        var rootPerson = session.Plan().People.Single(person => person.Id == RootId);
+        session.Profile(RootId, ProfileInput(session, rootPerson));
+        var target = $"/users/{RootId}/photo/$value";
+        var failure = Missing("ErrorNonExistentStorage");
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), failure);
+        session.AuthorizeNotFoundSourceRecovery("photo", target, "Explicit approval for the fictitious retry.");
+        FinishSource(session, session.ClaimSource("photo-retry", "photo", [target]), failure);
+        var attempts = session.SourceStatus().Reads.Single(read => read.Target == target).Attempts.ToArray();
+        var receipts = attempts.Select(attempt => attempt.ResultFile!).Distinct().ToDictionary(file => file,
+            file => File.ReadAllBytes(Path.Combine(path, file)));
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+
+        const string reason = "User approved omitting only this exhausted photo while preserving the saved app photo.";
+        var omitted = await RunCli("source-omit-photo", path, RootId, reason);
+
+        Assert.Equal(0, omitted.ExitCode);
+        Assert.Empty(omitted.Error);
+        Assert.Equal(reason, JsonNode.Parse(omitted.Output)!["photoOmission"]!["reason"]!.GetValue<string>());
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Equal("failed", read.State);
+        Assert.Equal(attempts, read.Attempts);
+        Assert.Null(session.ClaimSource("no-third-download", "photo", [target]).ClaimId);
+        Assert.True(JsonSerializer.SerializeToNode(session.ReusePhoto(RootId))!["omitted"]!.GetValue<bool>());
+        Assert.Contains("Source read is not completed", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        var childPerson = session.Plan().People.Single(person => person.Id == ChildId);
+        session.Profile(ChildId, ProfileInput(session, childPerson));
+        var published = JsonSerializer.SerializeToNode(session.Publish())!;
+        var import = published["importPath"]!.GetValue<string>();
+        var destination = Path.GetDirectoryName(import)!;
+        var batch = JsonNode.Parse(File.ReadAllText(import))!;
+        Assert.Equal(2, batch["people"]!.AsArray().Count);
+        Assert.All(batch["people"]!.AsArray(), person => Assert.False(person!.AsObject().ContainsKey("photoPath")));
+        Assert.Equal(1, published["omittedPhotos"]!.GetValue<int>());
+        Assert.Equal(1, published["unavailablePhotos"]!.GetValue<int>());
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(destination, "coverage.json")))!;
+        Assert.Equal(1, coverage["omittedPhotos"]!.GetValue<int>());
+        Assert.Equal(1, coverage["unavailablePhotos"]!.GetValue<int>());
+        Assert.Contains(reason, File.ReadAllText(Path.Combine(destination, "review-required.json")));
+        foreach (var (receipt, bytes) in receipts)
+            Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(destination, receipt)));
+        var retained = JsonSerializer.Deserialize<ExportSession.SourceLedger>(
+            File.ReadAllText(Path.Combine(destination, "source-coordination.json")), ExportSession.Json)!;
+        Assert.Equal("failed", retained.Reads.Single(item => item.Target == target).State);
+        Assert.Equal(attempts, retained.Reads.Single(item => item.Target == target).Attempts);
+
+        using var app = ApplicationWorkflow.CreateInMemory();
+        Assert.True(app.OpenWorkspace("fictitious-photo-omission"));
+        File.WriteAllBytes(Path.Combine(root, "saved.png"), Png);
+        var prior = Path.Combine(root, "prior-photo.json");
+        Save(prior, new
+        {
+            schemaVersion = 1, batchId = Guid.NewGuid(), observedAt = "2026-01-01T00:00:00Z",
+            people = new[] { new { email = "person1@example.test", displayName = "Example Person",
+                managerEmail = (string?)null, photoPath = "saved.png" } }
+        });
+        var priorPreview = app.PreviewImportFile(prior);
+        Assert.True(priorPreview.CanApply, string.Join("; ", priorPreview.Errors));
+        Assert.True(app.ApplyImport(priorPreview.Id), app.Status);
+        Assert.Equal(Png, app.GetPhoto("person1@example.test")!.Bytes.ToArray());
+        Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
+        Assert.Equal(Png, app.GetPhoto("person1@example.test")!.Bytes.ToArray());
+        Assert.Null(app.GetPhoto("person2@example.test"));
+    }
+
+    [Fact]
+    public void Photo_omission_requires_explicit_immutable_approval_and_an_exhausted_settled_download()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("v1")));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(RootId, " "));
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(ChildId, "Outside this population."));
+        var target = $"/users/{RootId}/photo/$value";
+        var first = session.ClaimSource("photo", "photo", [target]);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(RootId, "Still active."));
+        var failure = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" } };
+        FinishSource(session, first, failure);
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(RootId, "Not exhausted."));
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("retry", "photo", [target]), failure);
+        var approval = session.AuthorizePhotoOmission(RootId, "Explicit approval for this exhausted photo.");
+        Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(RootId, "Replacement approval."));
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Equal(approval, read.PhotoOmission);
+        Assert.True(read.AccountedFor);
+        Assert.Equal("failed", read.State);
+        Assert.Equal(2, read.Attempts.Count);
+    }
+
+    [Fact]
+    public void An_exhausted_photo_cannot_be_omitted_without_fresh_successful_metadata()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        var target = $"/users/{RootId}/photo/$value";
+        var failure = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ServiceUnavailable" } };
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), failure);
+        session.BeginSourceRecovery();
+        FinishSource(session, session.ClaimSource("retry", "photo", [target]), failure);
+        Assert.Contains("Fresh photo metadata is missing",
+            Assert.Throws<InvalidOperationException>(() => session.AuthorizePhotoOmission(RootId, "Approval.")).Message);
+        var read = session.SourceStatus().Reads.Single(read => read.Target == target);
+        Assert.Null(read.PhotoOmission);
+        Assert.False(read.AccountedFor);
     }
 
     [Theory]
@@ -1505,454 +1563,532 @@ public sealed class OrgExportTests : IDisposable
         else Assert.Equal(office, fields["officeNumber"]);
     }
 
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("metadata")]
+    [InlineData("photo")]
+    public async Task Cli_best_effort_unavailable_lookups_publish_verified_directory_fields_and_preserve_saved_values(string kind)
+    {
+        var path = Seed();
+        var enabled = await RunCli("source-authorize-best-effort", path, "Owner-approved best-effort collection.");
+        Assert.Equal(0, enabled.ExitCode);
+        Assert.Empty(enabled.Error);
+        using var session = ExportSession.Open(path);
+        var failure = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" } };
+        if (kind == "metadata")
+        {
+            Ingest(session, (ExportSession.PhotoPath(RootId), (JsonObject)failure.DeepClone()));
+            Ingest(session, (ExportSession.PhotoPath(RootId), (JsonObject)failure.DeepClone()));
+        }
+        else Ingest(session, (ExportSession.PhotoPath(RootId), kind == "photo" ? Metadata("v2") : Missing("ImageNotFound")));
+        if (kind == "profile")
+        {
+            FinishSource(session, session.ClaimSource("profile", "profile", [RootId]), failure);
+            Assert.Single(JsonSerializer.SerializeToNode(session.Jobs())!["jobFiles"]!.AsArray());
+            FinishSource(session, session.ClaimSource("profile-retry", "profile", [RootId]), failure);
+        }
+        else RecordProfile(session);
+        if (kind == "photo")
+        {
+            var target = $"/users/{RootId}/photo/$value";
+            FinishSource(session, session.ClaimSource("photo", "photo", [target]), Missing("ImageNotFound"));
+            FinishSource(session, session.ClaimSource("photo-retry", "photo", [target]), Missing("ImageNotFound"));
+        }
+        if (kind != "profile")
+            Assert.True(JsonSerializer.SerializeToNode(session.ReusePhoto(RootId))!["lookupUnavailable"]!.GetValue<bool>());
+
+        var published = JsonSerializer.SerializeToNode(session.Publish())!;
+        var import = published["importPath"]!.GetValue<string>();
+        var person = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray().Single()!.AsObject();
+        Assert.Equal("Example Engineer", person["jobTitle"]!.GetValue<string>());
+        Assert.False(person.ContainsKey("officeState"));
+        Assert.False(person.ContainsKey("officeCountry"));
+        Assert.False(person.ContainsKey("photoPath"));
+        Assert.Equal(kind == "profile" ? 1 : 0, published["unavailableProfileLookups"]!.GetValue<int>());
+        Assert.Equal(kind == "profile" ? 0 : 1, published["unavailablePhotoLookups"]!.GetValue<int>());
+        Assert.Equal(kind == "profile" ? 1 : 0, published["unavailablePhotos"]!.GetValue<int>());
+        var folder = Path.GetDirectoryName(import)!;
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "coverage.json")))!;
+        Assert.Equal("degraded", coverage["enrichmentStatus"]!.GetValue<string>());
+        Assert.Contains(kind == "photo" ? "ImageNotFound" : "CircuitOpen",
+            File.ReadAllText(Path.Combine(folder, "unavailable-enrichment.json")));
+
+        using var app = ApplicationWorkflow.CreateInMemory();
+        Assert.True(app.OpenWorkspace("best-effort-preservation"));
+        File.WriteAllBytes(Path.Combine(root, "prior.png"), Png);
+        var prior = Path.Combine(root, "prior.json");
+        Save(prior, new
+        {
+            schemaVersion = 1, batchId = Guid.NewGuid(), observedAt = "2026-01-01T00:00:00Z",
+            people = new[] { new { email = "person1@example.test", displayName = "Prior name",
+                managerEmail = (string?)null, officeState = "Prior state", officeCountry = "Prior country", photoPath = "prior.png" } }
+        });
+        Assert.True(app.ApplyImport(app.PreviewImportFile(prior).Id), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
+        var saved = app.People.Single(person => person.Email == "person1@example.test");
+        Assert.Equal("Prior state", saved.OfficeState);
+        Assert.Equal("Prior country", saved.OfficeCountry);
+        Assert.Equal(Png, app.GetPhoto("person1@example.test")!.Bytes.ToArray());
+    }
+
+    [Fact]
+    public void Unavailable_downloads_cannot_substitute_for_an_unattempted_photo_metadata_lookup()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        RecordProfile(session);
+        var target = $"/users/{RootId}/photo/$value";
+        var failure = new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" } };
+        FinishSource(session, session.ClaimSource("photo", "photo", [target]), failure);
+        FinishSource(session, session.ClaimSource("retry", "photo", [target]), failure);
+        Assert.True(session.SourceStatus().Reads.Single(read => read.Kind == "photo").AccountedFor);
+
+        Assert.Throws<InvalidOperationException>(() => session.Publish());
+
+        Ingest(session, (ExportSession.PhotoPath(RootId), Metadata("v1")));
+        var published = JsonSerializer.SerializeToNode(session.Publish())!;
+        Assert.Equal(1, published["unavailablePhotoLookups"]!.GetValue<int>());
+        Assert.Equal(0, published["unavailablePhotos"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData("MCP error -32603: ", 403, false, false)]
+    [InlineData("MCP server 'workiq': ", 403, false, false)]
+    [InlineData("MCP error -32603: ", 429, false, false)]
+    [InlineData("MCP server 'workiq': ", 429, false, false)]
+    [InlineData("MCP error -32603: ", 429, true, false)]
+    [InlineData("MCP server 'workiq': ", 429, true, false)]
+    [InlineData("MCP error -32603: ", 403, false, true)]
+    [InlineData("MCP server 'workiq': ", 403, false, true)]
+    [InlineData("MCP error -32603: ", 429, false, true)]
+    [InlineData("MCP server 'workiq': ", 429, false, true)]
+    [InlineData("MCP error -32603: ", 429, true, true)]
+    [InlineData("MCP server 'workiq': ", 429, true, true)]
+    public void Rejected_prefixed_native_captures_preserve_numeric_denial_and_retry_delay_diagnostics(
+        string prefix, int status, bool invalidDelay, bool incomplete)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        string[] targets = incomplete ? [ExportSession.UserPath(RootId), ExportSession.UserPath(ChildId)] : [RootId];
+        var kind = incomplete ? "structured" : "profile";
+        var toolName = incomplete ? "workiq-fetch" : "workiq-retrieve";
+        var claim = session.ClaimSource("worker", kind, targets);
+        var events = Path.Combine(root, "prefixed-diagnostics.jsonl");
+        File.WriteAllText(events, "");
+        object arguments = incomplete ? new { entityUrls = targets } : new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "prefixed-diagnostics-request.json");
+        Save(request, new { toolName, arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "prefixed", toolName, arguments });
+        var failure = new { statusCode = status, retryAfterSeconds = invalidDelay ? -1 : 17 };
+        var payload = incomplete ? JsonSerializer.Serialize(new { results = new[] { failure } }) : JsonSerializer.Serialize(new
+        {
+            isError = true, content = new[]
+            {
+                new { type = "text", text = JsonSerializer.Serialize(failure) },
+                new { type = "text", text = "Unsupported multipart transport." }
+            }
+        });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "prefixed", success = false,
+            error = new { message = prefix + payload } });
+
+        session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed without a supported complete capture.");
+
+        var ledger = session.SourceStatus();
+        var read = ledger.Reads.Single(read => read.Target == targets[0]);
+        Assert.Null(read.Attempts.Single().ResultFile);
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
+        Assert.Equal(status == 403 || invalidDelay, ledger.StopReason is not null);
+        Assert.False(read.AccountedFor);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [ChildId]).ClaimId);
+        var retry = session.ClaimSource("retry", kind, targets);
+        Assert.Null(retry.ClaimId);
+        if (status == 429 && !invalidDelay)
+        {
+            Assert.True(read.RecoveryEligible);
+            Assert.NotNull(read.Attempts.Single().RetryAt);
+            Assert.Equal(read.Attempts.Single().RetryAt, retry.RetryAt);
+        }
+        else Assert.False(read.RecoveryEligible);
+    }
+
+    [Fact]
+    public void Best_effort_capture_failures_are_bound_to_claims_and_never_ingest_unverified_payloads()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        var saved = Path.Combine(root, "unbound-payload.json");
+        Save(saved, new { officeState = "Unverified state" });
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var claim = session.ClaimSource("profile", "profile", [RootId]);
+            var events = Path.Combine(root, $"failed-capture-{attempt}.jsonl");
+            File.WriteAllText(events, "");
+            var arguments = new { query = "Fictitious exact work profile " + RootId };
+            var request = Path.Combine(root, $"capture-request-{attempt}.json");
+            Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+            var ticket = session.BeginCapture(events, request);
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "profile", toolName = "workiq-retrieve", arguments });
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "profile", success = true,
+                result = new { content = "Output too large to display.\nFull output saved to: " + saved } });
+            Assert.Throws<InvalidOperationException>(() => session.Capture(ticket));
+            Assert.Throws<InvalidOperationException>(() => session.FailCapture(Guid.NewGuid(), ticket, "Wrong claim."));
+
+            session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed; bounded recapture did not recover it.");
+
+            var read = session.SourceStatus().Reads.Single(read => read.Kind == "profile");
+            Assert.Equal(attempt + 1, read.Attempts.Count);
+            Assert.True(File.Exists(Path.Combine(path, read.Attempts[^1].CaptureFailureFile!)));
+            Assert.Null(read.Attempts[^1].ResultFile);
+            Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(ticket)!, "response.json")));
+        }
+        Assert.True(session.SourceStatus().Reads.Single(read => read.Kind == "profile").AccountedFor);
+        Assert.Null(session.ClaimSource("third", "profile", [RootId]).ClaimId);
+        var published = JsonSerializer.SerializeToNode(session.Publish())!;
+        var import = published["importPath"]!.GetValue<string>();
+        Assert.DoesNotContain("Unverified state", File.ReadAllText(import));
+        Assert.Equal(1, published["unavailableProfileLookups"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Capture_failure_settles_its_claim_when_unrelated_capacity_deferred_reads_have_no_attempts(bool bestEffort)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        if (bestEffort) session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var failed = session.ClaimSource("failed", "profile", [RootId]);
+        var other = session.ClaimSource("other", "profile", [ChildId]);
+        Assert.Null(session.ClaimSource("deferred", "profile", [AltId]).ClaimId);
+        var events = Path.Combine(root, "deferred-capture.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "deferred-capture-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = failed.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "failed", toolName = "workiq-retrieve", arguments });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "failed", success = false,
+            error = new { message = "Unsupported incomplete source response." } });
+
+        var result = session.FailCapture(failed.ClaimId!.Value, ticket, "Original invocation completed without a usable result.");
+
+        Assert.Equal(failed.ClaimId, result.ClaimId);
+        Assert.Equal(RootId, Assert.Single(result.Reads).Target);
+        using var reopened = ExportSession.Open(path);
+        var ledger = reopened.SourceStatus();
+        var settled = ledger.Reads.Single(read => read.Target == RootId);
+        Assert.Equal("failed", settled.State);
+        Assert.Equal(bestEffort, settled.RecoveryEligible);
+        Assert.NotNull(settled.Attempts.Single().FinishedAt);
+        Assert.True(File.Exists(Path.Combine(path, settled.Attempts.Single().CaptureFailureFile!)));
+        var unchanged = ledger.Reads.Single(read => read.Target == ChildId);
+        Assert.Equal("active", unchanged.State);
+        Assert.Equal(other.ClaimId, unchanged.Attempts.Single().ClaimId);
+        var deferred = ledger.Reads.Single(read => read.Target == AltId);
+        Assert.Equal("deferred", deferred.State);
+        Assert.Empty(deferred.Attempts);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Capture_uses_complete_JSONL_records_without_parsing_an_uncommitted_shared_tail(bool crlf, bool bom)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "uncommitted-tail.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "uncommitted-tail-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        if (bom) File.WriteAllBytes(events, [0xEF, 0xBB, 0xBF]);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "profile", toolName = "workiq-retrieve", arguments });
+        var payload = JsonSerializer.Serialize(new { citations = Array.Empty<string>(), padding = new string('x', 100000) });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "profile", success = true,
+            result = new { content = payload } });
+        if (crlf) File.WriteAllText(events, File.ReadAllText(events).Replace("\n", "\r\n", StringComparison.Ordinal));
+        File.AppendAllText(events, "{\"type\":\"unrelated.partial\",\"data\":");
+
+        var capture = session.Capture(ticket);
+
+        Assert.Equal("profile", capture.ToolCallId);
+        Assert.Equal(payload, File.ReadAllText(capture.ResponseFile));
+        File.AppendAllText(events, "{}}\n");
+        Assert.Equal(capture.ToolCallId, session.Capture(ticket).ToolCallId);
+        FinishSource(session, claim, Ok(new JsonObject()));
+        Assert.Single(session.SourceStatus().Reads.Single().Attempts);
+    }
+
+    [Theory]
+    [InlineData(403, false)]
+    [InlineData(429, false)]
+    [InlineData(429, true)]
+    public void Capture_failure_retains_correlated_denial_and_delays_before_an_uncommitted_JSONL_tail(int status, bool invalidDelay)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "diagnostic-tail.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "diagnostic-tail-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "profile", toolName = "workiq-retrieve", arguments });
+        var content = JsonSerializer.Serialize(new
+        {
+            isError = true, content = new[]
+            {
+                new { type = "text", text = JsonSerializer.Serialize(new { statusCode = status, retryAfterSeconds = invalidDelay ? -1 : 17 }) },
+                new { type = "text", text = "Unsupported multipart transport." }
+            }
+        });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "profile", success = false, result = new { content } });
+        File.AppendAllText(events, "{\"type\":\"unrelated.partial\",\"data\":");
+
+        session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed without a usable multipart response.");
+
+        var ledger = session.SourceStatus();
+        var read = ledger.Reads.Single();
+        Assert.Equal(status == 403 || invalidDelay, ledger.StopReason is not null);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [ChildId]).ClaimId);
+        Assert.Null(session.ClaimSource("retry", "profile", [RootId]).ClaimId);
+        if (status == 429 && !invalidDelay)
+        {
+            Assert.True(read.RecoveryEligible);
+            Assert.NotNull(read.Attempts.Single().RetryAt);
+        }
+        else Assert.False(read.RecoveryEligible);
+        Assert.Null(read.Attempts.Single().ResultFile);
+    }
+
+    [Fact]
+    public void Capture_failure_does_not_authorize_replacement_when_correlated_diagnostics_cannot_be_inspected_safely()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "uninspectable-history.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "uninspectable-history-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "profile", toolName = "workiq-retrieve", arguments });
+        File.AppendAllText(events, "{not-valid-json}\n");
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "profile", success = false,
+            result = new { content = "{\"statusCode\":403}" } });
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed but its history cannot be inspected safely."));
+
+        var read = session.SourceStatus().Reads.Single();
+        Assert.Equal("active", read.State);
+        Assert.False(read.RecoveryEligible);
+        Assert.Null(read.Attempts.Single().FinishedAt);
+        Assert.Null(read.Attempts.Single().CaptureFailureFile);
+        Assert.Null(session.ClaimSource("replacement", "profile", [RootId]).ClaimId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Photo_not_found_recovery_uses_the_successful_metadata_attempt_after_metadata_recovery(bool captureFailure)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var metadataPath = ExportSession.PhotoPath(RootId);
+        var first = session.ClaimSource("metadata", "structured", [metadataPath]);
+        if (captureFailure)
+        {
+            var events = Path.Combine(root, "metadata-capture.jsonl");
+            File.WriteAllText(events, "");
+            var arguments = new { entityUrls = new[] { metadataPath } };
+            var request = Path.Combine(root, "metadata-capture-request.json");
+            Save(request, new { toolName = "workiq-fetch", arguments, claimId = first.ClaimId });
+            var ticket = session.BeginCapture(events, request);
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "metadata", toolName = "workiq-fetch", arguments });
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "metadata", success = true,
+                result = new { content = "{\"results\":[]}" } });
+            session.FailCapture(first.ClaimId!.Value, ticket, "Original metadata invocation returned an incomplete batch.");
+        }
+        else FinishSource(session, first,
+            new JsonObject { ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "CircuitOpen" } });
+        var original = session.SourceStatus().Reads.Single().Attempts.Single();
+        FinishSource(session, session.ClaimSource("metadata-retry", "structured", [metadataPath]), Metadata("v1"));
+        var photoPath = $"/users/{RootId}/photo/$value";
+
+        FinishSource(session, session.ClaimSource("photo", "photo", [photoPath]), Missing("ImageNotFound"));
+
+        var photo = session.SourceStatus().Reads.Single(read => read.Kind == "photo");
+        Assert.Equal("failed", photo.State);
+        Assert.True(photo.RecoveryEligible);
+        Assert.False(photo.AccountedFor);
+        Assert.Equal(original, session.SourceStatus().Reads.Single(read => read.Target == metadataPath).Attempts[0]);
+        FinishSource(session, session.ClaimSource("photo-retry", "photo", [photoPath]), Missing("ImageNotFound"));
+        Assert.True(session.SourceStatus().Reads.Single(read => read.Kind == "photo").AccountedFor);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Kind == "photo").Attempts.Count);
+    }
+
+    [Fact]
+    public void A_late_verified_capture_must_be_used_instead_of_discarded_for_a_retry()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "late.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "late-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "late", toolName = "workiq-retrieve", arguments });
+        Assert.Throws<InvalidOperationException>(() => session.Capture(ticket));
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "late", success = true,
+            result = new { content = "{\"citations\":[]}" } });
+
+        Assert.Contains("complete", Assert.Throws<InvalidOperationException>(() =>
+            session.FailCapture(claim.ClaimId!.Value, ticket, "Completion arrived during diagnosis.")).Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("active", session.SourceStatus().Reads.Single().State);
+        Assert.Null(session.SourceStatus().Reads.Single().Attempts.Single().CaptureFailureFile);
+        FinishSource(session, claim, Ok(new JsonObject()));
+        Assert.Null(session.ClaimSource("replay", "profile", [RootId]).ClaimId);
+    }
+
+    [Fact]
+    public void Best_effort_still_requires_profile_coverage_and_rejects_unresolved_local_observation_errors()
+    {
+        var path = Seed();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
+        Assert.Contains("Source read is not completed", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        var person = session.Plan().People.Single();
+        var input = ProfileInput(session, person);
+        var observation = JsonSerializer.Deserialize<ExportSession.Observation>(File.ReadAllText(input), ExportSession.Json)!;
+        Save(input, observation with { Email = "wrong@example.test" });
+        Assert.Throws<InvalidOperationException>(() => session.Profile(RootId, input));
+        Assert.Contains("Unresolved profile inputs", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+        Save(input, observation);
+        session.Profile(RootId, input);
+        Assert.NotNull(JsonSerializer.SerializeToNode(session.Publish())!["importPath"]);
+    }
+
+    [Fact]
+    public void Unsupported_capture_retains_an_actual_retry_delay_without_trusting_its_payload()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "delayed-capture.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "delayed-capture-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "delayed", toolName = "workiq-retrieve", arguments });
+        var content = JsonSerializer.Serialize(new
+        {
+            isError = true, content = new[]
+            {
+                new { type = "text", text = "{\"statusCode\":429,\"retryAfterSeconds\":17,\"error\":{\"code\":\"TooManyRequests\"}}" },
+                new { type = "text", text = "Unsupported multipart transport." }
+            }
+        });
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "delayed", success = false, result = new { content } });
+
+        session.FailCapture(claim.ClaimId!.Value, ticket, "Invocation completed with an unsupported multipart response.");
+
+        var read = session.SourceStatus().Reads.Single();
+        Assert.NotNull(read.Attempts.Single().RetryAt);
+        Assert.Null(read.Attempts.Single().ResultFile);
+        var unrelated = session.ClaimSource("unrelated", "profile", [ChildId]);
+        Assert.Null(unrelated.ClaimId);
+        Assert.Equal(read.Attempts.Single().RetryAt, unrelated.RetryAt);
+        Assert.Contains("retry delay", unrelated.Blocker);
+    }
+
+    [Fact]
+    public void Exhausted_required_capture_keeps_reporting_unverified_while_unrelated_reads_can_continue()
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var target = ExportSession.UserPath(RootId);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var claim = session.ClaimSource("directory", "structured", [target]);
+            var events = Path.Combine(root, $"required-capture-{attempt}.jsonl");
+            File.WriteAllText(events, "");
+            var arguments = new { entityUrls = new[] { target } };
+            var request = Path.Combine(root, $"required-request-{attempt}.json");
+            Save(request, new { toolName = "workiq-fetch", arguments, claimId = claim.ClaimId });
+            var ticket = session.BeginCapture(events, request);
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "directory", toolName = "workiq-fetch", arguments });
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "directory", success = true,
+                result = new { content = "{\"results\":[]}" } });
+            session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed without a complete result.");
+        }
+
+        var required = session.SourceStatus().Reads.Single();
+        Assert.Equal(2, required.Attempts.Count);
+        Assert.False(required.AccountedFor);
+        Assert.Null(required.Unavailable);
+        var unrelated = session.ClaimSource("profile", "profile", [ChildId]);
+        Assert.NotNull(unrelated.ClaimId);
+        FinishSource(session, unrelated, Ok(new JsonObject()));
+        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Capture_failure_diagnostics_preserve_an_observed_denial_instead_of_retrying_or_omitting(bool multipart)
+    {
+        var path = NewRun();
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var claim = session.ClaimSource("profile", "profile", [RootId]);
+        var events = Path.Combine(root, "denied-capture.jsonl");
+        File.WriteAllText(events, "");
+        var arguments = new { query = "Fictitious work profile " + RootId };
+        var request = Path.Combine(root, "denied-capture-request.json");
+        Save(request, new { toolName = "workiq-retrieve", arguments, claimId = claim.ClaimId });
+        var ticket = session.BeginCapture(events, request);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "denied", toolName = "workiq-retrieve", arguments });
+        var content = multipart ? JsonSerializer.Serialize(new
+        {
+            isError = true, content = new[] { new { type = "text", text = "HTTP 403" }, new { type = "text", text = "Forbidden" } }
+        }) : "Incomplete response";
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "denied", success = false,
+            error = new { message = multipart ? "Tool failed." : "HTTP 403 Forbidden" }, result = new { content } });
+
+        session.FailCapture(claim.ClaimId!.Value, ticket, "Original invocation completed with an unsupported response.");
+
+        var ledger = session.SourceStatus();
+        Assert.Contains("denial", ledger.StopReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.False(ledger.Reads.Single().AccountedFor);
+        Assert.Null(session.ClaimSource("retry", "profile", [RootId]).ClaimId);
+        Assert.Null(session.ClaimSource("other", "profile", [ChildId]).ClaimId);
+    }
+
     private string NewRun(string account = AccountId)
         => ExportSession.Create("Example Person", RootId, account, root);
-
-    [Theory]
-    [InlineData("message", "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData("string", "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData("markdown", "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData("message", "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData("string", "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData("markdown", "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData("message", "Open '' Failure: Unable to open, Exception: Status code is .")]
-    [InlineData("string", "Open '' Failure: Unable to open, Exception: Status code is .")]
-    [InlineData("markdown", "Open '' Failure: Unable to open, Exception: Status code is .")]
-    public async Task Explicit_profile_open_recovery_retries_only_the_authorized_first_failure(string envelope, string diagnostic)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        var initial = session.ClaimSource("initial", "profile", [AltId]);
-        FinishSource(session, initial, new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AltId]), Ok(new JsonObject()));
-        var failed = session.ClaimSource("profile", "profile", [RootId]);
-        JsonObject OpenFailure() => new()
-        {
-            ["error"] = envelope switch
-            {
-                "string" => JsonValue.Create(diagnostic),
-                "markdown" => JsonValue.Create("- **Fictitious Engineer**\r\n  - **personId:** " + RootId
-                    + "\r\n  - **snippet:** " + diagnostic),
-                _ => new JsonObject { ["message"] = diagnostic }
-            }
-        };
-        FinishSource(session, failed, OpenFailure());
-        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
-            ExportSession.Json);
-        Assert.Null(session.ClaimSource("unapproved", "profile", [RootId]).ClaimId);
-        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, "")).ExitCode);
-        const string reason = "User explicitly authorized one retry of this unresolved profile-open failure.";
-
-        var result = await RunCli("source-recover-profile-open", path, RootId, reason);
-
-        Assert.True(result.ExitCode == 0, result.Error);
-        Assert.Empty(result.Error);
-        Assert.Equal(original, JsonSerializer.Serialize(
-            session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts, ExportSession.Json));
-        var audit = JsonNode.Parse(result.Output)!["serviceRecoveries"]!.AsArray().Last()!;
-        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
-        var target = Assert.Single(audit["targets"]!.AsArray())!;
-        Assert.Equal("profile", target["kind"]!.GetValue<string>());
-        Assert.Equal(RootId, target["target"]!.GetValue<string>());
-        Assert.Equal(failed.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
-        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, reason)).ExitCode);
-        var retry = session.ClaimSource("approved", "profile", [RootId]);
-        Assert.NotNull(retry.ClaimId);
-        FinishSource(session, retry, OpenFailure());
-        Assert.Equal(1, (await RunCli("source-recover-profile-open", path, RootId, reason)).ExitCode);
-        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
-        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts.Count);
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
-    }
-
-    [Theory]
-    [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData("Profile details couldn't be retrieved for this person right now.")]
-    [InlineData("Open '' Failure: Unable to open, Exception: Status code is .")]
-    public async Task Explicit_profile_deferral_allows_unread_entries_but_keeps_the_failed_person_and_publication_block(string diagnostic)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        Ingest(session, (ExportSession.PhotoPath(RootId), Missing("ImageNotFound")));
-        CompleteSource(session, "profile", AltId, Ok(new JsonObject()));
-        var metadataTarget = ExportSession.PhotoPath(ChildId);
-        FinishSource(session, session.ClaimSource("initial", "structured", [metadataTarget]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("initial-retry", "structured", [metadataTarget]), new JsonObject { ["statusCode"] = 503 });
-        session.Defer503PhotoMetadata("User requested unread entries while metadata remains unresolved.");
-        JsonObject Failure() => new() { ["error"] = new JsonObject { ["message"] = diagnostic } };
-        FinishSource(session, session.ClaimSource("profile", "profile", [RootId]), Failure());
-        const string reason = "User requested unread profiles while retaining this exhausted lookup as unresolved.";
-        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, reason)).ExitCode);
-        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
-        var retry = session.ClaimSource("profile-retry", "profile", [RootId]);
-        FinishSource(session, retry, new JsonObject { ["error"] = diagnostic });
-        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
-            ExportSession.Json);
-        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, "")).ExitCode);
-        Assert.Empty(JsonSerializer.SerializeToNode(session.Jobs())!["jobFiles"]!.AsArray());
-
-        var deferred = await RunCli("source-defer-profile", path, RootId, reason);
-
-        Assert.True(deferred.ExitCode == 0, deferred.Error);
-        var audit = Assert.Single(JsonNode.Parse(deferred.Output)!["profileDeferrals"]!.AsArray())!;
-        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
-        var target = Assert.Single(audit["targets"]!.AsArray())!;
-        Assert.Equal("profile", target["kind"]!.GetValue<string>());
-        Assert.Equal(RootId, target["target"]!.GetValue<string>());
-        Assert.Equal(retry.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
-        var failed = session.SourceStatus().Reads.Single(read => read.Target == RootId);
-        Assert.Equal("failed", failed.State);
-        Assert.Equal(original, JsonSerializer.Serialize(failed.Attempts, ExportSession.Json));
-        Assert.True(session.SourceStatus().RecoveryConsumed);
-        Assert.Single(session.SourceStatus().MetadataDeferrals);
-        Assert.Equal("failed", session.SourceStatus().Reads.Single(read => read.Target == metadataTarget).State);
-        Assert.Single(JsonSerializer.SerializeToNode(session.Jobs())!["jobFiles"]!.AsArray());
-        Assert.False(File.Exists(Path.Combine(path, "profiles", RootId + ".json")));
-        Assert.Equal(1, (await RunCli("source-defer-profile", path, RootId, reason)).ExitCode);
-        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
-        Assert.Null(session.ClaimSource("mixed", "profile", [RootId, ChildId]).ClaimId);
-        var unread = session.ClaimSource("unread", "profile", [AltId, ChildId]);
-        Assert.Equal([ChildId], unread.Targets);
-        FinishSource(session, unread, Ok(new JsonObject()));
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
-    }
-
-    [Theory]
-    [InlineData(403, null, "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(404, null, "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(503, null, "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(null, "PolicyDenied", "Profile details couldn't be retrieved for this person right now.")]
-    [InlineData(null, null, "Another source failure.")]
-    [InlineData(null, null, "Open '' Failure: Unable to open, Exception Caught.")]
-    [InlineData(null, null, "Earlier diagnostic: Profile details couldn't be retrieved for this person right now.")]
-    public async Task Profile_deferral_rejects_denied_structured_changed_and_unrelated_second_failures(
-        int? status, string? code, string diagnostic)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        FinishSource(session, session.ClaimSource("initial", "profile", [AltId]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AltId]), Ok(new JsonObject()));
-        FinishSource(session, session.ClaimSource("profile", "profile", [RootId]), new JsonObject
-        {
-            ["error"] = "Profile details couldn't be retrieved for this person right now."
-        });
-        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
-        var response = new JsonObject { ["error"] = new JsonObject { ["message"] = diagnostic } };
-        if (status is not null) response["statusCode"] = status;
-        if (code is not null) response["error"]!["code"] = code;
-        FinishSource(session, session.ClaimSource("profile-retry", "profile", [RootId]), response);
-        var original = JsonSerializer.Serialize(session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts,
-            ExportSession.Json);
-
-        var result = await RunCli("source-defer-profile", path, RootId, "User requested unread entries.");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(session.SourceStatus().ProfileDeferrals);
-        Assert.Equal(original, JsonSerializer.Serialize(
-            session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts, ExportSession.Json));
-        Assert.Null(session.ClaimSource("unread", "profile", [ChildId]).ClaimId);
-    }
-
-    [Fact]
-    public void Profile_deferral_requires_settled_calls_and_preserves_returned_delays()
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        FinishSource(session, session.ClaimSource("initial", "profile", [AccountId]), new JsonObject { ["statusCode"] = 503 });
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("initial-retry", "profile", [AccountId]), Ok(new JsonObject()));
-        JsonObject Failure() => new() { ["error"] = "Open '' Failure: Unable to open, Exception Caught." };
-        var first = session.ClaimSource("first", "profile", [RootId]);
-        var other = session.ClaimSource("other", "profile", [AltId]);
-        FinishSource(session, first, Failure());
-        FinishSource(session, other, Failure());
-        session.BeginProfileOpenRecovery(RootId, "User approved one retry.");
-        session.BeginProfileOpenRecovery(AltId, "User approved one retry.");
-        var retry = session.ClaimSource("first-retry", "profile", [RootId]);
-        var otherRetry = session.ClaimSource("other-retry", "profile", [AltId]);
-        var response = Failure();
-        response["retryAfterSeconds"] = 450;
-        FinishSource(session, retry, response);
-        Assert.Throws<InvalidOperationException>(() => session.DeferProfile(RootId, "User requested unread entries."));
-        FinishSource(session, otherRetry, Ok(new JsonObject()));
-        var retryAt = session.SourceStatus().Reads.Single(read => read.Target == RootId).Attempts[^1].RetryAt;
-
-        session.DeferProfile(RootId, "User requested unread entries.");
-
-        Assert.NotNull(retryAt);
-        var blocked = session.ClaimSource("unread", "profile", [ChildId]);
-        Assert.Null(blocked.ClaimId);
-        Assert.Equal(retryAt, blocked.RetryAt);
-        Assert.Null(session.ClaimSource("third-attempt", "profile", [RootId]).ClaimId);
-    }
-
-    [Fact]
-    public async Task Explicit_metadata_deferral_allows_unread_entries_but_preserves_the_failed_lookup_and_publication_block()
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        JsonObject Unavailable() => new()
-        {
-            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
-        };
-        var initial = session.ClaimSource("initial", "profile", [RootId]);
-        FinishSource(session, initial, Unavailable());
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("initial-retry", "profile", [RootId]), Ok(new JsonObject()));
-        var metadata = session.ClaimSource("metadata", "structured", [ExportSession.PhotoPath(RootId)]);
-        FinishSource(session, metadata, Unavailable());
-        session.BeginSource503Recovery("User authorized delayed HTTP 503 retries.");
-        var retry = session.ClaimSource("metadata-retry", "structured", [ExportSession.PhotoPath(RootId)]);
-        FinishSource(session, retry, Unavailable());
-        var failed = session.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId));
-        var retainedAttempts = JsonSerializer.Serialize(failed.Attempts, ExportSession.Json);
-        Assert.Null(session.ClaimSource("unread", "structured", [ExportSession.PhotoPath(ChildId)]).ClaimId);
-        Assert.Empty(JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!["jobFiles"]!.AsArray());
-        const string reason = "User requested fetching unread entries while this twice-failed metadata lookup remains unresolved.";
-
-        var deferred = await RunCli("source-defer-photo-503", path, reason);
-
-        Assert.Equal(0, deferred.ExitCode);
-        Assert.Empty(deferred.Error);
-        var ledger = JsonNode.Parse(deferred.Output)!;
-        var audit = Assert.Single(ledger["metadataDeferrals"]!.AsArray())!;
-        Assert.Equal(reason, audit["reason"]!.GetValue<string>());
-        var target = Assert.Single(audit["targets"]!.AsArray())!;
-        Assert.Equal(ExportSession.PhotoPath(RootId), target["target"]!.GetValue<string>());
-        Assert.Equal(retry.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
-        Assert.Equal(1, (await RunCli("source-defer-photo-503", path, reason)).ExitCode);
-        Assert.Null(session.ClaimSource("third-attempt", "structured", [ExportSession.PhotoPath(RootId)]).ClaimId);
-        var jobs = JsonSerializer.SerializeToNode(session.Jobs(), ExportSession.Json)!;
-        Assert.Single(jobs["jobFiles"]!.AsArray());
-        Assert.Single(jobs["photoMetadataPaths"]!.AsArray());
-        var unread = session.ClaimSource("unread", "structured", [ExportSession.PhotoPath(ChildId)]);
-        Assert.NotNull(unread.ClaimId);
-        FinishSource(session, unread, Ok(new JsonObject()));
-        var later = session.ClaimSource("later", "structured", [ExportSession.PhotoPath(AltId)]);
-        FinishSource(session, later, Unavailable());
-        session.BeginSource503Recovery("User also authorized future first-attempt 503 recovery.");
-        FinishSource(session, session.ClaimSource("later-retry", "structured", [ExportSession.PhotoPath(AltId)]), Ok(new JsonObject()));
-        failed = session.SourceStatus().Reads.Single(read => read.Target == ExportSession.PhotoPath(RootId));
-        Assert.Equal("failed", failed.State);
-        Assert.Equal(retainedAttempts, JsonSerializer.Serialize(failed.Attempts, ExportSession.Json));
-        Assert.Contains("Source collection is incomplete", Assert.Throws<InvalidOperationException>(() => session.Publish()).Message);
-        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
-    }
-
-    [Fact]
-    public async Task Explicit_503_recovery_records_later_failures_without_resetting_successes_or_retry_limits()
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        JsonObject Unavailable() => new()
-        {
-            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
-        };
-        var first = session.ClaimSource("first", "profile", [RootId]);
-        FinishSource(session, first, Unavailable());
-        session.BeginSourceRecovery();
-        FinishSource(session, session.ClaimSource("first-retry", "profile", [RootId]), Ok(new JsonObject()));
-        var savedSuccess = session.SourceStatus().Reads.Single(read => read.Kind == "profile").Attempts[^1].ResultFile;
-        const string reason = "User explicitly authorized delayed 503 recovery in this invocation.";
-        foreach (var id in new[] { ChildId, AltId })
-        {
-            var claim = session.ClaimSource("later", "profile", [id]);
-            FinishSource(session, claim, Unavailable());
-            Assert.Null(session.ClaimSource("not-authorized", "profile", [id]).ClaimId);
-
-            var authorized = await RunCli("source-recover-503", path, reason);
-
-            Assert.Equal(0, authorized.ExitCode);
-            Assert.Empty(authorized.Error);
-            var ledger = JsonNode.Parse(authorized.Output)!;
-            Assert.True(ledger["recoveryConsumed"]!.GetValue<bool>());
-            var authorization = ledger["serviceRecoveries"]!.AsArray().Last()!;
-            Assert.Equal(reason, authorization["reason"]!.GetValue<string>());
-            var target = Assert.Single(authorization["targets"]!.AsArray())!;
-            Assert.Equal("profile", target["kind"]!.GetValue<string>());
-            Assert.Equal(id, target["target"]!.GetValue<string>());
-            Assert.Equal(claim.ClaimId, target["failedClaimId"]!.GetValue<Guid>());
-            Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == id).Attempts);
-            Assert.Equal(1, (await RunCli("source-recover-503", path, reason)).ExitCode);
-            var retry = session.ClaimSource("authorized-retry", "profile", [id]);
-            Assert.NotNull(retry.ClaimId);
-            FinishSource(session, retry, id == ChildId ? Ok(new JsonObject()) : Unavailable());
-        }
-
-        var status = session.SourceStatus();
-        var successful = status.Reads.Single(read => read.Kind == "profile" && read.Target == RootId);
-        Assert.Equal(2, successful.Attempts.Count);
-        Assert.Equal(savedSuccess, successful.Attempts[^1].ResultFile);
-        Assert.Equal("completed", successful.State);
-        Assert.Equal(2, JsonNode.Parse((await RunCli("source-status", path)).Output)!["serviceRecoveries"]!.AsArray().Count);
-        Assert.Throws<InvalidOperationException>(() => session.BeginSourceRecovery());
-        var refused = await RunCli("source-recover-503", path, reason);
-        Assert.Equal(1, refused.ExitCode);
-        Assert.Empty(refused.Output);
-        Assert.Null(session.ClaimSource("third-attempt", "profile", [AltId]).ClaimId);
-        Assert.Null(session.ClaimSource("queued", "profile", [AccountId]).ClaimId);
-        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == AltId).Attempts.Count);
-    }
-
-    [Fact]
-    public async Task Explicit_partial_publication_omits_only_the_named_person_and_unknown_photo_without_clearing_source_failures()
-    {
-        var path = SeedPartialExport();
-        string originalFailures;
-        using (var session = ExportSession.Open(path))
-            originalFailures = JsonSerializer.Serialize(session.SourceStatus().Reads.Where(read => read.State == "failed"),
-                ExportSession.Json);
-        var strict = await RunCli("publish", path);
-        Assert.Equal(1, strict.ExitCode);
-        Assert.Contains("Source collection is incomplete", strict.Error);
-        const string reason = "User explicitly approved omitting the failed leaf Person and leaving the other Person's photo unchanged.";
-
-        var result = await RunCli("publish-partial", path, ChildId, AltId, reason);
-
-        Assert.True(result.ExitCode == 0, result.Error);
-        var output = JsonNode.Parse(result.Output)!;
-        Assert.True(output["partial"]!.GetValue<bool>());
-        Assert.Equal(2, output["people"]!.GetValue<int>());
-        Assert.Equal(1, output["photos"]!.GetValue<int>());
-        var import = output["importPath"]!.GetValue<string>();
-        var directory = Path.GetDirectoryName(import)!;
-        Assert.False(Directory.Exists(path));
-        var people = JsonNode.Parse(File.ReadAllText(import))!["people"]!.AsArray();
-        Assert.DoesNotContain(people, person => person!["email"]!.GetValue<string>() == "person2@example.test");
-        var photoPerson = people.Single(person => person!["email"]!.GetValue<string>() == "alternate@example.test")!.AsObject();
-        Assert.False(photoPerson.ContainsKey("photoPath"));
-        Assert.Equal("person1@example.test", photoPerson["managerEmail"]!.GetValue<string>());
-        var rootPerson = people.Single(person => person!["email"]!.GetValue<string>() == "person1@example.test")!;
-        Assert.Equal(Png, File.ReadAllBytes(Path.Combine(directory, rootPerson["photoPath"]!.GetValue<string>())));
-        var ledger = JsonSerializer.Deserialize<ExportSession.SourceLedger>(
-            File.ReadAllText(Path.Combine(directory, "source-coordination.json")), ExportSession.Json)!;
-        Assert.Equal(originalFailures, JsonSerializer.Serialize(ledger.Reads.Where(read => read.State == "failed"), ExportSession.Json));
-        var approval = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "partial-publication.json")))!;
-        Assert.Equal(ChildId, approval["omittedPersonId"]!.GetValue<string>());
-        Assert.Equal(AltId, approval["omittedPhotoPersonId"]!.GetValue<string>());
-        Assert.Equal(reason, approval["reason"]!.GetValue<string>());
-        Assert.Equal(2, approval["sourceExceptions"]!.AsArray().Count);
-        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "coverage.json")))!;
-        Assert.Equal(3, coverage["requestedPeople"]!.GetValue<int>());
-        Assert.Equal(2, coverage["people"]!.GetValue<int>());
-        Assert.Equal(2, coverage["subtreeCount"]!.GetValue<int>());
-        Assert.Equal(0, coverage["ancestorCount"]!.GetValue<int>());
-        Assert.Equal(1, coverage["unresolvedPhotos"]!.GetValue<int>());
-        Assert.Equal(0, coverage["confirmedAbsentPhotos"]!.GetValue<int>());
-        Assert.NotNull(coverage["partialPublication"]);
-        Assert.DoesNotContain("person2@example.test", coverage["directoryUserIds"]!.AsObject().Select(pair => pair.Key));
-        Assert.True(JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "validation.json")))!["partial"]!.GetValue<bool>());
-        var warnings = File.ReadAllText(Path.Combine(directory, "review-required.json"));
-        Assert.Contains("omitted Person", warnings);
-        Assert.Contains("photo unresolved", warnings);
-    }
-
-    [Theory]
-    [InlineData("blank-reason")]
-    [InlineData("root")]
-    [InlineData("referenced-person")]
-    [InlineData("wrong-photo")]
-    [InlineData("swapped")]
-    [InlineData("extra-failure")]
-    [InlineData("denial")]
-    [InlineData("active")]
-    [InlineData("photo-bytes")]
-    [InlineData("profile-input")]
-    public async Task Partial_publication_cannot_bypass_scope_dependencies_or_other_validation(string scenario)
-    {
-        var path = SeedPartialExport(omittedHasReport: scenario == "referenced-person");
-        using (var session = ExportSession.Open(path))
-        {
-            if (scenario is "extra-failure" or "denial")
-                FinishSource(session, session.ClaimSource("other", "profile", [AccountId]),
-                    new JsonObject { ["statusCode"] = scenario == "denial" ? 403 : 503 });
-            else if (scenario == "active")
-                Assert.NotNull(session.ClaimSource("active", "profile", [AccountId]).ClaimId);
-            else if (scenario == "photo-bytes")
-                File.WriteAllBytes(Path.Combine(path, "photos", RootId + ".png"), [1, 2, 3]);
-            else if (scenario == "profile-input")
-            {
-                var person = session.Plan().People.Single(person => person.Id == RootId);
-                var input = ProfileInput(session, person);
-                var observation = JsonNode.Parse(File.ReadAllText(input))!;
-                observation["error"] = "Fictitious unresolved observation input.";
-                Save(input, observation);
-                Assert.Throws<InvalidOperationException>(() => session.Profile(RootId, input));
-            }
-        }
-        var omittedPerson = scenario == "root" ? RootId : scenario == "swapped" ? AltId : ChildId;
-        var omittedPhoto = scenario == "wrong-photo" ? RootId : scenario == "swapped" ? ChildId : AltId;
-        var reason = scenario == "blank-reason" ? "" : "User approved only the two named omissions.";
-
-        var result = await RunCli("publish-partial", path, omittedPerson, omittedPhoto, reason);
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.False(File.Exists(Path.Combine(path, "updates.json")));
-        Assert.False(File.Exists(Path.Combine(path, ".sealed")));
-        using (var session = ExportSession.Open(path))
-        {
-            var ledger = session.SourceStatus();
-            Assert.Equal(2, ledger.Reads.Single(read => read.Kind == "profile" && read.Target == ChildId).Attempts.Count);
-            Assert.Equal("failed", ledger.Reads.Single(read => read.Target == ExportSession.PhotoPath(AltId)).State);
-            if (scenario is "photo-bytes" or "profile-input") Assert.Single(ledger.PartialPublications);
-            else Assert.Empty(ledger.PartialPublications);
-        }
-        var strict = await RunCli("publish", path);
-        Assert.Equal(1, strict.ExitCode);
-        Assert.Contains("Source collection is incomplete", strict.Error);
-    }
-
-    [Fact]
-    public async Task Partial_publication_requires_an_exclusive_run_lease_before_recording_approval()
-    {
-        var path = SeedPartialExport();
-        using var worker = ExportSession.Open(path);
-
-        var result = await RunCli("publish-partial", path, ChildId, AltId, "User approved the two named omissions.");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains(".lease", result.Error);
-        Assert.Empty(worker.SourceStatus().PartialPublications);
-    }
-
-    private string SeedPartialExport(bool omittedHasReport = false)
-    {
-        var path = Seed();
-        using var session = ExportSession.Open(path);
-        var reports = new JsonArray(User(ChildId, "Fictitious omitted Person"));
-        if (!omittedHasReport) reports.Add(User(AltId, "Fictitious photo Person"));
-        Ingest(session,
-            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = reports })),
-            (ExportSession.UserPath(ChildId), Ok(User(ChildId, "Fictitious omitted Person"))),
-            (ExportSession.ReportsPath(ChildId), omittedHasReport
-                ? Ok(new JsonObject { ["value"] = new JsonArray(User(AltId, "Fictitious photo Person")) }) : Empty()),
-            (ExportSession.UserPath(AltId), Ok(User(AltId, "Fictitious photo Person"))),
-            (ExportSession.ReportsPath(AltId), Empty()),
-            (ExportSession.PhotoPath(RootId), Metadata("fictitious-photo")),
-            (ExportSession.PhotoPath(ChildId), Missing("ImageNotFound")));
-        foreach (var person in session.Plan().People.Where(person => person.Id != ChildId))
-            session.Profile(person.Id, ProfileInput(session, person));
-        session.Photo(RootId, Blob());
-        CompleteSource(session, "photo", $"/users/{RootId}/photo/$value", Ok(new JsonObject()));
-        JsonObject Unavailable() => new()
-        {
-            ["statusCode"] = 503, ["error"] = new JsonObject { ["code"] = "ErrorStoreServerUnavailable" }
-        };
-        Ingest(session, (ExportSession.PhotoPath(AltId), Unavailable()));
-        session.BeginSourceRecovery();
-        Ingest(session, (ExportSession.PhotoPath(AltId), Unavailable()));
-        session.Defer503PhotoMetadata("User requested completing unrelated unread collection.");
-        JsonObject ProfileFailure() => new() { ["error"] = "Profile details couldn't be retrieved for this person right now." };
-        FinishSource(session, session.ClaimSource("profile", "profile", [ChildId]), ProfileFailure());
-        session.BeginProfileOpenRecovery(ChildId, "User approved one retry.");
-        FinishSource(session, session.ClaimSource("profile-retry", "profile", [ChildId]), ProfileFailure());
-        session.DeferProfile(ChildId, "User requested completing unrelated unread profiles.");
-        return path;
-    }
-
     private string Seed(string office = "NORTH/001.2", string account = AccountId)
     {
         var path = NewRun(account);

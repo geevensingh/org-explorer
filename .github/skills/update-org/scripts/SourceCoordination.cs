@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -7,27 +8,38 @@ namespace OrgExplorer.OrgExport;
 
 public sealed partial class ExportSession
 {
+    private static readonly string[] SourceDenialCodes =
+    [
+        "Forbidden", "Unauthorized", "AccessDenied", "ErrorAccessDenied", "Authorization_RequestDenied",
+        "InvalidAuthenticationToken", "AuthenticationRequired", "AuthenticationFailed", "PolicyDenied",
+        "BlockedByPolicy", "PolicyViolation", "InsufficientPrivileges", "insufficient_claims",
+        "ConsentRequired", "PermissionDenied"
+    ];
     public sealed record SourceAttempt(Guid ClaimId, string Worker, DateTimeOffset StartedAt,
-        DateTimeOffset? FinishedAt, string? Error, bool Retryable, DateTimeOffset? RetryAt, string? ResultFile = null);
+        DateTimeOffset? FinishedAt, string? Error, bool Retryable, DateTimeOffset? RetryAt, string? ResultFile = null,
+        string? CaptureTicket = null, string? CaptureTicketSha256 = null, string? CaptureFailureFile = null);
     public sealed record SourceRead(string Kind, string Target, string State, List<SourceAttempt> Attempts,
-        bool RecoveryEligible = false);
+        bool RecoveryEligible = false, SourceRecoveryAuthorization? UnclassifiedRecovery = null,
+        SourceRecoveryAuthorization? NotFoundRecovery = null, SourceRecoveryAuthorization? PhotoOmission = null,
+        SourceUnavailability? Unavailable = null)
+    {
+        public bool AccountedFor => State == "completed" || IsPhotoOmitted(this) || IsEnrichmentUnavailable(this);
+        public SourceObservationRefresh[] PreviousObservations { get; init; } = [];
+    }
+    public sealed record SourceObservationRefresh(DateTimeOffset RecordedAt, DateTimeOffset RequiredAfter, string Reason,
+        SourceAttempt[] Attempts, SourceRecoveryAuthorization? UnclassifiedRecovery, SourceRecoveryAuthorization? NotFoundRecovery);
+    public sealed record SourceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason);
+    public sealed record SourceUnavailability(DateTimeOffset RecordedAt, string Reason);
+    public sealed record SourceErrorRecoveryAuthorization(string Kind, string Error, DateTimeOffset AuthorizedAt, string Reason);
     public sealed record SourceLedger(Guid BatchId, List<SourceRead> Reads)
     {
         public bool RecoveryConsumed { get; set; }
+        public SourceRecoveryAuthorization? PerReadRecovery { get; set; }
+        public SourceRecoveryAuthorization? BestEffortEnrichment { get; set; }
+        public SourceErrorRecoveryAuthorization? MatchingErrorRecovery { get; set; }
+        public List<SourceErrorRecoveryAuthorization> AdditionalMatchingErrorRecoveries { get; init; } = [];
         public string? StopReason { get; set; }
-        public List<ServiceRecoveryAuthorization> ServiceRecoveries { get; set; } = [];
-        public List<MetadataDeferral> MetadataDeferrals { get; set; } = [];
-        public List<ProfileDeferral> ProfileDeferrals { get; set; } = [];
-        public List<PhotoAbsenceConfirmation> PhotoAbsenceConfirmations { get; set; } = [];
-        public List<PartialPublicationApproval> PartialPublications { get; set; } = [];
     }
-    public sealed record ServiceRecoveryTarget(string Kind, string Target, Guid FailedClaimId);
-    public sealed record ServiceRecoveryAuthorization(DateTimeOffset AuthorizedAt, string Reason, ServiceRecoveryTarget[] Targets);
-    public sealed record MetadataDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
-    public sealed record ProfileDeferral(DateTimeOffset RecordedAt, string Reason, ServiceRecoveryTarget[] Targets);
-    public sealed record PhotoAbsenceConfirmation(DateTimeOffset ConfirmedAt, string Reason, string Target, Guid SourceClaimId);
-    public sealed record PartialPublicationApproval(Guid ApprovalId, Guid BatchId, DateTimeOffset AuthorizedAt,
-        string Reason, string OmittedPersonId, string OmittedPhotoPersonId, ServiceRecoveryTarget[] SourceExceptions);
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
     public sealed record SourceResult(string Target, JsonObject Response);
@@ -58,22 +70,23 @@ public sealed partial class ExportSession
                 if (!ledger.Reads.Any(read => read.Kind == kind && read.Target == target))
                     ledger.Reads.Add(new(kind, target, "deferred", []));
             var pending = ledger.Reads.Where(read => read.Kind == kind && targets.Contains(read.Target)
-                && read.State != "completed").ToArray();
+                && !read.AccountedFor).ToArray();
             var now = sourceClock.GetUtcNow();
-            var retryAt = ledger.Reads.SelectMany(read => read.Attempts).Max(attempt => attempt.RetryAt);
+            var retryAt = ledger.Reads.SelectMany(SourceAttempts).Max(attempt => attempt.RetryAt);
             SourceClaim Blocked(string reason) => new(null, kind, worker, pending.Select(read => read.Target).ToArray(),
                 reason, retryAt > now ? retryAt : null);
             if (ledger.StopReason is not null) return Blocked(ledger.StopReason);
-            if (pending.Length == 0) return Blocked("These source reads are already completed.");
-            if (pending.Any(read => IsDeferredMetadata(ledger, read)))
-                return Blocked("Deferred photo metadata remains unresolved; its retry limit cannot reset.");
-            if (pending.Any(read => IsDeferredProfile(ledger, read)))
-                return Blocked("Deferred profile evidence remains unresolved; its retry limit cannot reset.");
+            if (pending.Length == 0) return Blocked("These source reads are already completed or explicitly accounted for.");
             var active = ledger.Reads.Where(read => read.State == "active").ToArray();
             if (active.Any(read => read.Attempts[^1].Worker == worker) || pending.Any(read => read.State == "active"))
                 return Blocked("A requested read or this worker already has an active claim.");
-            if (ledger.Reads.Any(read => !IsDeferredSource(ledger, read)
-                && (read.State == "failed" || read.RecoveryEligible && read.State != "completed")))
+            if (ledger.BestEffortEnrichment is not null)
+            {
+                if (pending.Any(read => read.Attempts.Count >= 2
+                    || read.State == "failed" && !read.RecoveryEligible))
+                    return Blocked("A requested read is exhausted or not eligible for recovery; unrelated reads may continue.");
+            }
+            else if (ledger.Reads.Any(read => !read.AccountedFor && (read.State == "failed" || read.RecoveryEligible)))
             {
                 if (!ledger.RecoveryConsumed)
                     return Blocked("Source reads are paused for the coordinator's invocation-wide recovery decision.");
@@ -91,6 +104,37 @@ public sealed partial class ExportSession
                 read.Attempts.Add(new(claimId, worker, now, null, null, false, null));
             }
             return new SourceClaim(claimId, kind, worker, pending.Select(read => read.Target).ToArray(), null);
+        });
+    }
+
+    public SourceObservationRefresh RefreshManagerConfirmation(string id, string reason)
+    {
+        Require(Guid.TryParse(id, out _), "Use the exact directory identity requiring fresh Manager confirmation.");
+        Require(!string.IsNullOrWhiteSpace(reason), "Record why newer reporting evidence requires Manager recollection.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            var request = Plan().ManagerRefreshes.SingleOrDefault(request => request.DirectoryId == id)
+                ?? throw new InvalidOperationException("No newer conflicting reporting evidence requires this Manager refresh.");
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "structured" && read.Target == request.Target);
+            Require(read is not null && read.State == "completed" && read.Attempts.Count > 0
+                && read.Attempts.All(attempt => attempt.FinishedAt is not null)
+                && read.Attempts[^1].Error is null && read.Attempts[^1].ResultFile is not null,
+                "Refresh only a completed Manager observation; outstanding reads retain their existing attempt budget.");
+            var completed = read!;
+            Require(completed.PreviousObservations.Length == 0
+                || request.RequiredAfter > completed.PreviousObservations[^1].RequiredAfter,
+                "A Manager refresh requires strictly newer conflicting reporting evidence.");
+            var refresh = new SourceObservationRefresh(sourceClock.GetUtcNow(), request.RequiredAfter, reason,
+                completed.Attempts.ToArray(), completed.UnclassifiedRecovery, completed.NotFoundRecovery);
+            ledger.Reads[ledger.Reads.IndexOf(completed)] = completed with
+            {
+                State = "deferred", Attempts = [], RecoveryEligible = false,
+                UnclassifiedRecovery = null, NotFoundRecovery = null,
+                PreviousObservations = [.. completed.PreviousObservations, refresh]
+            };
+            complete = null;
+            return refresh;
         });
     }
 
@@ -114,12 +158,18 @@ public sealed partial class ExportSession
                 var outcome = SourceOutcome(read.Kind, read.Target, response);
                 if (outcome.Denied)
                     ledger.StopReason = "Source authorization/access/policy denial stops this invocation: " + outcome.Error;
+                else if (outcome.InvalidDelay && ledger.BestEffortEnrichment is not null)
+                    ledger.StopReason = "The returned source retry delay cannot be honored: " + outcome.Error;
                 read.Attempts[^1] = read.Attempts[^1] with
                 {
                     FinishedAt = sourceClock.GetUtcNow(), Error = outcome.Error,
                     Retryable = outcome.Retryable, RetryAt = outcome.RetryAt, ResultFile = resultFile
                 };
-                ledger.Reads[ledger.Reads.IndexOf(read)] = read with { State = outcome.Error is null ? "completed" : "failed" };
+                var finished = read with { State = outcome.Error is null ? "completed" : "failed", RecoveryEligible = false };
+                var retryable = outcome.Retryable
+                    || read.Kind == "profile" && outcome.Unclassified && KnownProfileFailure(response)
+                    || read.Kind == "photo" && outcome.NotFound && HasSuccessfulPhotoMetadata(ledger, read.Target);
+                ledger.Reads[ledger.Reads.IndexOf(read)] = SettleBestEffortRead(ledger, finished, retryable);
             }
             return new SourceCompletion(ledger.BatchId, claimId,
                 ledger.Reads.Where(read => read.Attempts.LastOrDefault()?.ClaimId == claimId).ToArray(),
@@ -127,13 +177,180 @@ public sealed partial class ExportSession
         });
     }
 
+    public SourceRecoveryAuthorization AuthorizeBestEffortEnrichment(string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the owner's best-effort enrichment authorization.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle active claims before changing collection policy.");
+            Require(ledger.BestEffortEnrichment is null, "Best-effort enrichment is already authorized for this run.");
+            Require(ledger.Reads.All(read => read.State != "failed"),
+                "Enable best-effort collection before failed reads; retain the existing recovery path for an earlier strict run.");
+            return ledger.BestEffortEnrichment = new(sourceClock.GetUtcNow(), reason);
+        });
+    }
+
+    private SourceRead SettleBestEffortRead(SourceLedger ledger, SourceRead read, bool retryable)
+    {
+        if (ledger.BestEffortEnrichment is null || ledger.StopReason is not null || read.State != "failed") return read;
+        if (read.Attempts.Count == 1 && retryable) return read with { RecoveryEligible = true };
+        if (!IsOptionalSource(read) || read.Attempts.Any(attempt => attempt.FinishedAt is null
+            || attempt.Error is null || attempt.ResultFile is null && attempt.CaptureFailureFile is null)) return read;
+        return read with
+        {
+            State = "unavailable", RecoveryEligible = false,
+            Unavailable = new(sourceClock.GetUtcNow(), read.Attempts[^1].Error!)
+        };
+    }
+
+    private static bool IsOptionalSource(SourceRead read)
+        => read.Kind is "profile" or "photo" || read.Kind == "structured"
+            && read.Target.Split('?')[0].Split('/') is ["", "users", var id, "photo"] && Guid.TryParse(id, out _);
+
+    private static bool IsEnrichmentUnavailable(SourceRead read)
+        => IsOptionalSource(read) && read.State == "unavailable" && read.Unavailable is { } unavailable
+            && !string.IsNullOrWhiteSpace(unavailable.Reason) && read.Attempts.Count is >= 1 and <= 2
+            && read.Attempts.All(attempt => attempt.FinishedAt is not null && attempt.Error is not null
+                && (attempt.ResultFile is not null || attempt.CaptureFailureFile is not null
+                    && attempt.CaptureTicket is not null && attempt.CaptureTicketSha256 is not null));
+
+    private bool HasSuccessfulPhotoMetadata(SourceLedger ledger, string target)
+    {
+        var metadata = ledger.Reads.SingleOrDefault(read => read.Kind == "structured"
+            && read.Target == PhotoPath(target.Split('/')[2]) && read.State == "completed");
+        return metadata is not null && SavedSourceResponse(metadata, metadata.Attempts[^1])["statusCode"]?.GetValue<int>() == 200;
+    }
+
+    private static bool KnownProfileFailure(JsonObject response)
+    {
+        string[] approved =
+        [
+            "Open '' Failure: Unable to open, Exception Caught.",
+            "Open '' Failure: Unable to open, Exception: Status code is .",
+            "Profile details couldn't be retrieved for this person right now."
+        ];
+        var errors = SourceErrorKeys(response);
+        return errors.Length > 0 && errors.All(error => approved.Any(message => error == JsonSerializer.Serialize(message)));
+    }
+
+    public SourceRecoveryAuthorization AuthorizePerReadSourceRecovery(string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit per-read recovery authorization.");
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source claims before changing recovery policy.");
+            Require(ledger.PerReadRecovery is null, "Per-read source recovery is already authorized for this run.");
+            return ledger.PerReadRecovery = new(sourceClock.GetUtcNow(), reason);
+        });
+    }
+
+    public SourceRecoveryAuthorization AuthorizeUnclassifiedSourceRecovery(string kind, string target, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to retry this unclassified read.");
+        target = SourceTarget(kind, target);
+        return WithSources(ledger =>
+        {
+            var read = RequireUnclassifiedSourceRead(ledger, kind, target);
+            var authorization = new SourceRecoveryAuthorization(sourceClock.GetUtcNow(), reason);
+            ledger.Reads[ledger.Reads.IndexOf(read)] = read with
+            {
+                RecoveryEligible = true, UnclassifiedRecovery = authorization
+            };
+            ledger.RecoveryConsumed = true;
+            return authorization;
+        });
+    }
+
+    public SourceErrorRecoveryAuthorization AuthorizeMatchingErrorSourceRecovery(string kind, string target, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to retry matching failures in this run.");
+        target = SourceTarget(kind, target);
+        return WithSources(ledger =>
+        {
+            var read = RequireUnclassifiedSourceRead(ledger, kind, target);
+            var error = read.Attempts[0].Error
+                ?? throw new InvalidOperationException("The original source error is required.");
+            Require(!MatchingErrorAuthorizations(ledger).Any(approval => MatchesSourceErrorRecovery(ledger, read, approval)),
+                "Matching-error source recovery is already authorized for this error.");
+            var authorization = new SourceErrorRecoveryAuthorization(kind, error, sourceClock.GetUtcNow(), reason);
+            if (ledger.MatchingErrorRecovery is null) ledger.MatchingErrorRecovery = authorization;
+            else ledger.AdditionalMatchingErrorRecoveries.Add(authorization);
+            return authorization;
+        });
+    }
+
+    public SourceRecoveryAuthorization AuthorizeNotFoundSourceRecovery(string kind, string target, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to retry this not-found read.");
+        target = SourceTarget(kind, target);
+        return WithSources(ledger =>
+        {
+            var read = RequireFailedSourceRead(ledger, kind, target);
+            Require(SourceOutcome(kind, target, SavedSourceResponse(read)).NotFound,
+                "Only a failed 404 read can receive this authorization; denial and retry-delay rules still apply.");
+            var authorization = new SourceRecoveryAuthorization(sourceClock.GetUtcNow(), reason);
+            ledger.Reads[ledger.Reads.IndexOf(read)] = read with
+            {
+                RecoveryEligible = true, NotFoundRecovery = authorization
+            };
+            ledger.RecoveryConsumed = true;
+            return authorization;
+        });
+    }
+
+    public SourceRecoveryAuthorization AuthorizePhotoOmission(string id, string reason)
+    {
+        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to omit this photo.");
+        Require(Guid.TryParse(id, out _), "Use the retained person's exact directory ID.");
+        id = Guid.Parse(id).ToString();
+        var target = $"/users/{id}/photo/$value";
+        return WithSources(ledger =>
+        {
+            Require(ledger.StopReason is null, ledger.StopReason ?? "");
+            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source claims before omitting a photo.");
+            Success(PhotoMetadata(id), "Fresh photo metadata");
+            RequireCompletedSource(ledger, "structured", PhotoPath(id));
+            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "photo" && read.Target == target)
+                ?? throw new InvalidOperationException("The failed photo download is not recorded in this run.");
+            Require(read.State == "failed" && read.Attempts.Count == 2 && read.PhotoOmission is null
+                && read.Attempts.All(attempt => attempt.FinishedAt is not null && attempt.Error is not null
+                    && attempt.ResultFile is not null),
+                "Omit only a settled, exhausted photo download with no previous omission authorization.");
+            foreach (var attempt in read.Attempts)
+            {
+                var result = Read<SourceResult[]>(Within(attempt.ResultFile!)).Single(result => result.Target == target);
+                var outcome = SourceOutcome("photo", target, result.Response);
+                Require(outcome.Error is not null && !outcome.Denied, "A successful or denied source read cannot be omitted.");
+            }
+            var authorization = new SourceRecoveryAuthorization(sourceClock.GetUtcNow(), reason);
+            ledger.Reads[ledger.Reads.IndexOf(read)] = read with { PhotoOmission = authorization };
+            return authorization;
+        });
+    }
+
     public SourceLedger BeginSourceRecovery() => WithSources(ledger =>
     {
         Require(ledger.StopReason is null, ledger.StopReason ?? "");
-        Require(!ledger.RecoveryConsumed, "The invocation-wide failed-read recovery pass is already consumed.");
         Require(ledger.Reads.All(read => read.State != "active"), "Stop dispatch and settle or interrupt all active workers first.");
+        foreach (var read in ledger.Reads.Where(read => read.State == "failed" && read.Attempts.Count > 0
+            && read.Attempts[^1].ResultFile is not null))
+        {
+            var outcome = SourceOutcome(read.Kind, read.Target, SavedSourceResponse(read, read.Attempts.Count - 1));
+            if (!outcome.Denied) continue;
+            ledger.StopReason = "Source authorization/access/policy denial stops this invocation: " + outcome.Error;
+            return ledger;
+        }
+        var transientRecoveryAllowed = !ledger.RecoveryConsumed || ledger.PerReadRecovery is not null
+            || ledger.BestEffortEnrichment is not null;
+        var matching = MatchingErrorAuthorizations(ledger).ToArray();
+        Require(transientRecoveryAllowed || matching.Length > 0,
+            "The invocation-wide failed-read recovery pass is already consumed.");
         var eligible = ledger.Reads.Where(read => read.State == "failed"
-            && read.Attempts.Count == 1 && read.Attempts[^1].Retryable).ToArray();
+            && !read.RecoveryEligible && read.Attempts.Count == 1
+            && (transientRecoveryAllowed && CanRetrySourceFailure(read)
+                || matching.Any(approval => MatchesSourceErrorRecovery(ledger, read, approval)))).ToArray();
         Require(eligible.Length > 0, "There are no eligible failed source reads to recover.");
         ledger.RecoveryConsumed = true;
         foreach (var read in eligible)
@@ -141,178 +358,71 @@ public sealed partial class ExportSession
         return ledger;
     });
 
-    public SourceLedger BeginSource503Recovery(string reason)
+    private SourceRead RequireUnclassifiedSourceRead(SourceLedger ledger, string kind, string target)
     {
-        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization for additional HTTP 503 recovery.");
-        return WithSources(ledger =>
-        {
-            Require(ledger.StopReason is null, ledger.StopReason ?? "");
-            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
-            Require(ledger.Reads.All(read => read.State != "active"), "Stop dispatch and settle or interrupt all active workers first.");
-            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredSource(ledger, read)).ToArray();
-            Require(failures.Length > 0 && failures.All(read => read.Attempts.Count == 1
-                && read.Attempts[^1].Retryable && !read.RecoveryEligible),
-                "Only first-attempt failures can receive additional HTTP 503 recovery; existing recovery cannot reset.");
-            foreach (var read in failures) Require503SourceResult(read);
-            ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason, failures.Select(read =>
-                new ServiceRecoveryTarget(read.Kind, read.Target, read.Attempts[^1].ClaimId)).ToArray()));
-            foreach (var read in failures)
-                ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
-            return ledger;
-        });
+        var read = RequireFailedSourceRead(ledger, kind, target);
+        Require(IsUnclassifiedSourceFailure(read),
+            "Only a failure without a source status or error code can receive this authorization; denial and retry-delay rules still apply.");
+        return read;
     }
 
-    public SourceLedger Defer503PhotoMetadata(string reason)
+    private static SourceRead RequireFailedSourceRead(SourceLedger ledger, string kind, string target)
     {
-        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit request to continue unread entries with failed metadata unresolved.");
-        return WithSources(ledger =>
-        {
-            Require(ledger.StopReason is null, ledger.StopReason ?? "");
-            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before deferring metadata.");
-            var failures = ledger.Reads.Where(read => read.State == "failed" && !IsDeferredSource(ledger, read)).ToArray();
-            Require(failures.Length > 0 && failures.All(read => read.Kind == "structured"
-                && read.Target.Split('?')[0].EndsWith("/photo", StringComparison.Ordinal)
-                && read.Attempts.Count == 2 && read.Attempts[^1].Retryable),
-                "Only twice-failed HTTP 503 photo metadata can be deferred; other failures remain blockers.");
-            foreach (var read in failures) Require503SourceResult(read);
-            ledger.MetadataDeferrals.Add(new(sourceClock.GetUtcNow(), reason, failures.Select(read =>
-                new ServiceRecoveryTarget(read.Kind, read.Target, read.Attempts[^1].ClaimId)).ToArray()));
-            return ledger;
-        });
+        Require(ledger.StopReason is null, ledger.StopReason ?? "");
+        Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source claims before authorizing recovery.");
+        var read = ledger.Reads.SingleOrDefault(read => read.Kind == kind && read.Target == target)
+            ?? throw new InvalidOperationException("The requested source read is not recorded in this run.");
+        Require(read.State == "failed" && read.Attempts.Count == 1 && !read.RecoveryEligible
+            && read.UnclassifiedRecovery is null && read.NotFoundRecovery is null,
+            "Authorize only an unapproved failed read's second attempt.");
+        return read;
     }
 
-    public SourceLedger BeginProfileOpenRecovery(string id, string reason)
+    private bool IsUnclassifiedSourceFailure(SourceRead read)
+        => SourceOutcome(read.Kind, read.Target, SavedSourceResponse(read)).Unclassified;
+
+    private bool CanRetrySourceFailure(SourceRead read)
+        => read.Attempts[0].ResultFile is null ? read.Attempts[0].Retryable
+            : SourceOutcome(read.Kind, read.Target, SavedSourceResponse(read)).Retryable;
+
+    private static IEnumerable<SourceErrorRecoveryAuthorization> MatchingErrorAuthorizations(SourceLedger ledger)
     {
-        id = SourceTarget("profile", id);
-        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to retry this profile-read failure.");
-        return WithSources(ledger =>
-        {
-            Require(ledger.StopReason is null, ledger.StopReason ?? "");
-            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
-            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before profile-read recovery.");
-            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id)
-                ?? throw new InvalidOperationException("The authorized profile lookup is not in this run.");
-            Require(read.State == "failed" && read.Attempts.Count == 1 && !read.RecoveryEligible,
-                "Only the authorized first-attempt profile-read failure can receive one retry.");
-            RequireProfileReadFailure(read.Attempts[^1], read.Target);
-            ledger.ServiceRecoveries.Add(new(sourceClock.GetUtcNow(), reason,
-                [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
-            ledger.Reads[ledger.Reads.IndexOf(read)] = read with { RecoveryEligible = true };
-            return ledger;
-        });
+        if (ledger.MatchingErrorRecovery is { } first) yield return first;
+        foreach (var additional in ledger.AdditionalMatchingErrorRecoveries) yield return additional;
     }
 
-    public SourceLedger DeferProfile(string id, string reason)
+    private bool MatchesSourceErrorRecovery(SourceLedger ledger, SourceRead read, SourceErrorRecoveryAuthorization approval)
     {
-        id = SourceTarget("profile", id);
-        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit request to continue with this profile unresolved.");
-        Require(Complete().People.Any(person => person.Id == id), "Only a retained Person's profile can be deferred.");
-        return WithSources(ledger =>
-        {
-            Require(ledger.StopReason is null, ledger.StopReason ?? "");
-            Require(ledger.RecoveryConsumed, "Use the ordinary invocation-wide recovery pass first.");
-            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before deferring a profile.");
-            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id)
-                ?? throw new InvalidOperationException("The profile lookup is not in this run.");
-            Require(read.State == "failed" && read.Attempts.Count == 2 && !IsDeferredProfile(ledger, read),
-                "Only this twice-failed profile lookup can be deferred without another retry.");
-            var diagnostics = read.Attempts.Select(attempt => RequireProfileReadFailure(attempt, id)).ToArray();
-            Require(diagnostics[0] == diagnostics[1], "Both attempts must retain the same supported code-less profile diagnostic.");
-            ledger.ProfileDeferrals.Add(new(sourceClock.GetUtcNow(), reason,
-                [new(read.Kind, read.Target, read.Attempts[^1].ClaimId)]));
-            return ledger;
-        });
+        if (read.Kind != approval.Kind || !IsUnclassifiedSourceFailure(read)) return false;
+        if (read.Attempts[0].Error == approval.Error) return true;
+        var original = ledger.Reads.Where(candidate => candidate.Kind == approval.Kind)
+            .SelectMany(candidate => SourceAttempts(candidate).Select(attempt => (Read: candidate, Attempt: attempt)))
+            .FirstOrDefault(candidate => candidate.Attempt.Error == approval.Error);
+        var originalRead = original.Read
+            ?? throw new InvalidOperationException("The approved matching-error source evidence is missing.");
+        var originalResponse = SavedSourceResponse(originalRead, original.Attempt);
+        Require(SourceOutcome(originalRead.Kind, originalRead.Target, originalResponse).Unclassified,
+            "The approved source result must retain its unclassified failure.");
+        var errors = SourceErrorKeys(SavedSourceResponse(read));
+        return errors.Length > 0
+            && errors.SequenceEqual(SourceErrorKeys(originalResponse), StringComparer.Ordinal);
     }
 
-    public SourceLedger ConfirmPhotoAbsence(string id, string reason)
-    {
-        id = SourceTarget("profile", id);
-        Require(!string.IsNullOrWhiteSpace(reason), "Record the user's explicit authorization to accept binary ImageNotFound.");
-        Success(PhotoMetadata(id), "Photo metadata");
-        var target = $"/users/{id}/photo/$value";
-        return WithSources(ledger =>
-        {
-            Require(ledger.StopReason is null, ledger.StopReason ?? "");
-            Require(ledger.Reads.All(read => read.State != "active"), "Settle all active source calls before confirming photo absence.");
-            RequireCompletedSource(ledger, "structured", PhotoPath(id));
-            var read = ledger.Reads.SingleOrDefault(read => read.Kind == "photo" && read.Target == target)
-                ?? throw new InvalidOperationException("The binary photo lookup is not in this run.");
-            Require(read.State == "failed" && read.Attempts.Count is >= 1 and <= 2,
-                "Only a settled failed binary photo lookup can receive an absence confirmation.");
-            var resultFile = read.Attempts[^1].ResultFile
-                ?? throw new InvalidOperationException("Photo absence requires retained original source results.");
-            var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == target);
-            var objects = SourceObjects(result.Response).ToArray();
-            var codes = objects.Select(obj => SourceText(obj["code"])).Where(code => code.Length > 0).ToArray();
-            Require(SourceStatusCode(result.Response["statusCode"]) == 404
-                && objects.SelectMany(SourceStatuses).All(status => status == 404)
-                && codes.Length > 0 && codes.All(code => code == "ImageNotFound"),
-                "Only exact binary HTTP 404 ImageNotFound establishes absence; other failures remain blockers.");
-            ledger.PhotoAbsenceConfirmations.Add(new(sourceClock.GetUtcNow(), reason, target, read.Attempts[^1].ClaimId));
-            ledger.Reads[ledger.Reads.IndexOf(read)] = read with { State = "completed" };
-            return ledger;
-        });
-    }
+    private static string[] SourceErrorKeys(JsonObject response)
+        => SourceObjects(response).Select(obj => obj["error"]).OfType<JsonNode>()
+            .Select(error => error is JsonObject { Count: 1 } obj && obj["message"] is JsonValue message
+                && message.TryGetValue<string>(out _) ? message.ToJsonString() : error.ToJsonString())
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
-    private static bool HasConfirmedPhotoAbsence(SourceLedger ledger, string id)
-    {
-        var target = $"/users/{id}/photo/$value";
-        return ledger.PhotoAbsenceConfirmations.Any(confirmation => confirmation.Target == target
-            && ledger.Reads.Any(read => read.Kind == "photo" && read.Target == target && read.State == "completed"
-                && read.Attempts.LastOrDefault()?.ClaimId == confirmation.SourceClaimId));
-    }
+    private JsonObject SavedSourceResponse(SourceRead read, int attemptIndex = 0)
+        => SavedSourceResponse(read, read.Attempts[attemptIndex]);
 
-    private static bool IsDeferredMetadata(SourceLedger ledger, SourceRead read)
-        => read.State == "failed" && read.Attempts.Count == 2 && ledger.MetadataDeferrals.Any(deferral =>
-            deferral.Targets.Any(target => target.Kind == read.Kind && target.Target == read.Target
-                && target.FailedClaimId == read.Attempts[^1].ClaimId));
-
-    private static bool IsDeferredProfile(SourceLedger ledger, SourceRead read)
-        => read.Kind == "profile" && read.State == "failed" && read.Attempts.Count == 2
-            && ledger.ProfileDeferrals.Any(deferral => deferral.Targets.Any(target =>
-                target.Kind == read.Kind && target.Target == read.Target && target.FailedClaimId == read.Attempts[^1].ClaimId));
-
-    private static bool IsDeferredSource(SourceLedger ledger, SourceRead read)
-        => IsDeferredMetadata(ledger, read) || IsDeferredProfile(ledger, read);
-
-    private string RequireProfileReadFailure(SourceAttempt attempt, string target)
+    private JsonObject SavedSourceResponse(SourceRead read, SourceAttempt attempt)
     {
         var resultFile = attempt.ResultFile
-            ?? throw new InvalidOperationException("Profile-read handling requires retained original source results.");
-        var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == target);
-        var objects = SourceObjects(result.Response).ToArray();
-        var diagnostics = objects.SelectMany(obj => new[]
-            { ProfileReadDiagnostic(obj["message"]), ProfileReadDiagnostic(obj["error"]) })
-            .OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
-        Require(objects.SelectMany(SourceStatuses).All(status => status is >= 200 and < 300)
-            && objects.All(obj => SourceText(obj["code"]).Length == 0) && diagnostics.Length == 1,
-            "Only a supported unclassified profile-read failure qualifies; structured failures and denials remain blockers.");
-        return diagnostics[0];
-    }
-
-    private static string? ProfileReadDiagnostic(JsonNode? value)
-    {
-        string[] diagnostics =
-        [
-            "Open '' Failure: Unable to open, Exception Caught.",
-            "Profile details couldn't be retrieved for this person right now.",
-            "Open '' Failure: Unable to open, Exception: Status code is ."
-        ];
-        var text = SourceText(value).Trim();
-        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        return diagnostics.FirstOrDefault(diagnostic => text == diagnostic
-            || lines.Any(line => line.Trim() == "- **snippet:** " + diagnostic));
-    }
-
-    private void Require503SourceResult(SourceRead read)
-    {
-        var resultFile = read.Attempts[^1].ResultFile
-            ?? throw new InvalidOperationException("HTTP 503 handling requires retained original source results.");
-        var result = Read<SourceResult[]>(Within(resultFile)).Single(item => item.Target == read.Target);
-        var statuses = SourceObjects(result.Response).SelectMany(SourceStatuses)
-            .Where(status => status is < 200 or >= 300).ToArray();
-        Require(statuses.Length > 0 && statuses.All(status => status == 503),
-            "Additional handling is limited to HTTP 503; other source failures remain blockers.");
+            ?? throw new InvalidOperationException("The original source result is required to classify this failure.");
+        var result = Read<SourceResult[]>(Within(resultFile)).Single(result => result.Target == read.Target);
+        return result.Response;
     }
 
     public SourceLedger InterruptSource(Guid claimId, string reason)
@@ -334,19 +444,19 @@ public sealed partial class ExportSession
         });
     }
 
-    private (string? Error, bool Retryable, DateTimeOffset? RetryAt, bool Denied) SourceOutcome(string kind, string target, JsonObject response)
+    private (string? Error, bool Retryable, DateTimeOffset? RetryAt, bool Denied, bool Unclassified, bool NotFound, bool InvalidDelay) SourceOutcome(
+        string kind, string target, JsonObject response)
     {
         var objects = SourceObjects(response).ToArray();
         var codes = objects.Select(obj => SourceText(obj["code"])).Where(code => code.Length > 0).ToArray();
         var statuses = objects.SelectMany(SourceStatuses).ToArray();
         var denied = statuses.Any(status => status is 401 or 403) || codes.Any(code =>
-            new[] { "Forbidden", "Unauthorized", "AccessDenied", "ErrorAccessDenied", "Authorization_RequestDenied",
-                "InvalidAuthenticationToken", "AuthenticationRequired", "AuthenticationFailed", "PolicyDenied",
-                "BlockedByPolicy", "PolicyViolation", "InsufficientPrivileges", "insufficient_claims" }
-                .Contains(code, StringComparer.OrdinalIgnoreCase)
+            SourceDenialCodes.Contains(code, StringComparer.OrdinalIgnoreCase)
             || code.Contains("forbidden", StringComparison.OrdinalIgnoreCase)
             || code.Contains("denied", StringComparison.OrdinalIgnoreCase)
-            || code.StartsWith("Authentication", StringComparison.OrdinalIgnoreCase));
+            || code.StartsWith("Authentication", StringComparison.OrdinalIgnoreCase))
+            || objects.Any(obj => obj["error"] is JsonValue error && error.TryGetValue<string>(out var text) && SourceDenialText(text)
+                || obj["error"] is JsonObject detail && SourceDenialText(SourceText(detail["message"])));
         var transient = !denied && (statuses.Any(status => status is 408 or 429 or >= 500 and <= 599)
             || codes.Any(code => new[] { "TooManyRequests", "CircuitOpen", "ServiceUnavailable", "Timeout" }
                 .Contains(code, StringComparer.OrdinalIgnoreCase)));
@@ -358,7 +468,7 @@ public sealed partial class ExportSession
         if (expectedAbsence || !denied && !transient && SourceStatusCode(response["statusCode"]) == 200
             && statuses.All(status => status is >= 200 and < 300)
             && objects.All(obj => obj["error"] is null))
-            return (null, false, null, false);
+            return (null, false, null, false, false, false, false);
         var now = sourceClock.GetUtcNow();
         DateTimeOffset? retryAt = null;
         string? delayError = null;
@@ -392,34 +502,72 @@ public sealed partial class ExportSession
         }));
         if (error.Length == 0) error = "Source read failed without a structured source status or error.";
         if (delayError is not null) error += "; " + delayError;
-        return (error, transient && delayError is null, retryAt, denied);
+        var unclassified = !denied && !transient && delayError is null && codes.Length == 0
+            && statuses.All(status => status is >= 200 and < 300);
+        var notFound = !denied && !transient && delayError is null && statuses.Contains(404)
+            && statuses.All(status => status is >= 200 and < 300 or 404);
+        return (error, transient && delayError is null, retryAt, denied, unclassified, notFound, delayError is not null);
     }
 
-    private SourceLedger RequireSourcesComplete(PartialPublicationApproval? approval = null)
+    private SourceLedger RequireSourcesComplete()
     {
         var ledger = SourceStatus();
-        if (approval is not null)
-            Require(ledger.PartialPublications.Any(saved => saved.ApprovalId == approval.ApprovalId
-                && JsonSerializer.Serialize(saved, Json) == JsonSerializer.Serialize(approval, Json)),
-                "The exact partial-publication approval is missing from this run.");
-        RequireSourcesComplete(ledger, approval);
+        var unresolved = ledger.Reads.Where(read => !read.AccountedFor).ToArray();
+        Require(ledger.StopReason is null && unresolved.Length == 0, "Source collection is incomplete: " + ledger.StopReason + string.Join("; ",
+            unresolved.Select(read => $"{read.Kind} {read.Target}: {read.State}; {read.Attempts.LastOrDefault()?.Error}")));
+        foreach (var attempt in ledger.Reads.SelectMany(read => read.PreviousObservations).SelectMany(history => history.Attempts))
+        {
+            if (attempt.ResultFile is { } resultFile)
+                Require(File.Exists(Within(resultFile)), "Retained Manager source evidence is missing.");
+            else if (attempt.CaptureFailureFile is { } failureFile)
+                Require(File.Exists(Within(failureFile)), "Retained Manager capture diagnostics are missing.");
+            else
+                Require(attempt.FinishedAt is not null && !string.IsNullOrWhiteSpace(attempt.Error),
+                    "Retained Manager interruption diagnostics are missing.");
+        }
+        foreach (var read in ledger.Reads.Where(IsPhotoOmitted))
+            foreach (var attempt in read.Attempts)
+                Require(File.Exists(Within(attempt.ResultFile!)), "Omitted photo source evidence is missing.");
+        foreach (var read in ledger.Reads.Where(IsEnrichmentUnavailable))
+        {
+            Require(ledger.BestEffortEnrichment is not null, "Unavailable enrichment requires recorded collection policy.");
+            foreach (var attempt in read.Attempts)
+            {
+                if (attempt.ResultFile is { } resultFile)
+                {
+                    var result = Read<SourceResult[]>(Within(resultFile)).Single(result => result.Target == read.Target);
+                    var outcome = SourceOutcome(read.Kind, read.Target, result.Response);
+                    Require(outcome.Error is not null && !outcome.Denied && !outcome.InvalidDelay,
+                        "A successful, denied or invalid-delay source read cannot become unavailable enrichment.");
+                }
+                else
+                {
+                    var evidence = Read<JsonObject>(Within(attempt.CaptureFailureFile!));
+                    Require(evidence["claimId"]?.GetValue<Guid>() == attempt.ClaimId
+                        && evidence["ticket"]?.GetValue<string>() == attempt.CaptureTicket
+                        && Hash(File.ReadAllBytes(Within(attempt.CaptureTicket!))) == attempt.CaptureTicketSha256,
+                        "Unavailable capture diagnostics no longer match their source claim.");
+                    var outcome = CaptureFailureOutcome(read.Kind, read.Target, evidence["completion"] as JsonObject);
+                    Require(!outcome.Denied && !outcome.InvalidDelay,
+                        "Capture diagnostics containing denial or an invalid retry delay cannot become unavailable enrichment.");
+                }
+            }
+        }
         return ledger;
     }
 
-    private static void RequireSourcesComplete(SourceLedger ledger, PartialPublicationApproval? approval)
-    {
-        Require(approval is null || approval.BatchId == ledger.BatchId, "Partial-publication approval belongs to another run.");
-        var unresolved = ledger.Reads.Where(read => read.State != "completed"
-            && !(approval is not null && read.State == "failed" && read.Attempts.Count == 2
-                && approval.SourceExceptions.Any(target => target.Kind == read.Kind && target.Target == read.Target
-                    && target.FailedClaimId == read.Attempts[^1].ClaimId))).ToArray();
-        Require(ledger.StopReason is null && unresolved.Length == 0, "Source collection is incomplete: " + ledger.StopReason + string.Join("; ",
-            unresolved.Select(read => $"{read.Kind} {read.Target}: {read.State}; {read.Attempts.LastOrDefault()?.Error}")));
-    }
+    private static bool IsPhotoOmitted(SourceRead read)
+        => read.Kind == "photo" && read.State == "failed" && read.PhotoOmission is { } approval
+            && !string.IsNullOrWhiteSpace(approval.Reason) && read.Attempts.Count == 2
+            && read.Attempts.All(attempt => attempt.FinishedAt is not null && attempt.Error is not null
+                && !string.IsNullOrWhiteSpace(attempt.ResultFile));
 
     private static void RequireCompletedSource(SourceLedger ledger, string kind, string target)
         => Require(ledger.Reads.Any(read => read.Kind == kind && read.Target == SourceTarget(kind, target) && read.State == "completed"),
             $"Source read is not completed in the shared invocation record: {kind} {target}.");
+
+    private static IEnumerable<SourceAttempt> SourceAttempts(SourceRead read)
+        => read.PreviousObservations.SelectMany(history => history.Attempts).Concat(read.Attempts);
 
     private static IEnumerable<JsonObject> SourceObjects(JsonNode node)
     {
@@ -437,10 +585,26 @@ public sealed partial class ExportSession
     private static int? SourceStatusCode(JsonNode? value)
         => value is JsonValue json && int.TryParse(json.ToString(), CultureInfo.InvariantCulture, out var code) ? code : null;
     private static IEnumerable<int?> SourceStatuses(JsonObject obj)
-        => new[] { "statusCode", "httpStatusCode", "status" }.Select(name => SourceStatusCode(obj[name]))
-            .Where(status => status is not null);
+    {
+        foreach (var name in new[] { "statusCode", "httpStatusCode", "status" })
+            if (SourceStatusCode(obj[name]) is { } status) yield return status;
+        var message = obj["error"] is JsonObject error ? SourceText(error["message"]) : SourceText(obj["error"]);
+        if (message.Length == 0) yield break;
+        const string prefix = "Status code is ";
+        foreach (var part in message.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            if (part.StartsWith(prefix, StringComparison.Ordinal)
+                && Enum.TryParse<HttpStatusCode>(part[prefix.Length..], out var status) && Enum.IsDefined(status)
+                && (int)status is >= 400 and <= 599)
+                yield return (int)status;
+    }
     private static string SourceText(JsonNode? value)
         => value is JsonValue json ? json.ToString() : "";
+
+    private static bool SourceDenialText(string text)
+        => SourceDenialCodes.Any(code => text.Contains(code, StringComparison.OrdinalIgnoreCase))
+            || System.Text.RegularExpressions.Regex.IsMatch(text,
+                @"\b(?:(?:HTTP(?: status(?: code)?)?|status(?: code)?)\s*(?:is|:|=)?\s*(?:401|403)|(?:access|permission)\s+denied|blocked\s+by\s+policy|authentication\s+(?:required|failed)|consent\s+(?:is\s+)?required|insufficient\s+(?:privileges|scope|claims))\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private T WithSources<T>(Func<SourceLedger, T> action)
     {
