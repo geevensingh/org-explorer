@@ -1090,6 +1090,13 @@ These checks use the existing bounded dispatcher/commit observations and never
 show a window or create a native main-window handle; they are not hosted
 interaction or latency acceptance.
 
+`--verify-preferred-name-snapshot-deferral` isolates the full profile-refresh
+selection's compiled incoming-archival/Preferred-name deferral case, including
+real source/peer snapshot Join and exact retained writing until Cancel. Peer
+fixture folders use compact GUID basenames instead of repeating scenario names,
+leaving room for native SQLite's nested validation/journal paths without
+changing the working directory or global temporary-folder configuration.
+
 ### Retired-engine coverage reconciliation (#100)
 
 `WorkspaceFixtures.CopyCurrent` now caches durable bytes produced by normal

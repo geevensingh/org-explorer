@@ -87,6 +87,8 @@ internal static partial class Program
                 return VerifyCompiledXaml(executable, verifyLegacySaveFeedback: true);
             if (args.Length == 2 && args[1] == "--verify-preferred-name-retention")
                 return VerifyCompiledXaml(executable, verifyPreferredNameRetention: true);
+            if (args.Length == 2 && args[1] == "--verify-preferred-name-snapshot-deferral")
+                return VerifyCompiledXaml(executable, verifyPreferredSnapshotDeferral: true);
             if (args.Length == 2 && args[1] == "--verify-profile-note-refresh")
                 return HarnessRuntime.Run("compiled-profile-note-refresh",
                     () => VerifyCompiledXaml(executable, verifyProfileNoteRefresh: true));

@@ -148,7 +148,8 @@ internal static partial class Program
             Transport = SmokeSnapshotFolder(workspace);
             using var source = OpenSmokeWorkspace(workspace);
             Workflow = ApplicationWorkflow.CreateFileBacked();
-            var peer = Path.Combine(Path.GetDirectoryName(workspace)!, Path.GetFileName(workspace) + "-peer-" + Guid.NewGuid().ToString("N"));
+            // Leave room for SQLite's nested snapshot-validation and journal paths.
+            var peer = Path.Combine(Path.GetDirectoryName(workspace)!, "peer-" + Guid.NewGuid().ToString("N"));
             if (!Workflow.OpenWorkspace(peer))
                 throw new InvalidOperationException(Workflow.Status);
             WorkspaceFixtures.JoinSnapshot(source, Workflow, Transport);
