@@ -4,6 +4,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="..\collection.md" Link="collection.md" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
   </ItemGroup>
 </Project>

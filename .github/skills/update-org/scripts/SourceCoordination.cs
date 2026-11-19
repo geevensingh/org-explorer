@@ -15,6 +15,12 @@ public sealed partial class ExportSession
         "BlockedByPolicy", "PolicyViolation", "InsufficientPrivileges", "insufficient_claims",
         "ConsentRequired", "PermissionDenied"
     ];
+    private static readonly string[] ProfileFailureMessages =
+    [
+        "Open '' Failure: Unable to open, Exception Caught.",
+        "Open '' Failure: Unable to open, Exception: Status code is .",
+        "Profile details couldn't be retrieved for this person right now."
+    ];
     public sealed record SourceAttempt(Guid ClaimId, string Worker, DateTimeOffset StartedAt,
         DateTimeOffset? FinishedAt, string? Error, bool Retryable, DateTimeOffset? RetryAt, string? ResultFile = null,
         string? CaptureTicket = null, string? CaptureTicketSha256 = null, string? CaptureFailureFile = null);
@@ -33,12 +39,14 @@ public sealed partial class ExportSession
     public sealed record SourceErrorRecoveryAuthorization(string Kind, string Error, DateTimeOffset AuthorizedAt, string Reason);
     public sealed record SourceLedger(Guid BatchId, List<SourceRead> Reads)
     {
+        public int StateVersion { get; init; }
         public bool RecoveryConsumed { get; set; }
         public SourceRecoveryAuthorization? PerReadRecovery { get; set; }
         public SourceRecoveryAuthorization? BestEffortEnrichment { get; set; }
         public SourceErrorRecoveryAuthorization? MatchingErrorRecovery { get; set; }
         public List<SourceErrorRecoveryAuthorization> AdditionalMatchingErrorRecoveries { get; init; } = [];
         public string? StopReason { get; set; }
+        public List<CollectionJob> CollectionJobs { get; init; } = [];
     }
     public sealed record SourceClaim(Guid? ClaimId, string Kind, string Worker, string[] Targets, string? Blocker,
         DateTimeOffset? RetryAt = null);
@@ -46,7 +54,7 @@ public sealed partial class ExportSession
     public sealed record SourceCompletion(Guid BatchId, Guid ClaimId, SourceRead[] Reads,
         bool RecoveryConsumed, string? StopReason);
 
-    public SourceLedger SourceStatus() => WithSources(ledger => ledger);
+    public SourceLedger SourceStatus() => WithSources(ledger => ledger, save: false);
 
     public SourceClaim ClaimSource(string worker, string kind, string targetsFile)
         => ClaimSource(worker, kind, Read<string[]>(targetsFile));
@@ -66,6 +74,7 @@ public sealed partial class ExportSession
         Require(targets.Distinct(StringComparer.Ordinal).Count() == targets.Length, "Duplicate source targets.");
         return WithSources(ledger =>
         {
+            if (ledger.CollectionJobs.Count > 0) RequireJobSource(ledger, worker, kind, targets);
             foreach (var target in targets)
                 if (!ledger.Reads.Any(read => read.Kind == kind && read.Target == target))
                     ledger.Reads.Add(new(kind, target, "deferred", []));
@@ -224,14 +233,8 @@ public sealed partial class ExportSession
 
     private static bool KnownProfileFailure(JsonObject response)
     {
-        string[] approved =
-        [
-            "Open '' Failure: Unable to open, Exception Caught.",
-            "Open '' Failure: Unable to open, Exception: Status code is .",
-            "Profile details couldn't be retrieved for this person right now."
-        ];
         var errors = SourceErrorKeys(response);
-        return errors.Length > 0 && errors.All(error => approved.Any(message => error == JsonSerializer.Serialize(message)));
+        return errors.Length > 0 && errors.All(error => ProfileFailureMessages.Any(message => error == JsonSerializer.Serialize(message)));
     }
 
     public SourceRecoveryAuthorization AuthorizePerReadSourceRecovery(string reason)
@@ -410,9 +413,18 @@ public sealed partial class ExportSession
 
     private static string[] SourceErrorKeys(JsonObject response)
         => SourceObjects(response).Select(obj => obj["error"]).OfType<JsonNode>()
-            .Select(error => error is JsonObject { Count: 1 } obj && obj["message"] is JsonValue message
-                && message.TryGetValue<string>(out _) ? message.ToJsonString() : error.ToJsonString())
+            .Select(CanonicalSourceError)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+
+    private static string CanonicalSourceError(JsonNode error)
+    {
+        var value = error is JsonObject { Count: 1 } obj && obj["message"] is JsonValue message ? message : error;
+        if (value is not JsonValue json || !json.TryGetValue<string>(out var text)) return error.ToJsonString();
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var matching = ProfileFailureMessages.Where(diagnostic => text.Trim() == diagnostic
+            || lines.Any(line => line.Trim() == "- **snippet:** " + diagnostic)).ToArray();
+        return JsonSerializer.Serialize(matching.Length == 1 ? matching[0] : text);
+    }
 
     private JsonObject SavedSourceResponse(SourceRead read, int attemptIndex = 0)
         => SavedSourceResponse(read, read.Attempts[attemptIndex]);
@@ -606,7 +618,7 @@ public sealed partial class ExportSession
                 @"\b(?:(?:HTTP(?: status(?: code)?)?|status(?: code)?)\s*(?:is|:|=)?\s*(?:401|403)|(?:access|permission)\s+denied|blocked\s+by\s+policy|authentication\s+(?:required|failed)|consent\s+(?:is\s+)?required|insufficient\s+(?:privileges|scope|claims))\b",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    private T WithSources<T>(Func<SourceLedger, T> action)
+    private T WithSources<T>(Func<SourceLedger, T> action, bool save = true)
     {
         var file = System.IO.Path.Combine(path, "source-coordination.json");
         var lockFile = System.IO.Path.Combine(path, ".source-lock");
@@ -628,10 +640,12 @@ public sealed partial class ExportSession
         using (gate)
         {
             Require(File.Exists(file), "The shared source record is missing. Start a fresh invocation; do not reset its recovery allowance.");
-            var ledger = Read<SourceLedger>(file);
+            var document = Read<JsonObject>(file);
+            RequireVersion(StoredVersion(document));
+            var ledger = document.Deserialize<SourceLedger>(Json) ?? throw new InvalidOperationException("The source ledger is missing.");
             Require(ledger.BatchId == run.BatchId, "Source coordination belongs to another invocation.");
             var result = action(ledger);
-            Save(file, ledger);
+            if (save) Save(file, ledger);
             return result;
         }
     }
