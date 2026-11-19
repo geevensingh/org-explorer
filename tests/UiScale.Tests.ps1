@@ -94,6 +94,99 @@ function Assert-DefaultScaleVerdict([string] $Suite, [int] $ObservationSeconds) 
     }
 }
 try {
+    . "$root\eng\TEMP-CPU-WAIT.ps1"
+    foreach ($case in @('saved', 'foreign-instance', 'start-failure', 'missing-stacks', 'deadline', 'status-failure', 'lost-events', 'stop-failure')) {
+        $directory = Join-Path $results "cpu-wait-$case"
+        New-Item -ItemType Directory $directory | Out-Null
+        $request = @{
+            directory = $directory; instance = 'OrgExplorerCpuWait_' + [guid]::NewGuid().ToString('N')
+            profile = 'fixture-profile.wprp'
+        }
+        $calls = [Collections.Generic.List[object]]::new()
+        $observed = @{ ready = $false }
+        $failure = $null
+        try {
+            Invoke-TempCpuWaitSession $request {
+                param($label, $arguments, $timeout)
+                $calls.Add(@{ label = $label; arguments = $arguments; timeout = $timeout })
+                if ($arguments[-2] -cne '-instancename' -or $arguments[-1] -cne $request.instance) {
+                    throw 'Capture command escaped its exact owned instance.'
+                }
+                if ($label -eq 'before-start') {
+                    return @{ exitCode = if ($case -eq 'foreign-instance') { 0 } else { 1 }; output = '0xc5583000' }
+                }
+                if ($case -eq 'start-failure' -and $label -eq 'start') {
+                    return @{ exitCode = 5; output = 'fixture kernel capability unavailable' }
+                }
+                if ($label -eq 'ready-status') {
+                    return @{ exitCode = 0; output = if ($case -eq 'missing-stacks') { 'missing stacks' }
+                        else { "$($request.instance) Memory System Stacks CSwitch ReadyThread SampledProfile Microsoft-Windows-DotNETRuntime Microsoft-Windows-DotNETRuntimeRundown" } }
+                }
+                if ($label -eq 'stop') {
+                    if ($case -eq 'stop-failure') { return @{ exitCode = 5; output = 'fixture stop failed' } }
+                    [IO.File]::WriteAllBytes((Join-Path $directory 'cpu-wait.etl'), [byte[]](0..63))
+                }
+                if ($case -eq 'status-failure' -and $label -eq 'before-stop-status') {
+                    throw 'fixture original status failure'
+                }
+                if ($case -eq 'lost-events' -and $label -eq 'before-stop-status') {
+                    return @{ exitCode = 0; output = "Events Lost : 2`nBuffers Lost : 0" }
+                }
+                return @{ exitCode = 0; output = 'fixture' }
+            } { if ($case -eq 'deadline') { 'deadline' } else { 'phase-finished' } } { $observed.ready = $true }
+        } catch { $failure = $_.Exception.Message }
+        $session = Get-Content (Join-Path $directory 'cpu-wait-session.json') -Raw | ConvertFrom-Json
+        if ([bool]$failure -ne ($case -ne 'saved') -or !$session.diagnosticOnly -or
+            $session.acceptanceEligible -ne $false -or $session.resolvedStacks -or
+            $null -ne $session.lossCounters -or $null -ne $session.retainedTimeCoverage -or
+            ($case -ne 'foreign-instance' -and !($calls | Where-Object { $_.label -eq 'stop' })) -or
+            $session.outputGuardIsPolledNotHardCap -ne $true) {
+            throw "CPU/wait ownership/default evidence/cleanup contract failed: $case; $failure"
+        }
+        if ($case -eq 'saved' -and (!$observed.ready -or
+            $session.status -cne 'saved-needs-stack-loss-clock-coverage-analysis')) {
+            throw 'Keyword/stop success must not claim usable CPU/wait stacks or complete circular retention.'
+        }
+        if ($case -in @('start-failure', 'missing-stacks') -and $observed.ready) {
+            throw 'Unsupported CPU/wait recording admitted the native phase.'
+        }
+        if ($case -eq 'foreign-instance' -and ($observed.ready -or $calls.Count -ne 1)) {
+            throw 'Foreign instance was started, stopped or cancelled.'
+        }
+        if ($case -eq 'status-failure' -and !$session.failure.Contains('fixture original status failure')) {
+            throw 'Failed status must retain its primary error while still attempting stop.'
+        }
+        if ($case -eq 'lost-events' -and ($session.observedLossStatus.Count -ne 2 -or
+            !$session.cleanupFailure.Contains('lost events/buffers'))) {
+            throw 'Observed event loss was not recorded and refused as missing evidence.'
+        }
+        if ($case -eq 'stop-failure' -and
+            !($calls | Where-Object { $_.label -eq 'cancel-owned-after-stop-failure' })) {
+            throw 'Failed stop did not attempt exact owned cancellation.'
+        }
+        if ($case -eq 'deadline' -and !$session.failure.Contains('deadline')) {
+            throw 'Stop/cleanup replaced the original censored-window failure.'
+        }
+    }
+    [xml]$cpuProfile = Get-Content "$root\eng\TEMP-CPU-WAIT.wprp" -Raw
+    $cpuProvider = $cpuProfile.WindowsPerformanceRecorder.Profiles.SystemProvider
+    if (@($cpuProvider.Stacks.Stack.Value).Count -ne 3 -or
+        @(Compare-Object @('CSwitch', 'ReadyThread', 'SampledProfile') @($cpuProvider.Stacks.Stack.Value)).Count -or
+        $cpuProfile.WindowsPerformanceRecorder.Profiles.Profile.LoggingMode -cne 'Memory' -or
+        $cpuProfile.WindowsPerformanceRecorder.Profiles.SystemCollector.Buffers.Value -ne '1024') {
+        throw 'CPU/wait profile lost exact scheduling stacks or fixed circular memory configuration.'
+    }
+    $cpuCapture = Get-Content "$root\eng\TEMP-CPU-WAIT.ps1" -Raw
+    if ($cpuCapture -match "'-filemode'|'-setprofint'|'-disablepagingexecutive'|'-purgecache'" -or
+        !$cpuCapture.Contains("'-skipPdbGen'") -or !$cpuCapture.Contains('WaitForExit(100)')) {
+        throw 'CPU/wait capture lost bounded owned command control or attempted global profiler tuning.'
+    }
+    $noOptIn = Join-Path $results 'cpu-invalid-opt-in.log'
+    if ((Invoke-RunnerProbe @('-CpuWaitTrace') $noOptIn) -eq 0 -or
+        !(Get-Content "$noOptIn-errors" -Raw).Contains('requires explicit DiagnosticOnly')) {
+        throw 'CPU/wait tracing was admitted without its explicit nonaccepting opt-in.'
+    }
+    Write-Host 'PASS: CPU/wait mocked ownership/readiness/start-stop failures/censored cleanup and honest unresolved-stack/coverage bounds; no real ETW recording.'
     $probe = Join-Path $results 'revision-probe'
     New-Item -ItemType Directory $probe | Out-Null
     '{"outcome":"success","revision":"stale"}' | Set-Content (Join-Path $probe 'result.json')
@@ -141,6 +234,14 @@ try {
     Write-Host 'PASS: opt-in 660 diagnostics classify both suites and every archive member before execution, never candidate success.'
     Write-Host 'PASS: default660/legacy900 verdicts and real primary failures remain unchanged; prior archives cannot be relabelled.'
     $workflow = Get-Content "$root\.github\workflows\scale-verification.yml" -Raw
+    $cpuInputs = [regex]::Matches($workflow, '(?ms)^      cpu_wait_trace:\r?\n(?<body>.*?)(?=^      [\w-]+:|^  [\w-]+:|\z)')
+    if ($cpuInputs.Count -ne 2 -or @($cpuInputs | Where-Object {
+        $_.Groups['body'].Value -notmatch '(?m)^        default: false\r?$'
+    }).Count -or !$workflow.Contains('-CpuWaitTrace:([bool]::Parse($env:CPU_WAIT_TRACE))') -or
+        !$workflow.Contains('.ci-results/ui-scale/**/*.etl') -or
+        !$workflow.Contains('.ci-results/ui-scale/**/*.wprp')) {
+        throw 'CPU/wait opt-in must default off and upload unchanged ETL/profile under the classified root.'
+    }
     $diagnosticInputs = [regex]::Matches($workflow, '(?ms)^      diagnostic_only:\r?\n(?<body>.*?)(?=^      [\w-]+:|^  [\w-]+:|\z)')
     if ($diagnosticInputs.Count -ne 2 -or @($diagnosticInputs | Where-Object {
         $_.Groups['body'].Value -notmatch '(?m)^        default: false\r?$' -or

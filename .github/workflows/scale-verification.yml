@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      cpu_wait_trace:
+        description: One bounded owned CPU and scheduling stack capture; requires diagnostic_only and no extended observation
+        required: false
+        default: false
+        type: boolean
       extended_observation:
         description: Diagnostic UI observation only; never passing candidate verification
         required: false
@@ -27,6 +32,11 @@ on:
         type: string
       diagnostic_only:
         description: Explicit nonaccepting investigation for both suites and every artifact
+        required: false
+        default: false
+        type: boolean
+      cpu_wait_trace:
+        description: One bounded owned CPU and scheduling stack capture; requires diagnostic_only and no extended observation
         required: false
         default: false
         type: boolean
@@ -89,6 +99,7 @@ jobs:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       DIAGNOSTIC_ONLY: ${{ inputs.diagnostic_only || false }}
       EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
+      CPU_WAIT_TRACE: ${{ inputs.cpu_wait_trace || false }}
     steps:
       - name: Start shared execution budget before setup
         run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
@@ -111,7 +122,7 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Run fresh sequential genuine UI-scale scenarios
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -DiagnosticOnly:([bool]::Parse($env:DIAGNOSTIC_ONLY)) -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -DiagnosticOnly:([bool]::Parse($env:DIAGNOSTIC_ONLY)) -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION)) -CpuWaitTrace:([bool]::Parse($env:CPU_WAIT_TRACE))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -120,3 +131,6 @@ jobs:
           path: |
             .ci-results/ui-scale/**/*.json
             .ci-results/ui-scale/**/*.log
+            .ci-results/ui-scale/**/*.etl
+            .ci-results/ui-scale/**/*.wprp
+            .ci-results/ui-scale/**/cpu-wait/**

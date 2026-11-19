@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="org-explorer" Comments="TEMP nonaccepting CPU and scheduling stacks">
+  <Profiles>
+    <SystemCollector Id="CpuWaitSystem" Name="NT Kernel Logger">
+      <BufferSize Value="128" />
+      <Buffers Value="1024" />
+    </SystemCollector>
+    <EventCollector Id="CpuWaitClr" Name="OrgExplorerCpuWaitClr">
+      <BufferSize Value="128" />
+      <Buffers Value="256" />
+    </EventCollector>
+    <SystemProvider Id="CpuWaitKernel">
+      <Keywords>
+        <Keyword Value="ProcessThread" Strict="true" />
+        <Keyword Value="Loader" Strict="true" />
+        <Keyword Value="SampledProfile" Strict="true" />
+        <Keyword Value="CSwitch" Strict="true" />
+        <Keyword Value="ReadyThread" Strict="true" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="SampledProfile" Strict="true" />
+        <Stack Value="CSwitch" Strict="true" />
+        <Stack Value="ReadyThread" Strict="true" />
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="CpuWaitRuntime" Name="e13c0d23-ccbc-4e12-931b-d9cc2eee27e4" Level="5" Strict="true">
+      <Keywords><Keyword Value="0x98" /></Keywords>
+      <CaptureStateOnSave><Keyword Value="0x118" /></CaptureStateOnSave>
+    </EventProvider>
+    <EventProvider Id="CpuWaitRundown" Name="a669021c-c450-4609-a035-5af59af4df18" Level="5" CaptureStateOnly="true" Strict="true">
+      <CaptureStateOnSave><Keyword Value="0x118" /></CaptureStateOnSave>
+    </EventProvider>
+    <Profile Id="OrgExplorerCpuWait.Verbose.Memory" Name="OrgExplorerCpuWait" Description="TEMP bounded CPU plus scheduling stacks" LoggingMode="Memory" DetailLevel="Verbose">
+      <ProblemCategories><ProblemCategory Value="First Level Triage" /></ProblemCategories>
+      <Collectors>
+        <SystemCollectorId Value="CpuWaitSystem"><SystemProviderId Value="CpuWaitKernel" /></SystemCollectorId>
+        <EventCollectorId Value="CpuWaitClr">
+          <EventProviders>
+            <EventProviderId Value="CpuWaitRuntime" />
+            <EventProviderId Value="CpuWaitRundown" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

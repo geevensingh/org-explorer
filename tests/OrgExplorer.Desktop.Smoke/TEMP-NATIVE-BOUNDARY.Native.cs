@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using OrgExplorer.TempNativeBoundary;
 using OrgExplorer.Workflow;
+using System.Runtime.InteropServices;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -26,8 +27,108 @@ internal static partial class Program
         private bool manifestUnavailable;
         private readonly long started = Stopwatch.GetTimestamp();
         private long captureStarted, captureEnded;
+        private Process? cpuWaitProcess;
+        private EventWaitHandle? cpuWaitReady, cpuWaitStop;
+        private Task<string>? cpuWaitOutput, cpuWaitErrors;
+        private DateTimeOffset cpuWaitDeadline;
         internal bool HasDiagnosticFailure => failure is not null;
         internal void Secondary(Exception error) => Fail(error);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+        internal void StartCpuWait()
+        {
+            var script = Environment.GetEnvironmentVariable("TEMP_CPU_WAIT_SCRIPT");
+            if (string.IsNullOrEmpty(script)) return;
+            if (!Path.IsPathFullyQualified(script) || !File.Exists(script) || productPid == 0 || !Stopwatch.IsHighResolution)
+                throw new InvalidOperationException("CPU/wait opt-in requires the exact prepared helper and owned product PID.");
+            var budget = DateTimeOffset.Parse(Environment.GetEnvironmentVariable("SCALE_STARTED_AT") ??
+                throw new InvalidOperationException("CPU/wait requires the original setup-inclusive budget start.")).AddSeconds(660);
+            cpuWaitDeadline = budget;
+            var maximum = Math.Min(180, (int)(budget - DateTimeOffset.UtcNow).TotalSeconds - 165);
+            if (maximum < 1) throw new TimeoutException("No original660 budget remains for bounded CPU/wait recording and stop.");
+            var output = Path.Combine(directory, "cpu-wait");
+            Directory.CreateDirectory(output);
+            var profile = Path.Combine(output, "cpu-wait.wprp");
+            File.Copy(Path.Combine(Path.GetDirectoryName(script)!, "TEMP-CPU-WAIT.wprp"), profile, overwrite: false);
+            using var product = Process.GetProcessById(productPid);
+            var uiThread = GetWindowThreadProcessId(product.MainWindowHandle, out var windowPid);
+            if (uiThread == 0 || windowPid != productPid)
+                throw new InvalidOperationException("Cannot bind the owned product window to its native UI thread; no recording.");
+            var nonce = Guid.NewGuid().ToString("N");
+            var readyName = "Local\\OrgExplorerCpuWaitReady_" + nonce;
+            var stopName = "Local\\OrgExplorerCpuWaitStop_" + nonce;
+            cpuWaitReady = new(false, EventResetMode.ManualReset, readyName, out var readyNew);
+            cpuWaitStop = new(false, EventResetMode.ManualReset, stopName, out var stopNew);
+            if (!readyNew || !stopNew) throw new InvalidOperationException("CPU/wait event ownership collision.");
+            var request = Path.Combine(output, "cpu-wait-request.json");
+            File.WriteAllText(request, JsonSerializer.Serialize(new
+            {
+                diagnosticOnly = true, acceptanceEligible = false, directory = output, profile,
+                instance = "OrgExplorerCpuWait_" + nonce, readyEvent = readyName, stopEvent = stopName,
+                harnessPid = Environment.ProcessId, productPid, productUiOsThreadId = uiThread,
+                callerOsThreadId = GetCurrentThreadId(), callerManagedThreadId = Environment.CurrentManagedThreadId,
+                qpc = Stopwatch.GetTimestamp(), frequency = Stopwatch.Frequency, highResolution = Stopwatch.IsHighResolution,
+                primitiveThreadMeaning = "Managed thread IDs, not OS IDs; use owned HWND thread mapping and exact PID/QPC.",
+                budgetDeadline = budget, maximumCaptureSeconds = maximum,
+                revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+                shippingBaseRevision = "732c9faeceaaa7fd9f9178797d16b6e62d15b594",
+                productHash, assemblyHash,
+                harnessHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(Program).Assembly.Location)))
+            }));
+            var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in new[] { "-NoProfile", "-File", script, "-RequestPath", request })
+                start.ArgumentList.Add(argument);
+            cpuWaitProcess = Process.Start(start) ?? throw new InvalidOperationException("CPU/wait helper did not start.");
+            cpuWaitOutput = cpuWaitProcess.StandardOutput.ReadToEndAsync();
+            cpuWaitErrors = cpuWaitProcess.StandardError.ReadToEndAsync();
+            var waiting = Stopwatch.StartNew();
+            while (!cpuWaitReady.WaitOne(100))
+                if (cpuWaitProcess.HasExited || waiting.Elapsed.TotalSeconds > 75)
+                    throw new InvalidOperationException("Owned CPU/wait recorder failed readiness; no native phase retry.");
+        }
+
+        internal void StopCpuWait(Exception? primary)
+        {
+            if (cpuWaitProcess is null)
+            {
+                cpuWaitReady?.Dispose();
+                cpuWaitStop?.Dispose();
+                return;
+            }
+            try
+            {
+                cpuWaitStop!.Set();
+                var remaining = Math.Max(0, Math.Min(80000, (int)(cpuWaitDeadline - DateTimeOffset.UtcNow).TotalMilliseconds));
+                if (!cpuWaitProcess.WaitForExit(remaining))
+                {
+                    cpuWaitProcess.Kill(entireProcessTree: true);
+                    throw new TimeoutException("Owned CPU/wait helper stop watchdog expired; capture incomplete; outer owned cleanup required.");
+                }
+                if (cpuWaitProcess.ExitCode != 0)
+                    throw new InvalidOperationException("Owned CPU/wait capture incomplete; see raw session/tool evidence.");
+            }
+            catch (Exception error) when (primary is not null && error is InvalidOperationException or TimeoutException or
+                System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+            {
+                Fail(error);
+            }
+            finally
+            {
+                if (cpuWaitOutput?.IsCompletedSuccessfully == true) Console.Write(cpuWaitOutput.Result);
+                if (cpuWaitErrors?.IsCompletedSuccessfully == true) Console.Error.Write(cpuWaitErrors.Result);
+                cpuWaitProcess.Dispose();
+                cpuWaitProcess = null;
+                cpuWaitReady?.Dispose();
+                cpuWaitStop?.Dispose();
+            }
+        }
 
         internal TempBoundarySession()
         {
@@ -198,12 +299,16 @@ internal static partial class Program
     private static T RunTempNativeBoundary<T>(TempBoundarySession trace, Func<T> original)
     {
         Exception? primary = null;
-        try { return original(); }
+        try { trace.StartCpuWait(); return original(); }
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            trace.Capture(primary);
-            tempNativeBoundarySession = null;
+            try { trace.Capture(primary); }
+            finally
+            {
+                tempNativeBoundarySession = null;
+                trace.StopCpuWait(primary);
+            }
         }
     }
 
