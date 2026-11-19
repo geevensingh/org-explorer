@@ -27,7 +27,12 @@ public sealed partial class ExportSession : IDisposable
     private FileStream? lease;
     private Collection? complete;
 
-    public sealed record Run(Guid BatchId, string Label, string RootId, string AccountId, DateTimeOffset StartedAt);
+    public sealed record Run(Guid BatchId, string Label, string RootId, string AccountId, DateTimeOffset StartedAt)
+    {
+        public int StateVersion { get; init; }
+        public CollectorIdentity? Collector { get; init; }
+        public int WorkerLimit { get; init; } = 2;
+    }
     public sealed record Receipt(string Path, DateTimeOffset ObservedAt, JsonObject Response);
     public sealed record Field(string State, string? Value, string Reason);
     public sealed record Observation(string DirectoryId, string Email, Dictionary<string, Field> Fields,
@@ -46,31 +51,19 @@ public sealed partial class ExportSession : IDisposable
         => (this.path, this.run, this.lease, this.sourceClock) = (path, run, lease, sourceClock);
 
     public static string Create(string label, string rootId, string accountId, string? importsRoot = null)
-    {
-        Require(!string.IsNullOrWhiteSpace(label), "A root display label is required.");
-        Require(Guid.TryParse(rootId, out _) && Guid.TryParse(accountId, out _),
-            "Use the resolved directory root ID and signed-in WorkIQ user ID.");
-        var root = importsRoot ?? System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OrgExplorer", "Imports");
-        Local(root);
-        var state = new Run(Guid.NewGuid(), label, rootId, accountId, DateTimeOffset.UtcNow);
-        var staging = System.IO.Path.Combine(root, ".staging", state.BatchId.ToString());
-        Directory.CreateDirectory(staging);
-        foreach (var name in new[] { "receipts", "profiles", "photos", "sources", "workers" })
-            Directory.CreateDirectory(System.IO.Path.Combine(staging, name));
-        Save(System.IO.Path.Combine(staging, "state.json"), state);
-        Save(System.IO.Path.Combine(staging, "source-coordination.json"), new SourceLedger(state.BatchId, []));
-        File.WriteAllBytes(System.IO.Path.Combine(staging, ".lease"), []);
-        return staging;
-    }
+        => CreateRun(label, rootId, accountId, importsRoot, bestEffort: false, workerLimit: 2);
 
     public static ExportSession Open(string path, bool publishing = false, TimeProvider? sourceClock = null)
     {
         path = System.IO.Path.GetFullPath(path);
         Local(path);
-        var state = Read<Run>(System.IO.Path.Combine(path, "state.json"));
+        var state = ReadRunState(System.IO.Path.Combine(path, "state.json"));
+        var upgradeFile = System.IO.Path.Combine(path, "state-upgrade", "upgrade.json");
+        Require(!File.Exists(upgradeFile) || Read<StateUpgrade>(upgradeFile).CompletedAt is not null,
+            "Finish the recorded upgrade with upgrade-run RUN REASON before resuming.");
         Require(Guid.TryParse(state.RootId, out _) && Guid.TryParse(state.AccountId, out _),
             "The staging source identities are invalid.");
+        Require(state.WorkerLimit is 1 or 2, "The recorded worker limit is invalid.");
         Require(System.IO.Path.GetFileName(path) == state.BatchId.ToString()
             && System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path)) == ".staging",
             "Only an unfinished staging run can be modified. Completed exports are immutable.");
@@ -85,6 +78,9 @@ public sealed partial class ExportSession : IDisposable
     }
 
     public object Ingest(string requestsFile, string responseFile)
+        => Ingest(requestsFile, responseFile, null);
+
+    private object Ingest(string requestsFile, string responseFile, (Guid ClaimId, DateTimeOffset ObservedAt)? capture)
     {
         complete = null;
         FreshPayload(responseFile);
@@ -100,8 +96,11 @@ public sealed partial class ExportSession : IDisposable
             Require(request.StartsWith("/users/", StringComparison.Ordinal), "Only directory receipts belong here.");
             var response = results[index] as JsonObject
                 ?? throw new InvalidOperationException("A result is missing its structured response.");
-            Save(System.IO.Path.Combine(path, "receipts", Guid.NewGuid() + ".json"),
-                new Receipt(request, DateTimeOffset.UtcNow, response.DeepClone().AsObject()));
+            var receipt = new Receipt(request, capture?.ObservedAt ?? DateTimeOffset.UtcNow, response.DeepClone().AsObject());
+            var name = capture is { } source ? source.ClaimId + "-" + index : Guid.NewGuid().ToString();
+            var file = System.IO.Path.Combine(path, "receipts", name + ".json");
+            if (capture is null) Save(file, receipt);
+            else Immutable(file, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(receipt, Json) + "\n"));
         }
         return new { saved = requests.Length };
     }
@@ -273,26 +272,23 @@ public sealed partial class ExportSession : IDisposable
         if (collection.Pending.Length == 0 && collection.Errors.Length == 0
             && sources.StopReason is null && (sources.BestEffortEnrichment is not null
                 || sources.Reads.All(read => read.State != "failed" || read.AccountedFor)))
-            foreach (var group in collection.People.Chunk(16))
-            {
-                var name = System.IO.Path.Combine(path, "workers", group[0].Id + ".json");
-                Immutable(name, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(group, Json) + "\n"));
-                jobs.Add(name);
-            }
+            jobs.AddRange(CreateJobFiles(collection).Select(job => Within(job.JobFile)));
         return new { people = collection.People.Length, collection.SubtreeCount, collection.Pending,
             collection.Errors, collection.ReviewFlags, collection.ManagerRefreshes, sources, jobFiles = jobs,
             photoMetadataPaths = jobs.Count == 0 ? [] : collection.People.Select(p => PhotoPath(p.Id)).ToArray() };
     }
 
-    public ProfileBatchResult Profiles(string inputsFile)
-    {
-        var inputs = Read<string[]>(inputsFile);
-        Require(inputs.All(file => !string.IsNullOrWhiteSpace(file)),
-            "Expected an array of nonempty observation file paths.");
-        var items = inputs.Select((file, index) => RecordProfile(index, null, file)).ToArray();
-        var succeeded = items.Count(item => item.Recorded);
-        return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
-    }
+    public ProfileBatchResult Profiles(string inputsFile, string? worker = null)
+        => WithSources(sources =>
+        {
+            RequireObservationOwner(sources, worker, []);
+            var inputs = Read<string[]>(inputsFile);
+            Require(inputs.All(file => !string.IsNullOrWhiteSpace(file)),
+                "Expected an array of nonempty observation file paths.");
+            var items = inputs.Select((file, index) => RecordProfile(index, null, file, sources, worker)).ToArray();
+            var succeeded = items.Count(item => item.Recorded);
+            return new ProfileBatchResult(succeeded, items.Length - succeeded, items);
+        });
 
     public object CachedPhotos(string idsFile)
     {
@@ -305,14 +301,21 @@ public sealed partial class ExportSession : IDisposable
     public object Photos(string inputsFile) => Read<PhotoInput[]>(inputsFile)
         .Select(input => Photo(input.DirectoryId, input.ResponseFile)).ToArray();
 
-    public object Profile(string id, string input)
+    public object Profile(string id, string input, string? worker = null)
+        => WithSources(sources =>
+        {
+            RequireObservationOwner(sources, worker, [id]);
+            return Profile(id, input, sources, worker);
+        });
+
+    private object Profile(string id, string input, SourceLedger sources, string? worker)
     {
-        var outcome = RecordProfile(0, id, input);
+        var outcome = RecordProfile(0, id, input, sources, worker);
         Require(outcome.Recorded, outcome.Error!);
         return new { directoryId = id, recorded = true };
     }
 
-    private ProfileOutcome RecordProfile(int index, string? id, string input)
+    private ProfileOutcome RecordProfile(int index, string? id, string input, SourceLedger sources, string? worker)
     {
         var errors = System.IO.Path.Combine(path, "profile-errors");
         var inputKey = Hash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(input)));
@@ -326,6 +329,7 @@ public sealed partial class ExportSession : IDisposable
             failureFile = System.IO.Path.Combine(errors, "input-" + inputKey + ".json");
             var observation = Read<Observation>(input);
             id ??= observation.DirectoryId;
+            RequireObservationOwner(sources, worker, [id]);
             var person = Complete().People.SingleOrDefault(p => p.Id == id)
                 ?? throw new InvalidOperationException("Profile is outside the retained population: " + id);
             if (MatchesPerson(observation, person))
@@ -370,8 +374,8 @@ public sealed partial class ExportSession : IDisposable
             foreach (var file in resolved) File.Delete(file);
             return new ProfileOutcome(index, input, id, true, null);
         }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException
-            or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException)
+        catch (Exception error) when (error is not ObservationOwnershipException && error is (ArgumentException or InvalidOperationException
+            or IOException or UnauthorizedAccessException or JsonException or NotSupportedException or FormatException))
         {
             Local(errors);
             Directory.CreateDirectory(errors);
@@ -443,7 +447,9 @@ public sealed partial class ExportSession : IDisposable
                 Local(staging);
                 var previousFile = System.IO.Path.Combine(staging, "state.json");
                 if (!File.Exists(previousFile)) continue;
-                var previous = Read<Run>(previousFile);
+                var previousState = Read<JsonObject>(previousFile);
+                if (StoredVersion(previousState) > CollectorStateVersion) continue;
+                var previous = ReadRunState(previousState, allowLegacy: true);
                 var record = System.IO.Path.Combine(staging, "photos", id + ".json");
                 if (previous.AccountId != run.AccountId || !File.Exists(record)) continue;
                 var candidate = Read<PhotoEvidence>(record);
@@ -464,6 +470,9 @@ public sealed partial class ExportSession : IDisposable
     }
 
     public object Photo(string id, string input)
+        => Photo(id, input, DateTimeOffset.UtcNow);
+
+    private object Photo(string id, string input, DateTimeOffset observedAt)
     {
         FreshPayload(input);
         var metadata = PhotoMetadata(id);
@@ -479,7 +488,7 @@ public sealed partial class ExportSession : IDisposable
         Require(contentType == "image/jpeg" ? bytes.AsSpan().StartsWith(new byte[] { 255, 216, 255 })
             : bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }), "Photo MIME/magic mismatch.");
         var evidence = new PhotoEvidence(id, Text(metadata["data"]!.AsObject(), "@odata.mediaEtag"),
-            contentType, bytes.Length, Hash(bytes), "photos\\" + id + extension, DateTimeOffset.UtcNow, false);
+            contentType, bytes.Length, Hash(bytes), "photos\\" + id + extension, observedAt, false);
         WritePhoto(evidence, bytes);
         return new { directoryId = id, evidence.SizeBytes, evidence.Sha256 };
     }
