@@ -2486,6 +2486,10 @@ Native rich profile samples repeat that explicit Save path in both normal-EXE
 and actual held-export WPF phases, with exact whole-Person and decoded-photo/hash
 reopen checks. `*-sqlite-rich-profile-latency-*.json` separates native
 request-to-postcommit-acknowledgment from full-reopen verification.
+These observations use the real Directory-name editor's automation provider:
+visible in Edit and offscreen after Save, alongside the exact owner/value,
+enabled Edit action and Ready state. The layout-only `ProfileForm` StackPanel
+has no WPF automation peer and cannot be a native UI Automation target.
 
 Only the fixture's synchronization cadence is controlled through its independent
 TimeProvider. Actual save-request/latency/three-second clocks remain real for

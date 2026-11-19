@@ -244,9 +244,9 @@ internal static partial class Program
             BeginProfileEditing(window);
             var requestedValue = sample == 20 ? "0009U" : $"native-{sample:D2}";
             Set(window, "OfficeNumber", requestedValue);
-            var form = Find(window, "ProfileForm");
-            if (form.Current.IsOffscreen || CurrentPersonEmail(window) != ScaleFixture.Target)
-                throw new InvalidOperationException("The rich profile sample did not begin with its actual owner/form.");
+            var profileInput = Find(window, "DirectoryNameEditor");
+            if (profileInput.Current.IsOffscreen || CurrentPersonEmail(window) != ScaleFixture.Target)
+                throw new InvalidOperationException("The rich profile sample did not begin with its actual owner/editor.");
             var save = ControlReadiness.AwaitPattern(() => Find(window, "SaveProfile"),
                 control => control.Current.IsEnabled,
                 control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), AwaitScale);
@@ -259,7 +259,7 @@ internal static partial class Program
                 var entry = edit.GetUpdatedCache(cache).Cached;
                 return identity.Name == ScaleFixture.Target && !identity.IsOffscreen &&
                     current.Name == requestedValue && !current.IsOffscreen &&
-                    entry.IsEnabled && !entry.IsOffscreen && form.Current.IsOffscreen && Activity(window) == "Ready";
+                    entry.IsEnabled && !entry.IsOffscreen && profileInput.Current.IsOffscreen && Activity(window) == "Ready";
             });
             samples.Add(request.Elapsed.TotalMilliseconds);
             requireHeldExport?.Invoke();
