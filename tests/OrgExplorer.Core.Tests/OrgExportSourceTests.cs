@@ -43,6 +43,29 @@ public sealed class OrgExportSourceTests : IDisposable
             Enumerable.Range(10, 5).Select(Identity).ToArray()));
     }
 
+    [Theory]
+    [InlineData("Open '' Failure: Unable to open, Exception Caught.")]
+    [InlineData("Open '' Failure: Unable to open, Exception: Status code is .")]
+    [InlineData("Profile details couldn't be retrieved for this person right now.")]
+    public void Best_effort_recognizes_exact_profile_snippets_without_relaxing_status_or_denial_checks(string diagnostic)
+    {
+        var path = ExportSession.Create("Fictitious root", RootId, AccountId, root);
+        using var session = ExportSession.Open(path);
+        session.AuthorizeBestEffortEnrichment("Standing policy.");
+        var response = new JsonObject { ["error"] = "- **Fictitious Person**\r\n  - **snippet:** " + diagnostic };
+        Finish(session, session.ClaimSource("profile", "profile", [Identity(1)]), response);
+        Assert.True(session.SourceStatus().Reads.Single().RecoveryEligible);
+        Finish(session, session.ClaimSource("retry", "profile", [Identity(1)]), Ok());
+        var denied = new JsonObject
+        {
+            ["statusCode"] = 403,
+            ["error"] = "- **snippet:** " + diagnostic
+        };
+        Finish(session, session.ClaimSource("denied", "profile", [Identity(2)]), denied);
+        Assert.NotNull(session.SourceStatus().StopReason);
+        Assert.Null(session.ClaimSource("unrelated", "profile", [Identity(3)]).ClaimId);
+    }
+
     [Fact]
     public void One_recovery_pass_retains_partial_success_honors_delays_and_cannot_reset_in_a_later_phase()
     {
