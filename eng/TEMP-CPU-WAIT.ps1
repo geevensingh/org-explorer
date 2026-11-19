@@ -63,7 +63,17 @@ function Invoke-TempCpuWaitSession(
     if ($state.persistenceFailures.Count) { throw 'CPU/wait persistence failed before any start; no recording attempted.' }
     try {
         $before = Invoke-OwnedWpr 'before-start' @('-status')
-        if ($before.exitCode -eq 0 -or $before.output -notmatch '0xc5583000') {
+        $statusLines = @($before.output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ($statusLines.Count -ge 2 -and
+            $statusLines[0] -cmatch '\AMicrosoft Windows Performance Recorder Version \d+\.\d+\.\d+(?:\.\d+)? \(CoreSystem\)\z' -and
+            $statusLines[1] -cmatch '\ACopyright \(c\) \d{4} Microsoft Corporation\. All rights reserved\.\z') {
+            $statusLines = @($statusLines | Select-Object -Skip 2)
+        }
+        $statusBody = $statusLines -join "`n"
+        $absent = ($before.exitCode -eq 0 -and $statusBody -ceq 'WPR is not recording') -or
+            ($before.exitCode -ne 0 -and
+                $statusBody -cmatch '\A(?:There are no trace profiles running\.\n)?(?:Error code: )?0x[cC]5583000\z')
+        if (!$absent) {
             throw 'Cannot prove the unique instance is absent; refusing to touch a possibly foreign recording.'
         }
         $state.startAttempted = $true

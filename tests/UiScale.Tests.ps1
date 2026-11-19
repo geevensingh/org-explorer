@@ -219,7 +219,24 @@ try {
     Assert-CpuWaitEmergency 'partial-state'
     Assert-CpuWaitEmergency 'throw'
     Assert-CpuWaitEmergency 'expired'
-    foreach ($case in @('saved', 'foreign-instance', 'start-failure', 'missing-stacks', 'deadline', 'status-failure', 'lost-events', 'stop-failure')) {
+    $actualAbsentStatus = "`r`nMicrosoft Windows Performance Recorder Version 10.0.26100 (CoreSystem)`r`nCopyright (c) 2024 Microsoft Corporation. All rights reserved.`r`n`r`nWPR is not recording`r`n"
+    $statusResponses = @{
+        'absence-only' = @{ exitCode = 0; output = 'WPR is not recording'; absent = $true }
+        'legacy-response' = @{ exitCode = 1; output = "There are no trace profiles running.`r`nError code: 0xc5583000"; absent = $true }
+        'legacy-banner' = @{ exitCode = 1; output = $actualAbsentStatus.Replace('WPR is not recording',
+            "There are no trace profiles running.`r`nError code: 0xc5583000"); absent = $true }
+        'recording-state' = @{ exitCode = 0; output = 'WPR is recording'; absent = $false }
+        'foreign-status' = @{ exitCode = 0; output = 'Recording is in progress for a foreign instance'; absent = $false }
+        'mixed-status' = @{ exitCode = 0; output = $actualAbsentStatus + 'Recording is in progress'; absent = $false }
+        'failure-status' = @{ exitCode = 5; output = $actualAbsentStatus; absent = $false }
+        'unknown-success' = @{ exitCode = 0; output = 'Status unavailable'; absent = $false }
+        'empty-success' = @{ exitCode = 0; output = ''; absent = $false }
+        'substring-status' = @{ exitCode = 0; output = 'Warning: WPR is not recording'; absent = $false }
+        'unknown-banner' = @{ exitCode = 0; output = "Other tool`r`nWPR is not recording"; absent = $false }
+        'mixed-hresult' = @{ exitCode = 1; output = "0xc5583000`r`nAccess is denied."; absent = $false }
+        'success-hresult' = @{ exitCode = 0; output = '0xc5583000'; absent = $false }
+    }
+    foreach ($case in @('actual-absence', 'saved', 'foreign-instance', 'start-failure', 'missing-stacks', 'deadline', 'status-failure', 'lost-events', 'stop-failure') + @($statusResponses.Keys)) {
         $directory = Join-Path $results "cpu-wait-$case"
         New-Item -ItemType Directory $directory | Out-Null
         $request = @{
@@ -229,6 +246,9 @@ try {
         $calls = [Collections.Generic.List[object]]::new()
         $observed = @{ ready = $false }
         $failure = $null
+        $refusedStatus = $statusResponses.ContainsKey($case) -and !$statusResponses[$case].absent
+        $shouldPass = $case -in @('saved', 'actual-absence') -or
+            ($statusResponses.ContainsKey($case) -and $statusResponses[$case].absent)
         try {
             Invoke-TempCpuWaitSession $request {
                 param($label, $arguments, $timeout)
@@ -237,6 +257,8 @@ try {
                     throw 'Capture command escaped its exact owned instance.'
                 }
                 if ($label -eq 'before-start') {
+                    if ($case -eq 'actual-absence') { return @{ exitCode = 0; output = $actualAbsentStatus } }
+                    if ($statusResponses.ContainsKey($case)) { return $statusResponses[$case] }
                     return @{ exitCode = if ($case -eq 'foreign-instance') { 0 } else { 1 }; output = '0xc5583000' }
                 }
                 if ($case -eq 'start-failure' -and $label -eq 'start') {
@@ -260,14 +282,14 @@ try {
             } { if ($case -eq 'deadline') { 'deadline' } else { 'phase-finished' } } { $observed.ready = $true }
         } catch { $failure = $_.Exception.Message }
         $session = Get-Content (Join-Path $directory 'cpu-wait-session.json') -Raw | ConvertFrom-Json
-        if ([bool]$failure -ne ($case -ne 'saved') -or !$session.diagnosticOnly -or
+        if ([bool]$failure -ne !$shouldPass -or !$session.diagnosticOnly -or
             $session.acceptanceEligible -ne $false -or $session.resolvedStacks -or
             $null -ne $session.lossCounters -or $null -ne $session.retainedTimeCoverage -or
-            ($case -ne 'foreign-instance' -and !($calls | Where-Object { $_.label -eq 'stop' })) -or
+            ($case -ne 'foreign-instance' -and !$refusedStatus -and !($calls | Where-Object { $_.label -eq 'stop' })) -or
             $session.outputGuardIsPolledNotHardCap -ne $true) {
             throw "CPU/wait ownership/default evidence/cleanup contract failed: $case; $failure"
         }
-        if ($case -eq 'saved' -and (!$observed.ready -or
+        if ($shouldPass -and (!$observed.ready -or
             $session.status -cne 'saved-needs-stack-loss-clock-coverage-analysis')) {
             throw 'Keyword/stop success must not claim usable CPU/wait stacks or complete circular retention.'
         }
@@ -276,6 +298,11 @@ try {
         }
         if ($case -eq 'foreign-instance' -and ($observed.ready -or $calls.Count -ne 1)) {
             throw 'Foreign instance was started, stopped or cancelled.'
+        }
+        if ($refusedStatus -and ($observed.ready -or $calls.Count -ne 1 -or $session.startAttempted -or
+            $session.terminationState -cne 'not-started' -or
+            !$failure.Contains('Cannot prove the unique instance is absent'))) {
+            throw "Ambiguous/foreign/failing status $case was not refused before any start/stop/cancel."
         }
         if ($case -eq 'status-failure' -and !$session.failure.Contains('fixture original status failure')) {
             throw 'Failed status must retain its primary error while still attempting stop.'
@@ -292,6 +319,7 @@ try {
             throw 'Stop/cleanup replaced the original censored-window failure.'
         }
     }
+    Write-Host 'PASS: byte-exact hosted exit0 absence and valid legacy responses accepted; foreign/recording/ambiguous/unknown/failure statuses refused before any recording command.'
     [xml]$cpuProfile = Get-Content "$root\eng\TEMP-CPU-WAIT.wprp" -Raw
     $cpuProvider = $cpuProfile.WindowsPerformanceRecorder.Profiles.SystemProvider
     if (@($cpuProvider.Stacks.Stack.Value).Count -ne 3 -or
