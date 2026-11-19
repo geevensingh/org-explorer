@@ -379,7 +379,77 @@ public sealed partial class SqliteWorkspaceTests
                 File.WriteAllText(evidence, "Interrupted invalid transaction evidence");
             }
             using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
-            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            var reopenThread = Environment.CurrentManagedThreadId;
+            var sqliteFailures = new List<(int Code, int ExtendedCode, int HResult, DateTimeOffset ObservedAt, StackTrace Stack)>(8);
+            EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observe = (_, observation) =>
+            {
+                if (Environment.CurrentManagedThreadId != reopenThread ||
+                    observation.Exception is not SqliteException error || sqliteFailures.Count >= 8) return;
+                sqliteFailures.Add((error.SqliteErrorCode, error.SqliteExtendedErrorCode, error.HResult,
+                    DateTimeOffset.UtcNow, new StackTrace(error, fNeedFileInfo: false)));
+            };
+            bool opened;
+            AppDomain.CurrentDomain.FirstChanceException += observe;
+            try { opened = reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly); }
+            finally { AppDomain.CurrentDomain.FirstChanceException -= observe; }
+            var reopenStatus = reopened.Status;
+            string? emissionFault = null;
+            if (!opened)
+                try
+                {
+                    Console.WriteLine("SQLITE-CRASH-REOPEN-FAILURE " + System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        boundary, mutation, unresolvedEvidence, receiptHeld,
+                        writerProcessId = process.Id, writerExited = process.HasExited, writerExitCode = process.ExitCode,
+                        testProcessId = Environment.ProcessId, reopenThread, admission, expectedRevision,
+                        phase = "After public Open returned false and its cleanup attempt; non-atomic, not original I/O or lock-holder proof.",
+                        observedAt = DateTimeOffset.UtcNow, status = reopenStatus,
+                        sqliteFailures = sqliteFailures.Select(failure => new
+                        {
+                            failure.Code, failure.ExtendedCode, failure.HResult, failure.ObservedAt,
+                            frames = (failure.Stack.GetFrames() ?? []).Take(16)
+                                .Select(frame => frame.GetMethod() is { } method
+                                    ? $"{method.DeclaringType?.FullName}.{method.Name}" : "<unavailable>").ToArray()
+                        }).ToArray(),
+                        files = new[] { "workspace.sqlite", "workspace.sqlite-wal", "workspace.sqlite-shm" }.Select(name =>
+                        {
+                            var path = Path.Combine(Workspace, name);
+                            var observedAt = DateTimeOffset.UtcNow;
+                            bool? exists = null;
+                            long? length = null;
+                            string? metadataFault = null;
+                            try
+                            {
+                                var file = new FileInfo(path);
+                                exists = file.Exists;
+                                if (file.Exists) length = file.Length;
+                            }
+                            catch (Exception fault) when (fault is IOException or UnauthorizedAccessException)
+                            {
+                                metadataFault = $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}; {fault.Message}";
+                            }
+                            string share;
+                            try
+                            {
+                                using var probe = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                    FileShare.ReadWrite | FileShare.Delete);
+                                share = "Read/share-ReadWrite,Delete opened; no bytes read or written";
+                            }
+                            catch (Exception fault) when (fault is IOException or UnauthorizedAccessException)
+                            {
+                                share = $"{fault.GetType().Name}; hresult=0x{fault.HResult:X8}; {fault.Message}";
+                            }
+                            return new { name, observedAt, exists, length, metadataFault, share };
+                        }).ToArray()
+                    }));
+                }
+                catch (Exception fault) when (fault is IOException or UnauthorizedAccessException or
+                    InvalidOperationException or ArgumentException or NotSupportedException or TypeLoadException or
+                    System.Security.SecurityException or System.ComponentModel.Win32Exception or System.Text.Json.JsonException)
+                {
+                    emissionFault = $"\nSQLITE-CRASH-REOPEN-DIAGNOSTIC-FAULT {fault.GetType().Name}; hresult=0x{fault.HResult:X8}.";
+                }
+            Assert.True(opened, reopenStatus + emissionFault);
             Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
             if (!unresolvedEvidence && reopened.LocalSave.Phase != LocalSavePhase.Recovered)
                 Console.WriteLine("SQLITE-CRASH-UNRESOLVED " + System.Text.Json.JsonSerializer.Serialize(new
