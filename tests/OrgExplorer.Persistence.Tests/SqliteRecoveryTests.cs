@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Diagnostics;
 using OrgExplorer.Storage.ProcessFixture;
 using Microsoft.Data.Sqlite;
+using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
 using Xunit;
 
@@ -200,29 +201,22 @@ public sealed partial class SqliteWorkspaceTests
     [Fact]
     public void Actual_commit_refusal_reconciles_rollback_before_retrying_the_retained_complete_profile()
     {
-        using var observer = new CommitBoundary();
+        using var observer = new WorkspaceFixtures.WalCommitRefusal(Workspace);
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: observer));
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
         Assert.True(app.BeginProfileEdit("manager@example.com"), app.Status);
         Assert.True(app.StageProfileTeamName("Retained after commit refusal"), app.Status);
         Assert.True(app.StageProfileText(PersonTextField.Department, "One committed history entry"), app.Status);
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
-        connection.Open();
-        using var reader = connection.BeginTransaction(deferred: true);
-        using (var command = connection.CreateCommand())
-        {
-            command.Transaction = reader;
-            command.CommandText = "SELECT name FROM sqlite_schema LIMIT 1;";
-            Assert.NotNull(command.ExecuteScalar());
-        }
         var priorAttempts = observer.CommitAttempts;
+        observer.Armed = true;
         Assert.False(app.SaveProfileEdit());
         Assert.True(observer.CommitAttempts > priorAttempts, "The real transaction must reach Commit, not fail at writer admission.");
+        Assert.True(observer.ActualCommitFailed);
+        Assert.Contains("SqliteException", app.LocalSaveError);
         Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
         Assert.Equal(LocalSavePhase.Failed, app.LocalSave.Phase);
         Assert.Equal("Retained after commit refusal", app.ProfileEdit!.Draft.TeamName);
-        reader.Rollback();
         Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.SaveProfileEdit(), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
@@ -350,6 +344,10 @@ public sealed partial class SqliteWorkspaceTests
         {
             Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
                 process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
+            Assert.True(File.Exists(Path.Combine(Workspace, "workspace.sqlite-wal")));
+            if (boundary == "after")
+                Assert.True(new FileInfo(Path.Combine(Workspace, "workspace.sqlite-wal")).Length > 32,
+                    "The committed child must still own its uncheckpointed WAL before abrupt death.");
             var admission = await process.StandardOutput.ReadLineAsync();
             Console.WriteLine($"SQLITE-CRASH-ADMISSION launcherProcessId={process.Id}; observed={admission}");
             string expectedRevision;

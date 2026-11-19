@@ -21,6 +21,8 @@ internal static partial class Program
                 return RunAutomaticSnapshotFixture(args);
             if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
                 return RunWorkspaceExitFixture(args);
+            if (args.Length > 0 && args[0] == "--held-snapshot-fixture")
+                return RunHeldSnapshotFixture(args);
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
                 return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||

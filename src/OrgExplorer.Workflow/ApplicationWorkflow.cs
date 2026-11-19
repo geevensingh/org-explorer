@@ -196,9 +196,9 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
             {
                 var create = mode == WorkspaceOpenMode.OpenOrCreate && !Directory.EnumerateFileSystemEntries(fullPath).Any();
                 OpenLocalSqlite(create);
-                Status = create
+                Status = localWalFault?.Message ?? (create
                     ? "SQLite Workspace created and saved locally."
-                    : "Local SQLite Workspace opened.";
+                    : "Local SQLite Workspace opened.");
                 return true;
             }
             OpenInMemoryWorkspace();

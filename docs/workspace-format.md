@@ -20,9 +20,10 @@ separate from portable Workspace data and update settings.
 
 `local-workspace.format` contains the immutable discriminator
 `OrgExplorer local SQLite Workspace`. It identifies the format, not a second
-population authority. `workspace.sqlite` is the sole committed-state authority,
+population authority. The local SQLite database is the sole committed-state authority,
 with SQLite application ID `0x4f455850`, local format 3, a Workspace identity
-and committed revision.
+and committed revision. In WAL mode this includes committed frames in
+`workspace.sqlite-wal`, not just the `workspace.sqlite` main file.
 
 Creation writes the discriminator before the database so interrupted creation
 cannot become an empty fallback. A missing discriminator/database, corrupt
@@ -33,12 +34,32 @@ folder and create a new empty Workspace. No conversion, overwrite, deletion,
 downgrade or accumulated legacy-folder cleanup is performed. Import version 1
 is a different contract and is unchanged.
 
-SQLite uses the rollback journal, `synchronous=EXTRA`, foreign keys and
-transactions. Success means `Commit` completed, not dispatch/enqueue, timer
+SQLite uses verified WAL mode, `synchronous=FULL`, foreign keys and transactions.
+Each actual connection verifies FULL, and ordinary connections refuse non-WAL
+operation. Compatible existing format-3 data is fully validated before WAL is
+established. If that negotiation is unavailable after complete validation,
+including on a cold open, the full validated graph/resources remain browsable
+but explicitly read-only with a retained WAL error. Ordinary writes, automatic
+retry and normal exit stay blocked until explicit successful reconciliation;
+a later background/manual refresh alone cannot clear that fault. Independent
+unknown transaction/receipt faults remain independent. Invalid or unsupported
+data still fails closed, not as an empty or read-only fallback.
+Unsupported formats are not converted. Success means `Commit` completed, not dispatch/enqueue, timer
 expiry or an optimistic view-model value. Creation, reviewed Imports, profiles,
 photos, favorites, archival, Manager changes and note edits commit coherent
 state with the new revision. OS/storage-device durability limits still apply.
-Do not synchronize or externally edit the live database, journal or receipts.
+Do not synchronize or externally edit the live database, WAL, SHM or receipts.
+
+SQLite's default automatic checkpoint and last-connection cleanup are used.
+Older readers retain a coherent snapshot without excluding a later ordinary
+writer. They can delay a checkpoint and grow the WAL; that does not undo a
+confirmed local Commit. Other writers, disk/I/O failures and crash recovery may
+still report busy/failure/unknown outcomes and require the existing recovery
+protocol. No custom checkpoint worker or exit-time checkpoint is added.
+Never copy only the main file or manually delete WAL/SHM as a backup/repair
+technique. Logical export reads committed state through SQLite, including
+uncheckpointed frames; only complete `.oesnapshot` files enter the provider folder.
+The bundled native engine is 3.53.4; this includes SQLite's 2026 WAL-reset fix.
 
 ### Logical data and validation
 

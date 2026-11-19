@@ -50,8 +50,38 @@ internal static partial class Program
                 failures.Add("Explicit public ongoing browsing failed to preserve exact saved data and Read mode.");
         }
         Verify1eeeHeldExportEditor(windowType, root, failures);
+        VerifyCopyNoteFailurePreparation(windowType, root, failures);
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
         Console.WriteLine("PASS: current exact-owner selection and committed-return Read/explicit Edit preserve full saved state, immutable base and the same first actual held publisher; no native geometry acceptance.");
+    }
+
+    private static void VerifyCopyNoteFailurePreparation(Type windowType, string root, List<string> failures)
+    {
+        var path = Path.Combine(root, "copy-note-failure-preparation");
+        Guid id;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport(RecoveryPeople).Id))
+                throw new InvalidOperationException(seed.Status);
+            id = seed.CreatePersonNote("avery@example.com", "Saved copy context", "# Exact saved copy context")!.Id;
+        }
+        using var fixture = new OrdinaryFixtureWindow(windowType, path);
+        fixture.Select("avery@example.com");
+        fixture.Select("morgan@example.com");
+        fixture.Select("avery@example.com");
+        if (fixture.Model.PersonNotesView.IsEditing ||
+            fixture.Note<TextBox>(NoteScope.Person, "NoteTitle").Text.Length != 0)
+            throw new InvalidOperationException("The copy failure replay must begin with clean Read and an unrealized empty hidden title.");
+        var saved = fixture.ReadSavedGraph();
+        fixture.Note<TabItem>(NoteScope.Person, "EditTab").IsSelected = true;
+        fixture.Note<TextBox>(NoteScope.Person, "NoteTitle").Text = "";
+        var flush = fixture.Model.FlushNoteDraftsAsync();
+        PumpUntil(() => flush.IsCompleted);
+        if (flush.GetAwaiter().GetResult() ||
+            fixture.Model.GetRetainedNoteDraft(NoteScope.Person, id) is not { IsSaving: false, Error: not null } retained ||
+            retained.Basis.OwnerEmail != "avery@example.com" || retained.Basis.Markdown != "# Exact saved copy context" ||
+            retained.Title != "" || retained.Markdown != "# Exact saved copy context" || fixture.ReadSavedGraph() != saved)
+            failures.Add("Copy failure preparation did not admit its intended exact invalid-title Edit; writing the empty hidden Read editor was a no-op.");
     }
 
     private static void Verify1eeeHeldExportEditor(Type windowType, string root, List<string> failures)

@@ -43,9 +43,16 @@ internal static partial class Program
     private static string SmokeSnapshotFolder(string workspace) =>
         Path.Combine(Path.GetDirectoryName(workspace)!, Path.GetFileName(workspace) + "-snapshots");
 
+    private static string SmokePublicationFolder(string workspace, string? requested = null)
+    {
+        if (requested is not null) return requested;
+        using var current = OpenSmokeWorkspace(workspace);
+        return current.Synchronization.Folder ?? SmokeSnapshotFolder(workspace);
+    }
+
     private static void ConfigureSmokeSnapshotFolder(string workspace, Action<string> chooseFolder)
     {
-        var folder = SmokeSnapshotFolder(workspace);
+        var folder = SmokePublicationFolder(workspace);
         Directory.CreateDirectory(folder);
         chooseFolder(folder);
     }
@@ -62,7 +69,7 @@ internal static partial class Program
         PublishSmokeWorkspace(workspace, () =>
         {
             SetSettingsVisible(window, true);
-            var transport = synchronizationFolder ?? SmokeSnapshotFolder(workspace);
+            var transport = SmokePublicationFolder(workspace, synchronizationFolder);
             if (Find(window, "SynchronizationFolder").Current.Name != transport)
             {
                 Directory.CreateDirectory(transport);
@@ -92,15 +99,18 @@ internal static partial class Program
     private static void PrepareSmokeNormalClose(string workspace, Action publish)
     {
         Guid? identity, revision;
+        string? configuredFolder;
         using (var before = OpenSmokeWorkspace(workspace))
         {
             identity = before.Synchronization.WorkspaceId;
             revision = before.Synchronization.LocalRevision;
+            configuredFolder = before.Synchronization.Folder;
         }
         publish();
         using (var published = OpenSmokeWorkspace(workspace))
             if (published.Synchronization.WorkspaceId != identity || published.Synchronization.LocalRevision != revision ||
-                published.Synchronization.PublishedRevision != revision || published.Synchronization.HasUnpublishedChanges)
+                published.Synchronization.PublishedRevision != revision || published.Synchronization.HasUnpublishedChanges ||
+                configuredFolder is not null && published.Synchronization.Folder != configuredFolder)
                 throw new InvalidOperationException("Normal-close preparation changed or failed to publish the exact independently reopened local revision.");
     }
 

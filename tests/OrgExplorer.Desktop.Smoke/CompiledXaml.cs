@@ -474,6 +474,7 @@ internal static partial class Program
             var notes = Control<FrameworkElement>("PersonNotes");
             var title = (TextBox)notes.FindName("NoteTitle");
             var noteStatus = (TextBlock)notes.FindName("NoteStatus");
+            ((TabItem)notes.FindName("EditTab")).IsSelected = true;
             title.Text = "";
             PumpUntil(() => noteStatus.Text.Contains("NOT saved", StringComparison.Ordinal));
             Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
