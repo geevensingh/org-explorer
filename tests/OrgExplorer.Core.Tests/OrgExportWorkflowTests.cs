@@ -326,6 +326,38 @@ public sealed partial class OrgExportTests
     }
 
     [Fact]
+    public void Directory_preparation_retains_the_eligible_failed_path_after_mixed_batch_ingestion()
+    {
+        var path = ExportSession.Start("Fictitious root", RootId, AccountId, importsRoot: root).RunPath;
+        using var session = ExportSession.Open(path);
+        var events = Path.Combine(root, "directory-retry.jsonl");
+        File.WriteAllText(events, "");
+        var targets = Path.Combine(root, "directory-retry-targets.json");
+        Save(targets, new[] { ExportSession.UserPath(RootId), ExportSession.ReportsPath(RootId), ExportSession.ManagerPath(RootId) });
+        var first = session.PrepareSource("coordinator", "structured", targets, "workiq-fetch", events);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "directory", toolName = first.Request!.ToolName,
+            arguments = first.Request.Arguments });
+        var responses = new JsonObject
+        {
+            ["results"] = new JsonArray(Ok(User(RootId)), new JsonObject { ["statusCode"] = 503 }, Missing("Request_ResourceNotFound"))
+        }.ToJsonString();
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "directory", success = false,
+            result = new { content = responses } });
+        session.FinishCapturedSource(first.TicketFile!);
+        Assert.Empty(session.Plan().Pending);
+        Assert.NotEmpty(session.Plan().Errors);
+        var summary = JsonSerializer.SerializeToNode(session.Status())!;
+        Assert.Contains(summary["directoryWork"]!.AsArray(), target => target!.GetValue<string>() == ExportSession.ReportsPath(RootId));
+
+        var retry = session.PrepareNextSource("coordinator", "directory", "workiq-fetch", events);
+
+        Assert.NotNull(retry.Claim.ClaimId);
+        Assert.Equal([ExportSession.ReportsPath(RootId)], retry.Claim.Targets);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == ExportSession.UserPath(RootId)).Attempts);
+        Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == ExportSession.ReportsPath(RootId)).Attempts.Count);
+    }
+
+    [Fact]
     public async Task Cli_upgrade_requires_explicit_reason_and_preserves_a_legacy_strict_run()
     {
         var path = NewRun();

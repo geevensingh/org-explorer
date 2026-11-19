@@ -223,7 +223,7 @@ public sealed partial class ExportSession
         bool Pending(string target) => !sources.Reads.Any(read => read.Kind == kind && read.Target == target
             && (read.AccountedFor || read.State == "active"));
         string[] targets;
-        if (phase == "directory") targets = collection.Pending.Where(Pending).Take(StructuredBatchLimit).ToArray();
+        if (phase == "directory") targets = DirectoryWork(collection, sources).Where(Pending).Take(StructuredBatchLimit).ToArray();
         else if (phase == "metadata") targets = collection.People.Select(person => PhotoPath(person.Id))
             .Where(Pending).Take(StructuredBatchLimit).ToArray();
         else
@@ -354,7 +354,7 @@ public sealed partial class ExportSession
             directory = new { pending = collection.Pending.Length, errors = collection.Errors.Length },
             activeClaims = active.Select(read => read.Attempts[^1].ClaimId).Distinct().Count(),
             retryAt = retryAt > now ? retryAt : null, sourceFailures = failures.Length, sources.StopReason,
-            directoryWork = collection.Pending.Take(StructuredBatchLimit).ToArray(),
+            directoryWork = DirectoryWork(collection, sources).Take(StructuredBatchLimit).ToArray(),
             metadataWork = pendingMetadata.Take(StructuredBatchLimit).ToArray(),
             observedPeoplePerHour = rate,
             estimatedRemainingMinutes = rate is > 0 ? (collection.People.Length - completed.Sum(job => job.DirectoryIds.Length)) / rate * 60 : null,
@@ -363,4 +363,11 @@ public sealed partial class ExportSession
             createdWith = run.Collector, currentCollector = CurrentCollector()
         };
     }
+
+    private static IEnumerable<string> DirectoryWork(Collection collection, SourceLedger sources)
+        => collection.Pending.Concat(sources.Reads.Where(read => read.Kind == "structured"
+                && !IsOptionalSource(read) && read.State == "failed" && read.RecoveryEligible)
+            .Select(read => read.Target)).Distinct(StringComparer.Ordinal)
+            .Where(target => !sources.Reads.Any(read => read.Kind == "structured" && read.Target == target
+                && (read.AccountedFor || read.State == "active")));
 }
