@@ -1,7 +1,8 @@
 function Invoke-ScaleSuite(
     [string] $Suite, [string] $Label, [string] $ResultsDirectory, [string] $ExpectedRevision,
     [hashtable] $Selection, [scriptblock] $Verify,
-    [ValidateSet(660, 900)][int] $ObservationSeconds = 660
+    [ValidateSet(660, 900)][int] $ObservationSeconds = 660,
+    [switch] $DiagnosticOnly
 ) {
     $ErrorActionPreference = 'Stop'
     $root = Split-Path $PSScriptRoot -Parent
@@ -10,10 +11,15 @@ function Invoke-ScaleSuite(
     if (!$results.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw "$Label results must be inside this checkout."
     }
+    if ($DiagnosticOnly -and (Test-Path -LiteralPath $results) -and
+        @(Get-ChildItem -LiteralPath $results -Force).Count) {
+        throw 'Explicit diagnostic-only output requires a fresh results directory; preserve previous artifacts.'
+    }
     $run = Join-Path $results ("run-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory $run -Force | Out-Null
     $build = Join-Path $run 'build'
     $ceilingSeconds = 660
+    $isDiagnostic = [bool]$DiagnosticOnly -or $ObservationSeconds -gt $ceilingSeconds
     $executionEnvironment = @{
         processors = [Environment]::ProcessorCount
         os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
@@ -38,13 +44,15 @@ function Invoke-ScaleSuite(
             executionSeconds = ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds
             ceilingSeconds = $ceilingSeconds; steps = @($state.steps.ToArray())
             runDirectory = [IO.Path]::GetRelativePath($results, $run); queuesIncluded = $false; cdIncluded = $false
-            observationSeconds = $ObservationSeconds; diagnosticOnly = $ObservationSeconds -gt $ceilingSeconds
+            observationSeconds = $ObservationSeconds
             observedOutcome = $state.observedOutcome; phase = $state.phase; activeCommand = $state.activeCommand
             lastProgress = $state.lastProgress; heartbeatAt = [DateTimeOffset]::UtcNow.ToString('O')
             activePhase = $state.activePhase; lastActivePhase = $state.lastActivePhase
             environment = $executionEnvironment
         }
         foreach ($key in $Selection.Keys) { $report[$key] = $Selection[$key] }
+        $report.diagnosticOnly = $isDiagnostic
+        $report.acceptanceEligible = !$isDiagnostic
         $json = $report | ConvertTo-Json -Depth 5
         foreach ($path in @((Join-Path $run 'result.json'), (Join-Path $results 'result.json'))) {
             [IO.File]::WriteAllText("$path.writing", $json)
@@ -130,6 +138,18 @@ function Invoke-ScaleSuite(
         Invoke-ScaleProcess $Name dotnet $arguments
     }
 
+    if ($DiagnosticOnly) {
+        [IO.File]::WriteAllText((Join-Path $results 'diagnostic-artifact-manifest.json'), (@{
+            schemaVersion = 1; suite = $Suite; diagnosticOnly = $true; acceptanceEligible = $false
+            scope = 'all-members-and-records-recursive'; coversFutureMembers = $true; includesBinaryRecords = $true
+            archiveRoot = [IO.Path]::GetRelativePath($root, $results)
+            runDirectory = [IO.Path]::GetRelativePath($results, $run)
+            expectedRevision = $ExpectedRevision; workflowRevision = $env:GITHUB_SHA
+            verifiedRevisionRecord = 'result.json'; runId = $env:GITHUB_RUN_ID; runAttempt = $env:GITHUB_RUN_ATTEMPT
+            createdAt = [DateTimeOffset]::UtcNow.ToString('O')
+            interpretation = 'Creation-time classification covers every archive member and contained record recursively, including future files and primitive binary trace records. Not a byte-integrity signature. No individual measurement is rewritten or eligible for candidate acceptance.'
+        } | ConvertTo-Json -Depth 5))
+    }
     Write-ScaleReport
     try {
         if ($env:SCALE_STARTED_AT) { $state.started = [DateTimeOffset]::Parse($env:SCALE_STARTED_AT) }
@@ -146,7 +166,9 @@ function Invoke-ScaleSuite(
         }
         $null = Assert-ScaleRemainingBudget -ForObservation
         Write-Host "$Label`: revision $($state.revision); tracked changes $($state.dirty); shared ceiling $ceilingSeconds s."
-        if ($ObservationSeconds -gt $ceilingSeconds) {
+        if ($DiagnosticOnly) {
+            Write-Host "DIAGNOSTIC ONLY: explicit invocation at $ObservationSeconds s; the 660-second ceiling is unchanged and this invocation cannot pass."
+        } elseif ($ObservationSeconds -gt $ceilingSeconds) {
             Write-Host "DIAGNOSTIC ONLY: observation window $ObservationSeconds s; the 660-second verification verdict is unchanged and this invocation cannot pass."
         }
         & $Verify $run $build
@@ -158,9 +180,11 @@ function Invoke-ScaleSuite(
             throw "The candidate checkout changed during $Label verification."
         }
         $state.observedOutcome = 'success'
-        $state.outcome = if ($ObservationSeconds -gt $ceilingSeconds) { 'diagnostic_complete' } else { 'success' }
+        $state.outcome = if ($isDiagnostic) { 'diagnostic_complete' } else { 'success' }
         if ($state.outcome -eq 'diagnostic_complete') {
-            $state.failure = 'Extended observation is diagnostic only, not passing candidate verification.'
+            $state.failure = if ($DiagnosticOnly) {
+                'Explicit diagnostic-only invocation is not passing candidate verification.'
+            } else { 'Extended observation is diagnostic only, not passing candidate verification.' }
         }
     } catch {
         $state.observedOutcome = if ($state.outcome -eq 'timed_out') { 'timed_out' } else { 'failure' }

@@ -1239,6 +1239,8 @@ internal static partial class Program
         if (File.Exists(resultPath)) throw new InvalidOperationException("Hosted note timing evidence already exists.");
         File.WriteAllText(resultPath, JsonSerializer.Serialize(new
         {
+            diagnosticOnly = TempNativeBoundaryEver,
+            acceptanceEligible = !TempNativeBoundaryEver,
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),

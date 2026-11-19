@@ -15,6 +15,84 @@ function Invoke-RunnerProbe([string[]] $Arguments, [string] $Log) {
         return $process.ExitCode
     } finally { $process.Dispose() }
 }
+function Assert-DiagnosticClassification([string] $Suite, [switch] $OriginalFailure) {
+    $probe = Join-Path $results "$Suite-diagnostic-$OriginalFailure"
+    $observed = @{ executed = $false }
+    $failure = $null
+    try {
+        Invoke-ScaleSuite -Suite $Suite -Label $Suite -ResultsDirectory $probe -DiagnosticOnly `
+            -Selection @{} -Verify {
+                param($run, $build)
+                $observed.executed = $true
+                $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
+                $manifestPath = Join-Path $probe 'diagnostic-artifact-manifest.json'
+                if (!$status.diagnosticOnly -or $status.acceptanceEligible -ne $false -or
+                    $status.observationSeconds -ne 660 -or $status.ceilingSeconds -ne 660 -or
+                    !(Test-Path -LiteralPath $manifestPath)) {
+                    throw 'Opt-in 660 diagnostic classification is missing before test execution.'
+                }
+                $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+                if (!$manifest.diagnosticOnly -or $manifest.acceptanceEligible -ne $false -or
+                    $manifest.suite -ne $Suite -or $manifest.scope -ne 'all-members-and-records-recursive' -or
+                    !$manifest.coversFutureMembers -or !$manifest.includesBinaryRecords -or
+                    $manifest.archiveRoot -ne [IO.Path]::GetRelativePath($root, $probe) -or
+                    $manifest.runDirectory -ne [IO.Path]::GetRelativePath($probe, $run)) {
+                    throw 'Creation-time diagnostic manifest does not cover every archive member and record.'
+                }
+                $observed.manifestHash = (Get-FileHash $manifestPath -Algorithm SHA256).Hash
+                $observed.raw = Join-Path $run 'raw-measurements.json'
+                $observed.binary = Join-Path $run 'native-boundary.raw.log'
+                [IO.File]::WriteAllText($observed.raw, '{"measurement":123.456,"fixtureOnly":true}')
+                [IO.File]::WriteAllBytes($observed.binary, [byte[]](0..63))
+                $observed.binaryHash = (Get-FileHash $observed.binary -Algorithm SHA256).Hash
+                if ($OriginalFailure) { throw 'PRIMARY-CONTRACT-FAILURE' }
+            }
+    } catch { $failure = $_.Exception.Message }
+    if (!(Test-Path -LiteralPath (Join-Path $probe 'result.json'))) {
+        throw "Explicit $Suite diagnostic was not admitted before execution: $failure"
+    }
+    $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
+    $expectedOutcome = if ($OriginalFailure) { 'failure' } else { 'diagnostic_complete' }
+    $expectedObserved = if ($OriginalFailure) { 'failure' } else { 'success' }
+    if (!$observed.executed -or !$failure -or $status.outcome -ne $expectedOutcome -or
+        $status.observedOutcome -ne $expectedObserved -or !$status.diagnosticOnly -or
+        $status.acceptanceEligible -ne $false) {
+        throw "Explicit $Suite diagnostic did not remain nonaccepting at660: $failure"
+    }
+    if ($OriginalFailure -and ($status.failure -cne 'PRIMARY-CONTRACT-FAILURE' -or
+        !$failure.Contains('PRIMARY-CONTRACT-FAILURE'))) {
+        throw 'Diagnostic classification replaced the original failure with a diagnostic-success verdict.'
+    }
+    if ((Get-FileHash (Join-Path $probe 'diagnostic-artifact-manifest.json') -Algorithm SHA256).Hash -ne
+        $observed.manifestHash -or [IO.File]::ReadAllText($observed.raw) -ne
+        '{"measurement":123.456,"fixtureOnly":true}' -or
+        (Get-FileHash $observed.binary -Algorithm SHA256).Hash -ne $observed.binaryHash) {
+        throw 'Diagnostic classification rewrote its creation manifest or individual raw measurements afterward.'
+    }
+}
+function Assert-DefaultScaleVerdict([string] $Suite, [int] $ObservationSeconds) {
+    $probe = Join-Path $results "$Suite-default-$ObservationSeconds"
+    $diagnostic = $ObservationSeconds -gt 660
+    $failure = $null
+    try {
+        Invoke-ScaleSuite -Suite $Suite -Label $Suite -ResultsDirectory $probe `
+            -ObservationSeconds $ObservationSeconds -Selection @{} -Verify {
+                param($run, $build)
+                $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
+                if ($status.diagnosticOnly -ne $diagnostic -or $status.acceptanceEligible -ne !$diagnostic -or
+                    $status.observationSeconds -ne $ObservationSeconds -or $status.ceilingSeconds -ne 660) {
+                    throw 'Default or existing extended-observation classification changed before execution.'
+                }
+            }
+    } catch { $failure = $_.Exception.Message }
+    $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
+    $outcome = if ($diagnostic) { 'diagnostic_complete' } else { 'success' }
+    if ($status.outcome -ne $outcome -or $status.observedOutcome -ne 'success' -or
+        [bool]$failure -ne $diagnostic -or
+        (Test-Path -LiteralPath (Join-Path $probe 'diagnostic-artifact-manifest.json'))) {
+        throw 'Default660 acceptance or the existing900 non-verifying verdict changed.'
+    }
+}
 try {
     $probe = Join-Path $results 'revision-probe'
     New-Item -ItemType Directory $probe | Out-Null
@@ -40,7 +118,36 @@ try {
         }
     } finally { $env:SCALE_STARTED_AT = $started }
     Write-Host 'PASS: exhausted UI-scale setup budget fails before any build or desktop execution.'
+    . "$root\eng\ScaleRunner.ps1"
+    foreach ($suite in @('ui-scale', 'non-ui-performance')) {
+        Assert-DiagnosticClassification $suite
+        Assert-DiagnosticClassification $suite -OriginalFailure
+        Assert-DefaultScaleVerdict $suite 660
+        Assert-DefaultScaleVerdict $suite 900
+        $prior = Join-Path $results "$suite-prior-artifacts"
+        New-Item -ItemType Directory $prior | Out-Null
+        [IO.File]::WriteAllText((Join-Path $prior 'old.json'), '{"historical":true}')
+        $refusal = $null
+        try {
+            Invoke-ScaleSuite -Suite $suite -Label $suite -ResultsDirectory $prior -DiagnosticOnly `
+                -Selection @{} -Verify { throw 'Historical classification must be refused before execution.' }
+        } catch { $refusal = $_.Exception.Message }
+        if (!$refusal -or !$refusal.Contains('fresh results directory') -or
+            [IO.File]::ReadAllText((Join-Path $prior 'old.json')) -ne '{"historical":true}' -or
+            (Test-Path -LiteralPath (Join-Path $prior 'diagnostic-artifact-manifest.json'))) {
+            throw 'Diagnostic classification relabelled or overwrote historical artifacts.'
+        }
+    }
+    Write-Host 'PASS: opt-in 660 diagnostics classify both suites and every archive member before execution, never candidate success.'
+    Write-Host 'PASS: default660/legacy900 verdicts and real primary failures remain unchanged; prior archives cannot be relabelled.'
     $workflow = Get-Content "$root\.github\workflows\scale-verification.yml" -Raw
+    $diagnosticInputs = [regex]::Matches($workflow, '(?ms)^      diagnostic_only:\r?\n(?<body>.*?)(?=^      [\w-]+:|^  [\w-]+:|\z)')
+    if ($diagnosticInputs.Count -ne 2 -or @($diagnosticInputs | Where-Object {
+        $_.Groups['body'].Value -notmatch '(?m)^        default: false\r?$' -or
+        $_.Groups['body'].Value -notmatch '(?m)^        type: boolean\r?$'
+    }).Count) {
+        throw 'Both workflow entry points must expose explicit default-false diagnostic_only input.'
+    }
     if ($workflow -match '(?m)^\s*concurrency:') {
         throw 'Independent scale verification runs must not serialize or cancel one another on the same ref.'
     }
@@ -54,8 +161,44 @@ try {
         } else { 'timeout-minutes: 13' }
         foreach ($required in @('runs-on: windows-latest', $watchdog, 'SCALE_STARTED_AT=',
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
-            ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'))) {
+            ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'),
+            'DIAGNOSTIC_ONLY: ${{ inputs.diagnostic_only || false }}',
+            '-DiagnosticOnly:([bool]::Parse($env:DIAGNOSTIC_ONLY))', '$env:GITHUB_SHA -ne $revision')) {
             if (!$job.Contains($required)) { throw "$($suite.job) is missing $required" }
+        }
+        $prefix = if ($suite.job -eq 'ui-scale') {
+            "(inputs.diagnostic_only || inputs.extended_observation) && 'diagnostic-' || ''"
+        } else { "inputs.diagnostic_only && 'diagnostic-' || ''" }
+        if (!$job.Contains($prefix) -or $job -notmatch '(?m)^    name: \$\{\{ inputs\.diagnostic_only &&') {
+            throw 'Both diagnostic companion job and artifact names must be nonaccepting from dispatch.'
+        }
+        $upload = [regex]::Match($job, '(?ms)^      - uses: actions/upload-artifact@v4\r?\n(?<body>.*?)(?=^      -|\z)').Groups['body'].Value
+        $archivePaths = @([regex]::Match($upload, '(?ms)^          path: \|\r?\n(?<paths>.*)\z').Groups['paths'].Value -split '\r?\n' |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $archiveRoot = if ($suite.job -eq 'ui-scale') { '.ci-results/ui-scale' } else { '.ci-results/performance' }
+        if ($archivePaths -notcontains "$archiveRoot/**/*.json" -or
+            $archivePaths -notcontains "$archiveRoot/**/*.log" -or
+            @($archivePaths | Where-Object { !$_.StartsWith("$archiveRoot/", [StringComparison]::Ordinal) }).Count) {
+            throw 'Every uploaded member, including manifest JSON and primitive binary .log records, must remain inside its classified archive root.'
+        }
+        $entryTokens = $null
+        $entryErrors = $null
+        $entry = [Management.Automation.Language.Parser]::ParseFile(
+            "$root\eng\$($suite.command)", [ref]$entryTokens, [ref]$entryErrors)
+        $parameter = $entry.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq 'DiagnosticOnly' }
+        $calls = @($entry.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Invoke-ScaleSuite'
+        }, $true))
+        $forward = @($calls.CommandElements | Where-Object {
+            $_ -is [Management.Automation.Language.CommandParameterAst] -and
+            $_.ParameterName -ceq 'DiagnosticOnly' -and
+            $_.Argument -is [Management.Automation.Language.VariableExpressionAst] -and
+            $_.Argument.VariablePath.UserPath -ceq 'DiagnosticOnly'
+        })
+        if ($entryErrors.Count -or !$parameter -or $parameter.Extent.Text -notmatch '\[switch\]' -or
+            $calls.Count -ne 1 -or $forward.Count -ne 1) {
+            throw 'Both actual entry points must forward their opt-in switch to the real common runner.'
         }
         if ($job -match '(?m)^\s+(needs|strategy):' -or
             $job -notmatch 'if:\s*\$\{\{\s*always\(\)\s*\}\}' -or
@@ -94,7 +237,7 @@ try {
     $shared = Get-Content "$root\eng\ScaleRunner.ps1" -Raw
     if (!$shared.Contains('$process.Kill($true)')) { throw 'Shared scale execution lost owned process-tree termination.' }
     if (!$shared.Contains('$ceilingSeconds = 660') -or !$shared.Contains("'diagnostic_complete'") -or
-        !$workflow.Contains("inputs.extended_observation && 'diagnostic-' || ''") -or
+        !$workflow.Contains("(inputs.diagnostic_only || inputs.extended_observation) && 'diagnostic-' || ''") -or
         !$runner.Contains('[switch] $ExtendedObservation')) {
         throw 'Extended observation must stay explicit, non-verifying and separate from the unchanged pass/fail budget.'
     }

@@ -1,7 +1,8 @@
 param(
     [ValidatePattern('^[0-9a-fA-F]{40}$')][string] $ExpectedRevision,
     [string] $ResultsDirectory = '.ci-results\ui-scale',
-    [switch] $ExtendedObservation
+    [switch] $ExtendedObservation,
+    [switch] $DiagnosticOnly
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -11,7 +12,7 @@ $required = @(Get-Content "$root\tests\UiScaleScenarios.json" -Raw | ConvertFrom
 $observation = if ($ExtendedObservation) { 900 } else { 660 }
 
 Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
-    -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation `
+    -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation -DiagnosticOnly:$DiagnosticOnly `
     -Selection @{ selector = '--ui-scale'; requiredScenarios = $required } -Verify {
         param($run, $build)
         if (![Environment]::UserInteractive) {
