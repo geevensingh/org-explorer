@@ -102,6 +102,18 @@ public sealed partial class ExportSession
             : job.DirectoryIds.Any(id => read.Target.StartsWith("/users/" + id + "/", StringComparison.Ordinal)
                 || read.Target.StartsWith("/users/" + id + "?", StringComparison.Ordinal));
 
+    private static void RequireJobSource(SourceLedger sources, string worker, string kind, string[] targets)
+    {
+        var assigned = sources.CollectionJobs.SingleOrDefault(job => job.State == "assigned" && job.Worker == worker);
+        if (kind is "profile" or "photo")
+        {
+            Require(assigned is not null, "Obtain this worker's current disjoint job before claiming enrichment reads.");
+            Require(targets.All(target => assigned!.DirectoryIds.Contains(kind == "profile" ? target : target.Split('/')[2])),
+                "Enrichment requests must stay within the worker's assigned job.");
+        }
+        else Require(assigned is null, "Only the coordinator collects structured directory and metadata reads.");
+    }
+
     public object FinishJob(string worker, string jobId)
     {
         var collection = Complete();
@@ -174,16 +186,12 @@ public sealed partial class ExportSession
             }
         }
         var sources = SourceStatus();
-        var assigned = sources.CollectionJobs.SingleOrDefault(job => job.State == "assigned" && job.Worker == worker);
+        RequireJobSource(sources, worker, kind, targets);
         if (kind is "profile" or "photo")
         {
-            Require(assigned is not null, "Obtain this worker's disjoint job before preparing enrichment reads.");
-            Require(targets.All(target => assigned!.DirectoryIds.Contains(kind == "profile" ? target : target.Split('/')[2])),
-                "Enrichment requests must stay within the worker's assigned job.");
             Require(agentId is not null || run.WorkerLimit == 1 || worker == "coordinator",
                 "Supply the native worker's runtime agentId; a missing descriptor scope is not proof worker capture is unavailable.");
         }
-        else Require(assigned is null, "Only the coordinator collects structured directory and metadata reads.");
         var claim = ClaimSource(worker, kind, targets);
         if (claim.ClaimId is null) return new(claim, null, null, null);
         JsonObject arguments;
@@ -259,25 +267,39 @@ public sealed partial class ExportSession
         var ticket = Read<CaptureTicket>(ticketFile);
         var claimId = ticket.Request.ClaimId
             ?? throw new InvalidOperationException("Use a prepared claim-bound capture for automatic source completion.");
-        var active = SourceStatus().Reads.Where(read => read.State == "active" && read.Attempts[^1].ClaimId == claimId).ToArray();
-        Require(active.Length > 0 && active[0].Kind is "structured" or "photo",
+        var sources = SourceStatus();
+        var reads = sources.Reads.Where(read => read.Attempts.LastOrDefault()?.ClaimId == claimId).ToArray();
+        Require(reads.Length > 0, "The original source claim is missing or superseded; preserve newer source work.");
+        Require(reads[0].Kind is "structured" or "photo",
             "Profile retrieval needs explicit per-identity outcomes; use capture and source-finish for that semantic association.");
         var response = Read<JsonObject>(captured.ResponseFile);
         SourceResult[] results;
-        if (active[0].Kind == "structured")
+        if (reads[0].Kind == "structured")
         {
             var targets = Read<string[]>(captured.RequestsFile!);
             var responses = response["results"]!.AsArray();
             results = targets.Select((target, index) => new SourceResult(target, responses[index]!.DeepClone().AsObject())).ToArray();
         }
-        else results = [new(active.Single().Target, response)];
+        else results = [new(ticket.Request.Arguments["path"]!.GetValue<string>(), response)];
+        Require(reads.Select(read => read.Target).SequenceEqual(results.Select(result => result.Target)),
+            "Materialize only the complete original claim; superseded source attempts cannot replace newer results.");
         var resultFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(ticketFile)!, "source-results.json");
         Immutable(resultFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(results, Json) + "\n"));
-        var completion = FinishSource(claimId, resultFile);
+        SourceCompletion completion;
+        if (reads.All(read => read.State == "active")) completion = FinishSource(claimId, resultFile);
+        else
+        {
+            Require(reads.All(read => read.Attempts[^1].FinishedAt is not null && read.Attempts[^1].ResultFile is not null
+                && JsonNode.DeepEquals(SavedSourceResponse(read, read.Attempts[^1]),
+                    results.Single(result => result.Target == read.Target).Response)),
+                "Resume materialization only from the claim's unchanged completed source outcomes.");
+            completion = new(sources.BatchId, claimId, reads, sources.RecoveryConsumed, sources.StopReason);
+        }
+        var observedAt = Read<JsonObject>(captured.StartFile)["timestamp"]!.GetValue<DateTimeOffset>();
         object? materialized = null;
-        if (active[0].Kind == "structured") Ingest(captured.RequestsFile!, captured.ResponseFile);
+        if (reads[0].Kind == "structured") Ingest(captured.RequestsFile!, captured.ResponseFile, (claimId, observedAt));
         else if (completion.Reads.Single().State == "completed")
-            materialized = Photo(active.Single().Target.Split('/')[2], captured.ResponseFile);
+            materialized = Photo(reads.Single().Target.Split('/')[2], captured.ResponseFile, observedAt);
         return new { capture = captured, source = completion, materialized };
     }
 
@@ -294,8 +316,8 @@ public sealed partial class ExportSession
         var source = SourceStatus().Reads.SingleOrDefault(read => read.Kind == "profile" && read.Target == id);
         Require(source is not null && source.State == "completed" && source.Attempts[^1].ClaimId == ticket.Request.ClaimId,
             "Record an observation only from that identity's latest completed profile lookup.");
-        Require(captured.ToolSucceeded && ticket.Request.Arguments["strategy"]?.GetValue<string>() == "grounding",
-            "A failed lookup cannot become an unknown observation.");
+        Require(ticket.Request.Arguments["strategy"]?.GetValue<string>() == "grounding",
+            "A profile observation requires a grounding request.");
         var person = Complete().People.Single(person => person.Id == id);
         var started = Read<JsonObject>(captured.StartFile);
         var observedAt = DateTimeOffset.Parse(Text(started, "timestamp"), CultureInfo.InvariantCulture, DateTimeStyles.None);
@@ -369,5 +391,6 @@ public sealed partial class ExportSession
                 && !IsOptionalSource(read) && read.State == "failed" && read.RecoveryEligible)
             .Select(read => read.Target)).Distinct(StringComparer.Ordinal)
             .Where(target => !sources.Reads.Any(read => read.Kind == "structured" && read.Target == target
-                && (read.AccountedFor || read.State == "active")));
+                && (read.AccountedFor || read.State == "active"
+                    || read.State == "failed" && (!read.RecoveryEligible || read.Attempts.Count >= 2))));
 }

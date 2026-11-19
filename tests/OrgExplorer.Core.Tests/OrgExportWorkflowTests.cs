@@ -355,6 +355,181 @@ public sealed partial class OrgExportTests
         Assert.Equal([ExportSession.ReportsPath(RootId)], retry.Claim.Targets);
         Assert.Single(session.SourceStatus().Reads.Single(read => read.Target == ExportSession.UserPath(RootId)).Attempts);
         Assert.Equal(2, session.SourceStatus().Reads.Single(read => read.Target == ExportSession.ReportsPath(RootId)).Attempts.Count);
+        var ledger = File.ReadAllBytes(Path.Combine(path, "source-coordination.json"));
+        Assert.Throws<InvalidOperationException>(() => session.FinishCapturedSource(first.TicketFile!));
+        Assert.Equal(ledger, File.ReadAllBytes(Path.Combine(path, "source-coordination.json")));
+    }
+
+    [Theory]
+    [InlineData("profile", false)]
+    [InlineData("profile", true)]
+    [InlineData("photo", false)]
+    [InlineData("photo", true)]
+    public void Source_claims_reject_wrong_job_scope_and_stale_owners_without_spending_attempts(string kind, bool handedOff)
+    {
+        var path = SeedWorkflow(rootPhoto: true);
+        using var session = ExportSession.Open(path);
+        var original = session.NextJob("original").Job!;
+        var other = session.NextJob("other").Job!;
+        string Target(string id) => kind == "profile" ? id : $"/users/{id}/photo/$value";
+        var originalTarget = Target(original.JobId);
+        if (handedOff) session.ResumeJob(original.JobId, "replacement", "The original worker stopped before its source request.");
+        var originalLedger = File.ReadAllBytes(Path.Combine(path, "source-coordination.json"));
+        string[] targets = handedOff ? [originalTarget]
+            : kind == "profile" ? [originalTarget, Target(other.JobId)] : [Target(other.JobId)];
+
+        Assert.Throws<InvalidOperationException>(() => session.ClaimSource("original", kind, targets));
+        Assert.Equal(originalLedger, File.ReadAllBytes(Path.Combine(path, "source-coordination.json")));
+        var granted = session.ClaimSource(handedOff ? "replacement" : "original", kind, [originalTarget]);
+        Assert.NotNull(granted.ClaimId);
+        Assert.Single(session.SourceStatus().Reads.Single(read => read.Kind == kind && read.Target == originalTarget).Attempts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Finish_capture_resumes_local_materialization_after_source_completion_without_another_attempt(bool photo)
+    {
+        var path = photo ? SeedWorkflow(people: 1, rootPhoto: true) : NewRun();
+        var events = Path.Combine(root, "resume-materialization.jsonl");
+        File.WriteAllText(events, "");
+        var targets = Path.Combine(root, "resume-materialization-targets.json");
+        Save(targets, new[] { photo ? $"/users/{RootId}/photo/$value" : ExportSession.UserPath(RootId) });
+        var blocker = photo ? Path.Combine(path, "photos", RootId + ".png") : Path.Combine(path, "receipts");
+        ExportSession.PreparedSource prepared;
+        using (var session = ExportSession.Open(path))
+        {
+            if (photo) session.NextJob("coordinator");
+            prepared = session.PrepareSource("coordinator", photo ? "photo" : "structured", targets, "workiq-fetch", events);
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "materialize", toolName = prepared.Request!.ToolName,
+                arguments = prepared.Request.Arguments });
+            var response = photo ? File.ReadAllText(Blob())
+                : new JsonObject { ["results"] = new JsonArray(Ok(User(RootId))) }.ToJsonString();
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "materialize", success = true,
+                result = new { content = response } });
+            if (photo) Directory.CreateDirectory(blocker);
+            else
+            {
+                Directory.Move(blocker, blocker + ".retained");
+                File.WriteAllText(blocker, "Fictitious local materialization failure.");
+            }
+            if (photo) Assert.Throws<UnauthorizedAccessException>(() => session.FinishCapturedSource(prepared.TicketFile!));
+            else Assert.ThrowsAny<IOException>(() => session.FinishCapturedSource(prepared.TicketFile!));
+            Assert.All(session.SourceStatus().Reads.Where(read => read.Attempts[^1].ClaimId == prepared.Claim.ClaimId),
+                read => Assert.Equal("completed", read.State));
+        }
+        if (photo) Directory.Delete(blocker);
+        else
+        {
+            File.Delete(blocker);
+            Directory.Move(blocker + ".retained", blocker);
+        }
+        using var resumed = ExportSession.Open(path);
+        var before = JsonSerializer.Serialize(resumed.SourceStatus().Reads, ExportSession.Json);
+
+        resumed.FinishCapturedSource(prepared.TicketFile!);
+
+        Assert.Equal(before, JsonSerializer.Serialize(resumed.SourceStatus().Reads, ExportSession.Json));
+        var files = Directory.GetFiles(Path.Combine(path, photo ? "photos" : "receipts")).Order().ToArray();
+        var bytes = files.Select(File.ReadAllBytes).ToArray();
+        if (photo) Assert.Equal(Png, File.ReadAllBytes(blocker));
+        else Assert.Equal(RootId, resumed.Plan().Receipts[ExportSession.UserPath(RootId)].Response["data"]!["id"]!.GetValue<string>());
+        resumed.FinishCapturedSource(prepared.TicketFile!);
+        Assert.Equal(files, Directory.GetFiles(Path.Combine(path, photo ? "photos" : "receipts")).Order().ToArray());
+        for (var index = 0; index < files.Length; index++) Assert.Equal(bytes[index], File.ReadAllBytes(files[index]));
+        Assert.Equal(before, JsonSerializer.Serialize(resumed.SourceStatus().Reads, ExportSession.Json));
+    }
+
+    [Fact]
+    public void Mixed_profile_capture_records_only_completed_identities_despite_aggregate_tool_failure()
+    {
+        var path = SeedWorkflow(people: 2);
+        using var session = ExportSession.Open(path);
+        var job = session.NextJob("coordinator").Job!;
+        var people = JsonSerializer.Deserialize<ExportSession.Person[]>(File.ReadAllText(job.JobFile), ExportSession.Json)!;
+        var events = Path.Combine(root, "mixed-profile-workflow.jsonl");
+        File.WriteAllText(events, "");
+        var prepared = session.PrepareNextSource("coordinator", "profile", "workiq-retrieve", events);
+        AppendEvent(events, "tool.execution_start", new { toolCallId = "mixed", toolName = prepared.Request!.ToolName,
+            arguments = prepared.Request.Arguments });
+        var success = Ok(new JsonObject { ["directoryId"] = people[0].Id, ["hits"] = new JsonArray() });
+        var failure = new JsonObject { ["statusCode"] = 503 };
+        AppendEvent(events, "tool.execution_complete", new { toolCallId = "mixed", success = false,
+            result = new { content = new JsonObject { ["results"] = new JsonArray(success.DeepClone(), failure.DeepClone()) }.ToJsonString() } });
+        session.Capture(prepared.TicketFile!);
+        var results = Path.Combine(root, "mixed-profile-outcomes.json");
+        Save(results, new[] { new ExportSession.SourceResult(people[0].Id, success), new ExportSession.SourceResult(people[1].Id, failure) });
+        session.FinishSource(prepared.Claim.ClaimId!.Value, results);
+        var draft = Path.Combine(root, "mixed-profile-draft.json");
+        Save(draft, new ExportSession.ProfileDraft(UnknownFields()));
+
+        session.RecordProfileDraft(people[0].Id, prepared.CaptureFile!, draft);
+
+        Assert.True(File.Exists(Path.Combine(path, "profiles", people[0].Id + ".json")));
+        Assert.Throws<InvalidOperationException>(() => session.RecordProfileDraft(people[1].Id, prepared.CaptureFile!, draft));
+        FinishSource(session, session.ClaimSource("coordinator", "profile", [people[1].Id]), failure.DeepClone().AsObject());
+        session.FinishJob("coordinator", job.JobId);
+        Assert.Equal("complete", session.SourceStatus().CollectionJobs.Single().State);
+    }
+
+    [Fact]
+    public void Directory_preparation_skips_exhausted_uncaptured_paths_but_retains_their_publication_blockers()
+    {
+        var path = ExportSession.Start("Fictitious root", RootId, AccountId, importsRoot: root).RunPath;
+        using var session = ExportSession.Open(path);
+        Ingest(session, (ExportSession.UserPath(RootId), Ok(User(RootId))),
+            (ExportSession.ManagerPath(RootId), Missing("Request_ResourceNotFound")),
+            (ExportSession.ReportsPath(RootId), Ok(new JsonObject { ["value"] = new JsonArray(User(ChildId), User(AltId)) })));
+        var events = Path.Combine(root, "exhausted-directory.jsonl");
+        File.WriteAllText(events, "");
+        var targets = Path.Combine(root, "exhausted-directory-targets.json");
+        Save(targets, new[] { ExportSession.ReportsPath(ChildId) });
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var prepared = session.PrepareSource("coordinator", "structured", targets, "workiq-fetch", events);
+            AppendEvent(events, "tool.execution_start", new { toolCallId = "uncaptured-" + attempt,
+                toolName = prepared.Request!.ToolName, arguments = prepared.Request.Arguments });
+            AppendEvent(events, "tool.execution_complete", new { toolCallId = "uncaptured-" + attempt, success = false,
+                result = new { content = "{\"results\":[]}" } });
+            session.FailCapture(prepared.Claim.ClaimId!.Value, prepared.TicketFile!, "The original stopped call returned an incomplete batch.");
+        }
+
+        var unrelated = session.PrepareNextSource("coordinator", "directory", "workiq-fetch", events);
+
+        Assert.NotNull(unrelated.Claim.ClaimId);
+        Assert.Equal([ExportSession.ReportsPath(AltId)], unrelated.Claim.Targets);
+        Assert.Contains(ExportSession.ReportsPath(ChildId), session.Plan().Pending);
+        var exhausted = session.SourceStatus().Reads.Single(read => read.Target == ExportSession.ReportsPath(ChildId));
+        Assert.Equal(2, exhausted.Attempts.Count);
+        Assert.False(exhausted.RecoveryEligible);
+        Assert.False(exhausted.AccountedFor);
+        Assert.DoesNotContain(JsonSerializer.SerializeToNode(session.Status())!["directoryWork"]!.AsArray(),
+            target => target!.GetValue<string>() == ExportSession.ReportsPath(ChildId));
+    }
+
+    [Fact]
+    public void Photo_preparation_skips_future_cache_runs_but_explicit_open_and_upgrade_still_refuse_them()
+    {
+        var path = SeedWorkflow(people: 1, rootPhoto: true);
+        var future = NewRun("20000000-0000-0000-0000-000000000002");
+        var stateFile = Path.Combine(future, "state.json");
+        var state = JsonNode.Parse(File.ReadAllText(stateFile))!;
+        state["stateVersion"] = ExportSession.CollectorStateVersion + 1;
+        state["futureProperty"] = true;
+        Save(stateFile, state);
+        var original = File.ReadAllBytes(stateFile);
+        using var session = ExportSession.Open(path);
+        session.NextJob("coordinator");
+        var events = Path.Combine(root, "future-cache.jsonl");
+        File.WriteAllText(events, "");
+
+        var prepared = session.PrepareNextSource("coordinator", "photo", "workiq-fetch_blob", events);
+
+        Assert.NotNull(prepared.Claim.ClaimId);
+        Assert.Equal($"/users/{RootId}/photo/$value", prepared.Request!.Arguments["path"]!.GetValue<string>());
+        Assert.Throws<NotSupportedException>(() => ExportSession.Open(future));
+        Assert.Throws<NotSupportedException>(() => ExportSession.UpgradeRun(future, "Unsupported future version."));
+        Assert.Equal(original, File.ReadAllBytes(stateFile));
     }
 
     [Fact]
@@ -370,7 +545,7 @@ public sealed partial class OrgExportTests
         Assert.Null(session.SourceStatus().BestEffortEnrichment);
     }
 
-    private string SeedWorkflow(int people = 17, int workers = 2, bool unavailableMetadata = false)
+    private string SeedWorkflow(int people = 17, int workers = 2, bool unavailableMetadata = false, bool rootPhoto = false)
     {
         var path = ExportSession.Start("Fictitious root", RootId, AccountId, workers, root).RunPath;
         using var session = ExportSession.Open(path);
@@ -399,7 +574,7 @@ public sealed partial class OrgExportTests
         {
             var id = user["id"]!.GetValue<string>();
             Ingest(session, (ExportSession.PhotoPath(id), unavailableMetadata && id == RootId
-                ? new JsonObject { ["statusCode"] = 503 } : Missing("ImageNotFound")));
+                ? new JsonObject { ["statusCode"] = 503 } : rootPhoto && id == RootId ? Metadata("v1") : Missing("ImageNotFound")));
         }
         if (unavailableMetadata) Ingest(session, (ExportSession.PhotoPath(RootId), new JsonObject { ["statusCode"] = 503 }));
         return path;
@@ -416,7 +591,11 @@ public sealed partial class OrgExportTests
                 FinishSource(session, session.ClaimSource(lease.Worker, "profile", [person.Id]), new JsonObject { ["statusCode"] = 503 });
             }
             else
-                session.Profile(person.Id, ProfileInput(session, person));
+            {
+                if (!session.SourceStatus().Reads.Any(read => read.Kind == "profile" && read.Target == person.Id && read.State == "completed"))
+                    FinishSource(session, session.ClaimSource(lease.Worker, "profile", [person.Id]), Ok(new JsonObject()));
+                session.Profile(person.Id, ProfileInput(session, person, sourceCompleted: false));
+            }
         }
     }
 

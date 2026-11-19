@@ -81,8 +81,10 @@ public sealed partial class ExportSession
     }
 
     private static Run ReadRunState(string file, bool allowLegacy = false)
+        => ReadRunState(Read<JsonObject>(file), allowLegacy);
+
+    private static Run ReadRunState(JsonObject value, bool allowLegacy)
     {
-        var value = Read<JsonObject>(file);
         RequireVersion(StoredVersion(value), allowLegacy);
         return value.Deserialize<Run>(Json) ?? throw new InvalidOperationException("The collector run is missing.");
     }

@@ -74,6 +74,7 @@ public sealed partial class ExportSession
         Require(targets.Distinct(StringComparer.Ordinal).Count() == targets.Length, "Duplicate source targets.");
         return WithSources(ledger =>
         {
+            if (ledger.CollectionJobs.Count > 0) RequireJobSource(ledger, worker, kind, targets);
             foreach (var target in targets)
                 if (!ledger.Reads.Any(read => read.Kind == kind && read.Target == target))
                     ledger.Reads.Add(new(kind, target, "deferred", []));

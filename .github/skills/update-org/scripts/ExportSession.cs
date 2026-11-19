@@ -78,6 +78,9 @@ public sealed partial class ExportSession : IDisposable
     }
 
     public object Ingest(string requestsFile, string responseFile)
+        => Ingest(requestsFile, responseFile, null);
+
+    private object Ingest(string requestsFile, string responseFile, (Guid ClaimId, DateTimeOffset ObservedAt)? capture)
     {
         complete = null;
         FreshPayload(responseFile);
@@ -93,8 +96,11 @@ public sealed partial class ExportSession : IDisposable
             Require(request.StartsWith("/users/", StringComparison.Ordinal), "Only directory receipts belong here.");
             var response = results[index] as JsonObject
                 ?? throw new InvalidOperationException("A result is missing its structured response.");
-            Save(System.IO.Path.Combine(path, "receipts", Guid.NewGuid() + ".json"),
-                new Receipt(request, DateTimeOffset.UtcNow, response.DeepClone().AsObject()));
+            var receipt = new Receipt(request, capture?.ObservedAt ?? DateTimeOffset.UtcNow, response.DeepClone().AsObject());
+            var name = capture is { } source ? source.ClaimId + "-" + index : Guid.NewGuid().ToString();
+            var file = System.IO.Path.Combine(path, "receipts", name + ".json");
+            if (capture is null) Save(file, receipt);
+            else Immutable(file, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(receipt, Json) + "\n"));
         }
         return new { saved = requests.Length };
     }
@@ -436,7 +442,9 @@ public sealed partial class ExportSession : IDisposable
                 Local(staging);
                 var previousFile = System.IO.Path.Combine(staging, "state.json");
                 if (!File.Exists(previousFile)) continue;
-                var previous = ReadRunState(previousFile, allowLegacy: true);
+                var previousState = Read<JsonObject>(previousFile);
+                if (StoredVersion(previousState) > CollectorStateVersion) continue;
+                var previous = ReadRunState(previousState, allowLegacy: true);
                 var record = System.IO.Path.Combine(staging, "photos", id + ".json");
                 if (previous.AccountId != run.AccountId || !File.Exists(record)) continue;
                 var candidate = Read<PhotoEvidence>(record);
@@ -457,6 +465,9 @@ public sealed partial class ExportSession : IDisposable
     }
 
     public object Photo(string id, string input)
+        => Photo(id, input, DateTimeOffset.UtcNow);
+
+    private object Photo(string id, string input, DateTimeOffset observedAt)
     {
         FreshPayload(input);
         var metadata = PhotoMetadata(id);
@@ -472,7 +483,7 @@ public sealed partial class ExportSession : IDisposable
         Require(contentType == "image/jpeg" ? bytes.AsSpan().StartsWith(new byte[] { 255, 216, 255 })
             : bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }), "Photo MIME/magic mismatch.");
         var evidence = new PhotoEvidence(id, Text(metadata["data"]!.AsObject(), "@odata.mediaEtag"),
-            contentType, bytes.Length, Hash(bytes), "photos\\" + id + extension, DateTimeOffset.UtcNow, false);
+            contentType, bytes.Length, Hash(bytes), "photos\\" + id + extension, observedAt, false);
         WritePhoto(evidence, bytes);
         return new { directoryId = id, evidence.SizeBytes, evidence.Sha256 };
     }

@@ -69,6 +69,11 @@ the bound claim and ingests the complete structured batch or validates/materiali
 successful photo bytes. Source failures remain failures/unavailable outcomes,
 not a rolled-back batch or a fabricated success.
 
+After a local materialization failure, correct the filesystem problem and rerun
+`finish-capture` with the same ticket. It resumes the retained completed outcomes
+without another source attempt; repeated materialization preserves original
+receipt identities and lookup times. Superseded attempts cannot overwrite newer work.
+
 Profile retrieval additionally needs semantic association to each identity:
 
 ```powershell
