@@ -1,104 +1,46 @@
-name: Scale verification
+name: TEMP focused CrashRecovery
 
 on:
-  workflow_call:
-    inputs:
-      revision:
-        description: Exact candidate commit supplied by the calling workflow
-        required: true
-        type: string
-      extended_observation:
-        description: Diagnostic UI observation only; never passing candidate verification
-        required: false
-        default: false
-        type: boolean
-  schedule:
-    - cron: '23 10 * * *'
   workflow_dispatch:
     inputs:
-      revision:
-        description: Full 40-character candidate SHA to check freshly (blank uses the selected workflow commit)
-        required: false
+      expected_revision:
+        description: Exact full diagnostic workflow and test SHA; no alternate checkout
+        required: true
         type: string
-      extended_observation:
-        description: Observe UI work for up to 900s but retain the 660s verdict; diagnostic only
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
 
 jobs:
-  non-ui-performance:
-    name: Thorough non-UI performance
+  crash-recovery:
+    name: Original nine crash cases (diagnostic only)
     runs-on: windows-latest
-    timeout-minutes: 13
+    timeout-minutes: 11
     env:
-      CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
+      CRASH_DIAGNOSTIC_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      CRASH_DIAGNOSTIC_EXPECTED_REVISION: ${{ inputs.expected_revision }}
     steps:
-      - name: Start shared execution budget before setup
-        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - name: Start filesystem budget before setup
+        shell: pwsh
+        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.revision || github.sha }}
-      - name: Identify the exact checked-out candidate
-        run: |
-          $revision = git rev-parse HEAD
-          if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
-            throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
-          }
-          "TESTED_REVISION=$revision" >> $env:GITHUB_ENV
+      - name: Record diagnostic-only intent before SDK setup
+        shell: pwsh
+        run: .\eng\Run-CrashRecoveryDiagnostic.ps1 -InitializeOnly
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - name: Run fresh complete non-UI performance verification
-        run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
+      - name: Run exactly the original nine cases
+        shell: pwsh
+        run: .\eng\Run-CrashRecoveryDiagnostic.ps1
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: non-ui-performance-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: crash-recovery-diagnostic-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
-            .ci-results/performance/**/*.json
-            .ci-results/performance/**/*.log
-            .ci-results/performance/**/*.trx
-
-  ui-scale:
-    name: Genuine 10,000-Person WPF scale
-    runs-on: windows-latest
-    # 13 minutes normally, 17 only for explicitly non-verifying diagnostic observation.
-    timeout-minutes: ${{ inputs.extended_observation && 17 || 13 }}
-    env:
-      CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
-      EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
-    steps:
-      - name: Start shared execution budget before setup
-        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.revision || github.sha }}
-      - name: Identify the exact checked-out candidate
-        run: |
-          $revision = git rev-parse HEAD
-          if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
-            throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
-          }
-          "TESTED_REVISION=$revision" >> $env:GITHUB_ENV
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-          cache: true
-          cache-dependency-path: '**/packages.lock.json'
-      - name: Run fresh sequential genuine UI-scale scenarios
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: error
-          path: |
-            .ci-results/ui-scale/**/*.json
-            .ci-results/ui-scale/**/*.log
+            .ci-results/crash-recovery-diagnostic/*.json
+            .ci-results/crash-recovery-diagnostic/*.log
+            .ci-results/crash-recovery-diagnostic/*.trx

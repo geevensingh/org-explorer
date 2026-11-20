@@ -223,6 +223,22 @@ replacing the original failing Open assertion. There is no retry, delay, repair,
 checkpoint, write-capable probe or live-file deletion; a successful Open performs
 no diagnostic logging or metadata probes. Local nonreproduction is not evidence
 that a hosted Error 10 is safe, unrelated or attributable to its host.
+The diagnostic branch temporarily substitutes `scale-verification.yml` at its
+already-registered optional path; default-branch scale/normal CI is unchanged.
+The branch definition is `TEMP focused CrashRecovery`, manual-only with an exact
+workflow/test SHA input guard, one hosted Windows job selecting exactly those
+original nine cases, including both post-Commit
+profile receipt variants. It retains the filesystem 660-second setup-inclusive
+budget and eleven-minute job watchdog, detailed unfiltered stdout/stderr,
+original TRX, exact case union/outcomes and candidate/binary/native-asset hashes.
+Records are `diagnosticOnly: true` / `acceptanceEligible: false` before SDK setup;
+missing/different/skipped/failed cases or process failure/timeout fail closed.
+The focused runner contracts use small non-UI parser/process negatives, not
+additional crash repetitions. No required normal CI selection is altered.
+This workflow/runner/contract plumbing is a diagnostic branch only: never merge
+its ancestry into the shipping integration. A passing run means nonreproduction,
+not recovery acceptance, and the existing Error 10 remains unresolved until
+its actual evidence supports a reviewed fix.
 None of these is hosted-actor attribution, a natural-duration benchmark or
 native acceptance.
 
