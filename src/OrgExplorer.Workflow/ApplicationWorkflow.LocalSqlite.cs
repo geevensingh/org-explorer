@@ -29,7 +29,12 @@ public sealed partial class ApplicationWorkflow
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;";
-            command.ExecuteNonQuery();
+            try { command.ExecuteNonQuery(); }
+            catch (SqliteException error) when (fileObserver is not null)
+            {
+                ObserveSqliteSetupFailure(connection, error);
+                throw;
+            }
             command.CommandText = "PRAGMA synchronous;";
             if (Convert.ToInt32(command.ExecuteScalar()) != 2)
                 throw new IOException("Local SQLite FULL durability is unavailable. No write was started.");

@@ -6,7 +6,7 @@
   "originRunAttempt": 1,
   "originRevision": "732c9faeceaaa7fd9f9178797d16b6e62d15b594",
   "originTrxSha256": "EBF3DEF527CE55CFDB87440E33CA4CAB3960775C1193A108AD7C9E9283F2F5DE",
-  "expectedPersistenceTestObject": "9675d04c167e9c0853475054b0b5421f368c63be",
+  "expectedPersistenceTestObject": "7240533cf83d1ba73f26af62a20018369a784fc6",
   "filter": "Category!=Performance",
   "count": 446,
   "identityLimit": "Verbatim original TRX names and opaque test IDs, including three xUnit-formatted ellipses from static InlineData. No list cap, argument reconstruction or runtime order override.",

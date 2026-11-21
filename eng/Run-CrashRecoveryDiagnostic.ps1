@@ -243,7 +243,8 @@ $results = Join-Path $root '.ci-results\crash-recovery-diagnostic'
 $null = New-Item -ItemType Directory -Path $results -Force
 $started = [DateTimeOffset]::Parse($env:LANE_STARTED_AT)
 $baseline = 'ab3c63c68d1cf8cbf9d9aa732d4dded95cb108fb'
-$expectedSource = '08e9b32215b1d32dcb5e2eae288602c3dc7f52fb'
+$normalSource = '08e9b32215b1d32dcb5e2eae288602c3dc7f52fb'
+$expectedSource = '4c11bb98c4572d5732a1b67f228cbfdf82ff7281'
 $revision = git rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify diagnostic checkout.' }
 $execution = [ordered]@{
@@ -254,6 +255,8 @@ $execution = [ordered]@{
     expectedRevision = $env:CRASH_DIAGNOSTIC_EXPECTED_REVISION
     workflowPath = '.github/workflows/scale-verification.yml'; registeredWorkflowId = 413877982
     normalApplicationBaseline = $baseline; expectedSourceTree = $expectedSource
+    normalApplicationSourceTree = $normalSource
+    diagnosticSourcePurpose = 'TEMP setup-failure observer and verified read-only native error query only; not a storage-policy fix or shipping source.'
     runId = $env:GITHUB_RUN_ID; runAttempt = $env:GITHUB_RUN_ATTEMPT
     startedAt = $started.ToString('O'); ceilingSeconds = 660; jobWatchdogMinutes = 11
     expectedCases = @(); steps = @()
@@ -274,8 +277,9 @@ try {
         @(git status --porcelain=v1 --untracked-files=all).Count) { throw 'Diagnostic identity or clean checkout is invalid.' }
     git merge-base --is-ancestor $baseline HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Diagnostic checkout does not preserve its approved normal baseline.' }
+    if ((git rev-parse "$($baseline):src") -cne $normalSource) { throw 'The recorded normal source baseline changed.' }
     $source = git rev-parse 'HEAD:src'
-    if ($LASTEXITCODE -ne 0 -or $source -cne $expectedSource) { throw 'Production source differs from approved ab3 baseline.' }
+    if ($LASTEXITCODE -ne 0 -or $source -cne $expectedSource) { throw 'Source differs from the exact approved diagnostic observation delta.' }
     $execution['sourceTree'] = $source
     $execution['testTree'] = git rev-parse 'HEAD:tests'
     $selectionInfo = Get-CrashDiagnosticSelection $Selection (Join-Path $root 'tests\CrashRecoveryFilesystemCases.json')
@@ -319,6 +323,8 @@ try {
     Write-CrashDiagnosticRecord (Join-Path $results 'identity.json') ([ordered]@{
         revision = $revision; workflowRevision = $env:CRASH_DIAGNOSTIC_WORKFLOW_SHA
         sourceTree = $source; normalApplicationBaseline = $baseline
+        normalApplicationSourceTree = $normalSource
+        diagnosticSourcePurpose = $execution.diagnosticSourcePurpose
         binaries = $binaries; sdk = Get-Content -LiteralPath (Join-Path $results 'environment.log') -Raw
         nativeIdentity = 'Bundled exact-hash SQLite 3.53.4; source bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc, previously queried through the actual provider. This is asset identity, not a new runtime query, loaded-module hook or WAL/FULL inference.'
         desktopProduct = 'Not rebuilt or launched: normal application source baseline is exact ab3; this job executes Workflow and the existing storage child only.'

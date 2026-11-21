@@ -378,7 +378,8 @@ public sealed partial class SqliteWorkspaceTests
                 evidence = Path.Combine(Workspace, $"local-write-{Guid.NewGuid():N}.json");
                 File.WriteAllText(evidence, "Interrupted invalid transaction evidence");
             }
-            using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+            var setupObserver = new SqliteSetupFailureCollector();
+            using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: setupObserver));
             var reopenThread = Environment.CurrentManagedThreadId;
             var sqliteFailures = new List<(int Code, int ExtendedCode, int HResult, DateTimeOffset ObservedAt, StackTrace Stack)>(8);
             EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observe = (_, observation) =>
@@ -403,7 +404,7 @@ public sealed partial class SqliteWorkspaceTests
                         writerProcessId = process.Id, writerExited = process.HasExited, writerExitCode = process.ExitCode,
                         testProcessId = Environment.ProcessId, reopenThread, admission, expectedRevision,
                         phase = "After public Open returned false and its cleanup attempt; non-atomic, not original I/O or lock-holder proof.",
-                        observedAt = DateTimeOffset.UtcNow, status = reopenStatus,
+                        observedAt = DateTimeOffset.UtcNow, status = reopenStatus, setupFailures = setupObserver.Captured,
                         sqliteFailures = sqliteFailures.Select(failure => new
                         {
                             failure.Code, failure.ExtendedCode, failure.HResult, failure.ObservedAt,

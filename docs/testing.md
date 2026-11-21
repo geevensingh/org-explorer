@@ -223,6 +223,23 @@ replacing the original failing Open assertion. There is no retry, delay, repair,
 checkpoint, write-capable probe or live-file deletion; a successful Open performs
 no diagnostic logging or metadata probes. Local nonreproduction is not evidence
 that a hosted Error 10 is safe, unrelated or attributable to its host.
+The TEMP setup-failure callback captures the same initial connection-configuration
+batch's SQLite error before command/connection disposal, with operation/thread
+identity and QPC/UTC timestamps. Its default observer method is a no-op; only an
+explicit diagnostic adapter requests the synchronous read-only native probe,
+only for code10/extended1546 and while the owning callback remains active.
+The probe retains the public safe handle, selects the single already-loaded
+provider module, verifies its file hash/PE bitness and read-only version/source
+identity, and resolves `sqlite3_system_errno` without loading another library.
+Unavailable identity/exports or errno0 remain unknown. Stored SQLite-reported
+errno may be stale relative to the original Windows call and does not identify
+the failed file or holder. Crash fixtures buffer this data and emit it only after
+the original public failure returns; observer/reporting faults cannot replace it.
+Real exclusive-WAL-owner setup refusal validates the callback/filter/lifetime and
+fault-isolation support seam, not the hosted1546 cause. The matching native call
+still requires actual failure evidence; no synthetic mmap or file-resize failure
+is used as causal proof. Diagnostic source hashes differ explicitly from the
+normal ab3 source; this observation/dispatch ancestry is never shipping input.
 The diagnostic branch temporarily substitutes `scale-verification.yml` at its
 already-registered optional path; default-branch scale/normal CI is unchanged.
 The branch definition is `TEMP CrashRecovery diagnostic`, manual-only with an
