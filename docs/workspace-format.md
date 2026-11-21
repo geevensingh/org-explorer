@@ -59,7 +59,14 @@ protocol. No custom checkpoint worker or exit-time checkpoint is added.
 Never copy only the main file or manually delete WAL/SHM as a backup/repair
 technique. Logical export reads committed state through SQLite, including
 uncheckpointed frames; only complete `.oesnapshot` files enter the provider folder.
-The bundled native engine is 3.53.4; this includes SQLite's 2026 WAL-reset fix.
+The bundled native engine is pinned to the supported `SQLite` NuGet package
+3.54.1, including SQLite's 2026 WAL-reset fix and its
+[Windows mapped-SHM recovery correction](https://sqlite.org/src/info/7c103a0b7d).
+The latter invalidates the SHM header with a checked eight-byte write when the
+first exclusive dead-man-switch owner cannot truncate an old mapped section,
+then recovers the index from the original WAL. It is not an application Open
+retry or a blanket suppression of I/O errors. The existing wrappers, format 3,
+WAL/FULL policy and default checkpoint ownership are unchanged.
 
 ### Logical data and validation
 

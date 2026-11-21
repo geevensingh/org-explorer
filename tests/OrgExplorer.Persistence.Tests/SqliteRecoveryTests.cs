@@ -323,12 +323,32 @@ public sealed partial class SqliteWorkspaceTests
     [InlineData("after", "profile", false, true)]
     public async Task Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(
         string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld)
+        => await AssertAbruptCommitRecovery(boundary, mutation, unresolvedEvidence, receiptHeld);
+
+    private async Task AssertAbruptCommitRecovery(
+        string boundary, string mutation, bool unresolvedEvidence, bool receiptHeld, bool retainShmMapping = false,
+        bool restoreStaleShmIndex = false, bool retainResources = false)
     {
+        Guid? retainedTeamNote = null;
+        string? retainedHistory = null;
+        string? retainedContexts = null;
         using (var app = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
             Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
             Assert.NotNull(app.CreatePersonNote("report@example.com", "Previously committed", "Survives every interruption"));
+            if (retainResources)
+            {
+                retainedTeamNote = app.CreateTeamNote("manager@example.com", "Retained Team context", "Exact frozen Team writing")!.Id;
+                var photoPath = Path.Combine(root, "mapped-shm-photo.png");
+                File.WriteAllBytes(photoPath, ShmRecoveryPhoto);
+                Assert.True(app.EditPhoto("report@example.com", photoPath), app.Status);
+                Assert.True(app.EditPersonManager("report@example.com", null), app.Status);
+                Assert.True(app.EditPersonManager("report@example.com", "manager@example.com"), app.Status);
+                retainedHistory = System.Text.Json.JsonSerializer.Serialize(app.GetProfileTimeline("report@example.com"));
+                retainedContexts = System.Text.Json.JsonSerializer.Serialize(app.GetHistoricalTeamContexts("report@example.com"));
+                Assert.NotEmpty(app.GetHistoricalTeamContexts("report@example.com"));
+            }
         }
         var readyName = @"Local\OrgExplorer-storage-crash-" + Guid.NewGuid().ToString("N");
         using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
@@ -338,10 +358,27 @@ public sealed partial class SqliteWorkspaceTests
             Path.ChangeExtension(typeof(SqliteWorkspaceTests).Assembly.Location, ".runtimeconfig.json"),
             typeof(StorageCrash).Assembly.Location, Workspace, readyName, boundary, mutation })
             start.ArgumentList.Add(argument);
-        using var process = Process.Start(start)!;
+        using var process = new Process { StartInfo = start };
+        using var oldReadBoundary = restoreStaleShmIndex ? new ShmReadBoundary() : null;
+        using var oldReader = restoreStaleShmIndex
+            ? ApplicationWorkflow.CreateFileBacked(fileObserver: oldReadBoundary) : null;
+        Task<bool>? oldOpening = null;
+        byte[]? staleShmIndex = null;
+        var processStarted = false;
         FileStream? receiptHolder = null;
+        OwnedShmMapping? shmMapping = null;
         try
         {
+            if (oldReader is not null)
+            {
+                oldOpening = Task.Run(() => oldReader.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly));
+                await oldReadBoundary!.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                shmMapping = new OwnedShmMapping(Path.Combine(Workspace, "workspace.sqlite-shm"));
+                staleShmIndex = shmMapping.ReadIndex();
+                Assert.False(oldReadBoundary.Release.IsSet);
+            }
+            Assert.True(process.Start());
+            processStarted = true;
             Assert.True(ready.WaitOne(TimeSpan.FromSeconds(10)),
                 process.HasExited ? await process.StandardError.ReadToEndAsync() : "The real commit boundary was not reached.");
             Assert.True(File.Exists(Path.Combine(Workspace, "workspace.sqlite-wal")));
@@ -369,8 +406,26 @@ public sealed partial class SqliteWorkspaceTests
                 Assert.False(writerExited);
                 Console.WriteLine($"SQLITE-CRASH-RECEIPT-READER writerProcessId={process.Id}; writerExited={writerExited}; readerProcessId={Environment.ProcessId}; access=Read; share=ReadWrite,Delete");
             }
+            if (retainShmMapping && shmMapping is null)
+                shmMapping = new OwnedShmMapping(Path.Combine(Workspace, "workspace.sqlite-shm"));
+            if (oldOpening is not null)
+            {
+                oldReadBoundary!.Release.Set();
+                Assert.True(await oldOpening.WaitAsync(TimeSpan.FromSeconds(5)), oldReader!.Status);
+                Assert.Null(oldReader.GetRelationships("manager@example.com")!.Person.TeamName);
+                oldReader.Dispose();
+            }
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            shmMapping?.AssertHeld();
+            if (staleShmIndex is not null)
+            {
+                var committedFiles = new[] { "workspace.sqlite", "workspace.sqlite-wal" }
+                    .Select(name => Path.Combine(Workspace, name)).ToArray();
+                var before = committedFiles.Select(HashCommittedFile).ToArray();
+                shmMapping!.RestoreIndex(staleShmIndex);
+                Assert.Equal(before, committedFiles.Select(HashCommittedFile).ToArray());
+            }
             string? evidence = null;
             if (unresolvedEvidence)
             {
@@ -495,6 +550,7 @@ public sealed partial class SqliteWorkspaceTests
             }
             Assert.Equal(expectedRevision, reopened.LocalSave.CommittedRevision);
             AssertCommittedWriting();
+            shmMapping?.AssertHeld();
             if (receiptHeld)
             {
                 var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
@@ -519,6 +575,17 @@ public sealed partial class SqliteWorkspaceTests
             void AssertCommittedWriting()
             {
                 Assert.Equal("Survives every interruption", Assert.Single(reopened.GetPersonNotes("report@example.com")).Markdown);
+                if (retainedTeamNote is { } retainedId)
+                {
+                    var retained = reopened.BeginNoteDraft(NoteScope.Team, "manager@example.com", retainedId)!;
+                    Assert.Equal("manager@example.com", retained.OwnerEmail);
+                    Assert.Equal("Retained Team context", retained.Title);
+                    Assert.Equal("Exact frozen Team writing", retained.Markdown);
+                    Assert.Null(reopened.BeginNoteDraft(NoteScope.Team, "report@example.com", retainedId));
+                    Assert.Equal(ShmRecoveryPhoto, reopened.GetPhoto("report@example.com")!.Bytes.ToArray());
+                    Assert.Equal(retainedHistory, System.Text.Json.JsonSerializer.Serialize(reopened.GetProfileTimeline("report@example.com")));
+                    Assert.Equal(retainedContexts, System.Text.Json.JsonSerializer.Serialize(reopened.GetHistoricalTeamContexts("report@example.com")));
+                }
                 if (mutation == "profile")
                 {
                     var manager = reopened.GetRelationships("manager@example.com")!.Person;
@@ -529,21 +596,31 @@ public sealed partial class SqliteWorkspaceTests
                 else
                 {
                     var notes = mutation == "Person" ? reopened.GetPersonNotes("manager@example.com").Select(n => n.Markdown) :
-                        reopened.GetTeamNotes("manager@example.com").Select(n => n.Markdown);
+                        reopened.GetTeamNotes("manager@example.com").Where(n => n.Id != retainedTeamNote).Select(n => n.Markdown);
                     Assert.Equal(boundary == "after" ? ["Exact crash boundary writing"] : Array.Empty<string>(), notes);
                 }
             }
         }
         finally
         {
-            receiptHolder?.Dispose();
-            if (!process.HasExited)
+            oldReadBoundary?.Release.Set();
+            try
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                if (processStarted && !process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                if (oldOpening is not null)
+                    Assert.True(await oldOpening.WaitAsync(TimeSpan.FromSeconds(5)), oldReader!.Status);
+            }
+            finally
+            {
+                receiptHolder?.Dispose();
+                shmMapping?.Dispose();
             }
             var receipts = Directory.GetFiles(Workspace, "local-write-*.json");
-            if (receipts.Length != 0)
+            if (receipts.Length != 0 && processStarted)
                 Console.WriteLine("SQLITE-CRASH-REMAINING " + System.Text.Json.JsonSerializer.Serialize(new
                 {
                     boundary, mutation, unresolvedEvidence, testProcessId = Environment.ProcessId,
@@ -551,6 +628,12 @@ public sealed partial class SqliteWorkspaceTests
                     observedAt = DateTimeOffset.UtcNow,
                     receipts = receipts.Select(path => new { file = Path.GetFileName(path), users = LeaseOwners.Read([path]) }).ToArray()
                 }));
+        }
+
+        static string HashCommittedFile(string path)
+        {
+            using var file = File.OpenRead(path);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
         }
     }
 

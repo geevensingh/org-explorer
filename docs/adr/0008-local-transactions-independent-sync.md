@@ -42,8 +42,22 @@ checkpointing and grow the WAL without making a successful Commit unpublished
 or unsaved locally. The main database alone is not a complete backup: never copy
 it as an interchange artifact or manually delete a WAL. Complete logical
 snapshots include committed, uncheckpointed content and every required resource.
-The bundled native SQLite is verified as 3.53.4, including the
-[WAL-reset fix](https://www.sqlite.org/wal.html#the_wal_reset_bug).
+The bundled native SQLite is pinned to the supported `SQLite` NuGet package
+3.54.1, retaining the existing Microsoft.Data.Sqlite and SQLitePCLRaw wrappers.
+It includes the [WAL-reset fix](https://www.sqlite.org/wal.html#the_wal_reset_bug)
+and the [Windows SHM recovery correction](https://sqlite.org/src/info/7c103a0b7d).
+If the first exclusive dead-man-switch owner cannot truncate an externally
+mapped SHM file, that correction checks an eight-byte header invalidation before
+recovering the WAL index. It neither ignores arbitrary I/O errors nor retries
+application Open. The package signature and actual loaded native source identity
+are verified independently of the package version.
+
+Controlled original-file/owned-process cases reproduce 3.53.4's
+`SQLITE_IOERR_TRUNCATE` and require recovery on 3.54.1 while the same external
+section stays mapped, including a deliberately stale index with unchanged
+committed database/WAL bytes. This proves the mechanism, not the historical
+hosted mapping actor or completion of hosted acceptance. It does not claim that
+every partial-frame or read-only-SHM race is fixed.
 
 See [the approved design](../reliable-nonblocking-saves.md) for failure behavior,
 exit choices, retention, and measurable end-to-end acceptance criteria, and the

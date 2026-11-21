@@ -942,6 +942,27 @@ revision/error and read-only Windows Restart Manager owner snapshots for only th
 owned receipt paths. These non-atomic snapshots never shut down/restart an owner,
 force-delete evidence, inventory unrelated processes or log note contents. Missing
 owners at observation do not establish that no earlier holder existed.
+Five focused `SqliteShmRecoveryTests` cases retain the original owned child and
+public validating Open. The test host explicitly maps that child's existing
+physical SHM file at its current length, without taking a SQLite DMS lock or
+resizing it. After actual Commit Begin/End admission and death within the
+original five-second deadline, one public ExistingOnly Open must recover the
+exact committed/noncommitted revision and owner writing while the same section
+and view remain held. Profile and both note scopes retain complete history,
+frozen Team context and photo bytes. The stale-index case captures opaque SHM
+bytes under an actual older public read snapshot, releases that reader, kills
+the writer, and only then restores those bytes into the original held section.
+Hashes require original database/WAL bytes to remain unchanged; no live
+database/WAL copy, deletion or backup protocol is introduced.
+The original nine death cases and healthy public WAL-reader controls remain.
+The causal 3.53.4 RED is `SQLITE_IOERR_TRUNCATE` (10/1546) in the first public
+Open; supported native `SQLite` 3.54.1 must turn it GREEN without an Open retry
+or releasing the mapping before assertions. Actual package signature, resolved
+locks, native DLL hash/version/source ID and compile options are acquisition
+evidence, not substitutes for that behavior. These controlled cases neither
+attribute the historical hosted holder nor waive fresh candidate-bound hosted
+crash/functional acceptance; partial-first-frame and read-only-SHM race fixes
+outside this release are not claimed.
 Crash acceptance distinguishes committed-state durability from current receipt
 availability (owner-approved reconciliation on 2026-11-16). Every pre/post-Commit
 case must still expose the exact admitted base/next revision, previously committed
