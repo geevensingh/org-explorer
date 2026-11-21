@@ -17,6 +17,14 @@ foreach ($name in @('Write-CrashDiagnosticRecord', 'Report-CrashDiagnosticFailur
     . ([scriptblock]::Create($function.Extent.Text))
 }
 $workflow = Get-Content -LiteralPath (Join-Path $root '.github\workflows\scale-verification.yml') -Raw
+function Assert-CrashDiagnosticFullHistory([string]$Definition) {
+    $checkouts = [regex]::Matches($Definition, '(?ms)^      - uses: actions/checkout@v4\r?\n(?:(?!^      -).)*')
+    if ($checkouts.Count -ne 1 -or $checkouts[0].Value -notmatch '(?m)^        with:\r?$' -or
+        $checkouts[0].Value -notmatch '(?m)^          fetch-depth: 0\r?$') {
+        throw 'Crash diagnostic checkout requires explicit full history (fetch-depth: 0) for its preserved baseline ancestry guard.'
+    }
+}
+Assert-CrashDiagnosticFullHistory $workflow
 if ($workflow -notmatch '(?m)^  workflow_dispatch:\s*$' -or
     $workflow -match '(?m)^  (push|pull_request|workflow_call|schedule):' -or
     @([regex]::Matches($workflow, '(?m)^  [a-z-]+:\s*$') | Where-Object { $_.Index -gt $workflow.IndexOf('jobs:') }).Count -ne 1 -or
@@ -58,6 +66,12 @@ function Require-Rejection([scriptblock]$Action, [string]$Pattern) {
     throw "Expected rejection matching $Pattern."
 }
 try {
+    Require-Rejection {
+        Assert-CrashDiagnosticFullHistory ([regex]::Replace($workflow, '(?m)^          fetch-depth: 0\r?\n', ''))
+    } 'requires explicit full history'
+    Require-Rejection {
+        Assert-CrashDiagnosticFullHistory $workflow.Replace('fetch-depth: 0', 'fetch-depth: 1')
+    } 'requires explicit full history'
     $guard = $runner.Find({
         param($node)
         $node -is [Management.Automation.Language.IfStatementAst] -and

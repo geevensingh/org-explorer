@@ -24,6 +24,8 @@ jobs:
         shell: pwsh
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Record diagnostic-only intent before SDK setup
         shell: pwsh
         run: .\eng\Run-CrashRecoveryDiagnostic.ps1 -InitializeOnly
