@@ -8,6 +8,50 @@ function Write-CrashDiagnosticRecord([string]$Path, [System.Collections.IDiction
     $Record | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
+function Report-CrashDiagnosticFailure(
+    [string]$Phase, [Management.Automation.ErrorRecord]$Failure,
+    [Management.Automation.ErrorRecord]$PrimaryFailure, [Collections.Generic.List[object]]$Faults
+) {
+    $firstNewFault = $Faults.Count
+    $fault = [ordered]@{
+        phase = $Phase; type = $Failure.Exception.GetType().FullName
+        hresult = '0x{0:X8}' -f $Failure.Exception.HResult; message = $Failure.Exception.Message
+    }
+    $Faults.Add($fault)
+    $message = "CRASH-DIAGNOSTIC-SECONDARY-FAILURE phase=$Phase; primary=$($PrimaryFailure.Exception.Message); secondary=$($fault.type): $($fault.message). Persistence is not confirmed."
+    try { [Console]::Error.WriteLine($message) }
+    catch {
+        $Faults.Add([ordered]@{ phase = 'stderr-reporting'; type = $_.Exception.GetType().FullName; message = $_.Exception.Message })
+        try { Write-Warning "$message Stderr reporting also failed: $($_.Exception.Message)" -WarningAction Continue }
+        catch {
+            $Faults.Add([ordered]@{ phase = 'warning-reporting'; type = $_.Exception.GetType().FullName; message = $_.Exception.Message })
+        }
+    }
+    # Retain reporting faults on the primary error even if both console channels are unavailable.
+    $previous = @()
+    if ($PrimaryFailure.Exception.Data.Contains('CrashDiagnosticFailures')) {
+        $previous = @($PrimaryFailure.Exception.Data['CrashDiagnosticFailures'])
+    }
+    $PrimaryFailure.Exception.Data['CrashDiagnosticFailures'] =
+        $previous + @($Faults.ToArray() | Select-Object -Skip $firstNewFault)
+}
+
+function Write-CrashDiagnosticFinalRecord(
+    [string]$Path, [System.Collections.IDictionary]$Record,
+    [Management.Automation.ErrorRecord]$PrimaryFailure
+) {
+    try { Write-CrashDiagnosticRecord $Path $Record }
+    catch {
+        $failure = $_
+        $faults = [Collections.Generic.List[object]]::new()
+        $Record['complete'] = $false
+        $Record['outcome'] = 'Failed'
+        Report-CrashDiagnosticFailure 'execution-record-persistence' $failure $(if ($PrimaryFailure) { $PrimaryFailure } else { $failure }) $faults
+        $Record['secondaryFailures'] = $faults.ToArray()
+        if (!$PrimaryFailure) { throw }
+    }
+}
+
 function Get-CrashDiagnosticCaseNames {
     $method = 'OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing'
     foreach ($variant in @(
@@ -75,36 +119,72 @@ function Invoke-CrashDiagnosticProcess {
     $start.RedirectStandardError = $true
     foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::Start($start)
-    $output = $process.StandardOutput.ReadToEndAsync()
-    $errors = $process.StandardError.ReadToEndAsync()
+    $processId = $process.Id
+    $output = $null
+    $errors = $null
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $outcome = 'Failed'
+    $primaryFailure = $null
+    $faults = [Collections.Generic.List[object]]::new()
+    $phase = 'process-wait'
+    $stdoutSaved = $false
+    $stderrSaved = $false
     try {
+        $phase = 'output-capture-start'
+        $output = $process.StandardOutput.ReadToEndAsync()
+        $errors = $process.StandardError.ReadToEndAsync()
+        $phase = 'process-wait'
         if (!$process.WaitForExit([int][Math]::Min([int]::MaxValue, $remaining * 1000))) {
             $outcome = 'TimedOut'
             throw "$Name exceeded the remaining filesystem diagnostic budget."
         }
         if ($process.ExitCode -ne 0) { throw "$Name failed with exit code $($process.ExitCode)." }
         $outcome = 'Passed'
+    } catch {
+        $primaryFailure = $_
     } finally {
         try {
+            $phase = 'owned-process-termination'
             if (!$process.HasExited) {
                 $process.Kill($true)
                 if (!$process.WaitForExit(5000)) { throw 'The owned diagnostic process tree did not terminate.' }
             }
-            if (!$output.Wait(5000) -or !$errors.Wait(5000)) { throw 'Owned diagnostic output capture did not finish.' }
-            [IO.File]::WriteAllText((Join-Path $Results "$Name.log"), $output.GetAwaiter().GetResult())
-            [IO.File]::WriteAllText((Join-Path $Results "$Name-errors.log"), $errors.GetAwaiter().GetResult())
-            Get-Content -LiteralPath (Join-Path $Results "$Name.log")
-            Get-Content -LiteralPath (Join-Path $Results "$Name-errors.log")
+            $phase = 'output-drain'
+            if (!$output -or !$errors -or !$output.Wait(5000) -or !$errors.Wait(5000)) {
+                throw 'Owned diagnostic output capture did not finish.'
+            }
+            $stdout = $output.GetAwaiter().GetResult()
+            $stderr = $errors.GetAwaiter().GetResult()
+            $phase = 'stdout-reporting'
+            [Console]::Out.Write($stdout)
+            $phase = 'stderr-reporting'
+            [Console]::Error.Write($stderr)
+            $phase = 'stdout-persistence'
+            [IO.File]::WriteAllText((Join-Path $Results "$Name.log"), $stdout)
+            $stdoutSaved = $true
+            $phase = 'stderr-persistence'
+            [IO.File]::WriteAllText((Join-Path $Results "$Name-errors.log"), $stderr)
+            $stderrSaved = $true
+        } catch {
+            $failure = $_
+            if (!$primaryFailure) { $primaryFailure = $failure; $outcome = 'Failed' }
+            Report-CrashDiagnosticFailure $phase $failure $primaryFailure $faults
         } finally {
+            try { $process.Dispose() }
+            catch {
+                $failure = $_
+                if (!$primaryFailure) { $primaryFailure = $failure; $outcome = 'Failed' }
+                Report-CrashDiagnosticFailure 'process-disposal' $failure $primaryFailure $faults
+            }
             $Steps.Add([ordered]@{
                 name = $Name; outcome = $outcome; seconds = $timer.Elapsed.TotalSeconds
-                processId = $process.Id; arguments = $Arguments
+                processId = $processId; arguments = $Arguments; stdoutSaved = $stdoutSaved; stderrSaved = $stderrSaved
+                primaryFailure = $(if ($primaryFailure) { $primaryFailure.Exception.Message } else { $null })
+                secondaryFailures = $faults.ToArray()
             })
-            $process.Dispose()
         }
     }
+    if ($primaryFailure) { throw $primaryFailure }
 }
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -130,6 +210,7 @@ $execution = [ordered]@{
 }
 Write-CrashDiagnosticRecord (Join-Path $results 'execution.json') $execution
 $steps = [Collections.Generic.List[object]]::new()
+$primaryFailure = $null
 try {
     if (!([OperatingSystem]::IsWindows()) -or $env:GITHUB_ACTIONS -cne 'true' -or
         $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $revision -cne $env:GITHUB_SHA -or
@@ -203,11 +284,12 @@ try {
     $execution['complete'] = $true
     $execution['outcome'] = 'DiagnosticNonreproduction'
 } catch {
+    $primaryFailure = $_
     $execution['outcome'] = 'Failed'
     $execution['failure'] = $_.Exception.Message
     throw
 } finally {
     $execution['steps'] = @($steps.ToArray())
     $execution['executionSeconds'] = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
-    Write-CrashDiagnosticRecord (Join-Path $results 'execution.json') $execution
+    Write-CrashDiagnosticFinalRecord (Join-Path $results 'execution.json') $execution $primaryFailure
 }

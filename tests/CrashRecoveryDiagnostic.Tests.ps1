@@ -6,7 +6,8 @@ $errors = $null
 $runner = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $root 'eng\Run-CrashRecoveryDiagnostic.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Crash diagnostic runner syntax is invalid: $errors" }
-foreach ($name in @('Write-CrashDiagnosticRecord', 'Get-CrashDiagnosticCaseNames',
+foreach ($name in @('Write-CrashDiagnosticRecord', 'Report-CrashDiagnosticFailure',
+    'Write-CrashDiagnosticFinalRecord', 'Get-CrashDiagnosticCaseNames',
     'Read-CrashDiagnosticTrx', 'Invoke-CrashDiagnosticProcess')) {
     $function = $runner.Find({
         param($node)
@@ -142,6 +143,59 @@ try {
         throw 'Real bounded process execution lost stdout/stderr, failure or timeout.'
     }
     if (Get-Process -Id $steps[2].processId -ErrorAction SilentlyContinue) { throw 'The timed-out owned process survived cleanup.' }
+    foreach ($exit in @(7, 0)) {
+        $name = "blocked-output-$exit"
+        $path = Join-Path $results "$name.log"
+        $heldLog = [IO.FileStream]::new($path, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $stderr = [IO.StringWriter]::new()
+        $previousError = [Console]::Error
+        [Console]::SetError($stderr)
+        try {
+            $primary = $null
+            try {
+                Invoke-CrashDiagnosticProcess $pwsh @('-NoProfile', '-Command', "'retained raw output'; exit $exit") $name $results ([DateTimeOffset]::UtcNow) 10 $steps
+            } catch { $primary = $_ }
+            $pattern = if ($exit -eq 7) { 'failed with exit code 7' } else { 'being used by another process' }
+            if (!$primary -or $primary.Exception.Message -notmatch $pattern -or
+                $steps[-1].outcome -cne 'Failed' -or $steps[-1].stdoutSaved -or
+                $steps[-1].secondaryFailures[0].phase -cne 'stdout-persistence' -or
+                $stderr.ToString() -notmatch 'CRASH-DIAGNOSTIC-SECONDARY-FAILURE.*stdout-persistence') {
+                throw "Blocked-log contract lost the primary failure or explicit unsaved output for exit $exit."
+            }
+            if (Get-Process -Id $steps[-1].processId -ErrorAction SilentlyContinue) {
+                throw 'Diagnostic-output failure left its owned process alive.'
+            }
+            $executionPath = Join-Path $results "blocked-execution-$exit.json"
+            $heldRecord = [IO.FileStream]::new($executionPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            try {
+                $execution = [ordered]@{ complete = $false; outcome = 'Failed'; failure = $primary.Exception.Message }
+                $caught = $null
+                try { throw $primary }
+                finally { Write-CrashDiagnosticFinalRecord $executionPath $execution $primary }
+            } catch { $caught = $_ }
+            finally { $heldRecord.Dispose() }
+            if (!$caught -or $caught.Exception.Message -cne $primary.Exception.Message -or
+                $caught.Exception.HResult -ne $primary.Exception.HResult -or
+                $caught.Exception.GetType() -ne $primary.Exception.GetType() -or
+                $stderr.ToString() -notmatch 'execution-record-persistence' -or
+                @($primary.Exception.Data['CrashDiagnosticFailures']).Count -lt 2) {
+                throw 'A blocked final execution record replaced or hid the original failure.'
+            }
+            if ($exit -eq 0) {
+                $heldRecord = [IO.FileStream]::new($executionPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                try {
+                    Require-Rejection {
+                        Write-CrashDiagnosticFinalRecord $executionPath ([ordered]@{ complete = $true; outcome = 'DiagnosticNonreproduction' }) $null
+                    } 'being used by another process'
+                } finally { $heldRecord.Dispose() }
+            }
+        } finally {
+            [Console]::SetError($previousError)
+            Write-Host $stderr.ToString()
+            $stderr.Dispose()
+            $heldLog.Dispose()
+        }
+    }
     Write-CrashDiagnosticRecord (Join-Path $results 'execution.json') ([ordered]@{
         diagnosticOnly = $false; acceptanceEligible = $true; complete = $false; steps = $steps.ToArray()
     })
