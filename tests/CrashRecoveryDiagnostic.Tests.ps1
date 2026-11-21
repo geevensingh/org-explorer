@@ -8,7 +8,7 @@ $runner = [Management.Automation.Language.Parser]::ParseFile(
 if ($errors.Count) { throw "Crash diagnostic runner syntax is invalid: $errors" }
 foreach ($name in @('Write-CrashDiagnosticRecord', 'Report-CrashDiagnosticFailure',
     'Write-CrashDiagnosticFinalRecord', 'Get-CrashDiagnosticCaseNames',
-    'Read-CrashDiagnosticTrx', 'Invoke-CrashDiagnosticProcess')) {
+    'Get-CrashDiagnosticSelection', 'Read-CrashDiagnosticTrx', 'Invoke-CrashDiagnosticProcess')) {
     $function = $runner.Find({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -34,10 +34,15 @@ if ($workflow -notmatch '(?m)^  workflow_dispatch:\s*$' -or
 if ($workflow -match 'Run-CiLane|Run-UiScale|Run-Performance|release|matrix:') {
     throw 'The temporary diagnostic must not select normal/native/performance/release lanes.'
 }
-if ($workflow -notmatch '(?m)^name: TEMP focused CrashRecovery\r?$' -or
+if ($workflow -notmatch '(?m)^name: TEMP CrashRecovery diagnostic\r?$' -or
     $workflow -notmatch 'expected_revision:' -or $workflow -notmatch 'CRASH_DIAGNOSTIC_EXPECTED_REVISION:' -or
     (Test-Path -LiteralPath (Join-Path $root '.github\workflows\crash-recovery-diagnostic.yml'))) {
     throw 'The diagnostic must use the registered optional path and exact-SHA dispatch guard, not a new workflow filename.'
+}
+if ($workflow -notmatch 'run-name: TEMP CrashRecovery \(\$\{\{ inputs.selection \}\}\)' -or
+    $workflow -notmatch 'default: original-nine' -or $workflow -notmatch 'filesystem-context' -or
+    @([regex]::Matches($workflow, '-Selection \$env:CRASH_DIAGNOSTIC_SELECTION')).Count -ne 2) {
+    throw 'Both diagnostic modes must be explicit before initialization/execution, with original-nine as the default.'
 }
 $source = $runner.Extent.Text
 if ($source -notmatch "FullyQualifiedName=OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death" -or
@@ -50,12 +55,13 @@ $results = Join-Path $root ('.ci-results\crash-contract-' + [guid]::NewGuid().To
 $null = New-Item -ItemType Directory -Path $results
 $trx = Join-Path $results 'fixture.trx'
 $record = Join-Path $results 'cases.json'
-function Write-TrxFixture([string[]]$Names, [string]$Outcome = 'Passed', [int]$Total = 9) {
+function Write-TrxFixture([string[]]$Names, [string]$Outcome = 'Passed', [int]$Total = 9, [hashtable]$Ids = @{}) {
     $rows = foreach ($name in $Names) {
         $escaped = [Security.SecurityElement]::Escape($name)
-        "<UnitTestResult testName=`"$escaped`" outcome=`"$Outcome`" duration=`"00:00:00.001`" executionId=`"$([guid]::NewGuid())`"><Output><StdOut>SQLITE-CRASH-REOPEN-FAILURE exact retained payload</StdOut><ErrorInfo><Message>Original error</Message><StackTrace>Original stack</StackTrace></ErrorInfo></Output></UnitTestResult>"
+        $id = if ($Ids.ContainsKey($name)) { $Ids[$name] } else { [guid]::NewGuid() }
+        "<UnitTestResult testName=`"$escaped`" testId=`"$id`" outcome=`"$Outcome`" duration=`"00:00:00.001`" executionId=`"$([guid]::NewGuid())`"><Output><StdOut>SQLITE-CRASH-REOPEN-FAILURE exact retained payload</StdOut><ErrorInfo><Message>Original error</Message><StackTrace>Original stack</StackTrace></ErrorInfo></Output></UnitTestResult>"
     }
-    "<TestRun xmlns=`"http://microsoft.com/schemas/VisualStudio/TeamTest/2010`"><Results>$($rows -join '')</Results><ResultSummary outcome=`"Completed`"><Counters total=`"$Total`" executed=`"9`" passed=`"9`"/></ResultSummary></TestRun>" |
+    "<TestRun xmlns=`"http://microsoft.com/schemas/VisualStudio/TeamTest/2010`"><Results>$($rows -join '')</Results><ResultSummary outcome=`"Completed`"><Counters total=`"$Total`" executed=`"$Total`" passed=`"$Total`"/></ResultSummary></TestRun>" |
         Set-Content -LiteralPath $trx
 }
 function Require-Rejection([scriptblock]$Action, [string]$Pattern) {
@@ -116,13 +122,13 @@ try {
     }
     Require-Rejection { Read-CrashDiagnosticTrx (Join-Path $results 'missing.trx') $record } 'TRX is missing'
     Write-TrxFixture $names[0..7]
-    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original nine'
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original selected 9'
     Write-TrxFixture @($names[0..7] + $names[0])
-    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original nine'
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original selected 9'
     Write-TrxFixture @($names[0..7] + 'Different case')
-    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original nine'
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'exactly the original selected 9'
     Write-TrxFixture $names 'Passed' 10
-    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'account for all nine'
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'account for all 9'
     Write-TrxFixture $names
     (Get-Content $trx -Raw).Replace('passed="9"', 'passed="9" aborted="1"') | Set-Content $trx
     Require-Rejection { Read-CrashDiagnosticTrx $trx $record } 'unaccounted failure'
@@ -136,6 +142,38 @@ try {
         if ($saved.cases[0].outcome -cne $outcome -or $saved.cases[0].error -cne 'Original error') {
             throw 'A rejected original case lost its actual error or outcome.'
         }
+    }
+    $manifestPath = Join-Path $root 'tests\CrashRecoveryFilesystemCases.json'
+    $full = Get-CrashDiagnosticSelection 'filesystem-context' $manifestPath
+    $focused = Get-CrashDiagnosticSelection 'original-nine' $manifestPath
+    if ($full.filter -cne 'Category!=Performance' -or $full.expectedCases.Count -ne 446 -or
+        $focused.expectedCases.Count -ne 9 -or $focused.filter -notmatch '^FullyQualifiedName=') {
+        throw 'Filesystem context must restore the original446 selection without altering focused9.'
+    }
+    Require-Rejection { Get-CrashDiagnosticSelection 'unknown' $manifestPath } 'Unknown.*selection'
+    Write-TrxFixture $full.expectedCases 'Passed' 446 $full.expectedIds
+    Read-CrashDiagnosticTrx $trx $record $full.expectedCases $full.expectedIds
+    $saved = Get-Content $record -Raw | ConvertFrom-Json
+    if ($saved.cases.Count -ne 446 -or $saved.crashSubset.Count -ne 9 -or $saved.acceptanceEligible) {
+        throw 'The filesystem record must retain all446 cases and exact9 crash subset without acceptance.'
+    }
+    Write-TrxFixture $full.expectedCases[0..444] 'Passed' 446 $full.expectedIds
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record $full.expectedCases $full.expectedIds } 'selected 446'
+    Write-TrxFixture @($full.expectedCases[0..444] + $full.expectedCases[0]) 'Passed' 446 $full.expectedIds
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record $full.expectedCases $full.expectedIds } 'selected 446'
+    $changedIds = $full.expectedIds.Clone()
+    $changedIds[$full.expectedCases[0]] = [guid]::NewGuid().ToString()
+    Write-TrxFixture $full.expectedCases 'Passed' 446 $changedIds
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record $full.expectedCases $full.expectedIds } 'test IDs differ'
+    Write-TrxFixture $full.expectedCases 'Passed' 446 $full.expectedIds
+    $failedContext = [xml](Get-Content $trx -Raw)
+    $failedContext.TestRun.Results.UnitTestResult[0].SetAttribute('outcome', 'Failed')
+    $failedContext.Save($trx)
+    Require-Rejection { Read-CrashDiagnosticTrx $trx $record $full.expectedCases $full.expectedIds } 'did not pass'
+    $saved = Get-Content $record -Raw | ConvertFrom-Json
+    if ($saved.cases.Count -ne 446 -or $saved.crashSubset.Count -ne 9 -or
+        @($saved.crashSubset | Where-Object outcome -cne 'Passed').Count) {
+        throw 'A failed full context must retain its complete cases even when the crash subset passed.'
     }
     $steps = [Collections.Generic.List[object]]::new()
     $pwsh = (Get-Process -Id $PID).Path
@@ -215,7 +253,7 @@ try {
     })
     $saved = Get-Content (Join-Path $results 'execution.json') -Raw | ConvertFrom-Json
     if (!$saved.diagnosticOnly -or $saved.acceptanceEligible) { throw 'Diagnostic records allowed acceptance flags to be changed.' }
-    Write-Host 'PASS: actual diagnostic parser requires the exact nine identities/outcomes and preserves payloads; real processes retain failure/output and enforce setup-inclusive budgets. Manual-only Windows/nonacceptance contracts remain.'
+    Write-Host 'PASS: diagnostic parser requires exact9 or446 identities/outcomes and retains the9 crash subset; real process/primary-priority, setup-inclusive budget, explicit mode and nonacceptance contracts remain.'
 } finally {
     Remove-Item -LiteralPath $results -Recurse -Force
 }

@@ -1,4 +1,5 @@
-name: TEMP focused CrashRecovery
+name: TEMP CrashRecovery diagnostic
+run-name: TEMP CrashRecovery (${{ inputs.selection }})
 
 on:
   workflow_dispatch:
@@ -7,18 +8,27 @@ on:
         description: Exact full diagnostic workflow and test SHA; no alternate checkout
         required: true
         type: string
+      selection:
+        description: Explicit diagnostic context; neither mode is acceptance
+        required: true
+        type: choice
+        default: original-nine
+        options:
+          - original-nine
+          - filesystem-context
 
 permissions:
   contents: read
 
 jobs:
   crash-recovery:
-    name: Original nine crash cases (diagnostic only)
+    name: Crash recovery diagnostic (${{ inputs.selection }})
     runs-on: windows-latest
     timeout-minutes: 11
     env:
       CRASH_DIAGNOSTIC_WORKFLOW_SHA: ${{ github.workflow_sha }}
       CRASH_DIAGNOSTIC_EXPECTED_REVISION: ${{ inputs.expected_revision }}
+      CRASH_DIAGNOSTIC_SELECTION: ${{ inputs.selection }}
     steps:
       - name: Start filesystem budget before setup
         shell: pwsh
@@ -28,19 +38,19 @@ jobs:
           fetch-depth: 0
       - name: Record diagnostic-only intent before SDK setup
         shell: pwsh
-        run: .\eng\Run-CrashRecoveryDiagnostic.ps1 -InitializeOnly
+        run: .\eng\Run-CrashRecoveryDiagnostic.ps1 -InitializeOnly -Selection $env:CRASH_DIAGNOSTIC_SELECTION
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - name: Run exactly the original nine cases
+      - name: Run the explicit diagnostic selection
         shell: pwsh
-        run: .\eng\Run-CrashRecoveryDiagnostic.ps1
+        run: .\eng\Run-CrashRecoveryDiagnostic.ps1 -Selection $env:CRASH_DIAGNOSTIC_SELECTION
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: crash-recovery-diagnostic-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: crash-recovery-diagnostic-${{ inputs.selection }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
             .ci-results/crash-recovery-diagnostic/*.json

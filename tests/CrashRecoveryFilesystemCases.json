@@ -1,0 +1,1799 @@
+{
+  "schemaVersion": 1,
+  "diagnosticOnly": true,
+  "acceptanceEligible": false,
+  "originRunId": "44440364114",
+  "originRunAttempt": 1,
+  "originRevision": "732c9faeceaaa7fd9f9178797d16b6e62d15b594",
+  "originTrxSha256": "EBF3DEF527CE55CFDB87440E33CA4CAB3960775C1193A108AD7C9E9283F2F5DE",
+  "expectedPersistenceTestObject": "9675d04c167e9c0853475054b0b5421f368c63be",
+  "filter": "Category!=Performance",
+  "count": 446,
+  "identityLimit": "Verbatim original TRX names and opaque test IDs, including three xUnit-formatted ellipses from static InlineData. No list cap, argument reconstruction or runtime order override.",
+  "cases": [
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Actual_failed_note_save_blocks_apply_retains_writing_and_explicit_retry_can_safely_update(team: False)",
+      "testId": "caf92613-54f0-98ee-1e82-a832fc4e1243"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Actual_failed_note_save_blocks_apply_retains_writing_and_explicit_retry_can_safely_update(team: True)",
+      "testId": "6408aa60-1c54-d104-cc04-a3dbb134cc54"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Actual_HTTP_package_transport_uses_the_pinned_URL_and_download_failure_preserves_local_use(status: 200)",
+      "testId": "c9c1b138-86f6-d5cf-4926-712186ef24ba"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Actual_HTTP_package_transport_uses_the_pinned_URL_and_download_failure_preserves_local_use(status: 503)",
+      "testId": "d17309bf-bb77-dcf8-2c45-301c5683397e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Actual_import_publication_finishes_before_restart_without_waiting_for_external_sync",
+      "testId": "d99aebb5-0cfb-260d-8542-7238ec652b18"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Already_installed_version_never_downloads_or_restarts",
+      "testId": "e9f51e95-0e54-f13e-903f-f55321c44bd4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Authorization_expiring_while_real_local_work_waits_is_rejected_at_handoff",
+      "testId": "527ea3c8-08d5-0733-b241-fa4e82f178e4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Authorized_full_package_is_downloaded_verified_and_restarts_the_same_durably_saved_workspace",
+      "testId": "36fc86a1-15d2-705a-f096-8b0872b5ae6d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Restart_receipt_reopens_current_workspace_and_an_unconfirmed_restart_never_retries_in_a_loop",
+      "testId": "6c7c0c86-ede0-3718-1d36-d1332633a2e8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"hash\")",
+      "testId": "78b9e5f0-c4d9-92bd-cc7e-2ce1903b4fc5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"identity\")",
+      "testId": "22594259-cd92-8a29-92c4-9f8c2c76e303"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"long\")",
+      "testId": "d50058e5-32d1-b1b2-271c-6e9af1eac965"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"not-zip\")",
+      "testId": "a42bf5d2-4931-9b9b-fba9-51a9b8a65185"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"short\")",
+      "testId": "6e48a830-c9bf-88c4-1589-46598bca465d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Signed_but_invalid_or_substituted_full_bytes_never_reach_the_safe_point_or_installer(failure: \"version\")",
+      "testId": "930ae2c3-4677-27a9-89da-759ed2fb5557"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Startup_and_manual_settings_discovery_automatically_consume_only_the_exact_authorized_release",
+      "testId": "0cbf9702-cc7a-99ed-8e4a-b107a76ff657"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Unsupported_Workspace_can_update_and_restart_without_writes_and_recovery_keeps_upgrade_guidance(version: 1)",
+      "testId": "6b720c62-0fce-f978-a02e-f051baea0a0b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Unsupported_Workspace_can_update_and_restart_without_writes_and_recovery_keeps_upgrade_guidance(version: 2)",
+      "testId": "a29093f5-0601-0f0f-2b6b-9067fbf40b84"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.AutomaticUpdateTests.Unsupported_Workspace_can_update_and_restart_without_writes_and_recovery_keeps_upgrade_guidance(version: 99)",
+      "testId": "22d69702-6c96-c3d0-332c-3b6eedc6ca46"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ExternalRefreshTests.Complete_snapshot_refreshes_open_profile_photo_history_and_private_writing_without_replaying_imports",
+      "testId": "11ff24d5-067c-5635-ea23-af2afb64e36c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ExternalRefreshTests.Invalid_or_incomplete_snapshot_photo_never_replaces_the_last_decoded_photo(incomplete: False)",
+      "testId": "d90231a5-dc7c-f3f3-0077-ae419e37bbc8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ExternalRefreshTests.Invalid_or_incomplete_snapshot_photo_never_replaces_the_last_decoded_photo(incomplete: True)",
+      "testId": "8b92a703-f48c-95c4-e5a9-8263864a5cb8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Failed_atomic_transfer_creates_neither_capture_nor_context_revision_and_recovery_then_retry_captures_once",
+      "testId": "a2801864-9fdb-cfdc-1499-e291281c6ef3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Frozen_context_reopens_and_transfers_with_exact_identity_version_and_provenance_after_later_edits_and_replay",
+      "testId": "9acc73de-6b0f-a336-83f8-63c092ad61ea"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"capturedAt\", json: \"\\\"2026-11-01T17:00:00+01:00\\\"\")",
+      "testId": "05f301ff-6f54-be76-9d9c-53e3eaab657e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"id\", json: \"\\\"00000000-0000-0000-0000-000000000000\\\"\")",
+      "testId": "e0bd8cc8-d7ed-0f76-0891-804c151b7cde"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"personEmail\", json: \"\\\"other@example.com\\\"\")",
+      "testId": "12c9f187-0d7f-b5af-510b-a1b86baccc3f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"reportingChain.0.managerEmail\", json: \"\\\"alex@example.com\\\"\")",
+      "testId": "1a0b7cf5-00e8-552a-7467-77bd9dda0892"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"reportingChain\", json: \"null\")",
+      "testId": "a38a1749-97c5-b7cd-6dc8-09f1ae9f772c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"teamNotes.0.markdown\", json: \"\\\"Silently rewritten\\\"\")",
+      "testId": "1510ad73-2238-9978-a76f-f7265183c4ce"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"teamNotes.0.ownerEmail\", json: \"\\\"alex@example.com\\\"\")",
+      "testId": "3a90a15c-3d9a-5f52-a031-4fa0c99f856a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"teamNotes\", json: \"null\")",
+      "testId": "d283e722-abd0-75f2-7bac-530ca402eea9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"transitions.0.change.evidence.source\", json: \"42\")",
+      "testId": "f4ecd8f1-dd23-cdc9-f904-a271304bde67"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.HistoricalTeamContextPersistenceTests.Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(path: \"transitions\", json: \"[]\")",
+      "testId": "26c8842e-d41d-2ea8-516e-a687fe0d5f66"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalDeliveryTests.Incomplete_snapshot_preserves_the_last_complete_population_history_and_private_writing(missing: \"acceptedImports\")",
+      "testId": "436e9e43-2b09-638a-c3dc-21af4b126b22"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalDeliveryTests.Incomplete_snapshot_preserves_the_last_complete_population_history_and_private_writing(missing: \"historical-photo\")",
+      "testId": "91865bb2-978c-60e7-70a3-e74e93278353"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalDeliveryTests.Incomplete_snapshot_preserves_the_last_complete_population_history_and_private_writing(missing: \"history\")",
+      "testId": "9cb71a4e-869c-15a7-b113-2b7ff782a87c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalDeliveryTests.Incomplete_snapshot_preserves_the_last_complete_population_history_and_private_writing(missing: \"person-history-consistency\")",
+      "testId": "2ec90376-aca1-2dc3-9804-782339ccd4c8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalDeliveryTests.Incomplete_snapshot_preserves_the_last_complete_population_history_and_private_writing(missing: \"photos\")",
+      "testId": "76fbdc96-5c07-ca53-8e9c-5cd4bc9a864d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Actual_transaction_failure_retains_profile_draft_and_prior_commit_until_recovery_then_retry_or_discard(discard: False)",
+      "testId": "624fc4c3-6949-e931-b6cc-675af51010eb"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Actual_transaction_failure_retains_profile_draft_and_prior_commit_until_recovery_then_retry_or_discard(discard: True)",
+      "testId": "3dc06490-fd8a-d758-77f2-fc8d5de55b44"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.New_workspace_saves_profile_text_and_favorite_and_reopens_evidence_and_relationships",
+      "testId": "dc8d4e33-1cf5-57f8-3157-b9e96509bf38"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Relationship_archival_and_favorite_changes_reopen_expected_context_without_touching_unrelated_people(mutation: \"archive\")",
+      "testId": "4c91eb43-4e18-2caf-68f7-4d1fa8aecc68"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Relationship_archival_and_favorite_changes_reopen_expected_context_without_touching_unrelated_people(mutation: \"favorite\")",
+      "testId": "18949c33-6022-d120-5d6c-d9b14ef8b34d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Relationship_archival_and_favorite_changes_reopen_expected_context_without_touching_unrelated_people(mutation: \"manager\")",
+      "testId": "01965b88-d6a4-14f9-20e6-a0741f55fe72"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Relationship_archival_and_favorite_changes_reopen_expected_context_without_touching_unrelated_people(mutation: \"reactivate\")",
+      "testId": "eeafca03-4da4-91da-e378-b524874bde5b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Reviewed_population_import_and_update_reopen_the_whole_graph_and_accepted_evidence",
+      "testId": "d38b89aa-734a-2039-fa52-d1ec3ad20785"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.IncrementalProfileStorageTests.Text_draft_retry_and_complete_profile_text_save_use_the_existing_view_model_seam",
+      "testId": "dc459b5b-e886-a297-323a-084f69a32c24"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.LocalPublicationDeliveryTests.Accepted_import_source_reopens_with_the_same_numeric_version_rules_as_preview",
+      "testId": "94c6509c-4dcd-874b-2a46-d5bbd9695880"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Discarding_one_pending_scope_does_not_discard_the_other_and_global_discard_writes_neither",
+      "testId": "22927b87-e489-36d8-e072-54a879a5b30f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Failed_secondary_draft_retains_exact_owner_and_writing_while_ongoing_browsing_remains_available(scope: Person)",
+      "testId": "7833bfa0-4fc7-b1c8-1339-3fce6bff145a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Failed_secondary_draft_retains_exact_owner_and_writing_while_ongoing_browsing_remains_available(scope: Team)",
+      "testId": "dd4f4658-c152-b2a0-a637-2c04eb0b4d85"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.First_autosave_and_retry_reject_new_committed_revision_without_losing_either_version(scope: Person)",
+      "testId": "9a332965-9229-7231-75b7-b4dc398a2021"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.First_autosave_and_retry_reject_new_committed_revision_without_losing_either_version(scope: Team)",
+      "testId": "136b97b6-70d3-4976-3b3e-de1d44bd0a84"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Plain_IO_failure_requires_local_recovery_then_retries_the_same_base_and_returns_a_base_for_newer_typing(scope: Person)",
+      "testId": "4802d57a-a279-1217-876b-27902791f5e5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Plain_IO_failure_requires_local_recovery_then_retries_the_same_base_and_returns_a_base_for_newer_typing(scope: Team)",
+      "testId": "26b55d08-873e-f9f3-679f-ae5787f5d17b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Retaining_newer_typing_does_not_wait_behind_in_flight_IO_and_uses_the_successful_base(scope: Person)",
+      "testId": "abac7b6a-7891-e48e-2fb1-a7397a23e792"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Retaining_newer_typing_does_not_wait_behind_in_flight_IO_and_uses_the_successful_base(scope: Team)",
+      "testId": "ad196e84-4ede-e870-588f-06aa3ea93c58"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.NoteDraftPersistenceTests.Team_confirmation_change_without_writing_changes_invalidates_the_first_dirty_base",
+      "testId": "ee402f12-b60e-84e0-5984-960e32d0e8be"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Another_client_save_invalidates_old_preview_and_is_not_overwritten",
+      "testId": "04f77c02-4138-7632-e55e-d308e284f597"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Applied_Person_and_local_preferred_name_survive_reopening",
+      "testId": "a0e0bfe7-7926-c7ae-d80d-d1a916a052a4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Changed_import_file_invalidates_preview_without_creating_a_Person",
+      "testId": "d5b7309f-0369-547a-1a96-4f8e1b215dfa"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Current_fixture_opens_normally_with_complete_private_context_and_frozen_history",
+      "testId": "f8fa9254-6c04-abad-b69d-e2aed88e9749"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Invalid_import_does_not_change_durable_state",
+      "testId": "5ff876cb-e31a-99f8-adcf-bae083d0697d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Save_failure_is_visible_and_reopening_retains_last_successfully_saved_name",
+      "testId": "b13e6fd7-1cbd-ab0e-906d-d31b7a752eea"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersistenceTests.Utf8_import_with_byte_order_mark_is_accepted",
+      "testId": "7d26ebc5-dd59-0cd8-8e1c-ed9af89393c7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Archived_profile_photo_notes_and_frozen_context_reopen_without_the_producer_and_later_edits_cannot_rewrite_history",
+      "testId": "97a72087-5e0e-32f2-c3e6-b1c09db137d4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Complete_imported_Manager_and_report_archival_refreshes_coherently_without_duplicate_captures",
+      "testId": "fb39f38d-4278-1d6f-de56-080fc7629720"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Confirmed_archive_and_reactivation_save_the_profile_first_and_reopen_retained_context",
+      "testId": "0e94d093-ce04-69f2-493c-caa3ac323b56"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Failed_local_archive_and_reactivation_publish_no_partial_state_and_retry_preserves_retained_data",
+      "testId": "0b6c12e2-0f31-9f02-3b5e-6faf7938d6a1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"change.evidence.field\", value: \"\\\"managerEmail\\\"\")",
+      "testId": "9e69f76e-8432-1459-f83f-f4d139d447ca"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"change.evidence.value\", value: \"false\")",
+      "testId": "c3042873-810e-5687-bac1-6424c7168c9b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"change.newValue\", value: \"false\")",
+      "testId": "05e20616-38c9-bc3c-0eaf-99830e92e04c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"change.newValue\", value: \"null\")",
+      "testId": "6af2b5de-7282-d9b5-ac84-2c5c89d75989"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"change.oldValue\", value: \"true\")",
+      "testId": "b5ad0a36-2971-cf00-443e-e9a20f4f033a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Invalid_snapshot_archival_evidence_is_not_silently_accepted_and_valid_delivery_recovers(path: \"personEmail\", value: \"\\\"morgan@example.com\\\"\")",
+      "testId": "03732b83-90ba-ee94-c2a3-a0a03b8dc56e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Stale_leave_save_and_retry_cannot_apply_archival_or_overwrite_delivered_profile(archived: False)",
+      "testId": "fc40c4e6-c99a-26da-de6f-65cadd5cffbb"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonArchivalPersistenceTests.Stale_leave_save_and_retry_cannot_apply_archival_or_overwrite_delivered_profile(archived: True)",
+      "testId": "c1ce1510-3b87-fb1b-0a89-8fdedf5eb467"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.All_textual_edits_and_an_office_only_import_survive_reopening_without_losing_omissions",
+      "testId": "7c34d302-d636-fca8-278b-cf8a3f78cebf"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Cancelling_Preferred_name_preserves_saved_bytes_and_independent_failed_writing",
+      "testId": "3abfc507-6314-2468-3221-5a765c17f7aa"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Explicit_null_clears_all_nullable_text_attributes_durably_without_changing_identity",
+      "testId": "1c0b4ace-45b5-9e1a-786a-ec444758e61b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Explicit_Preferred_name_save_and_retry_do_not_overwrite_delivered_quick_context(emptyBase: False)",
+      "testId": "cbc4547a-d12f-152c-2524-7aee545aa5ac"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Explicit_Preferred_name_save_and_retry_do_not_overwrite_delivered_quick_context(emptyBase: True)",
+      "testId": "7a248e07-cf07-6de1-3553-b3cbedf9c0cc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Explicit_Preferred_name_save_retries_its_displayed_base_without_reverting_other_quick_context",
+      "testId": "27b047f8-f0a1-e557-b0d4-5454d27b392c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.First_profile_autosave_and_retry_preserve_a_changed_delivered_field_until_explicit_discard(emptyBase: False)",
+      "testId": "f75c5014-e8d7-d593-b7b4-6a20f011ea95"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.First_profile_autosave_and_retry_preserve_a_changed_delivered_field_until_explicit_discard(emptyBase: True)",
+      "testId": "9132a481-3674-4b7f-cd2f-40f7e9b4b21f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"alias\", invalidValue: \" \")",
+      "testId": "b9d2ca93-8638-b5fa-09b0-433a5a35f1c4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"department\", invalidValue: \"\\t\")",
+      "testId": "31b4b9a6-75c3-a847-d27a-18e3c5fe4a3c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"jobTitle\", invalidValue: \"\")",
+      "testId": "8d67d73a-445d-8693-73fe-ed20f3ccfa88"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"linkedInProfileUrl\", invalidValue: \"http://www.linkedin.com/in/avery\")",
+      "testId": "516e4252-fa35-ff4b-05f1-3dc84d596f23"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"officeBuilding\", invalidValue: \" \")",
+      "testId": "876ee3d6-0b14-597b-c2d5-fff79d304b6a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"officeCountry\", invalidValue: \"\")",
+      "testId": "d457f8f8-f8f8-cd42-c5ab-ffcc4b2cea42"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"officeNumber\", invalidValue: \"\")",
+      "testId": "fa309db8-1fba-5f53-6f39-00e201027f7f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Invalid_snapshot_textual_data_is_rejected_without_changing_the_complete_profile(property: \"officeState\", invalidValue: \"\\t\")",
+      "testId": "e51b3b27-dfcd-93a5-4b29-899e55d43224"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Profile_draft_accepts_other_field_delivery_and_returns_the_exact_saved_base_for_newer_typing",
+      "testId": "08025300-54e2-1c75-0e37-2a859b8f124b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonAttributePersistenceTests.Rejected_batch_and_local_save_failure_retain_the_last_durable_complete_profile",
+      "testId": "1e1aff1b-def6-cd08-d845-d5c414014397"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Concurrent_profile_and_note_changes_refresh_as_one_complete_Workspace",
+      "testId": "fadf0113-bf5e-c997-c9aa-f1e83edb4a5d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Editing_and_archiving_retain_exact_Markdown_and_stable_metadata_after_reopening",
+      "testId": "dce1ef19-2887-c288-811b-1072e371c23b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Failed_note_save_and_archive_retain_durable_writing_until_storage_recovery_and_retry",
+      "testId": "b96e7163-bbd6-c74c-1d6c-7f34ef1f6507"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Failed_Person_draft_retry_cannot_overwrite_other_committed_writing_and_discard_accepts_the_new_version",
+      "testId": "5bf37a3e-ad75-ed13-f6de-eb8d0f70b777"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Independent_notes_and_stable_ownership_survive_reopening_and_profile_edits",
+      "testId": "93d1487b-f73e-f6a5-11d0-ad91a5cf3e77"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PersonNotePersistenceTests.Reporting_move_archive_and_replay_preserve_text_and_private_notes_and_allow_public_refresh",
+      "testId": "ff5a9941-db6e-070f-3776-270c8c9ba56f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.A_local_photo_edit_is_copied_and_saved_but_invalid_replacement_does_not_erase_it",
+      "testId": "664491f1-757e-4d67-7615-2da11934346e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Accepted_batch_replay_is_a_no_op_but_same_path_with_different_image_bytes_conflicts_after_reopen",
+      "testId": "9669336c-10f7-47db-af06-5302157a5404"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"..\\\\\\\\outside.png\\\"\", kind: \"path\")",
+      "testId": "28c46af7-68ca-57d3-ec1b-bf543fb7904c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"\\\\\\\\\\\\\\\\server\\\\\\\\share\\\\\\\\photo.png\\\"\", kind: \"path\")",
+      "testId": "85a0b080-7d18-fc33-61dd-c61ffcffdefd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"avery.png:stream\\\"\", kind: \"path\")",
+      "testId": "3f66213e-7c9d-e70e-d72a-de85c3f4ab09"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"C:\\\\\\\\outside.png\\\"\", kind: \"path\")",
+      "testId": "ac9032f5-06b9-b636-04fc-bdcff35ade7d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"C:outside.png\\\"\", kind: \"path\")",
+      "testId": "82047617-93a7-43d7-d6a0-f1ca70250e8f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"corrupt.png\\\"\", kind: \"crc\")",
+      "testId": "82b7ad82-8cd6-fd41-eeec-9a88e501577d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"file:///C:/photo.png\\\"\", kind: \"path\")",
+      "testId": "71c79ae9-0795-9205-acbc-e429336c0530"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"folder\\\\\\\\..\\\\\\\\avery.png\\\"\", kind: \"path\")",
+      "testId": "f47a8f30-47f6-33a4-55b3-72ff900b37e3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"https://example.com/photo.png\\\"\", kind: \"path\")",
+      "testId": "19dcd419-afe5-f513-b282-ff243e04e452"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"invalid.jpg\\\"\", kind: \"text\")",
+      "testId": "0bb94c1a-8c0c-1296-d811-b2be72ea24fc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"missing.png\\\"\", kind: \"missing\")",
+      "testId": "d61ff1bc-6940-3c54-5952-069d3b857ad0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Bad_supplied_photo_prevents_the_whole_batch_and_preserves_the_existing_profile(value: \"\\\"unsupported.png\\\"\", kind: \"gif\")",
+      "testId": "31f50a6c-4394-cecf-8ba8-72f1aca1d75f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Changed_image_bytes_invalidate_preview_even_when_JSON_path_and_timestamps_are_unchanged",
+      "testId": "cd0cd9c2-75d7-df2c-236a-73b108432595"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Decoded_PNG_is_available_on_the_profile_after_producer_removal_and_Workspace_reopen",
+      "testId": "939ca67e-1b2b-214c-9272-9dc6e48ecadd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Directory_links_are_resolved_and_only_contained_targets_are_accepted(escaping: False)",
+      "testId": "5e8fcf75-8c52-e3c4-b884-b52503030fc8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Directory_links_are_resolved_and_only_contained_targets_are_accepted(escaping: True)",
+      "testId": "59ec83c2-5cd1-ca59-8c17-828543f245e8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Distinct_images_stay_with_the_intended_Person_and_reordered_replay_remains_a_no_op",
+      "testId": "c04a57ba-a61a-b6b4-fb29-fd5b3ec9f9be"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.File_symlinks_are_resolved_and_only_contained_targets_are_accepted(escaping: False)",
+      "testId": "f880b01f-4680-7b5c-ae0e-849a68f078a3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.File_symlinks_are_resolved_and_only_contained_targets_are_accepted(escaping: True)",
+      "testId": "f3dcaa5a-faac-2137-841a-d8c46fcf0d59"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Graph_and_images_commit_together_and_retained_photo_evidence_transfers_after_clear",
+      "testId": "e2cb798a-56a5-d4c6-e504-ec455f3b7e0a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.JPEG_content_is_decoded_but_a_truncated_JPEG_is_rejected(truncated: False)",
+      "testId": "02fd423e-76cc-1969-dc37-4510a1540ae6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.JPEG_content_is_decoded_but_a_truncated_JPEG_is_rejected(truncated: True)",
+      "testId": "3db29024-e50a-70b2-7c0c-150d40211764"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Omitted_photo_preserves_image_and_null_clears_it_durably_without_clearing_other_fields",
+      "testId": "7f662a06-5852-3418-a7ab-cf83ac102612"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Photo_changes_join_the_structured_timeline_with_content_references_and_local_import_provenance",
+      "testId": "1d676c78-454c-1b48-3269-40e0b211fa6d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Photos_reporting_changes_and_replay_preserve_private_notes_and_note_refresh_revisions",
+      "testId": "d22e103e-e5c3-6ec2-c757-db336b9e2ec7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Removing_a_supplied_photo_after_preview_invalidates_apply_without_erasing_existing_data",
+      "testId": "5c4fb3fc-9469-4f5c-5316-954ccb5a340a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.PhotoTests.Truncated_PNG_is_a_whole_batch_error_not_a_successful_placeholder",
+      "testId": "08f1fcb4-51e7-544e-3506-6e5767cb2051"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Invalid_snapshot_Profile_evidence_is_rejected_instead_of_fabricating_dates_or_provenance(property: \"field\", jsonValue: \"\\\"notes\\\"\")",
+      "testId": "98aab31d-18db-6d5c-a135-4f1dffb3ec98"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Invalid_snapshot_Profile_evidence_is_rejected_instead_of_fabricating_dates_or_provenance(property: \"observedAt\", jsonValue: \"null\")",
+      "testId": "cb73cd83-c3ea-cccc-10c3-1267af922792"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Invalid_snapshot_Profile_evidence_is_rejected_instead_of_fabricating_dates_or_provenance(property: \"source\", jsonValue: \"42\")",
+      "testId": "f217d580-a345-3648-472f-60fc6628e961"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Invalid_snapshot_Profile_evidence_is_rejected_instead_of_fabricating_dates_or_provenance(property: \"value\", jsonValue: \"true\")",
+      "testId": "3e590bb0-8f77-48d7-82c8-6f7577d0c202"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Missing_field_evidence_stays_unknown_instead_of_reconstructing_from_envelopes",
+      "testId": "926288d2-d938-e292-5363-63952f3fdf33"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Person_notes_stay_separate_and_Profile_timeline_survives_note_edits_import_replay_and_reopen",
+      "testId": "d144fb74-e2d1-77ba-573f-19d7a38872af"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileHistoryPersistenceTests.Structured_changes_confirmations_and_separate_dates_survive_reopen_and_failed_save_without_mtime_inference",
+      "testId": "38dc2bf1-8cd9-4672-587a-8cd652902f36"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Complete_profile_save_is_one_durable_publication_and_cancel_does_not_publish",
+      "testId": "d1811ef5-28ca-31f6-7966-29adc5f58ea1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Concurrent_Team_name_or_report_delivery_rejects_stale_save_without_explicit_refresh(loseReport: False)",
+      "testId": "87515583-78a3-a414-564d-224b755fc1c3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Concurrent_Team_name_or_report_delivery_rejects_stale_save_without_explicit_refresh(loseReport: True)",
+      "testId": "b2c96e18-8b2c-9937-da83-038fb54203c1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Delivered_names_and_ancestor_moves_refresh_paths_without_overwriting_retained_profile_or_note_writing",
+      "testId": "e6c29032-ecc5-c75c-974f-9e16d9fd38dc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(independent: \"none\")",
+      "testId": "4628615e-4033-3327-e943-1d5fdca8e698"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(independent: \"Person\")",
+      "testId": "3d0d6222-1e58-871e-e99c-629ba891cdc4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(independent: \"preferred\")",
+      "testId": "b0e50b70-80e3-2589-3d49-7e9d18b7e5fe"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(independent: \"profile\")",
+      "testId": "b0c3fa51-c369-18b9-423b-1c9d16858523"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Discarding_failed_import_releases_only_that_batch_and_preserves_independent_writing(independent: \"Team\")",
+      "testId": "5905b6b9-9359-6c1e-d0a6-03a8d786f25b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Failed_import_can_return_to_people_then_reenter_review_and_apply_without_discarding_its_error",
+      "testId": "2dab1bb3-5d16-cc85-8eeb-51bebeca190c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Import_transition_retains_a_failed_leave_save_then_publishes_only_the_explicitly_reviewed_batch",
+      "testId": "22ea59b1-0851-1a38-7b68-2abc0ce4932e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Incorporated_delivery_and_unrelated_person_delivery_do_not_block_or_get_reverted",
+      "testId": "9e78a830-1e8d-72a0-37ec-455b83a5ed7a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Inherited_names_reopen_with_duplicate_owners_dormant_ancestors_and_final_imported_relationships",
+      "testId": "02f57727-492c-1dd3-59cd-489b448008f4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Local_quick_change_does_not_authorize_an_existing_external_conflict_and_cancel_keeps_both",
+      "testId": "9a82d43c-2344-3c39-1874-37768a8a4730"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Owned_Team_name_reopens_visible_then_hidden_and_returns_only_with_a_current_report",
+      "testId": "b9d3c20f-f807-1f55-0a8d-5a712800c9ac"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Private_Team_name_delivery_refreshes_without_history_and_invalid_local_edit_retains_last_valid_state",
+      "testId": "5d6ae0df-5222-0012-45a8-423ae97a1317"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Rejected_local_profile_save_reports_feedback_and_retains_browsing_without_inventing_a_Workspace_change",
+      "testId": "eda64a5a-f357-aa4c-035c-91640521f666"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Rejected_Team_name_transaction_retains_complete_profile_and_independent_note_drafts",
+      "testId": "c019f8ad-f6f8-4af1-e8e9-a1bbd8350d8a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(field: \"department\", refresh: False)",
+      "testId": "7893c991-0360-57d9-cf3d-cdb3c58d8a2b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(field: \"department\", refresh: True)",
+      "testId": "e4c3e499-9ecf-f8b4-0e49-1a2facc03b22"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(field: \"jobTitle\", refresh: False)",
+      "testId": "f7a0225c-0d56-b874-7148-30b7ba8d13f8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Same_profile_delivery_blocks_save_and_retry_even_without_view_refresh(field: \"preferredName\", refresh: False)",
+      "testId": "02070126-61b9-7f86-3fbc-f7a2a0c074fb"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Snapshot_transfer_retains_visible_and_dormant_owned_Team_names(dormant: False)",
+      "testId": "821c3d0b-cffa-b4fa-7291-a383a9da6a9e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Snapshot_transfer_retains_visible_and_dormant_owned_Team_names(dormant: True)",
+      "testId": "f8aa39d7-38bf-cf3c-564c-709fa2a6728b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Unavailable_photo_and_invalid_field_retain_the_whole_draft_without_partial_history(lockedPhoto: False)",
+      "testId": "dc6fe2ee-185c-3c20-8327-3297cbfea5b2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ProfileSessionPersistenceTests.Unavailable_photo_and_invalid_field_retain_the_whole_draft_without_partial_history(lockedPhoto: True)",
+      "testId": "665993d8-b264-9ff5-537c-0d71951bbc5d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ReportingPersistenceTests.Accepted_batch_identity_survives_reopen_and_logical_retry_does_not_undo_later_edit",
+      "testId": "8ef7d0da-ffbc-5e79-75dd-ec031e8b337a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ReportingPersistenceTests.Complete_profile_reporting_move_and_replay_survive_reopening_without_field_loss",
+      "testId": "f3b5184d-e152-d88f-14c0-e96cf7920205"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ReportingPersistenceTests.Successful_local_mutation_requires_a_fresh_import_review",
+      "testId": "2b60fd2e-972e-482b-c2b5-316c4e6c02d8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.ReportingPersistenceTests.Whole_graph_apply_is_durable_and_invalid_batch_never_changes_reopened_state",
+      "testId": "5384c834-dc22-bc8a-e288-13870e3c8191"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Failed_favorite_save_retains_saved_queries_until_recovery_and_retry_and_import_omission_defaults_to_false",
+      "testId": "15407b31-2d48-4b52-5857-cae93d0e5ae6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Invalid_snapshot_favorite_or_inconsistent_evidence_retains_last_valid_search_and_favorites(invalid: \"\\\"false\\\"\")",
+      "testId": "6ac8c4ed-5c89-29e0-12cb-f48b258bb788"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Invalid_snapshot_favorite_or_inconsistent_evidence_retains_last_valid_search_and_favorites(invalid: \"false\")",
+      "testId": "c5ba6bcc-42b7-d7b9-84f8-7fbf90c01430"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Invalid_snapshot_favorite_or_inconsistent_evidence_retains_last_valid_search_and_favorites(invalid: \"null\")",
+      "testId": "39876389-48af-5d1a-dd3a-b884a821dd68"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Reopening_rebuilds_local_queries_favorites_and_attributed_current_archived_and_frozen_context",
+      "testId": "9a99056b-2f1c-48bc-5200-c1882cc997a4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SearchFavoritePersistenceTests.Validated_external_delivery_rebuilds_queries_and_favorites_without_rewriting_provider_files",
+      "testId": "907626cd-7084-e350-c8c7-8a9d6e49be20"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqlitePublicReaderCausalityTests.Public_full_reader_does_not_fail_a_later_same_owner_note_generation(scope: Person)",
+      "testId": "e6edfdc1-b6e9-3588-f78c-096fb1b80fb0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqlitePublicReaderCausalityTests.Public_full_reader_does_not_fail_a_later_same_owner_note_generation(scope: Team)",
+      "testId": "d1196f7a-954a-dd46-a4c3-fb29cae9e008"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.A_genuine_different_base_rejects_an_admitted_autosave_without_losing_either_writing(scope: Person)",
+      "testId": "a1505bae-e15b-7716-d85e-6e66707032e2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.A_genuine_different_base_rejects_an_admitted_autosave_without_losing_either_writing(scope: Team)",
+      "testId": "593f75d8-4619-d033-75f8-e9bc602f87ac"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"after\", mutation: \"Person\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "ebec534d-eedd-e489-bd2f-7d04dc2ffcc8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"after\", mutation: \"profile\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "7076f0ad-ec90-a4ad-4477-8f658b531e4d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"after\", mutation: \"profile\", unresolvedEvidence: False, receiptHeld: True)",
+      "testId": "e0c7e492-87d8-55b7-da24-a73072a092e4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"after\", mutation: \"Team\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "ef98245e-f4dd-6da6-495b-0296d60b9dd3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"before\", mutation: \"Person\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "b2ef5e37-61e1-d5e7-dc9e-efc174c708cc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"before\", mutation: \"profile\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "5d4cc882-9a73-1bc5-3f91-6c2df2cc1b32"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"before\", mutation: \"profile\", unresolvedEvidence: False, receiptHeld: True)",
+      "testId": "bfa596b1-8642-5b77-383d-c3a95f4fc94b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"before\", mutation: \"profile\", unresolvedEvidence: True, receiptHeld: False)",
+      "testId": "3a62f987-cbb2-ada8-0cef-73e0f7cc761f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Abrupt_process_death_at_actual_SQLite_commit_boundaries_recovers_only_committed_writing(boundary: \"before\", mutation: \"Team\", unresolvedEvidence: False, receiptHeld: False)",
+      "testId": "73a7eaf5-4166-76b2-c461-9cee69406355"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Actual_commit_refusal_reconciles_rollback_before_retrying_the_retained_complete_profile",
+      "testId": "537e4364-f3b0-180f-40a1-c66ee8173878"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Canceling_exit_during_a_stalled_real_transaction_preserves_exact_drafts_fault_and_browsing(scope: Person)",
+      "testId": "d6b39f6a-b80e-7dc7-77fa-fa85cd8d7e56"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Canceling_exit_during_a_stalled_real_transaction_preserves_exact_drafts_fault_and_browsing(scope: Team)",
+      "testId": "59c331ae-8ab6-bf6d-fa62-a909d86f0089"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved",
+      "testId": "11c3aa20-954c-38e9-ee19-d2a754d7cb43"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Changed_field_stale_Preferred_name_is_rejected_while_unrelated_fields_are_retained",
+      "testId": "0cbfbf64-7cdb-f72e-2d92-eb678c19e227"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Committed_Team_writing_stays_read_only_until_its_actual_owned_receipt_lease_is_released",
+      "testId": "6de3ba1d-ca1c-0178-0818-8e56b4464a68"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Complete_local_profile_Save_and_Cancel_preserve_exact_committed_values_on_reopen",
+      "testId": "773153b4-13a7-395e-5196-bba5692222c6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Continuous_typing_becomes_durable_before_idle_and_finishes_with_exact_latest_writing(scope: Person)",
+      "testId": "16b307ea-fca6-6d1e-c7a0-19ef27d78e79"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Continuous_typing_becomes_durable_before_idle_and_finishes_with_exact_latest_writing(scope: Team)",
+      "testId": "ab2e0b9f-8f3a-8363-b6ed-63e75e453c2b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Discarding_an_uncommitted_creation_restores_empty_reading_without_discarding_another_owner",
+      "testId": "f582e449-5c69-737e-5481-776d8d61b5fa"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Durable_note_observation_runs_during_typing_not_after_unrelated_navigation_observations(scope: Person)",
+      "testId": "8267261a-b276-e49b-b2f5-5b172b87dc84"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Durable_note_observation_runs_during_typing_not_after_unrelated_navigation_observations(scope: Team)",
+      "testId": "0aaf97c6-8504-43eb-bc67-bc835e1fb3e9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Failed_creation_retains_latest_draft_browsing_and_one_identity_through_explicit_retry(scope: Person)",
+      "testId": "1738fdb8-f0cd-4dfd-2238-3b3043b09306"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Failed_creation_retains_latest_draft_browsing_and_one_identity_through_explicit_retry(scope: Team)",
+      "testId": "2d9c2001-2c33-736f-1917-7a1e91393f87"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Failed_initial_Import_can_retry_without_a_partially_accepted_population",
+      "testId": "c0855e73-bf0b-dc5a-e54a-b5b4b755015e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Failed_profile_save_retains_owner_draft_and_retry_does_not_discard_independent_note_writing",
+      "testId": "a4be5fa8-e188-df87-384b-e61a1eef6ba0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Held_bulk_Import_keeps_browsing_and_newer_owner_drafts_independent_of_its_commit(scope: Person)",
+      "testId": "78e31702-c586-1536-1350-ce27368c9cf9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Held_bulk_Import_keeps_browsing_and_newer_owner_drafts_independent_of_its_commit(scope: Team)",
+      "testId": "c8de6058-f67c-edc5-596f-92108847088a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Held_profile_commit_never_blocks_browsing_or_overwrites_newer_owner_drafts",
+      "testId": "fa953777-b527-4228-64d9-24508ced4c6f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Import_never_sets_or_clears_private_labels_and_reporting_updates_retain_dormant_duplicate_owners(field: \"\\\"teamName\\\":{\\\"operation\\\":\\\"clear\\\"}\")",
+      "testId": "8911f4b2-2872-7bc7-d887-771c2ec7ccd5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Import_never_sets_or_clears_private_labels_and_reporting_updates_retain_dormant_duplicate_owners(field: \"\\\"teamName\\\":\\\"Imported label\\\"\")",
+      "testId": "a205c9bf-1ef7-3469-3fb3-c2c4e7759100"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Import_never_sets_or_clears_private_labels_and_reporting_updates_retain_dormant_duplicate_owners(field: \"\\\"teamName\\\":null\")",
+      "testId": "11e81f6c-cf81-7520-d308-6f0617736931"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Incomplete_or_incompatible_local_storage_never_opens_an_empty_fallback(failure: \"corrupt\")",
+      "testId": "9427ea23-9ddd-c4be-de2c-281c60fb20ef"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Incomplete_or_incompatible_local_storage_never_opens_an_empty_fallback(failure: \"missing\")",
+      "testId": "1ad6e723-f9d8-755e-5f48-4243ed7e9ef8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Incomplete_or_incompatible_local_storage_never_opens_an_empty_fallback(failure: \"mixed\")",
+      "testId": "a24ff8ec-a9e9-3e8a-1cb7-2352f866b959"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Independent_Preferred_name_favorite_and_archival_actions_preserve_profiles_notes_and_exact_reopen",
+      "testId": "8f367626-5dac-5387-918e-c8be8ab37232"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Independent_profile_and_Preferred_name_Cancel_and_Import_eligibility_do_not_wait_for_a_stalled_note_writer",
+      "testId": "f752d2ef-bc8a-72f7-6ba9-b4c30db662bc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Ineligible_Team_name_and_unavailable_photo_reject_the_complete_profile_without_partial_history",
+      "testId": "e6140ae4-41d9-087c-d8f3-bf4dd2e57cb9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Local_notes_preserve_identity_writing_archival_ongoing_choice_and_scope_on_reopen(scope: Person)",
+      "testId": "de0224fd-2d0c-77b0-2707-c9b04b1db248"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Local_notes_preserve_identity_writing_archival_ongoing_choice_and_scope_on_reopen(scope: Team)",
+      "testId": "12403137-ce06-95ec-93d9-9f0c35e5e8c7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Lost_note_acknowledgment_reconciles_real_committed_content_before_retry_without_duplicate_creation(scope: Person)",
+      "testId": "6ab8e5e4-a1e2-c2ce-7cc8-633f53b536ab"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Lost_note_acknowledgment_reconciles_real_committed_content_before_retry_without_duplicate_creation(scope: Team)",
+      "testId": "592f2fe4-ce96-7fd6-1bf2-48829fba3670"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Manager_transition_commits_photos_history_and_frozen_Team_notes_as_one_reopenable_state",
+      "testId": "47738d77-203c-cbe9-205c-12c5b6e32ab1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_creation_can_reopen_the_committed_empty_SQLite_Workspace",
+      "testId": "2932e67e-37b1-5c37-9b71-c177a11d1df3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_refuses_incompatible_SQLite_versions_without_upgrading_or_repairing_them(version: 1)",
+      "testId": "e806907b-6ae5-3ecb-a733-4867dbd202ea"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_refuses_incompatible_SQLite_versions_without_upgrading_or_repairing_them(version: 2)",
+      "testId": "072ed683-3f20-83ec-8e4c-202f829e8010"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_refuses_incompatible_SQLite_versions_without_upgrading_or_repairing_them(version: 99)",
+      "testId": "b618a282-c1b9-c6e8-3a47-b195d29d2459"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_rejects_retired_file_formats_with_recreation_guidance_and_without_mutation(version: 1)",
+      "testId": "5c193317-2f20-b52e-4a17-1c384c32e77b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_rejects_retired_file_formats_with_recreation_guidance_and_without_mutation(version: 2)",
+      "testId": "58f4acf6-62be-f826-bb86-54fd1e4cd922"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_rejects_retired_file_formats_with_recreation_guidance_and_without_mutation(version: 3)",
+      "testId": "7a68e719-01d1-b4ad-7cac-0434ae4141a2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_open_rejects_retired_file_formats_with_recreation_guidance_and_without_mutation(version: 99)",
+      "testId": "8368570c-5940-4586-04d4-787db4259dfc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_reopen_preserves_existing_SQLite_data_instead_of_recreating_it",
+      "testId": "296bcf1a-6cca-ed44-d149-60ed19c43070"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Normal_Workspace_rejects_live_database_synchronization_without_a_file_authority_fallback",
+      "testId": "1e31a642-2dba-72ec-3a3f-bd53f7bc7766"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Older_partial_observations_warn_without_backdating_changes_or_duplicating_confirmations_on_replay",
+      "testId": "02592040-34c2-3b33-5b43-2ff6ac5e8639"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Oldest_note_request_stalls_including_queueing_and_late_commit_preserves_newer_writing(scope: Person)",
+      "testId": "38e1fd2e-76e4-b498-6169-bfdb3fd1e48f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Oldest_note_request_stalls_including_queueing_and_late_commit_preserves_newer_writing(scope: Team)",
+      "testId": "3e121fa2-fa1e-1f6a-cbca-06166d1db3ac"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Owned_duplicate_Team_names_skip_unnamed_gaps_and_label_only_saves_leave_note_review_and_history_unchanged",
+      "testId": "63aceb5b-4bdc-51f0-9cc7-a499b3a6e2b8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Pending_creation_and_newer_typing_survive_actual_Person_switches_and_late_commit(scope: Person)",
+      "testId": "6786343c-7770-1d27-4427-0b7a1cb3b10c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Pending_creation_and_newer_typing_survive_actual_Person_switches_and_late_commit(scope: Team)",
+      "testId": "5222b0f4-b639-e3b4-63f5-ca6f3f16eb67"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Person_navigation_retains_distinct_unsubmitted_profiles_and_Cancel_is_owner_scoped",
+      "testId": "b88971d8-3588-8cd8-e5e8-84c0df1aae2e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Predetermined_continuous_typing_reopens_exact_final_writing_within_the_existing_observation_window",
+      "testId": "b1759f32-d999-d334-0fba-8358d94fb1ca"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Preferred_name_drafts_remain_owner_correct_and_unsaved_until_explicit_Save_or_Cancel",
+      "testId": "dd651148-9be8-97ce-313b-b5f3086a17b4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Queued_Person_save_stalls_without_competing_retry_and_accounts_for_the_exact_submitted_profile",
+      "testId": "c65ea7fc-7b0e-7359-afa7-2245fdf6fbee"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Reconciliation_resolves_expired_queued_requests_without_losing_or_replaying_independent_drafts",
+      "testId": "96e52ee6-2514-02e9-896d-14ace47ab940"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Rejected_initial_Import_preserves_domain_validation_and_never_discards_unsupported_fields(before: \"\\\"alias\\\":\\\"report\\\"\", after: \"\\\"alias\\\":\\\"report\\\",\\\"photoPath\\\":\\\"local.png\\\"\", error: \"containing directory\")",
+      "testId": "b3c37837-a3f6-991c-af59-b02bb21bc513"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Rejected_initial_Import_preserves_domain_validation_and_never_discards_unsupported_fields(before: \"\\\"alias\\\":\\\"report\\\"\", after: \"\\\"alias\\\":\\\"report\\\",\\\"teamName\\\":\\\"Private label\\\"···, error: \"teamName\")",
+      "testId": "52077303-be37-32e6-b752-74bd52663e32"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Rejected_initial_Import_preserves_domain_validation_and_never_discards_unsupported_fields(before: \"\\\"managerEmail\\\":null\", after: \"\\\"managerEmail\\\":\\\"report@example.com\\\"\", error: \"cycle\")",
+      "testId": "b5486ba0-7077-11d5-a077-be5c7fe1cf97"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Rejected_local_Import_transaction_rolls_back_People_resources_evidence_and_captures_before_retry",
+      "testId": "81f9dd32-da13-9622-1e6a-e9b72ba46358"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Reopening_during_an_unresolved_real_transaction_browses_the_validated_commit_but_cannot_replace_it",
+      "testId": "51d0e3e2-b522-2968-8906-0ae159c61de1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Reviewed_initial_People_Import_and_evidence_survive_startup_reopening",
+      "testId": "2288a916-eb08-cbae-bc41-1966897cdc31"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Reviewed_partial_Imports_commit_resources_evidence_and_frozen_history_and_replay_without_duplication",
+      "testId": "9e7ada89-b94f-c608-57c1-c00d2b603f3a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Stale_initial_review_cannot_overwrite_another_committed_population",
+      "testId": "6dcbb258-d255-7ce3-4fe9-548ca1bc242c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Stale_review_and_changed_import_resources_reject_the_whole_partial_batch",
+      "testId": "160c78ad-2ed3-8a7f-7c31-59c5aba8f8a6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Storage_failure_pauses_edits_but_retains_complete_Team_profile_and_independent_note_for_safe_retry",
+      "testId": "a8fff0b6-1928-e66d-0f67-33e6b906d474"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Typing_during_a_successful_save_return_uses_the_accepted_base_for_the_next_commit(scope: Person)",
+      "testId": "986f576c-5d80-ad6d-ae73-5dec6767e932"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.SqliteWorkspaceTests.Typing_during_a_successful_save_return_uses_the_accepted_base_for_the_next_commit(scope: Team)",
+      "testId": "8ad4fb8b-db4c-9123-c536-8c3c2bebf373"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNoteExternalRefreshTests.Invalid_snapshot_Team_delivery_preserves_all_last_valid_writing_and_review_flags(invalid: \"confirmation\")",
+      "testId": "48359056-a5ca-82bb-a1d8-cfc31561c55e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNoteExternalRefreshTests.Invalid_snapshot_Team_delivery_preserves_all_last_valid_writing_and_review_flags(invalid: \"metadata\")",
+      "testId": "79f37ed0-4a81-6efb-b957-64f3f873f738"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNoteExternalRefreshTests.Invalid_snapshot_Team_delivery_preserves_all_last_valid_writing_and_review_flags(invalid: \"owner\")",
+      "testId": "a8b049f1-2b6a-8e9f-b071-eae571d8991b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNoteExternalRefreshTests.Snapshot_delivery_refreshes_owned_and_inherited_Team_writing_review_and_history_together",
+      "testId": "74294689-2559-739b-8196-0866d2ec9349"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNotePersistenceTests.Failed_graph_commit_preserves_Team_review_and_writing_until_recovery_then_complete_public_refresh",
+      "testId": "a1fe6cec-873f-3985-1c67-1f45969b4ad3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNotePersistenceTests.Failed_review_actions_retain_saved_writing_and_flags_and_cannot_overwrite_a_new_committed_note",
+      "testId": "cb68f48e-abf8-1a96-9b0b-9beec3c87851"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.TeamNotePersistenceTests.Notes_and_sticky_context_review_survive_real_reopen_moves_and_replacement_without_transferring_ownership",
+      "testId": "9d871be5-cc2d-4453-018f-ae5f941f4596"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_feed_is_bounded_even_without_a_declared_content_length(includeLength: False)",
+      "testId": "f336433d-776c-4aa6-d1b0-dfa96ca5f010"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_feed_is_bounded_even_without_a_declared_content_length(includeLength: True)",
+      "testId": "8e731e52-5e22-6eac-6bcc-82f93a03b0db"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_http_errors_remain_failures_not_false_up_to_date(status: 403, headers: \"\", expected: Failed)",
+      "testId": "c06e30e5-ad9b-3e45-3198-0658eb95f268"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_http_errors_remain_failures_not_false_up_to_date(status: 403, headers: \"X-RateLimit-Remaining: 0\\r\\n\", expected: RateLimited)",
+      "testId": "29530b5a-30d0-f631-7acd-31f6a4aa644e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_http_errors_remain_failures_not_false_up_to_date(status: 404, headers: \"\", expected: Failed)",
+      "testId": "8735886d-2ece-55c6-5548-d785e4aa781c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_http_errors_remain_failures_not_false_up_to_date(status: 429, headers: \"\", expected: RateLimited)",
+      "testId": "06db3091-ee66-41e2-f67d-04bea61748fc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Actual_http_errors_remain_failures_not_false_up_to_date(status: 503, headers: \"\", expected: Failed)",
+      "testId": "54177009-bb9e-d081-c920-cb5f2e27955c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Completed_http_requests_allow_immediate_server_shutdown",
+      "testId": "cb32e3fe-d4be-b60f-6272-0e0d49aa1561"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Corrupt_or_unwritable_preferences_are_visible_and_do_not_claim_a_successful_change",
+      "testId": "4b6eb0bf-4de0-377b-87ab-9a6206fb8e99"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Disconnected_feed_is_explicit_and_retry_uses_the_same_trust_policy",
+      "testId": "f482a61d-a2b2-8cf4-c19d-b8b63ebf0de5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Server_shutdown_does_not_hide_unexpected_response_faults(disposed: False)",
+      "testId": "59dd4909-aeb0-592f-404b-c1a1d57ce2b4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Server_shutdown_does_not_hide_unexpected_response_faults(disposed: True)",
+      "testId": "775264c3-2d81-052c-37a0-1194ed55c0fe"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Slow_actual_feed_does_not_block_local_work_and_bad_checks_do_not_erase_the_workspace",
+      "testId": "8b37b907-82e2-a662-6817-55dcac74cfce"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.UpdateSettingsTests.Startup_checks_are_enabled_by_default_and_user_preference_survives_reopen",
+      "testId": "e7d81bd9-986d-e997-13c8-1afd405e38aa"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.VelopackRestartTests.Actual_Velopack_handoff_uses_only_the_locked_authorized_full_path_and_reports_process_start_failure(failStart: False)",
+      "testId": "96216a9f-e5a9-c7cf-2cbc-1dc64815a2d3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.VelopackRestartTests.Actual_Velopack_handoff_uses_only_the_locked_authorized_full_path_and_reports_process_start_failure(failStart: True)",
+      "testId": "172dab12-9e9b-654c-1095-4c9ef5315826"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Actual_writer_refuses_an_externally_changed_non_WAL_mode_until_explicit_recovery",
+      "testId": "d195194b-679f-f52b-e1aa-103021eb43ac"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Cold_validated_DELETE_workspace_remains_browsable_and_paused_until_explicit_WAL_recovery(independentRecoveryFault: False)",
+      "testId": "57c3dc37-9be4-3f37-9705-c1587b386c35"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Cold_validated_DELETE_workspace_remains_browsable_and_paused_until_explicit_WAL_recovery(independentRecoveryFault: True)",
+      "testId": "733c1486-1144-2bac-f29e-dba003f943d8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Commit_control_keeps_the_last_complete_record_while_the_next_transport_slot_is_uncommitted",
+      "testId": "08e5e469-220c-c108-5b39-2b5ab496365a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Failed_WAL_negotiation_preserves_last_valid_graph_and_explicit_profile_draft_without_fallback",
+      "testId": "5b41c7cf-9a0f-7a7c-07af-387cd8d9b4cd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WalWorkspaceTests.Uncheckpointed_committed_WAL_state_publishes_complete_notes_profiles_photos_and_history",
+      "testId": "5bc48a87-e8f7-47a4-d923-7a3595372864"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceReadLifetimeTests.A_disposed_client_does_not_read_or_notify_after_its_Workspace_is_removed",
+      "testId": "31601a8e-9210-f0e1-3fc6-13b3827c0ffb"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceReadLifetimeTests.A_refreshing_client_does_not_block_another_clients_local_autosave(favorite: False)",
+      "testId": "d68823c0-2513-d48d-ce17-47c94ebf4e12"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceReadLifetimeTests.A_refreshing_client_does_not_block_another_clients_local_autosave(favorite: True)",
+      "testId": "a82761b2-57f7-60ec-ab5f-a70db1b9d2e1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_clean_admitted_choice_refuses_a_later_unknown_committed_child_until_reconciliation_and_fresh_review(scope: Person)",
+      "testId": "4eaa8dc9-2fcb-597b-6015-75ff48bf9d4a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_clean_admitted_choice_refuses_a_later_unknown_committed_child_until_reconciliation_and_fresh_review(scope: Team)",
+      "testId": "7c030f3e-0044-87b3-ad44-ffd55cdc5830"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_failed_actual_local_adoption_commit_preserves_the_valid_root_and_requires_local_recovery",
+      "testId": "a6cf7a9a-f429-582d-1b62-6f80e25d68c7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_lost_automatic_sync_return_is_visible_and_retry_does_not_replay_committed_writing",
+      "testId": "05578536-2c69-ec54-e19c-62b3b1bc5371"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_new_local_commit_during_export_stays_unpublished_and_does_not_change_the_exported_version(reviewedImport: False)",
+      "testId": "729abca6-41fd-e659-0d78-167b4637db51"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_new_local_commit_during_export_stays_unpublished_and_does_not_change_the_exported_version(reviewedImport: True)",
+      "testId": "8148465c-d7c3-4a05-904f-91826094db39"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_published_Person_save_still_in_its_actual_VM_return_lifetime_defers_adoption_until_acknowledged",
+      "testId": "c0cc0062-6e0a-6277-c4ee-77f50b314490"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_real_held_adoption_commit_cannot_block_browsing_or_discard_a_later_draft(kind: \"person-note\")",
+      "testId": "5db077e0-d758-bba0-77f4-b58867e29b19"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_real_held_adoption_commit_cannot_block_browsing_or_discard_a_later_draft(kind: \"profile\")",
+      "testId": "808b6410-6b97-7893-ad16-67ffa19616c3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.A_real_held_adoption_commit_cannot_block_browsing_or_discard_a_later_draft(kind: \"team-note\")",
+      "testId": "cd4e0ee6-aec9-a132-b6a0-40863a45a4df"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Actual_folder_unavailability_does_not_pause_local_writing_and_latest_publication_resumes",
+      "testId": "51cf39d6-13a2-b73d-dcc2-d8da20e9ac72"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Adoption_preserves_the_previous_known_good_complete_version_even_if_the_provider_removed_its_export",
+      "testId": "c58cc6f5-1de3-2758-746d-b1fd70f916f6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.An_already_admitted_sync_cannot_adopt_after_a_later_lost_note_return_and_buffer_discard(automatic: False)",
+      "testId": "4c7655f2-a300-1c92-6156-1583b5ce089d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.An_already_admitted_sync_cannot_adopt_after_a_later_lost_note_return_and_buffer_discard(automatic: True)",
+      "testId": "94c97e14-e1c0-a133-ff91-4ae7391a8e2c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Arrival_during_the_real_selection_commit_is_retained_and_requires_another_deliberate_choice",
+      "testId": "0bfa8eef-fc01-1cba-b717-895866a50da9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Automatic_cadence_publishes_continuous_edits_without_waiting_for_idle",
+      "testId": "8a4ae8b9-549b-ab07-0212-e92ed26f9df3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Automatic_incoming_checks_keep_the_last_valid_root_and_retry_without_pausing_local_edits",
+      "testId": "0ed964e3-5b2d-8bee-80ab-7c3e13ce5275"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Canceling_exit_preserves_explicit_profile_and_Preferred_name_drafts_without_implicitly_saving_them",
+      "testId": "0759ce15-6d33-fdcd-ad9e-1f8813477faf"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Clean_continuation_preserves_private_dormant_names_current_paths_photos_and_complete_frozen_history(reviewedPhotoImport: False)",
+      "testId": "bf5ec1e6-6cb3-94c5-105f-211f6c65f656"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Clean_continuation_preserves_private_dormant_names_current_paths_photos_and_complete_frozen_history(reviewedPhotoImport: True)",
+      "testId": "2fe87e03-36c8-62b2-238b-d670ab0fda77"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Deliberate_complete_version_selection_retains_the_other_version_for_recovery_after_restart",
+      "testId": "483177c5-7b7e-7489-b257-f1e4121f37bc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Discarding_a_note_buffer_does_not_authorize_adoption_while_its_actual_acknowledgment_is_unknown(automatic: False)",
+      "testId": "021b30a2-c0de-f243-bf60-eea3cf5a6b90"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Discarding_a_note_buffer_does_not_authorize_adoption_while_its_actual_acknowledgment_is_unknown(automatic: True)",
+      "testId": "144c4481-caf4-36f0-bd85-7c7d6484930b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Explicit_publication_and_fresh_join_transfer_one_identity_and_complete_local_writing",
+      "testId": "60b0dbb8-8336-e289-3d77-b3f9b9eabccf"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Failed_publication_remains_truthful_after_cancel_and_a_fresh_exit_retries_without_replaying_edits",
+      "testId": "8adadeff-7c9e-6909-2d81-5219bf515054"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Fresh_join_intent_does_not_authorize_overwriting_a_later_commit_from_another_local_client",
+      "testId": "f07a75c6-dd6f-390f-353b-e3b79ab672c3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Genuine_divergence_preserves_both_complete_versions_and_pauses_new_edits_across_restart",
+      "testId": "c59f1b57-fa44-ff54-9ba7-e8d007dc9a30"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Held_adoption_driver_excludes_slow_preparation_but_still_rejects_late_actual_actions(lateAction: False)",
+      "testId": "b346860c-ebb6-cf1a-3665-4dd0660dd425"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Held_adoption_driver_excludes_slow_preparation_but_still_rejects_late_actual_actions(lateAction: True)",
+      "testId": "0b2d1242-3f63-f0a4-21dc-363f1df89459"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Incoming_adoption_cannot_overwrite_a_draft_retained_during_actual_validation(kind: \"note\")",
+      "testId": "14d765f8-0151-1bc6-d40d-ca8bb936390b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Incoming_adoption_cannot_overwrite_a_draft_retained_during_actual_validation(kind: \"preferred\")",
+      "testId": "8347bc3a-4774-f136-6973-5b122fb38083"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Incoming_adoption_cannot_overwrite_a_draft_retained_during_actual_validation(kind: \"profile\")",
+      "testId": "f5249031-5be5-6297-8f02-1f93be26266c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Injected_synchronization_clock_does_not_freeze_or_advance_the_save_request_deadline",
+      "testId": "0969fdc7-f50d-0410-ea5c-b704d9bb9077"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Interrupted_publication_resumes_after_restart_without_replaying_the_committed_mutation(afterPublish: False)",
+      "testId": "9a9fcbd9-704d-22bb-26d7-4331dc702d60"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Interrupted_publication_resumes_after_restart_without_replaying_the_committed_mutation(afterPublish: True)",
+      "testId": "b19508fc-2209-d3a7-e105-517a23d2a663"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"accepted-evidence\")",
+      "testId": "24fcb25b-93d7-0ff1-0aa8-074a5c2512c7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"ancestry\")",
+      "testId": "4853345b-0103-ccc8-7b65-7773df13d36d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"format\")",
+      "testId": "20d397a9-822b-d824-5173-3921f5fbf4c8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"hash\")",
+      "testId": "72b57233-790d-0593-90d0-a355cdfdfa2a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"identity\")",
+      "testId": "31958b3e-8381-862a-fbd7-789a13952150"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"missing-person-field\")",
+      "testId": "677c6fd7-6b12-44bb-55ee-5881570eeb19"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"null-record\")",
+      "testId": "587562c9-3cd5-4791-fc63-20c8742362a0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Invalid_delivery_keeps_the_last_valid_Workspace_and_explicit_error(damage: \"truncated\")",
+      "testId": "db555463-010c-f744-9d96-579b1683cc1f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Missing_publication_is_not_local_data_loss_and_cancel_does_not_wait_for_a_hung_export",
+      "testId": "53546464-63d1-d6b3-85a7-7a02afca8174"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_drains_current_writing_and_requires_its_latest_publication_not_an_older_export(scope: Person)",
+      "testId": "92493ab1-0ce0-f9fc-8d94-b2dc3232196b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_drains_current_writing_and_requires_its_latest_publication_not_an_older_export(scope: Team)",
+      "testId": "2e1ad530-8493-ab73-9f37-0359403961d3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_freshly_verifies_an_already_published_head_without_revalidating_or_exporting_it",
+      "testId": "7ad838dc-381c-ccd8-1953-9e2f7e50b8b5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_local_head_probe_failure_pauses_local_edits_instead_of_reporting_only_a_remote_outage",
+      "testId": "aecc5bd3-7946-99dc-cdca-59cd24e845e0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_refuses_an_actual_unresolved_sibling_transaction_even_after_cached_ready",
+      "testId": "20658742-3cd5-4754-a517-0ba28a3c8b6c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_refuses_unavailable_or_mutated_publication_after_cached_ready_and_retains_evidence(failure: \"artifact-unavailable\")",
+      "testId": "a98b792e-c767-755b-4893-978f16a1aa45"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_refuses_unavailable_or_mutated_publication_after_cached_ready_and_retains_evidence(failure: \"changed-receipted-content\")",
+      "testId": "ca0eea0c-8dbf-5eda-15e7-17aa942bd7f9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_refuses_unavailable_or_mutated_publication_after_cached_ready_and_retains_evidence(failure: \"corrupt-envelope\")",
+      "testId": "fe773599-f021-678b-b244-3c2c1b5632e5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_refuses_unavailable_or_mutated_publication_after_cached_ready_and_retains_evidence(failure: \"folder-unavailable\")",
+      "testId": "cddfd050-6c9d-07a2-95a0-fb47a98e8246"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_reloads_a_real_sibling_local_commit_after_cached_ready_and_confirms_that_exact_head(siblingPublishes: False)",
+      "testId": "32806bf9-31d1-e73b-5c8a-a8daca83f809"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Normal_exit_reloads_a_real_sibling_local_commit_after_cached_ready_and_confirms_that_exact_head(siblingPublishes: True)",
+      "testId": "1fd211ea-a270-808f-8bd0-16869b1401c2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Only_an_explicit_fresh_deletion_removes_retained_recovery_not_current_data_or_provider_copies",
+      "testId": "6e242456-1098-67e4-2016-893b5b9a4a61"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Periodic_and_manual_requests_share_export_while_newer_owner_writing_commits_independently(scope: Person)",
+      "testId": "951baf8e-4272-c9fc-36b6-199b0d84e6be"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Periodic_and_manual_requests_share_export_while_newer_owner_writing_commits_independently(scope: Team)",
+      "testId": "b37d7087-7b3a-45c4-70fe-a8c4878bb8c2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(scope: Person, automatic: False)",
+      "testId": "c6fbbb6e-bce8-eb26-d08e-dcd2431326d8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(scope: Person, automatic: True)",
+      "testId": "ad2ad485-8ee2-2409-0219-e3812f2a7833"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(scope: Team, automatic: False)",
+      "testId": "802a44c9-8cd8-aeb4-ea37-c8bd5359747f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Published_note_commit_with_an_unacknowledged_newer_generation_still_blocks_incoming_adoption(scope: Team, automatic: True)",
+      "testId": "290c2988-047f-0b42-c927-691e34feb83c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Reopening_unpublished_work_resumes_on_the_cadence_without_replaying_mutations(alreadyOpen: False)",
+      "testId": "cbeeec4c-e321-57b2-9c17-51d7c8cf0928"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Reopening_unpublished_work_resumes_on_the_cadence_without_replaying_mutations(alreadyOpen: True)",
+      "testId": "6a171fe6-bf3e-1266-5d54-7501704c82d2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Reordered_duplicates_and_stale_delivery_cannot_roll_back_a_clean_newer_local_version",
+      "testId": "54418058-0572-bd17-78bb-259bcb8e4f11"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Routine_retention_keeps_two_complete_versions_without_pruning_resources_history_or_provider_files",
+      "testId": "191323cd-68d8-0c6b-d53f-802ad4b8fbdc"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Selection_remains_read_only_across_restart_when_postcommit_arrival_validation_is_unavailable",
+      "testId": "df9eb0cc-824b-a3d8-f447-4133ce4acf20"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Stalled_accepted_note_return_refuses_later_input_without_misreporting_it_as_retained_writing(scope: Person)",
+      "testId": "2de7abee-e8e2-1daa-9903-0de327b0bc0a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Stalled_accepted_note_return_refuses_later_input_without_misreporting_it_as_retained_writing(scope: Team)",
+      "testId": "fae5f490-4b8f-b28e-3be6-4ad3b02fab0d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Unknown_note_reconciliation_does_not_block_browsing_behind_snapshot_IO_or_lose_the_latest_generation(scope: Person, newerGeneration: False)",
+      "testId": "aeb53cbd-a1f1-8d7a-98a4-f1f8b1300da8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Unknown_note_reconciliation_does_not_block_browsing_behind_snapshot_IO_or_lose_the_latest_generation(scope: Person, newerGeneration: True)",
+      "testId": "6e14828b-96bc-2a84-5b85-c152fff7935c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Unknown_note_reconciliation_does_not_block_browsing_behind_snapshot_IO_or_lose_the_latest_generation(scope: Team, newerGeneration: False)",
+      "testId": "ff032a9b-1621-877a-79c1-0a022c508f48"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Unknown_note_reconciliation_does_not_block_browsing_behind_snapshot_IO_or_lose_the_latest_generation(scope: Team, newerGeneration: True)",
+      "testId": "fb68306b-f4e4-5143-a696-18edba353f86"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(scope: Person, loseAcknowledgment: False)",
+      "testId": "94620bcf-1067-1ba7-f3df-ffa91ce3c16f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(scope: Person, loseAcknowledgment: True)",
+      "testId": "432c9f84-e35c-45c7-be50-6b24d3681ded"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(scope: Team, loseAcknowledgment: False)",
+      "testId": "71d9c711-5517-6f2e-96a2-c3bf06937b1c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceSnapshotTests.Whole_version_choice_cannot_bypass_an_accepted_note_handoff_or_unknown_outcome_with_newer_writing(scope: Team, loseAcknowledgment: True)",
+      "testId": "40aee397-94a3-0173-1c46-907dea5f51ec"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.A_later_owner_can_record_a_Team_choice_after_preference_failure_and_retain_it_through_archival",
+      "testId": "17273c01-7049-5fa9-cbef-fc759f4c5ab2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.An_unusable_settings_location_does_not_prevent_local_open_or_claim_a_saved_preference",
+      "testId": "2d522bf1-473c-54ea-7f51-164f284b72e5"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Corrupt_or_unwritable_preferences_are_visible_without_claiming_the_new_default_was_saved(corrupt: \"{\\\"schemaVersion\\\":1,\\\"lastWorkspacePath\\\":\\\"relat\"···)",
+      "testId": "57c9312c-127a-0b97-9e06-624ce4eacd4b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Corrupt_or_unwritable_preferences_are_visible_without_claiming_the_new_default_was_saved(corrupt: \"{\\\"schemaVersion\\\":99,\\\"lastWorkspacePath\\\":\\\"C:\\\\\"···)",
+      "testId": "85223534-6d0b-b31d-1ea9-21f552ea49ab"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Corrupt_or_unwritable_preferences_are_visible_without_claiming_the_new_default_was_saved(corrupt: \"{broken\")",
+      "testId": "f4487852-9a09-a2a9-7407-0ccc8508e214"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Existing_only_reopen_cannot_replace_independent_retained_writing_or_the_saved_view(scope: Person)",
+      "testId": "f408f531-dd2f-bf8b-d403-4c8f38e93064"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Existing_only_reopen_cannot_replace_independent_retained_writing_or_the_saved_view(scope: Team)",
+      "testId": "a024e916-5d07-975c-b164-53700e3115e9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Explicit_restart_workspace_restore_uses_existing_only_and_updates_the_default_only_on_success",
+      "testId": "a2575b53-37e3-5cca-66ae-0a73f3ab01c9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"corrupt\", scope: Person)",
+      "testId": "3078a22b-1e3e-0d91-1141-84a7785d9380"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"corrupt\", scope: Team)",
+      "testId": "8473cef9-6fa7-f733-9398-967648258cb4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"invalid-entry\", scope: Person)",
+      "testId": "708b3ce5-b951-4592-e9eb-6e1238f80749"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"invalid-entry\", scope: Team)",
+      "testId": "e57a888b-fd26-e0f5-b9cd-6f4482fafef2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"locked\", scope: Person)",
+      "testId": "52350515-52db-76bd-f343-19e254e10c54"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"locked\", scope: Team)",
+      "testId": "c94f543d-8005-1a20-23f0-0fd95049a780"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"owner\", scope: Person)",
+      "testId": "6ea9b482-eeb3-40ac-c3f3-2d365ee379e2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"owner\", scope: Team)",
+      "testId": "0e5d1f9c-dfe7-6300-4ce4-cb61df603ddd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"version\", scope: Person)",
+      "testId": "1293c984-b4c6-d05e-be88-3cd64e4c5026"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_designation_keeps_the_previous_durable_choice_and_note_bytes_with_actionable_feedback(failure: \"version\", scope: Team)",
+      "testId": "e27e0f14-6cf2-4451-e794-3ef3efcbb5fe"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_exact_view_write_keeps_the_prior_durable_view_and_explains_the_in_session_choice(failure: \"corrupt\")",
+      "testId": "2b1d708b-1137-b316-626f-5918a1bfcc87"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_exact_view_write_keeps_the_prior_durable_view_and_explains_the_in_session_choice(failure: \"identity\")",
+      "testId": "a83c2eb3-cd43-8637-880d-64d11322999a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_exact_view_write_keeps_the_prior_durable_view_and_explains_the_in_session_choice(failure: \"locked\")",
+      "testId": "56530dea-48d3-8f83-a3a7-81ccf24ed91a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_exact_view_write_keeps_the_prior_durable_view_and_explains_the_in_session_choice(failure: \"version\")",
+      "testId": "6e41656c-bb69-e28a-213b-653878b68a89"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_sole_designation_retains_both_displayed_notes_without_persisting_a_choice(scope: Person)",
+      "testId": "f47b5dc9-3249-f3c8-a693-36a7a19893ec"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_sole_designation_retains_both_displayed_notes_without_persisting_a_choice(scope: Team)",
+      "testId": "22fc4036-9b1e-e072-9205-b258bcf1b10a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_view_preference_preserves_sole_reading_only_when_preferences_were_valid(unreadable: False)",
+      "testId": "245ef1fd-dc6d-980a-0972-c39b9d1c31cd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Failed_view_preference_preserves_sole_reading_only_when_preferences_were_valid(unreadable: True)",
+      "testId": "498aa9da-ab17-51ac-fc7e-3fad12a4d084"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.First_run_stays_unopened_and_successful_open_is_restored_after_settings_and_app_reopen",
+      "testId": "1a26544c-b045-9a19-f0af-d446e4396bf6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Invalid_or_inaccessible_restore_keeps_the_app_empty_and_preserves_the_successful_preference(locked: False)",
+      "testId": "f124b8a1-db2a-d969-eb96-4a5d0725afdd"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Invalid_or_inaccessible_restore_keeps_the_app_empty_and_preserves_the_successful_preference(locked: True)",
+      "testId": "e91a941b-4bdf-6f8d-b2a4-651d9ac87706"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Legacy_remembered_note_keeps_its_inherited_or_frozen_owner_context_not_current_owned_writing(historical: False)",
+      "testId": "23e2549a-8bdf-30a5-0a95-7838223ae581"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Legacy_remembered_note_keeps_its_inherited_or_frozen_owner_context_not_current_owned_writing(historical: True)",
+      "testId": "9414207e-a102-2c9a-8723-206ab44116e8"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Manual_and_existing_only_settings_opens_retain_dirty_profiles_and_the_successful_default(restore: False)",
+      "testId": "7bfcf025-c66d-6011-49fc-f136cbfa6508"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Manual_and_existing_only_settings_opens_retain_dirty_profiles_and_the_successful_default(restore: True)",
+      "testId": "26d27105-001d-2828-122d-c752129a59e1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Missing_workspace_is_not_recreated_and_retry_can_reopen_the_original",
+      "testId": "1051cd3e-fecb-9139-9e87-53fe8f444b4d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Ongoing_designation_extends_legacy_preferences_and_reopens_by_identity_without_changing_Workspace_writing",
+      "testId": "aba3dcea-4fb2-2d60-3fab-c7f7e00d5122"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Only_successful_alternate_opens_replace_the_default_and_manual_folder_creation_still_works",
+      "testId": "bd3b8a33-e345-9ee2-1687-74a17c3e0305"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Pane_percentages_reopen_per_Workspace_and_survive_interleaved_ongoing_and_startup_updates",
+      "testId": "da857da4-edd4-e127-432d-179e84b5e360"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(failure: \"corrupt\")",
+      "testId": "7e81d4ef-ebe3-9cfe-a1a5-a767bf31b192"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(failure: \"locked\")",
+      "testId": "fdfb0139-8131-cbb8-2cd7-f9715f2f707e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(failure: \"missing-percent\")",
+      "testId": "d251c687-5bda-fe6a-02a3-38e2844ffba4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(failure: \"percent\")",
+      "testId": "29e849ca-52da-0718-7c21-218fc3119b71"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Rejected_pane_preferences_retain_durable_ratios_and_other_entries_until_explicit_retry(failure: \"version\")",
+      "testId": "4aeefc77-1a6e-6cf5-1632-21a8be3994c4"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_failed_Import_retains_its_error_without_blocking_People_or_exact_search_browsing",
+      "testId": "54a22292-7cd8-aee9-8aa8-8ac0b00b6c63"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_failed_open_keeps_note_views_readable_without_a_Workspace_path(scope: Person)",
+      "testId": "2aa5b1c9-785b-adaf-9464-2a68a256e209"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_failed_open_keeps_note_views_readable_without_a_Workspace_path(scope: Team)",
+      "testId": "12bd5171-ed31-bb23-8282-f25f7f8bc0e3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_People_browsing_retains_independent_person_writing_without_rejecting_navigation(kind: \"note\")",
+      "testId": "1749d597-9441-badd-25b4-e5769cdfd4e9"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_People_browsing_retains_independent_person_writing_without_rejecting_navigation(kind: \"profile\")",
+      "testId": "6ed7b43f-1cea-a4d1-c504-a451ffc20d53"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Review_People_browsing_retains_independent_person_writing_without_rejecting_navigation(kind: \"quick\")",
+      "testId": "5703078c-f71d-ab0b-aa1b-88f4442fb8c6"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Team_designation_reopens_by_owner_scope_and_GUID_without_mutating_writing_or_pane_preferences",
+      "testId": "fdad5962-50bc-5194-ea76-79334a465189"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_exact_view_retains_preferences_and_writing_until_deliberate_reselection(failure: \"archived-note\")",
+      "testId": "e7685941-f90f-d4b5-475b-21d157c5338b"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_exact_view_retains_preferences_and_writing_until_deliberate_reselection(failure: \"archived-person\")",
+      "testId": "11d2c832-0a63-3117-5ab0-9c307fc10f17"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_exact_view_retains_preferences_and_writing_until_deliberate_reselection(failure: \"missing-note\")",
+      "testId": "7f85dbe8-c12e-17b7-9959-aa02a5164d57"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_exact_view_retains_preferences_and_writing_until_deliberate_reselection(failure: \"missing-person\")",
+      "testId": "84ca0f0e-e952-f1f0-0f87-d38f8de78414"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(archived: False, scope: Person)",
+      "testId": "72b84ad7-1ed1-cad5-76b8-49ba3595b03e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(archived: False, scope: Team)",
+      "testId": "fe9b9579-c8a8-2e09-1986-f3570591067e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(archived: True, scope: Person)",
+      "testId": "aae3a42c-d99f-08b7-1d12-43a4676e4c06"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unavailable_ongoing_choice_is_retained_without_selecting_or_creating_replacement_writing(archived: True, scope: Team)",
+      "testId": "12c85c51-7e11-da20-9e03-b628304fcc6d"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unreadable_ongoing_preferences_are_not_an_empty_writing_invitation(scope: Person)",
+      "testId": "e1858b05-e72c-b619-ea25-3bc16819e9b3"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unreadable_ongoing_preferences_are_not_an_empty_writing_invitation(scope: Team)",
+      "testId": "150f235d-f891-59f5-a57b-6e29207fe998"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unreadable_preferences_keep_manual_Workspace_access_without_claiming_an_ongoing_choice_was_restored",
+      "testId": "aa2556fa-57d0-ad15-51b6-a2f263750838"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"pane\", archived: False)",
+      "testId": "d7213c08-bb7a-3304-2837-fe66bba5aa41"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"pane\", archived: True)",
+      "testId": "0bf59d77-bbb6-2e34-80a1-6f1ecb8056de"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"startup\", archived: False)",
+      "testId": "24f4260c-b38e-cacc-3039-7bcd4bae557c"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"startup\", archived: True)",
+      "testId": "b2dbe305-ef58-fee3-9b05-d73174ee2ed0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"view\", archived: False)",
+      "testId": "be41ec76-9395-be35-7253-a3521ea3d208"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Unrelated_preference_failures_preserve_ongoing_choice_and_archival_guidance(failure: \"view\", archived: True)",
+      "testId": "cddcb4af-9e04-4a65-6f32-e754808fd050"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Validated_reopen_restores_the_exact_secondary_note_by_identity_in_Read_mode(scope: Person)",
+      "testId": "d9662d0c-a811-c961-79cf-8ce2689f44fe"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceStartupTests.Validated_reopen_restores_the_exact_secondary_note_by_identity_in_Read_mode(scope: Team)",
+      "testId": "3ebfce39-13a6-1920-ef8e-672070ec9d99"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceVersionTests.Readable_file_Workspaces_are_refused_without_conversion_repair_or_mutation(version: 1)",
+      "testId": "e40f16a3-5bab-36a3-a3d4-3992a8cd28a0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceVersionTests.Readable_file_Workspaces_are_refused_without_conversion_repair_or_mutation(version: 2)",
+      "testId": "96ddb83b-7daf-3cd0-b4c5-dc8dc6601a65"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceVersionTests.Readable_file_Workspaces_are_refused_without_conversion_repair_or_mutation(version: 3)",
+      "testId": "90ee1f8d-ccd3-9f7e-db3c-bcf5d891d50a"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceVersionTests.Readable_file_Workspaces_are_refused_without_conversion_repair_or_mutation(version: 99)",
+      "testId": "80261d00-a266-74b8-761d-3bf925f64981"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Public_read_End_callback_can_be_held_without_blocking_a_real_independent_commit",
+      "testId": "f6d10b2b-c740-05c4-af7d-8bd99d088c93"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Public_reopen_pairs_a_known_held_snapshot_with_completed_physical_disposal",
+      "testId": "e803d94c-0d0d-6e4c-3f53-487fac5e00f7"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Read_observer_faults_do_not_change_real_open_or_committed_data(fault: Begin)",
+      "testId": "772008bf-af80-b04e-b7ce-973544a1ae2e"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Read_observer_faults_do_not_change_real_open_or_committed_data(fault: End)",
+      "testId": "fb084e0e-776e-2315-9bf1-062b7e952dfa"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Scale_phase_logging_failures_do_not_change_real_save_outcomes(eventKind: \"BEGIN\")",
+      "testId": "7db912f3-d882-ea19-0711-489e84dd1ed1"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Scale_phase_logging_failures_do_not_change_real_save_outcomes(eventKind: \"END\")",
+      "testId": "1883e32f-5f77-47d6-d59e-bc2b97c1e34f"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Storage_phases_bracket_the_real_local_commit_and_reopen_its_saved_data",
+      "testId": "37f1f7ed-32a2-42da-1a5f-64d8f78cbab2"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Timing_marks_the_active_phase_before_failure_and_preserves_the_original_error",
+      "testId": "1a1fd6b5-8299-22a7-1079-81ff19b780ed"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Unsupported_readable_Workspace_rejection_never_writes_copies_or_publishes_any_payload(version: 1)",
+      "testId": "3f8552ed-8c8c-0ba0-0550-a98a49cb8513"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Unsupported_readable_Workspace_rejection_never_writes_copies_or_publishes_any_payload(version: 2)",
+      "testId": "ff596914-5fcd-9c18-efb8-456bd15636d0"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Unsupported_readable_Workspace_rejection_never_writes_copies_or_publishes_any_payload(version: 3)",
+      "testId": "fecf178b-27b2-3e75-7dad-e803f4a277ed"
+    },
+    {
+      "testName": "OrgExplorer.Persistence.Tests.WorkspaceWriteObservationTests.Unsupported_readable_Workspace_rejection_never_writes_copies_or_publishes_any_payload(version: 99)",
+      "testId": "aeb338f9-6b95-1cd1-36db-9ee8368512e1"
+    }
+  ]
+}

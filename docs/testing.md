@@ -225,10 +225,15 @@ no diagnostic logging or metadata probes. Local nonreproduction is not evidence
 that a hosted Error 10 is safe, unrelated or attributable to its host.
 The diagnostic branch temporarily substitutes `scale-verification.yml` at its
 already-registered optional path; default-branch scale/normal CI is unchanged.
-The branch definition is `TEMP focused CrashRecovery`, manual-only with an exact
-workflow/test SHA input guard, one hosted Windows job selecting exactly those
-original nine cases, including both post-Commit
-profile receipt variants. It retains the filesystem 660-second setup-inclusive
+The branch definition is `TEMP CrashRecovery diagnostic`, manual-only with an
+exact workflow/test SHA input guard and explicit selection in its run/job names
+before execution. `original-nine` remains the default, including both post-Commit
+profile receipt variants. `filesystem-context` restores the original
+`Category!=Performance` selection: all 446 immutable prior-TRX names and test IDs,
+including the exact nine crash subset, are required. The expectation manifest
+is bound to unchanged Persistence test source, not capped discovery output.
+Full-context failure cannot be accepted because its crash subset passed.
+Both modes retain the filesystem 660-second setup-inclusive
 budget and eleven-minute job watchdog, detailed unfiltered stdout/stderr,
 original TRX, exact case union/outcomes and candidate/binary/native-asset hashes.
 Records are `diagnosticOnly: true` / `acceptanceEligible: false` before SDK setup;
