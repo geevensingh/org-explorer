@@ -15,7 +15,7 @@ public sealed class ControlReadinessTests
         var original = new TimeoutException("Original 20-second row failure");
         var observed = Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitObservedReadiness(
             () => false,
-            () => { captures++; return state; },
+            _ => { captures++; return state; },
             predicate =>
             {
                 state = "first rejected row";
@@ -27,8 +27,8 @@ public sealed class ControlReadinessTests
             }, reports.Add));
 
         Assert.Same(original, observed);
-        Assert.Equal(["before: before", "last-rejected: last rejected row"], reports);
-        Assert.Equal(3, captures);
+        Assert.Equal(["before", "last-rejected: last rejected row"], reports);
+        Assert.Equal(2, captures);
     }
 
     [Fact]
@@ -40,10 +40,10 @@ public sealed class ControlReadinessTests
         var polls = 0;
         ControlReadiness.AwaitObservedReadiness(
             () => { state = ++polls == 1 ? "rejected row" : "accepted row"; return polls == 2; },
-            () => state, AwaitReady, reports.Add);
+            _ => state, AwaitReady, reports.Add);
 
         Assert.Equal(2, polls);
-        Assert.Equal(["before: initial row", "success: accepted row"], reports);
+        Assert.Equal(["before", "success: accepted row"], reports);
     }
 
     [Fact]
@@ -54,11 +54,41 @@ public sealed class ControlReadinessTests
         var reports = new List<string>();
         var original = new InvalidOperationException("Original clickable-point provider failure");
         var observed = Assert.Throws<InvalidOperationException>(() => ControlReadiness.AwaitObservedReadiness(
-            () => { polls++; throw original; }, () => "provider state", AwaitReady, reports.Add));
+            () => { polls++; throw original; }, _ => "provider state", AwaitReady, reports.Add));
 
         Assert.Same(original, observed);
         Assert.Equal(1, polls);
-        Assert.Equal(["before: provider state"], reports);
+        Assert.Equal(["before"], reports);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Pre_row_visibility_failure_is_observed_without_running_or_requerying_the_later_row_wait()
+    {
+        var state = "before overlay wait";
+        var reports = new List<string>();
+        var observations = new List<string>();
+        var original = new TimeoutException("Original overlay visibility failure");
+        var laterRowWaits = 0;
+        var observed = Assert.Throws<TimeoutException>(() =>
+        {
+            ControlReadiness.AwaitObservedReadiness(
+                () => false,
+                accepted => { observations.Add(state); return $"{state}; accepted={accepted}"; },
+                predicate =>
+                {
+                    state = "overlay rejected";
+                    Assert.False(predicate());
+                    state = "later state";
+                    throw original;
+                }, reports.Add);
+            laterRowWaits++;
+        });
+
+        Assert.Same(original, observed);
+        Assert.Equal(["overlay rejected"], observations);
+        Assert.Equal(["before", "last-rejected: overlay rejected; accepted=False"], reports);
+        Assert.Equal(0, laterRowWaits);
     }
 
     [Fact]

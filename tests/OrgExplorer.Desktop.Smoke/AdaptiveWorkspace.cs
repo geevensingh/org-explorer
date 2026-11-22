@@ -652,7 +652,8 @@ internal static partial class Program
         foreach (var identityState in CompactIdentityStateCases)
         {
             QueryAndSelect(window, identityState.Email, identityState.Email,
-                identityState.Archived ? "Archived" : "Current", "Profile:");
+                identityState.Archived ? "Archived" : "Current", "Profile:",
+                diagnosticsContext: "responsive-profile-identity");
             AssertPersonCategory(window, identityState.Category);
             if (identityState.Archived)
             {
@@ -696,7 +697,8 @@ internal static partial class Program
             }
             finally { CancelProfileEditing(window); }
         }
-        QueryAndSelect(window, "avery@example.com", "avery@example.com", "Current", "Profile:");
+        QueryAndSelect(window, "avery@example.com", "avery@example.com", "Current", "Profile:",
+            diagnosticsContext: "responsive-profile-return");
         BeginProfileEditing(window);
         ResizeWindow(window, 1100, 900);
         AtSize("profile-inline-ordinary-1100-900");

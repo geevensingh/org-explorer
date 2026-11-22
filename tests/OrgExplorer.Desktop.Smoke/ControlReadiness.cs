@@ -2,11 +2,11 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class ControlReadiness
 {
-    internal static void AwaitObservedReadiness(Func<bool> isReady, Func<string> observe,
+    internal static void AwaitObservedReadiness(Func<bool> isReady, Func<bool, string> observe,
         Action<Func<bool>> awaitState, Action<string> report)
     {
         string? lastRejected = null;
-        report("before: " + observe());
+        report("before");
         try
         {
             awaitState(() =>
@@ -15,7 +15,7 @@ internal static class ControlReadiness
                 try { return accepted = isReady(); }
                 finally
                 {
-                    var observation = observe();
+                    var observation = observe(accepted);
                     if (accepted) report("success: " + observation);
                     else lastRejected = observation;
                 }
