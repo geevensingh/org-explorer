@@ -186,6 +186,7 @@ internal static partial class Program
                     reading.Synchronization.PublishedRevision != latestRevision)
                     throw new InvalidOperationException("Sync now did not publish the exact later rich local revision.");
             CaptureVisualEvidence(window, "sqlite-rich-background-export-latest-published");
+            SetSettingsVisible(window, false);
             Close(process);
         }, failure =>
         {

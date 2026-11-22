@@ -185,13 +185,18 @@ internal static partial class Program
                 !incoming.ConfigureSynchronizationFolder(transport, joinExistingWorkspace: true) || !incoming.SyncNow() ||
                 !incoming.EditPreferredName(note.OwnerEmail, "Automatically refreshed Manager") || !incoming.SyncNow())
                 throw new InvalidOperationException(incoming.Status);
+            Invoke("OpenSettingsButton");
             Sync();
+            Invoke("OpenSettingsButton");
             Arrange();
-            if (Control<TextBlock>("ProfileHeading").Text != "Automatically refreshed Manager" ||
-                !model.TeamNotesView.IsEditing || model.TeamNotesView.SelectedNote?.Id != note.Id ||
-                !Team<TextBox>("MarkdownEditor").IsDescendantOf(surface) || !Team<TextBox>("MarkdownEditor").IsEnabled ||
-                Team<TextBox>("MarkdownEditor").Text != basis.Markdown || Team<TextBox>("NoteTitle").Text != basis.Title)
-                throw new InvalidOperationException("The continuing incoming-profile refresh lost exact writable current note Edit.");
+            PumpUntil(() =>
+            {
+                Arrange();
+                return Control<TextBlock>("ProfileHeading").Text == "Automatically refreshed Manager" &&
+                    model.TeamNotesView.IsEditing && model.TeamNotesView.SelectedNote?.Id == note.Id &&
+                    Team<TextBox>("MarkdownEditor") is { IsEnabled: true } editor && editor.IsDescendantOf(surface) &&
+                    editor.Text == basis.Markdown && Team<TextBox>("NoteTitle").Text == basis.Title;
+            });
             var unavailable = Path.Combine(root, "held-transport-unavailable");
             Directory.Move(transport, unavailable);
             try

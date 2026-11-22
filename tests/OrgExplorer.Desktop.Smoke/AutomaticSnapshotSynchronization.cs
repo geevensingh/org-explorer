@@ -232,7 +232,9 @@ internal static partial class Program
             SetSettingsVisible(window, false);
             advance.Set();
             Await(() => CurrentPersonEmail(window) == "morgan@example.com" &&
-                Find(window, "ProfileHeading").Current.Name == "Automatically refreshed Manager");
+                Find(window, "ProfileHeading").Current.Name == "Automatically refreshed Manager" &&
+                Find(window, "TeamNoteHeading").Current.HelpText == note.ToString("D") &&
+                Value(window, "TeamNoteMarkdown") == "Newer writing during automatic export");
             AssertValue(window, "TeamNoteMarkdown", "Newer writing during automatic export");
             CaptureVisualEvidence(window, "sqlite-automatic-incoming-refresh");
             SetSettingsVisible(window, true);

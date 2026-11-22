@@ -290,6 +290,10 @@ actual Configure/Sync, a genuinely
 newer Import and normal Closed with an independent complete-snapshot receiver.
 It remains in the full compiled selection. The complete later rich background
 export and profile phases and all original hosted exit cases remain required.
+After verifying and capturing the latest rich publication in Settings, the
+driver returns to browsing before the unchanged note-idle/normal-close checks.
+Those checks require the actual browsing note surfaces, not a Settings-only
+automation subtree. Neither local-idle criteria nor normal exit is bypassed.
 The owner-approved rich export fixture hold is bounded by the remaining original
 660-second whole-suite deadline, not a separate 180-second publisher timeout.
 The runner passes that exact deadline to owned commands through process-only
@@ -687,6 +691,12 @@ reopen proves newer owner writing before release. Older completion must leave it
 unpublished until a later tick. Actual delivered continuations update visible
 reading without changing the selected owner, and an unavailable folder reports
 an error while native writing still commits and later publishes.
+The incoming observation waits for the same exact note GUID and writing as
+well as the updated Person heading inside its original 20-second observation;
+an updated heading alone does not establish that the editor provider is ready.
+The invisible continuation also follows the actual Settings round trip and
+requires the current attached, enabled editor with the unchanged owner/title/
+writing. It does not treat a cached headless Read peer subtree as native proof.
 The native automatic tail uses the shared snapshot usability predicate, extended
 with complete clipping to the actual scroll viewport and window. Before its one
 held-export SetValue, fresh Morgan identity/heading, original Team-note ID/title,
