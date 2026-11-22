@@ -112,6 +112,59 @@ Opening a profile, rendering Markdown, or displaying a photo must not fetch
 remote content. An explicitly selected external link may open in the user's
 browser. App update traffic is separate from private workspace data.
 
+### Person categories and reporting counts
+
+Person category is a read-only classification derived from email identity. An
+email beginning with `v-`, compared case-insensitively, identifies a Vendor.
+Every email not matching a recognized category prefix falls back to Employee.
+For example, `V-jane@example.com` is a Vendor, while `jane.v-smith@example.com`
+is an Employee. Employee is the workspace's default classification label,
+not verified payroll, full-time, or legal employment status.
+
+Use a code-defined, extensible set of categories and recognized prefixes, with
+Employee as the fallback. Each Person belongs to exactly one category; the same
+definitions govern the profile badge and reporting breakdown. Initially only
+Employee and Vendor are supported. The possible future `t-` and `a-` prefixes
+are not active rules: they currently fall back to Employee. A future category
+must participate in classification and the displayed breakdown without adding
+another category-specific profile layout. This feature does not introduce
+user-configurable rules, a category settings screen, manual overrides, or an
+importable category field.
+
+For a Person with at least one current, non-archived direct report, show a
+reporting summary covering all their current, non-archived Reporting descendants
+known to the workspace, at every depth. Exclude the selected manager themselves.
+Count each Person once and follow reporting relationships regardless of category,
+including through Vendor managers. Total is the sum of all category counts;
+display every supported category, including categories with zero descendants.
+Initially these counts are Total, Employees, and Vendors.
+
+For example, a manager with twelve Reporting descendants, nine Employees and
+three Vendors, has Total 12, Employees 9, and Vendors 3, irrespective of that
+manager's own category. A manager with twelve Employee descendants has Total 12,
+Employees 12, and Vendors 0.
+
+These are imported-population counts, not verified company-wide totals. Use
+current relationships, not former reporting chains or historical context;
+exclude archived people. Tree expansion, search results, and other visible
+subsets do not narrow the counted population. Do not fetch missing directory
+data to calculate these values. Derive the badge and counts from current
+accepted workspace data and refresh them with the profile after relevant
+imports, reporting changes, archival/reactivation, or external refresh.
+
+Retain the category badge for every Person, including archived profiles. Hide
+the reporting summary when there are no current direct reports, rather than
+using job-title wording or former-manager status to show zero-valued summaries.
+Keep the existing direct-reports list and its direct-only count distinct from
+the all-level reporting summary.
+
+The approved layout places the category badge beside the name in anchored
+identity. Immediately after the always-first scrolling Team name, display
+`Reporting structure` as an ordinary compact fact: a short Total and category
+breakdown, followed by `Known current reports, all levels`. Preserve readable
+wrapping without a separate card, chart, large-number tiles, or individual
+category rows. See [Person profile and navigation](ui-design.md#person-profile-and-navigation).
+
 ### Viewing and editing
 
 Default to View mode when opening a workspace or selecting a person. Present
