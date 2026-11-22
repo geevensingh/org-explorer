@@ -2279,8 +2279,10 @@ share only that scenario's settings to exercise durable reopening.
 For investigation, append one name to the harness command, not the app
 (`profile-journey`, for example). Older `migration`, `--search-favorites`,
 `--person-notes`, `--team-notes` selectors remain aliases.
-The obsolete combined `scale` / `--scale` selectors are rejected; use `--ui-scale`
-or a single explicit scale scenario name. `--high-resolution` selects only the
+The obsolete combined `scale` / `--scale` / `--ui-scale` selectors are rejected;
+use the isolated `--ui-scale-prefix` and `--ui-scale-tail` selectors with their
+candidate-bound logical handoff. A single explicit scale scenario is investigative,
+not complete scale acceptance. `--high-resolution` selects only the
 three required high-resolution scenarios and is never part of default ordinary smoke.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
@@ -2464,29 +2466,74 @@ The complete workloads are outside required PR smoke, not removed:
 | Command | Required selection | Evidence |
 |---|---|---|
 | `.\eng\Run-Performance.ps1` | Complete `Category=Performance` filesystem workload | `.ci-results\performance\result.json`, unique run directory, complete named TRX and logs |
-| `.\eng\Run-UiScale.ps1` | Both names in `tests\UiScaleScenarios.json` | `.ci-results\ui-scale\result.json`, unique run directory, `scenarios.json` and UI/step logs |
+| `.\eng\Run-UiScale.ps1 -Worker prefix` | `scale-mutation-save-prefix` | Candidate/run/attempt-bound worker result, original rich latency/lifecycle artifacts and complete logical handoff |
+| `.\eng\Run-UiScale.ps1 -Worker tail -PrefixResultsDirectory <prefix-artifacts>` | `scale-mutation-delivery-tail`, then `scale-navigation-rendering` | Separate worker result, public Join receipt, ordinary profile samples and complete tail/navigation evidence |
+| `.\eng\Assert-UiScaleUnion.ps1` | Both workers; every scenario in `tests\UiScaleScenarios.json` and phase in `tests\UiScalePhases.json` | `.ci-results\ui-scale-union\result.json` and unique run directory containing both complete worker artifacts |
 
 Non-UI performance proves genuine 10,000-Person load/reopen, current/historical
 search, durable mutations, reviewed 10,000-record imports, original/latest batch
 replay, external delivery/recovery and complete retained-data comparisons.
 Targeted large-graph/no-import-cap correctness remains in required core coverage.
 
-UI scale builds and drives the **normal WPF executable**, sequentially in one
-interactive Windows job, with a fresh rich 10,000-Person fixture per scenario:
+UI scale builds and drives the **normal WPF executable** on two isolated
+interactive Windows workers. The original mutation scenario splits only at its
+existing process-reopen boundary, after the combined held-export host has
+returned from normal process death:
 
 - `scale-navigation-rendering`: Settings visibly works while real opening is
   pending; expand/collapse, scroll and select a distant realized tree row;
   current/frozen/deep-chain/final-archived-Person search and Manager navigation;
   actual photo pixels and rendered current/frozen Markdown.
-- `scale-mutation-responsiveness`: repeated normal-executable usable Team editors,
+- `scale-mutation-save-prefix`: repeated normal-executable usable Team editors,
   Person selection and ordinary durable saves while typing continues, followed
   by actual compiled WPF at the same complete rich population during a held real
   profile Commit and a held complete-snapshot export. Settings and Person
   browsing must finish while those same operations remain admitted, without
-  losing the original owner's writing. It retains favorite mutation, complete
+  losing the original owner's writing. Both complete 20/42/21 phases, real held
+  profile proof, all 21 background profile saves and latest publication stay together.
+- `scale-mutation-delivery-tail`: **public FileBacked Join of the first worker's
+  actual published complete `.oesnapshot`**, not an equivalent newly seeded
+  fixture. It resumes all 21 ordinary normal-EXE profile Save samples, favorite mutation, complete
   reviewed Import, two-local-store public note edits/snapshot delivery/rendering,
   latest publication and durable profile/Manager/favorite/photo reopening.
   Valid incoming adoption cannot require a Settings recovery retry.
+
+The source handoff is captured only after the original held-export flow returns.
+Its envelope/payload hashes, exact Workspace identity/head, source/test/runner
+trees, workflow blob, candidate/run/attempt/first-worker invocation, full runtime component inventories
+and loaded native SQLite version/source/hash are bound to the receiving worker.
+Normal product and harness builds map their unique build/checkouts to fixed
+debug-source paths so separately built executable/runtime hashes must agree.
+The artifact contains only the actual immutable logical snapshot, recorded
+preferences and metadata; never a raw database, WAL, SHM, or reseeded note/history
+identities. Preferences retain the actual exact selection, ongoing notes and
+pane proportions, relocating only the original Workspace path to the receiver's
+fresh physical folder. Public Join validates the complete snapshot. Independent
+public reopen compares all People, exact notes/owners/GUIDs, profiles/timelines,
+current/inherited/frozen contexts and decoded photo bytes/dimensions before the
+tail launches the normal executable. The receipt truthfully identifies a new
+worker/store/process, not continuation of the first physical process.
+
+`tests\UiScaleWorkers.json` selects every scenario once. Both terminal worker
+results, exact ordered original phase begins and successful ends, all required
+raw note/profile/lifecycle artifacts and the matching validated handoff receipt
+are required by the union. A missing/failed/skipped/duplicate/substituted worker,
+stage or payload cannot pass. The tail never calls `ScaleFixture.Build`; only
+the separate original navigation scenario retains its own fresh fixture.
+The reusable manual/nightly bridge uploads both workers on failure and retains
+the existing candidate/run/attempt `ui-scale-...` artifact name for the complete
+union. Release gates revalidate both workers, freshness and the same handoff;
+they do not relabel their summed wall time as one 660-second execution.
+
+`--verify-ui-scale-handoff` runs a full-rich public-filesystem contract without
+showing WPF or using desktop automation. It deletes the original physical
+fixture after capture, then verifies actual Join/reopen with the complete rich
+population, resources/history and recorded selection/preferences. Its retained
+`.ci-results\ui-split-validation\logical-handoff-*\handoff` is contract evidence,
+not hosted native acceptance. Focused `UiScaleHandoffTests` cover mismatched
+candidate/attempt/native/product hashes, corrupted bytes, different selection
+and forbidden raw-file bundles. PowerShell union contracts cover complete and
+missing/failed/mismatched/over-budget selections.
 
 The same shared `ScaleFixture` preserves 9,900 active/100 Archived people, the
 complete 42-edge chain, 2,500 photo references, 1,000 Person notes, 111 Team notes,
@@ -2564,17 +2611,19 @@ separately: load/validation cost is not substituted for application Commit laten
 Reopen proves data correctness; it is not used to retroactively date Commit.
 Focused two-Person
 20/42/21 samples keep their existing independent-reopen timer, original 20-second
-observation, 60-ms continued-input workload and p95 contracts unchanged. No suite
-budget or required result selection changes.
+observation, 60-ms continued-input workload and p95 contracts unchanged.
+No per-worker budget, functional observation or sample-count change is permitted.
 
-For investigation on an authorized interactive desktop, append `--ui-scale` to
-the harness invocation above, or one scale name. Use `Run-UiScale.ps1` for the
-complete bounded candidate-bound suite. A one-scenario pass is not suite success.
+For investigation on an authorized interactive desktop, use the worker selectors
+or one scale name with the explicit candidate/run/attempt handoff. Use both
+`Run-UiScale.ps1` workers and `Assert-UiScaleUnion.ps1` for complete bounded
+candidate-bound acceptance. A one-scenario or one-worker pass is not suite success.
 Missing/locked interactive desktops and unavailable pixels are visible failures;
 never skip rendering, change shared-machine settings or launch local automation
 without separate permission.
 
-Each suite has its own **660-second whole-execution pass/fail budget**. The hosted
+Non-UI performance and **each isolated rich UI worker** have their own
+**660-second whole-execution pass/fail budget**. The hosted
 watchdog allows thirteen minutes so termination, failure reporting and artifact
 upload can finish after a failed budget; the extra time cannot make the run pass.
 `SCALE_STARTED_AT` begins before checkout/SDK setup;
@@ -2645,12 +2694,13 @@ after closing clients and cleaning owned fixtures, preserving real save outcomes
 and original storage errors rather than silently accepting missing diagnostics.
 
 The direct scale workflow's `extended_observation` input is explicitly diagnostic.
-It lets the unchanged UI workload be observed for up to 900 seconds with a
-seventeen-minute watchdog, while retaining the original 660-second verdict.
+It requests observation for up to 900 seconds while retaining the original
+660-second per-worker verdict and thirteen-minute worker watchdog.
 Reports set `diagnosticOnly`, distinguish observed completion from the verdict,
 and never report candidate-verification success in this mode, even if observed
 completion is under 660 seconds. Its artifact name starts with
-`diagnostic-ui-scale-`, not the normal verification prefix. Normal release
+`diagnostic-ui-scale-`, not the normal verification prefix. A diagnostic prefix
+is never an accepting handoff; diagnostic reports cannot pass the union. Normal release
 verification and non-UI execution do not opt into it.
 For repeated measurements, freeze one full revision and retain each run's
 separate artifacts. Invocations remain independent; no concurrency group

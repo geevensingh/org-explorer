@@ -51,7 +51,7 @@ public sealed class DesktopScenarioSelectionTests
         var expected = new[] { "responsive-workspace", "responsive-draft-navigation", "responsive-team-history" };
         Assert.Equal(expected, selection.Select("--high-resolution"));
         Assert.Empty(selection.Select(null).Intersect(expected));
-        Assert.Empty(selection.Select("--ui-scale").Intersect(expected));
+        Assert.Empty(selection.Scale.Intersect(expected));
         Assert.Equal(["responsive-team-history"], selection.Select("responsive-team-history"));
     }
 
@@ -94,16 +94,43 @@ public sealed class DesktopScenarioSelectionTests
 
     [Fact]
     [Trait("Category", "Runner")]
-    public void Default_smoke_excludes_scale_and_explicit_ui_scale_selects_both_independent_scenarios()
+    public void Default_smoke_excludes_scale_and_isolated_workers_preserve_every_scale_scenario_once()
     {
         var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
         Assert.Equal(new[] { "profile-journey", "draft-navigation", "person-note-rendering",
             "team-context-history", "search-favorites", "archival-navigation",
             "compatibility-settings", "update-settings", "external-refresh" }, selection.Select(null));
-        Assert.Equal(new[] { "scale-navigation-rendering", "scale-mutation-responsiveness" },
-            selection.Select("--ui-scale"));
+        Assert.Equal(new[] { "scale-mutation-save-prefix" }, selection.Select("--ui-scale-prefix"));
+        Assert.Equal(new[] { "scale-mutation-delivery-tail", "scale-navigation-rendering" }, selection.Select("--ui-scale-tail"));
+        Assert.Equal(selection.Scale, selection.Select("--ui-scale-prefix").Concat(selection.Select("--ui-scale-tail")));
+        Assert.Empty(selection.Select("--ui-scale-prefix").Intersect(selection.Select("--ui-scale-tail")));
+        Assert.Throws<ArgumentException>(() => selection.Select("--ui-scale"));
         Assert.Equal(new[] { "scale-navigation-rendering" }, selection.Select("scale-navigation-rendering"));
         Assert.Throws<ArgumentException>(() => selection.Select("scale"));
         Assert.Throws<ArgumentException>(() => selection.Select("unknown"));
+    }
+
+    [Theory]
+    [InlineData("""{"prefix":["prefix"],"tail":["prefix"]}""")]
+    [InlineData("""{"prefix":["prefix"],"tail":[]}""")]
+    [InlineData("""{"prefix":["prefix"],"tail":["tail","replacement"]}""")]
+    [InlineData("""{"prefix":["prefix"],"unknown":["tail"]}""")]
+    [Trait("Category", "Runner")]
+    public void Invalid_split_worker_union_is_refused_before_execution(string workers)
+    {
+        var root = Path.GetFullPath(Path.Combine(".test-workspaces", "selection-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "DesktopScenarios.json"), """["first","second"]""");
+            File.WriteAllText(Path.Combine(root, "DesktopPartitions.json"), """{"people":["first"],"workspace":["second"]}""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionScenarios.json"), """["high-first","high-second"]""");
+            File.WriteAllText(Path.Combine(root, "HighResolutionPartitions.json"),
+                """{"reading":["high-first"],"context":["high-second"]}""");
+            File.WriteAllText(Path.Combine(root, "UiScaleScenarios.json"), """["prefix","tail"]""");
+            File.WriteAllText(Path.Combine(root, "UiScaleWorkers.json"), workers);
+            Assert.Throws<InvalidOperationException>(() => new DesktopScenarioSelection(root));
+        }
+        finally { Directory.Delete(root, true); }
     }
 }

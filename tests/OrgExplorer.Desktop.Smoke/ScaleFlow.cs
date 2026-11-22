@@ -165,7 +165,7 @@ internal static partial class Program
         }
     }
 
-    private static void RunScaleMutationFlow(string executable, string root)
+    private static void RunScaleMutationPrefix(string executable, string root)
     {
         using var fixture = new ScaleFixture(root);
         Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
@@ -195,9 +195,40 @@ internal static partial class Program
             ScaleFixture.Measure("UI-close-before-held-export", () => Close(process));
             process = null;
             ScaleFixture.Measure("UI-background-export-independence", () => RunRichBackgroundExport(executable, fixture));
+            ScaleFixture.Measure("UI-handoff-capture", () =>
+                UiScaleHandoff.Capture(RequireScaleHandoffDirectory(), fixture.Workspace, fixture.SynchronizationFolder,
+                    Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+                        "workspace-settings.json"), ReadScaleBinding(executable),
+                    Environment.GetEnvironmentVariable("UI_SCALE_WORKER_RUN_DIRECTORY") ??
+                        throw new InvalidOperationException("Missing first-worker invocation identity.")));
+            Console.WriteLine("PASS: combined normal-executable and same held-export rich saves, latest publication and normal host death; logical handoff captured.");
+        }
+        finally
+        {
+            if (process is not null) StopApplication(process);
+        }
+    }
+
+    private static void RunScaleMutationTail(string executable, string root)
+    {
+        using var fixture = new ScaleFixture(root);
+        Process? process = null;
+        try
+        {
+            ScaleFixture.Measure("UI-handoff-join", () =>
+                UiScaleHandoff.Receive(RequireScaleHandoffDirectory(), fixture.Workspace, fixture.SynchronizationFolder,
+                    Path.Combine(Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY")!,
+                        "workspace-settings.json"), ReadScaleBinding(executable),
+                    Path.Combine(Path.GetDirectoryName(diagnostics)!, "handoff-received.json")));
+            using (var joined = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!joined.OpenWorkspace(fixture.Workspace, WorkspaceOpenMode.ExistingOnly))
+                    throw new InvalidOperationException(joined.Status);
+                ScaleFixture.RequireRichPopulation(joined, additionalPersonNotes: 2, additionalTeamNotes: 40);
+            }
             var remembered = ReadSmokeWorkspacePreferences();
             process = Launch(executable);
-            window = Window(process);
+            var window = Window(process);
             AwaitRememberedWorkspace(window, fixture.Workspace, remembered, AwaitScale);
             SelectRichNoteReport(window);
             AssertProfileValue(window, "OfficeNumber", "0009U");
@@ -294,12 +325,27 @@ internal static partial class Program
             });
             ScaleFixture.Measure("UI-close", () => Close(process));
             process = null;
-            Console.WriteLine("PASS: actual rich 10,000-Person WPF usable-editor/navigation and durable-save percentiles, browsing during a held real commit/export, favorite/import/snapshot adoption and durable reopen.");
+            Console.WriteLine("PASS: separate-worker logical Join, normal-executable rich profile saves, favorite/import/snapshot adoption and durable reopen.");
         }
         finally
         {
             if (process is not null) StopApplication(process);
         }
+    }
+
+    private static string RequireScaleHandoffDirectory() =>
+        Environment.GetEnvironmentVariable("UI_SCALE_HANDOFF_DIRECTORY") is { Length: > 0 } path &&
+        Path.IsPathFullyQualified(path) ? path :
+        throw new InvalidOperationException("UI scale requires an explicit candidate-bound logical handoff directory.");
+
+    private static UiScaleHandoff.Binding ReadScaleBinding(string executable)
+    {
+        string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value :
+            throw new InvalidOperationException("Missing UI-scale binding: " + name);
+        return UiScaleHandoff.Identify(Required("UI_SCALE_REVISION"), Required("GITHUB_RUN_ID"),
+            Required("GITHUB_RUN_ATTEMPT"), Required("UI_SCALE_SOURCE_TREE"), Required("UI_SCALE_TEST_TREE"),
+            Required("UI_SCALE_ENG_TREE"), Required("UI_SCALE_WORKFLOW_BLOB"), executable,
+            typeof(Program).Assembly.Location);
     }
 
     private static void SelectScaleResult(AutomationElement window)

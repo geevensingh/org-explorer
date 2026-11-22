@@ -14,6 +14,7 @@
     <Content Include="..\HighResolutionScenarios.json" Link="HighResolutionScenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\HighResolutionPartitions.json" Link="HighResolutionPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\UiScaleScenarios.json" Link="UiScaleScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\UiScaleWorkers.json" Link="UiScaleWorkers.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\DesktopScenarioSelection.cs" Link="DesktopScenarioSelection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\HostedDisplayPreparation.cs" Link="HostedDisplayPreparation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\TreeItemRealization.cs" Link="TreeItemRealization.cs" />

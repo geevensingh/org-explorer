@@ -30,6 +30,8 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
+            if (args.Length == 2 && args[1] == "--verify-ui-scale-handoff")
+                return VerifyUiScaleLogicalHandoff(executable);
             if (args.Length == 2 && args[1] == "--verify-cutover-publication")
                 return VerifyHostedCutoverContracts(executable, VerifyHostedPublicationContract);
             if (args.Length == 2 && args[1] == "--verify-cutover-note-modes")
@@ -116,7 +118,8 @@ internal static partial class Program
                 ["responsive-draft-navigation"] = root => RunNavigationFeedbackFlow(executable, root, responsive: true),
                 ["responsive-team-history"] = root => RunTeamContextFlow(executable, root, responsive: true),
                 ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
-                ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
+                ["scale-mutation-save-prefix"] = root => RunScaleMutationPrefix(executable, root),
+                ["scale-mutation-delivery-tail"] = root => RunScaleMutationTail(executable, root)
             };
             if (!selection.All.Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");

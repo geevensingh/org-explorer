@@ -3,7 +3,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $results = Join-Path $root ".ci-results\ui-scale-contract-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory $results | Out-Null
 function Invoke-RunnerProbe([string[]] $Arguments, [string] $Log) {
-    $quoted = @('-NoProfile', '-File', "$root\eng\Run-UiScale.ps1") + $Arguments |
+    $quoted = @('-NoProfile', '-File', "$root\eng\Run-UiScale.ps1", '-Worker', 'prefix') + $Arguments |
         ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }
     $process = Start-Process pwsh -ArgumentList $quoted -PassThru -NoNewWindow -RedirectStandardOutput $Log -RedirectStandardError "$Log-errors"
     try {
@@ -58,7 +58,7 @@ public static class $typeName {
     $status = Get-Content (Join-Path $probe 'result.json') -Raw | ConvertFrom-Json
     if ($status.outcome -ne 'failure' -or $status.revision -notmatch '^[0-9a-f]{40}$' -or
         $status.expectedRevision -ne ('0' * 40) -or $status.steps.Count -ne 0 -or $status.suite -ne 'ui-scale' -or
-        @($status.requiredScenarios).Count -ne 2) {
+        @($status.requiredScenarios).Count -ne 1 -or $status.worker -cne 'prefix') {
         throw 'Candidate mismatch was not reported as a fresh named UI-scale failure before execution.'
     }
     Write-Host 'PASS: UI-scale candidate mismatch replaces stale success before any build or desktop execution.'
@@ -80,21 +80,31 @@ public static class $typeName {
     }
     foreach ($suite in @(
         @{ job = 'non-ui-performance'; command = 'Run-Performance.ps1'; artifact = 'non-ui-performance-' },
-        @{ job = 'ui-scale'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-' }
+        @{ job = 'ui-scale-prefix'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-prefix-' },
+        @{ job = 'ui-scale-tail'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-tail-' }
     )) {
         $job = [regex]::Match($workflow, "(?ms)^  $($suite.job):\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
-        $watchdog = if ($suite.job -eq 'ui-scale') {
-            'timeout-minutes: ${{ inputs.extended_observation && 17 || 13 }}'
-        } else { 'timeout-minutes: 13' }
+        $watchdog = 'timeout-minutes: 13'
         foreach ($required in @('runs-on: windows-latest', $watchdog, 'SCALE_STARTED_AT=',
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
             ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'))) {
             if (!$job.Contains($required)) { throw "$($suite.job) is missing $required" }
         }
-        if ($job -match '(?m)^\s+(needs|strategy):' -or
+        if ($job -match '(?m)^\s+strategy:' -or
+            ($suite.job -ne 'ui-scale-tail' -and $job -match '(?m)^\s+needs:') -or
             $job -notmatch 'if:\s*\$\{\{\s*always\(\)\s*\}\}' -or
             $job -notmatch 'ref: \$\{\{ inputs.revision \|\| github.sha \}\}') {
             throw 'Separate suites must run independently at the explicit candidate with failure artifacts.'
+        }
+        $tail = [regex]::Match($workflow, '(?ms)^  ui-scale-tail:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
+        if (!$tail.Contains('needs: ui-scale-prefix') -or !$tail.Contains('actions/download-artifact@v4') -or
+            !$tail.Contains('-Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix')) {
+            throw 'The isolated tail must resume only its current prefix artifact, not rebuild an equivalent seed.'
+        }
+        $union = [regex]::Match($workflow, '(?ms)^  ui-scale:\r?\n(?<body>.*?)(?=^  [\w-]+:|\z)').Groups['body'].Value
+        foreach ($required in @('needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]', 'always()', 'Assert-UiScaleUnion.ps1',
+            'PREFIX_OUTCOME', 'TAIL_OUTCOME', 'NON_UI_OUTCOME')) {
+            if (!$union.Contains($required)) { throw "Strict scale union is missing $required" }
         }
     }
     $runner = Get-Content "$root\eng\Run-UiScale.ps1" -Raw
@@ -122,7 +132,8 @@ public static class $typeName {
         }
     } finally { $env:GITHUB_ACTIONS, $env:RUNNER_ENVIRONMENT, $env:RUNNER_OS = $previousDisplayEnvironment }
     Write-Host 'PASS: actual UI-scale selection prepares only GitHub-hosted Windows and verifies other authorized desktops read-only.'
-    foreach ($required in @('Assert-DesktopResults', 'UiScaleScenarios.json', "'--ui-scale'", 'Invoke-ScaleSuite')) {
+    foreach ($required in @('Assert-DesktopResults', 'Get-UiScalePlan', '"--ui-scale-$Worker"', 'Invoke-ScaleSuite',
+        'Assert-UiScalePhases', 'Get-UiScaleWorkerResult', 'UI_SCALE_HANDOFF_DIRECTORY')) {
         if (!$runner.Contains($required)) { throw "UI-scale entry point is missing $required" }
     }
     $shared = Get-Content "$root\eng\ScaleRunner.ps1" -Raw
@@ -140,5 +151,50 @@ public static class $typeName {
     if ($ci.Contains('Run-UiScale.ps1') -or !$ci.Contains('needs: [core, filesystem, desktop, high-resolution]')) {
         throw 'UI-scale execution must reuse the manual bridge, not become a required PR smoke lane.'
     }
-    Write-Host 'PASS: both independent scale suites reuse exact-candidate nightly/manual execution outside required PR smoke.'
+    . "$root\eng\DesktopResults.ps1"
+    . "$root\eng\UiScaleResults.ps1"
+    $plan = Get-UiScalePlan
+    $originalPhases = @{
+        prefix = @('UI-mutation-open', 'UI-ordinary-save-latency', 'UI-publish-before-held-export',
+            'UI-close-before-held-export', 'UI-background-export-independence', 'UI-profile-mutation', 'UI-handoff-capture')
+        tail = @('UI-handoff-join', 'UI-ordinary-profile-latency', 'UI-favorite-mutation', 'UI-import-file',
+            'UI-import-navigation', 'UI-validated-refresh', 'UI-import-preview', 'UI-import-apply', 'UI-import-return',
+            'UI-external-delivery', 'UI-close-before-reopen', 'UI-reopen', 'UI-close',
+            'UI-load', 'UI-tree', 'UI-current-search', 'UI-photo-render', 'UI-history-search',
+            'UI-manager-navigation', 'UI-deep-profile', 'UI-final-person', 'UI-close')
+    }
+    foreach ($worker in @('prefix', 'tail')) {
+        if ((@($plan.phases[$worker]) -join "`n") -cne ($originalPhases[$worker] -join "`n")) {
+            throw 'The declared phase union must preserve every original prefix, tail and navigation stage without replacement.'
+        }
+    }
+    $phaseLog = Join-Path $results 'phases.log'
+    foreach ($worker in @('prefix', 'tail')) {
+        $phases = @($plan.phases[$worker])
+        $lines = @($phases | ForEach-Object { "SCALE BEGIN $_; utc=contract"; "SCALE END $_; outcome=Passed; ms=0" })
+        $lines | Set-Content $phaseLog
+        Assert-UiScalePhases $phaseLog $phases
+        foreach ($bad in @(
+            @($lines[2..($lines.Length - 1)]),
+            @($lines + $lines[0..1]),
+            @($lines | ForEach-Object { $_.Replace('outcome=Passed', 'outcome=Failed') })
+        )) {
+            $bad | Set-Content $phaseLog
+            $rejected = $false
+            try { Assert-UiScalePhases $phaseLog $phases } catch { $rejected = $true }
+            if (!$rejected) { throw 'Missing, duplicate or failed original UI-scale phases passed.' }
+        }
+    }
+    $source = Get-Content "$root\tests\OrgExplorer.Desktop.Smoke\ScaleFlow.cs" -Raw
+    $prefixSource = $source.Substring($source.IndexOf('private static void RunScaleMutationPrefix'),
+        $source.IndexOf('private static void RunScaleMutationTail') - $source.IndexOf('private static void RunScaleMutationPrefix'))
+    $tailSource = $source.Substring($source.IndexOf('private static void RunScaleMutationTail'))
+    if (!$prefixSource.Contains('RunLocalNoteAutosaveJourney') -or !$prefixSource.Contains('RunRichBackgroundExport') -or
+        !$prefixSource.Contains('UiScaleHandoff.Capture') -or $tailSource.Contains('fixture.Build()') -or
+        !$tailSource.Contains('UiScaleHandoff.Receive') -or !$tailSource.Contains('RunRichProfileLatency') -or
+        !$tailSource.Contains('ScaleFixture.Population') -or !$tailSource.Contains('joinExistingWorkspace: true')) {
+        throw 'The split lost its original combined save or complete real tail, or reseeded instead of joining.'
+    }
+    Write-Host 'PASS: isolated scale workers preserve strict named phase/scenario union and use the actual logical handoff outside required PR smoke.'
+    & "$PSScriptRoot\UiScaleUnion.Tests.ps1" -ResultsDirectory (Join-Path $results 'union')
 } finally { Remove-Item $results -Recurse -Force }

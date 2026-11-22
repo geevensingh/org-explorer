@@ -11,6 +11,8 @@
     <Content Include="..\HighResolutionScenarios.json" Link="HighResolutionScenarios.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\HighResolutionPartitions.json" Link="HighResolutionPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\UiScaleScenarios.json" Link="UiScaleScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\UiScaleWorkers.json" Link="UiScaleWorkers.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\UiScaleHandoff.cs" Link="UiScaleHandoff.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Compile Include="..\HeldNotePublisher.cs" Link="HeldNotePublisher.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
