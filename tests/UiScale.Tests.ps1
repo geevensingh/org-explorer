@@ -16,6 +16,34 @@ function Invoke-RunnerProbe([string[]] $Arguments, [string] $Log) {
     } finally { $process.Dispose() }
 }
 try {
+    $notes = Get-Content "$root\tests\OrgExplorer.Desktop.Smoke\LocalSqliteWorkspace.cs" -Raw
+    $percentile = [regex]::Match($notes, '(?m)^\s*(?<body>double P95\(List<double> values\) => .+;)').Groups['body'].Value
+    $condition = [regex]::Match($notes,
+        '(?m)^\s*if \((?<body>P95\(.+)\)\r?\n\s*throw new InvalidOperationException\(\$"Hosted ordinary note').Groups['body'].Value
+    if (!$percentile -or !$condition) { throw 'The actual note-latency verdict could not be inspected.' }
+    $typeName = 'NoteLatencyPolicy_' + [guid]::NewGuid().ToString('N')
+    $policy = Add-Type -PassThru -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+public static class $typeName {
+    public static bool Reject(double editor, double person, double commit, bool duringTyping) {
+        var editors = new List<double> { editor };
+        var navigation = new List<double> { person };
+        var durability = new List<double> { commit };
+        var committedDuringTyping = new[] { duringTyping };
+        $percentile
+        return $condition;
+    }
+}
+"@
+    if ($policy::Reject(102.4401, 120.0399, 228.7048, $true) -or
+        $policy::Reject(3000, 3000, 1000, $true) -or
+        !$policy::Reject(1, 1, 1000.1, $true) -or
+        !$policy::Reject(1, 1, 228.7048, $false)) {
+        throw 'Editor/navigation timings must be informational; one-second durability and during-typing commits must still fail closed.'
+    }
+    Write-Host 'PASS: the actual note-latency verdict treats editor/navigation timings as informational and preserves durability/during-typing gates.'
     $probe = Join-Path $results 'revision-probe'
     New-Item -ItemType Directory $probe | Out-Null
     '{"outcome":"success","revision":"stale"}' | Set-Content (Join-Path $probe 'result.json')

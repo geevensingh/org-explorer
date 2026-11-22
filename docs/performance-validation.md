@@ -9,9 +9,11 @@ That is the single execution guide; this document preserves fixture detail and
 historical observations. Neither old combined runs nor non-UI passes prove the
 new separated WPF suite. The later
 [reliable-save contract](reliable-nonblocking-saves.md#acceptance-evidence) adds
-the explicit 100-ms editor/navigation and one-second ordinary local-save p95
-targets at this same rich population. Historical measurements below do not
-establish those targets or the SQLite cutover's acceptance.
+informational editor/navigation p95 observations and the one-second ordinary
+local-save target at this same rich population. The owner made UI timings
+informational on 2026-11-20; raw samples and historical 100-ms references remain.
+Historical measurements below do not establish durability or the SQLite
+cutover's acceptance.
 
 ## Separation checkpoints (2026-11-10)
 

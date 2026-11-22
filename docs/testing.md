@@ -398,14 +398,14 @@ selection-handler pause makes unrelated slow dispatch explicit. Bounded
 `DIAGNOSTIC: compiled held-note navigation` records unadjusted dispatch/layout
 time and real pending/error/transaction state, not a single-sample latency SLA.
 Waiting until the held write fails cannot satisfy this structural proof.
-The actual ordinary native navigation workload retains p95 at most 100 ms;
-this invisible oracle neither replaces nor changes it. Deliberately held
+The actual ordinary native navigation workload retains informational p95;
+this invisible oracle does not replace it. Deliberately held
 profile-save navigation has the structural, diagnostic-only policy below.
 The existing hosted `compatibility-settings` tail additionally exercises twenty
 distinct Team creations and one Person creation, continuous writing and immediate
-report/Manager switches. It requires p95 at most 100 ms from actual native interaction
+report/Manager switches. It records informational p95 from actual native interaction
 to a new writable, visible, keyboard-focused editor or usable selected Person, and
-one second from ordinary typing to independently reopened committed writing covering
+requires one second from ordinary typing to independently reopened committed writing covering
 that request while typing continues. Its `*-sqlite-note-latency.json` records exact
 candidate/run/attempt/product hash, environment, samples, boundaries and nearest-rank
 percentiles; named editing/reopened captures retain actual desktop evidence.
@@ -468,7 +468,8 @@ work; final sidecar emission performs no process/window lookup, so an already
 exited app cannot replace the original failure or prevent writing its evidence.
 A real owned no-window child regression verifies that lifetime boundary and
 primary exception identity. Historical missing fields are not reconstructed.
-The ordinary 42-sample navigation workload still enforces p95 at most 100 ms.
+The ordinary 42-sample navigation workload retains every raw timing and reports
+informational p95; exact usable destinations remain required.
 Named retained/committed/history/
 reopened captures carry actual desktop pixels and matching metadata.
 Each explicit Save pattern is prepared through the existing bounded
@@ -836,8 +837,8 @@ both selections must reach the exact usable Person while the same actual Apply
 transaction remains held and unpublished, without losing retained owner writing.
 The two unadjusted times remain diagnostic, not a per-selection deadline or a p95
 estimate. Schema 2 marks `heldApplyBrowsing.timingUse` as `diagnostic` and removes
-the old per-case `budgetMs` field. The original 42 native navigation samples still
-enforce **p95 <= 100 ms**; all other ordinary workload/percentile checks remain.
+the old per-case `budgetMs` field. The original 42 native navigation samples are
+informational; ordinary durability, continued typing and functional checks remain.
 
 The #92 latency observer refreshes native UIA caches after each request: one
 filtered note-surface snapshot requests only the selected scope's surface,
@@ -1112,8 +1113,8 @@ The explicit `--diagnose-rich-navigation` command is a separate, nonaccepting
 actual-BAML investigation at the complete rich population: 42 action-to-layout
 observations during 21 notes with six nominal 250-ms inputs apiece, raw managed
 allocations and picker work, followed by full independent owner/writing/resource
-verification. It never replaces native action-to-usable observations, changes the
-100-ms p95 target, subtracts observer time or runs as another required scale lane.
+verification. It never replaces native action-to-usable observations, subtracts
+observer time or runs as another required scale lane.
 
 The invisible `--verify-preferred-name-retention` check also runs in that existing
 profile-refresh selection. It holds the real SQLite commit through the shared
@@ -2470,8 +2471,14 @@ not a new 60-ms stress deadline. Raw native request/observation arrays, nearest-
 `ceil(0.95 * count)` p95, sample counts, exact candidate/run/attempt, product EXE/
 assembly and host hashes, environment and monotonic clock boundaries are retained
 in the two `*-sqlite-note-latency-rich-*.json` artifacts and the
-`*-sqlite-rich-export-lifecycle.json` artifact. Editor and navigation p95 remain
-at most 100 ms; ordinary durable-save p95 remains at most 1 second.
+`*-sqlite-rich-export-lifecycle.json` artifact. On 2026-11-20 the owner approved
+informational editor/navigation timings so functional validation can finish
+without further performance work. Their historical 100-ms `budgetMs` references
+remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
+percentile and functional usable-state assertion is retained. Ordinary
+durable-save p95 remains at most 1 second, with `budgetEnforced: true`, and all
+commits must still be observed during continued typing. Missing/incorrect UI,
+owner, writing or durability remains a failure within the original observations.
 
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.

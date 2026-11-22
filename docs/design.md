@@ -34,8 +34,8 @@ even though the initial UI is Windows-specific.
 Exercise a representative population of 10,000 people, with photos, notes, and
 history. This is not a hard import cap. The approved
 [reliable-save contract](reliable-nonblocking-saves.md#acceptance-evidence)
-requires rich-population p95 of at most 100 ms for usable Team editors/Person
-navigation and one second for ordinary durable local saves, including queueing.
+records rich-population Team-editor/Person-navigation p95 as informational and
+requires one second for ordinary durable local saves, including queueing.
 Do not substitute a smaller population, idle-only timing or a quick API for an
 explicit profile Save.
 

@@ -233,10 +233,17 @@ For healthy local storage under ordinary editing load, measure separately:
 
 | Outcome | Target |
 | --- | --- |
-| Add Team note opens a usable editor | p95 at most 100 ms |
-| Person navigation displays a usable selected view | p95 at most 100 ms |
+| Add Team note opens a usable editor | Informational p95; historical 100-ms reference, not a pass/fail gate |
+| Person navigation displays a usable selected view | Informational p95; historical 100-ms reference, not a pass/fail gate |
 | Ordinary edits become locally durable | p95 at most 1 second |
 | Outstanding ordinary save becomes explicitly stalled | After 3 seconds without completion |
+
+The owner approved making editor/navigation timings informational on
+2026-11-20 so functional validation can finish without further performance work.
+Retain every raw sample and the historical reference; do not relabel earlier
+failed runs. Exact usable views, writable/focused editors, owner-correct writing
+and bounded functional observations remain required. The one-second durability
+and three-second stall contracts are unchanged.
 
 The local-durability target includes save scheduling and queueing, and applies
 while typing continues, not only after typing stops. Sync/provider delivery time
