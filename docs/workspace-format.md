@@ -134,7 +134,12 @@ is distinct from a failed local storage device.
 Each local transaction durably flushes `local-write-<id>.json` before changing
 payloads. Revision-only format-1 evidence binds its identity, base and intended
 next revision without note contents. The writer holds a lease through commit
-acknowledgment. This is local recovery evidence, not another authority or a
+acknowledgment and receipt deletion, releasing it only after retirement succeeds
+or reports an explicit failure. Reconciliation likewise retains read/write
+exclusivity through deletion. Delete sharing permits retirement through the
+owned handle; it does not admit a competing reader or writer. This prevents
+a public reopen from acquiring the receipt between lease release and deletion.
+This is local recovery evidence, not another authority or a
 synchronized artifact.
 
 Timeout is not rollback. A replacement write or adoption cannot compete with an

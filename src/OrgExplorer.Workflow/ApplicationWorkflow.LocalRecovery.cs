@@ -21,7 +21,7 @@ public sealed partial class ApplicationWorkflow
         if (next == revision) throw new FormatException("A local transaction requires a distinct next revision.");
         var intent = new LocalWriteIntent(1, Guid.NewGuid(), revision!, next);
         var path = Path.Combine(workspace!, $"local-write-{intent.Id:N}.json");
-        var lease = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+        var lease = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete);
         try
         {
             var bytes = JsonSerializer.SerializeToUtf8Bytes(intent, JsonOptions);
@@ -62,10 +62,9 @@ public sealed partial class ApplicationWorkflow
             }
         }
         revision = evidence.Intent.NextRevision;
-        evidence.Dispose();
         try
         {
-            DeleteWorkspaceFile(evidence.Path);
+            ObserveStoragePhase("local-write-retire", () => DeleteWorkspaceFile(evidence.Path));
             localSaveFault = null;
         }
         catch (Exception error) when (StorageError(error))
@@ -75,6 +74,7 @@ public sealed partial class ApplicationWorkflow
                 "The local revision committed, but transaction-evidence cleanup failed. Do not replay the edit. Reconcile local storage. " +
                 error.Message);
         }
+        finally { evidence.Dispose(); }
     }
 
     private void SetUnknownLocalOutcome(Exception error, string? diagnostic = null) =>
@@ -104,26 +104,33 @@ public sealed partial class ApplicationWorkflow
                 stage = "inspect-path";
                 RejectWorkspaceLink(path);
                 stage = "acquire";
-                using (var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                // Exclude competing readers/writers until retirement; allow deletion through this owned lease.
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Delete))
                 {
                     acquired = true;
                     try
                     {
                         handle = file.SafeFileHandle;
-                        stage = "read";
-                        if (file.Length > 4096) throw new FormatException("Invalid local transaction evidence size.");
-                        var intent = JsonSerializer.Deserialize<LocalWriteIntent>(file, JsonOptions)
-                            ?? throw new FormatException("Missing local transaction evidence.");
-                        stage = "validate";
-                        if (intent.Format != 1 || intent.Id == Guid.Empty ||
-                            Path.GetFileName(path) != $"local-write-{intent.Id:N}.json" ||
-                            !Guid.TryParseExact(intent.BaseRevision, "D", out _) ||
-                            !Guid.TryParseExact(intent.NextRevision, "D", out _) ||
-                            intent.BaseRevision == intent.NextRevision)
-                            throw new FormatException("Invalid local transaction evidence.");
-                        // A matching validated revision establishes commit or rollback, not elapsed time.
-                        if (revision != intent.BaseRevision && revision != intent.NextRevision)
-                            throw new IOException("The validated local revision does not establish this transaction's outcome.");
+                        ObserveStoragePhase("local-write-reconcile", () =>
+                        {
+                            stage = "read";
+                            if (file.Length > 4096) throw new FormatException("Invalid local transaction evidence size.");
+                            var intent = JsonSerializer.Deserialize<LocalWriteIntent>(file, JsonOptions)
+                                ?? throw new FormatException("Missing local transaction evidence.");
+                            stage = "validate";
+                            if (intent.Format != 1 || intent.Id == Guid.Empty ||
+                                Path.GetFileName(path) != $"local-write-{intent.Id:N}.json" ||
+                                !Guid.TryParseExact(intent.BaseRevision, "D", out _) ||
+                                !Guid.TryParseExact(intent.NextRevision, "D", out _) ||
+                                intent.BaseRevision == intent.NextRevision)
+                                throw new FormatException("Invalid local transaction evidence.");
+                            // A matching validated revision establishes commit or rollback, not elapsed time.
+                            if (revision != intent.BaseRevision && revision != intent.NextRevision)
+                                throw new IOException("The validated local revision does not establish this transaction's outcome.");
+                        });
+                        stage = "retire";
+                        ObserveStoragePhase("local-write-retire", () => DeleteWorkspaceFile(path));
+                        localSavingRecovered = true;
                     }
                     catch (Exception error) when (StorageError(error))
                     {
@@ -133,9 +140,6 @@ public sealed partial class ApplicationWorkflow
                     }
                     finally { stage = "release"; }
                 }
-                stage = "retire";
-                DeleteWorkspaceFile(path);
-                localSavingRecovered = true;
                 stage = "enumerate";
                 receipt = null;
                 handle = null;

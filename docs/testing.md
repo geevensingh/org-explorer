@@ -977,19 +977,31 @@ reader while the identified writer is still paused at its commit boundary, then
 keep that reader open after killing and waiting for the writer. The reader shares
 read/write/delete access rather than unnecessarily excluding an existing
 write-capable handle; it never receives write access itself. Production recovery's
-exclusive `FileShare.None` still cannot coexist with that open reader. Reconciliation
+read/write-exclusive receipt lease still cannot coexist with that open reader. Reconciliation
 must remain refused while that holder exists. Only after deliberately releasing
 it and proving one actual exclusive acquisition succeeds does one explicit
 reconcile restore editing with the same revision/profile/history, without replay.
 The ordinary cold cases do not poll, sleep, retry or force availability. This is
 an acceptance reconciliation, not identification or a fix of the historical hosted
-holder; production sharing, recovery and retirement behavior is unchanged.
+holder; sharing and retirement were unchanged at that historical checkpoint.
 Receipt failures also retain their actual reconciliation stage (acquire, read,
 validate, release or retirement), native HRESULT, originating method and observed
 managed-handle lifetime in the existing error diagnostic. They do not change
 lease sharing, retirement or recovery policy. Failure attribution is captured before
 release; a later cleanup failure is retained alongside the original. Borrowed-handle
 state is a non-atomic observation, not historical ownership or OS availability proof.
+The receipt-retirement correction keeps the writer lease through actual deletion
+and uses a delete-sharing, read/write-exclusive reconciliation lease until its
+own retirement completes. Three focused real-store cases hold the existing
+observer's `local-write-retire` and `local-write-reconcile` phases to reproduce
+public reopen taking the receipt during the former release/delete gap: both
+note scopes and concurrent reconciliation must no longer pause the retiring
+client. The competing reader still reports Unknown/read-only while the owning
+lease exists; explicit reconciliation after release verifies exact committed
+owner/writing with no duplicate or replay. A real non-delete-sharing external
+reader still causes committed-cleanup refusal and retained evidence.
+These phases do nothing without an observer, introduce no SQL/retry/deadline
+change, and are not historical hosted-holder attribution or hosted acceptance.
 A real post-Commit Team-note gate
 calibrates acquire refusal with exact committed writing still browseable/read-only,
 then permits reconciliation only after the actual owned writer releases its lease.

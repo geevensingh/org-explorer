@@ -20,6 +20,9 @@ private Team-name rules and all domain history are unchanged.
 3. Perform the SQLite transaction with verified local WAL and
    `synchronous=FULL` on the actual writer. Commit the payload and ordered ancestry together.
 4. Acknowledge only successful durable Commit, then retire accessible evidence.
+   Keep the writer lease until deletion completes or explicitly fails.
+   Reconciliation also retains read/write exclusivity through receipt deletion;
+   delete sharing allows this owned retirement without admitting competing I/O.
    Failed cleanup is committed maintenance; it cannot authorize replay.
 
 The oldest outstanding ordinary request includes queueing and scheduling.

@@ -399,7 +399,7 @@ public sealed partial class SqliteWorkspaceTests
             }
             if (receiptHeld)
             {
-                // Recovery's FileShare.None must exclude this reader, not the reader exclude existing writers.
+                // Recovery must exclude this reader, not the reader exclude existing writers.
                 receiptHolder = new FileStream(Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json")),
                     FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 var writerExited = process.HasExited;
@@ -680,6 +680,147 @@ public sealed partial class SqliteWorkspaceTests
             Assert.Equal(committed.Markdown, Assert.Single(reading.GetTeamNotes("manager@example.com")).Markdown);
         }
         finally { boundary.Release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Public_reopen_during_receipt_retirement_cannot_pause_the_committed_writer(NoteScope scope)
+    {
+        using var retirement = new ReceiptBoundary("local-write-retire");
+        using var reconciliation = new ReceiptBoundary("local-write-reconcile") { Hold = true };
+        using var writer = ApplicationWorkflow.CreateFileBacked(fileObserver: retirement);
+        using var reader = ApplicationWorkflow.CreateFileBacked(fileObserver: reconciliation);
+        Assert.True(writer.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), writer.Status);
+        Assert.True(writer.ApplyImport(writer.PreviewImport(Initial).Id), writer.Status);
+        retirement.Hold = true;
+        var saving = Task.Run(() => scope == NoteScope.Person
+            ? writer.CreatePersonNote("manager@example.com", "Receipt ownership", "Exact committed receipt writing")?.Id
+            : writer.CreateTeamNote("manager@example.com", "Receipt ownership", "Exact committed receipt writing")?.Id);
+        Task<bool>? opening = null;
+        try
+        {
+            await retirement.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            opening = Task.Run(() => reader.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly));
+            await Task.WhenAny(opening, reconciliation.Entered.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            var readerAcquiredReceipt = reconciliation.Entered.Task.IsCompleted;
+            if (!readerAcquiredReceipt)
+            {
+                Assert.True(await opening, reader.Status);
+                Assert.Equal(LocalSaveOutcome.Unknown, reader.LocalSave.Outcome);
+                Assert.True(reader.LocalSave.EditsPaused);
+                Assert.Contains("receipt-stage=acquire", reader.LocalSave.Error);
+            }
+            retirement.Release.Set();
+            var note = await saving.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(note);
+            Console.WriteLine($"NOTE-RECEIPT-RETIREMENT scope={scope}; retirement={retirement.OperationId}; " +
+                $"readerAcquiredReceipt={readerAcquiredReceipt}; writerPhase={writer.LocalSave.Phase}; " +
+                $"writerOutcome={writer.LocalSave.Outcome}; writerPaused={writer.LocalSave.EditsPaused}");
+            Assert.False(writer.LocalSave.EditsPaused, writer.LocalSave.Error);
+            reconciliation.Release.Set();
+            Assert.True(await opening.WaitAsync(TimeSpan.FromSeconds(5)), reader.Status);
+            Assert.True(reader.ReconcileLocalSaves(), reader.Status);
+            Assert.False(reader.LocalSave.EditsPaused, reader.LocalSave.Error);
+            var committed = reader.BeginNoteDraft(scope, "manager@example.com", note.Value);
+            Assert.NotNull(committed);
+            Assert.Equal("Receipt ownership", committed.Title);
+            Assert.Equal("Exact committed receipt writing", committed.Markdown);
+            Assert.Null(reader.BeginNoteDraft(scope, "report@example.com", note.Value));
+            if (scope == NoteScope.Person) Assert.Single(reader.GetPersonNotes("manager@example.com"));
+            else Assert.Single(reader.GetTeamNotes("manager@example.com"));
+            Assert.Empty(Directory.GetFiles(Workspace, "local-write-*.json"));
+        }
+        finally
+        {
+            retirement.Release.Set();
+            reconciliation.Release.Set();
+            await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            if (opening is not null) await opening.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_public_reopen_cannot_interrupt_retirement_of_a_reconciled_receipt()
+    {
+        using var commit = new CommitBoundary { Boundary = WorkspaceStoragePhaseKind.End };
+        using var writer = ApplicationWorkflow.CreateFileBacked(fileObserver: commit);
+        Assert.True(writer.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), writer.Status);
+        Assert.True(writer.ApplyImport(writer.PreviewImport(Initial).Id), writer.Status);
+        commit.Hold = true;
+        var saving = Task.Run(() => writer.CreateTeamNote("manager@example.com",
+            "Reconciled receipt", "Exact writing retained through receipt reconciliation"));
+        Guid noteId;
+        try
+        {
+            Assert.True(commit.Entered.Wait(TimeSpan.FromSeconds(5)));
+            var receipt = Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+            using var holder = new FileStream(receipt, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            commit.Release.Set();
+            var note = await saving.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(note);
+            noteId = note.Id;
+            Assert.True(writer.LocalSave.EditsPaused);
+            Assert.Equal(LocalSaveOutcome.Committed, writer.LocalSave.Outcome);
+            Assert.Single(Directory.GetFiles(Workspace, "local-write-*.json"));
+        }
+        finally { commit.Release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
+
+        using var retirement = new ReceiptBoundary("local-write-retire") { Hold = true };
+        using var reconciliation = new ReceiptBoundary("local-write-reconcile") { Hold = true };
+        using var first = ApplicationWorkflow.CreateFileBacked(fileObserver: retirement);
+        using var second = ApplicationWorkflow.CreateFileBacked(fileObserver: reconciliation);
+        var firstOpening = Task.Run(() => first.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly));
+        Task<bool>? secondOpening = null;
+        try
+        {
+            await retirement.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            secondOpening = Task.Run(() => second.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly));
+            await Task.WhenAny(secondOpening, reconciliation.Entered.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            if (!reconciliation.Entered.Task.IsCompleted)
+            {
+                Assert.True(await secondOpening, second.Status);
+                Assert.Equal(LocalSaveOutcome.Unknown, second.LocalSave.Outcome);
+                Assert.True(second.LocalSave.EditsPaused);
+                Assert.Contains("receipt-stage=acquire", second.LocalSave.Error);
+            }
+            retirement.Release.Set();
+            Assert.True(await firstOpening.WaitAsync(TimeSpan.FromSeconds(5)), first.Status);
+            Assert.False(first.LocalSave.EditsPaused, first.LocalSave.Error);
+            reconciliation.Release.Set();
+            Assert.True(await secondOpening.WaitAsync(TimeSpan.FromSeconds(5)), second.Status);
+            Assert.True(second.ReconcileLocalSaves(), second.Status);
+            Assert.False(second.LocalSave.EditsPaused, second.LocalSave.Error);
+            Assert.Equal("Exact writing retained through receipt reconciliation",
+                second.BeginNoteDraft(NoteScope.Team, "manager@example.com", noteId)!.Markdown);
+            Assert.Single(second.GetTeamNotes("manager@example.com"));
+            Assert.Empty(Directory.GetFiles(Workspace, "local-write-*.json"));
+        }
+        finally
+        {
+            retirement.Release.Set();
+            reconciliation.Release.Set();
+            await firstOpening.WaitAsync(TimeSpan.FromSeconds(10));
+            if (secondOpening is not null) await secondOpening.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    private sealed class ReceiptBoundary(string name) : IWorkspaceFileObserver, IDisposable
+    {
+        internal bool Hold { get; set; }
+        internal Guid? OperationId { get; private set; }
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ManualResetEventSlim Release { get; } = new();
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (!Hold || phase.Name != name || phase.Kind != WorkspaceStoragePhaseKind.Begin) return;
+            OperationId = phase.Id;
+            Entered.TrySetResult();
+            if (!Release.Wait(TimeSpan.FromSeconds(10)))
+                throw new IOException("The owned receipt phase was not released.");
+        }
+        public void Dispose() => Release.Dispose();
     }
 
     [Fact]
