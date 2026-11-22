@@ -17,6 +17,12 @@ function Invoke-RunnerProbe([string[]] $Arguments, [string] $Log) {
 }
 try {
     $notes = Get-Content "$root\tests\OrgExplorer.Desktop.Smoke\LocalSqliteWorkspace.cs" -Raw
+    $journeySignature = [regex]::Match($notes, 'RunLocalNoteAutosaveJourney\(\s*AutomationElement window')
+    $journeyStart = if ($journeySignature.Success) { $journeySignature.Index } else { -1 }
+    if ($journeyStart -lt 0) { throw 'The actual note journey could not be inspected.' }
+    $journeyEnd = $notes.IndexOf('private static int ObserveNoteLatency(', $journeyStart, [StringComparison]::Ordinal)
+    if ($journeyEnd -le $journeyStart) { throw 'The actual note journey boundaries could not be inspected.' }
+    $notes = $notes.Substring($journeyStart, $journeyEnd - $journeyStart)
     $percentile = [regex]::Match($notes, '(?m)^\s*(?<body>double P95\(List<double> values\) => .+;)').Groups['body'].Value
     $condition = [regex]::Match($notes,
         '(?m)^\s*if \((?<body>P95\(.+)\)\r?\n\s*throw new InvalidOperationException\(\$"Hosted ordinary note').Groups['body'].Value
