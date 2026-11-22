@@ -80,6 +80,7 @@ internal static partial class Program
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
+            VerifyCategoryOverlayTraceGate(type, chooseFolder);
             var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                 [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher), chooseFolder], null)!;
             var failures = new List<string>();
@@ -704,6 +705,47 @@ internal static partial class Program
         ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (CompiledWorkspaceChoices.Count != 0)
             throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
+    }
+
+    private static void VerifyCategoryOverlayTraceGate(Type type, Func<Window, string?> chooseFolder)
+    {
+        const string flag = "ORG_EXPLORER_TRACE_CATEGORY_OVERLAY";
+        var previous = Environment.GetEnvironmentVariable(flag);
+        try
+        {
+            foreach (var value in new string?[] { null, "0", "true", "1" })
+            {
+                Environment.SetEnvironmentVariable(flag, value);
+                var workflow = ApplicationWorkflow.CreateInMemory();
+                if (!workflow.OpenWorkspace("fictitious-trace-gate"))
+                    throw new InvalidOperationException("Trace gate fixture failed: " + workflow.Status);
+                var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [workflow, chooseFolder], null)!;
+                try
+                {
+                    var entry = (Button)window.FindName("OpenPeopleButton");
+                    const string ordinaryHelp = "Existing People accessibility help";
+                    System.Windows.Automation.AutomationProperties.SetHelpText(entry, ordinaryHelp);
+                    entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    var help = new ButtonAutomationPeer(entry).GetHelpText();
+                    if (value == "1")
+                    {
+                        if (!help.Contains("[DEBUG-category-row] native-trace:", StringComparison.Ordinal) ||
+                            !help.Contains("toggleEntries=1", StringComparison.Ordinal) ||
+                            !help.Contains("projection:TogglePeople", StringComparison.Ordinal) ||
+                            help.Contains("owner=", StringComparison.Ordinal))
+                            throw new InvalidOperationException("Explicit trace opt-in must capture bounded state without profile text.");
+                    }
+                    else if (help != ordinaryHelp)
+                        throw new InvalidOperationException($"Disabled trace changed ordinary HelpText for flag '{value ?? "unset"}'.");
+                    if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                        throw new InvalidOperationException("Trace gate checks must remain invisible without a native handle.");
+                }
+                finally { window.Close(); }
+            }
+        }
+        finally { Environment.SetEnvironmentVariable(flag, previous); }
+        Console.WriteLine("PASS: native overlay tracing is default-off, preserves ordinary HelpText when disabled, and explicit opt-in captures state only.");
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)

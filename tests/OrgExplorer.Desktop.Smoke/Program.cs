@@ -77,12 +77,15 @@ internal static partial class Program
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
-    internal static Process Launch(string path)
+    internal static Process Launch(string path, bool traceCategoryOverlay = false)
     {
         var settings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
         if (string.IsNullOrWhiteSpace(settings) || !Path.IsPathFullyQualified(settings))
             throw new InvalidOperationException("Desktop fixtures require an explicit isolated app-settings directory before launching.");
-        var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
+        var start = new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false };
+        start.Environment.Remove("ORG_EXPLORER_TRACE_CATEGORY_OVERLAY");
+        if (traceCategoryOverlay) start.Environment["ORG_EXPLORER_TRACE_CATEGORY_OVERLAY"] = "1";
+        var process = Process.Start(start)
             ?? throw new InvalidOperationException("WPF application did not launch.");
         Applications.Add(process);
         return process;

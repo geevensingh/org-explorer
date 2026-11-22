@@ -19,6 +19,8 @@ public partial class MainWindow
     private bool draggingPane;
     private string? pendingSearchRevealEmail;
     private int peopleBrowseRequest;
+    private readonly bool categoryOverlayTracing =
+        Environment.GetEnvironmentVariable("ORG_EXPLORER_TRACE_CATEGORY_OVERLAY") == "1";
     private readonly Queue<string> categoryOverlayTrace = [];
     private string? categoryOverlayTraceEmail;
     private int categoryOverlayToggleEntries;
@@ -201,7 +203,7 @@ public partial class MainWindow
 
     private void TraceCategoryOverlay(string stage, bool toggleEntry = false)
     {
-        if (OpenPeopleButton is null) return;
+        if (!categoryOverlayTracing || OpenPeopleButton is null) return;
         if (!string.Equals(categoryOverlayTraceEmail, selectedEmail, StringComparison.OrdinalIgnoreCase))
         {
             categoryOverlayTraceEmail = selectedEmail;
@@ -209,7 +211,7 @@ public partial class MainWindow
             categoryOverlayToggleEntries = 0;
         }
         if (toggleEntry) categoryOverlayToggleEntries++;
-        categoryOverlayTrace.Enqueue($"{DateTimeOffset.UtcNow:O} {stage}; owner={selectedEmail ?? "none"}; " +
+        categoryOverlayTrace.Enqueue($"{DateTimeOffset.UtcNow:O} {stage}; " +
             $"toggleEntries={categoryOverlayToggleEntries}; open={workflow.PeopleNavigation.OverlayOpen}; " +
             $"browsing={workflow.PeopleNavigation.IsBrowsing}; wide={wideWorkspace}; windowVisible={IsVisible}; active={IsActive}; " +
             $"entryEnabled={OpenPeopleButton.IsEnabled}; entryVisible={OpenPeopleButton.IsVisible}; " +
