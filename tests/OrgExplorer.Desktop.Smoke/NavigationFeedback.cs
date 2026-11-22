@@ -26,7 +26,7 @@ internal static partial class Program
         Process? process = null;
         try
         {
-            process = Launch(executable, traceCategoryOverlay: responsive);
+            process = Launch(executable);
             var window = Window(process);
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, workspace);

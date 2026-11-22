@@ -430,6 +430,9 @@ that published result list instead of rebuilding excerpts. Bounded allocation
 cases use a warmed long-note fixture, and publication cases reject older query,
 refresh and Workspace requests. The compiled replay also sends Enter immediately
 after query input, before pumping publication, to retain single-Enter acceptance.
+Archived-to-current search also replays a delayed tree-selection echo: People
+stays open for the already accepted Person, while explicit same-Person search
+activation and different-Person tree navigation still dismiss the overlay.
 The #111 own-identity slice replaces first-match order at that same `SearchPeople`
 seam: complete Preferred/Directory names, Alias and email precede literal name
 words/phrases, word prefixes and incidental own-identity substrings. Cases cover

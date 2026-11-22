@@ -230,6 +230,10 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
+        // Realizing the tree can echo a Person already accepted by search.
+        if (string.Equals(selectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(workflow.PeopleNavigation.SelectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase))
+            return;
         var overlay = workflow.PeopleNavigation.OverlayOpen;
         RememberPeopleBrowsing();
         if (!OpenPerson(node.Person)) RestorePersonSelection();

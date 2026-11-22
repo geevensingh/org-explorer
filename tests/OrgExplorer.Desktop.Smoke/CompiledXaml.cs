@@ -80,7 +80,6 @@ internal static partial class Program
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
-            VerifyCategoryOverlayTraceGate(type, chooseFolder);
             var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                 [ApplicationWorkflow.CreateFileBacked(filePublisher: heldPublisher), chooseFolder], null)!;
             var failures = new List<string>();
@@ -705,47 +704,6 @@ internal static partial class Program
         ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (CompiledWorkspaceChoices.Count != 0)
             throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
-    }
-
-    private static void VerifyCategoryOverlayTraceGate(Type type, Func<Window, string?> chooseFolder)
-    {
-        const string flag = "ORG_EXPLORER_TRACE_CATEGORY_OVERLAY";
-        var previous = Environment.GetEnvironmentVariable(flag);
-        try
-        {
-            foreach (var value in new string?[] { null, "0", "true", "1" })
-            {
-                Environment.SetEnvironmentVariable(flag, value);
-                var workflow = ApplicationWorkflow.CreateInMemory();
-                if (!workflow.OpenWorkspace("fictitious-trace-gate"))
-                    throw new InvalidOperationException("Trace gate fixture failed: " + workflow.Status);
-                var window = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    [workflow, chooseFolder], null)!;
-                try
-                {
-                    var entry = (Button)window.FindName("OpenPeopleButton");
-                    const string ordinaryHelp = "Existing People accessibility help";
-                    System.Windows.Automation.AutomationProperties.SetHelpText(entry, ordinaryHelp);
-                    entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    var help = new ButtonAutomationPeer(entry).GetHelpText();
-                    if (value == "1")
-                    {
-                        if (!help.Contains("[DEBUG-category-row] native-trace:", StringComparison.Ordinal) ||
-                            !help.Contains("toggleEntries=1", StringComparison.Ordinal) ||
-                            !help.Contains("projection:TogglePeople", StringComparison.Ordinal) ||
-                            help.Contains("owner=", StringComparison.Ordinal))
-                            throw new InvalidOperationException("Explicit trace opt-in must capture bounded state without profile text.");
-                    }
-                    else if (help != ordinaryHelp)
-                        throw new InvalidOperationException($"Disabled trace changed ordinary HelpText for flag '{value ?? "unset"}'.");
-                    if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
-                        throw new InvalidOperationException("Trace gate checks must remain invisible without a native handle.");
-                }
-                finally { window.Close(); }
-            }
-        }
-        finally { Environment.SetEnvironmentVariable(flag, previous); }
-        Console.WriteLine("PASS: native overlay tracing is default-off, preserves ordinary HelpText when disabled, and explicit opt-in captures state only.");
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)
@@ -2603,7 +2561,8 @@ internal static partial class Program
                 {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000001",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
                 {"email":"v-morgan@example.com","displayName":"Morgan","managerEmail":null},
-                {"email":"avery@example.com","displayName":"Avery","managerEmail":"v-morgan@example.com"}]}
+                {"email":"avery@example.com","displayName":"Avery","managerEmail":"v-morgan@example.com"},
+                {"email":"archived@example.com","displayName":"Archived","managerEmail":null,"archived":true}]}
                 """).Id))
                 throw new InvalidOperationException("Reports visibility fixture failed: " + seed.Status);
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -2639,6 +2598,38 @@ internal static partial class Program
             throw new InvalidOperationException("Reports visibility must be checked in the real Person workspace, not behind Settings.");
         var tree = Control<TreeView>("PeopleList");
         var manager = tree.Items.Cast<ReportingNode>().Single();
+        void Activate(string email)
+        {
+            var query = Control<TextBox>("SearchQuery");
+            var results = Control<ListBox>("SearchResults");
+            query.Text = email;
+            PumpUntil(() => results.SelectedItem is PersonSearchResult result && result.Person.Email == email);
+            query.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            PumpUntil(() => query.Text == "" && Control<TextBlock>("Email").Text == email);
+            Layout(700);
+        }
+        Activate("archived@example.com");
+        Activate("v-morgan@example.com");
+        Invoke("OpenPeopleButton");
+        Layout(700);
+        if (Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Accepted current-after-archived search must allow opening People.");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, manager, TreeView.SelectedItemChangedEvent));
+        Layout(700);
+        if (Control<TextBlock>("Email").Text != "v-morgan@example.com" ||
+            Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+            !((WorkspaceViewModel)tree.DataContext).PeopleNavigation.OverlayOpen)
+            throw new InvalidOperationException("A delayed tree selection echo for the already accepted Person must not close the compact People overlay.");
+        Activate("v-morgan@example.com");
+        if (Control<GroupBox>("PeoplePanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Explicit search activation of the same Person must still dismiss the compact overlay.");
+        Invoke("OpenPeopleButton");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(manager, manager.Reports.Single(), TreeView.SelectedItemChangedEvent));
+        if (Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<GroupBox>("PeoplePanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Intentional tree navigation to a different Person must still dismiss the overlay and open that Person.");
         void Select(ReportingNode person)
         {
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
@@ -2681,7 +2672,7 @@ internal static partial class Program
             new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Employee")
             throw new InvalidOperationException("Visible report selection must still navigate to its exact Person and category.");
         Expect(false, "empty search destination");
-        Console.WriteLine("PASS: nonempty reports appear only in compact/search, empty lists and counts stay hidden, and the People overlay does not reflow the profile.");
+        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; report visibility and profile geometry remain intact.");
     }
 
     private static void VerifyFactRowSpacing(Window window)
