@@ -290,6 +290,25 @@ actual Configure/Sync, a genuinely
 newer Import and normal Closed with an independent complete-snapshot receiver.
 It remains in the full compiled selection. The complete later rich background
 export and profile phases and all original hosted exit cases remain required.
+The owner-approved rich export fixture hold is bounded by the remaining original
+660-second whole-suite deadline, not a separate 180-second publisher timeout.
+The runner passes that exact deadline to owned commands through process-only
+`SCALE_DEADLINE_AT` and immediately restores its caller's environment. The rich
+host rejects a missing/invalid deadline and an expired hold; no new full-duration
+clock starts at publication. Ordinary automatic holds remain 30 seconds, and
+all workloads, samples, observation limits and the whole-suite ceiling remain
+unchanged. Every held assertion still requires the same unreleased publisher.
+The invisible rich-host restoration contract exercises that actual deadline
+consumer: released within-budget publication succeeds, an expired deadline
+still rejects release, and missing/malformed deadline input fails explicitly.
+Its ordinary automatic publisher remains independent of the rich deadline.
+On build-tree cleanup refusal, `cleanup-failure.json` retains the exact owned
+failed path, original error and a bounded read-only Windows owner query through
+the existing file-lease helper. The helper is compiled alone, not loaded from
+the test binaries being removed. Missing owners and query failures stay unknown;
+there is no deletion retry, owner shutdown or passing cleanup fallback.
+Observation faults cannot replace the original lane failure. A real held-file
+runner contract verifies this evidence and unchanged failing verdict.
 Only the normal-close preparation wrapper requires the pre-operation head to
 remain unchanged. The shared refresh/publication helper permits legitimate
 incoming adoption and independently checks the post-operation current and

@@ -12,6 +12,7 @@ internal static partial class Program
 {
     private static void VerifyRichHostRestoration(Type windowType, string root)
     {
+        VerifyRichSnapshotDeadline();
         var path = Path.Combine(root, "workspace");
         var transport = Path.Combine(root, "transport");
         var settings = Path.Combine(root, "remembered-settings");
@@ -127,6 +128,34 @@ internal static partial class Program
             Console.WriteLine("PASS: actual controlled-host construction and Loaded restore independently remembered Person/note, then the next saved Person; current grouped search and real normal Closed remain intact without a native window.");
         }
         finally { Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings); }
+    }
+
+    private static void VerifyRichSnapshotDeadline()
+    {
+        var previous = Environment.GetEnvironmentVariable("SCALE_DEADLINE_AT");
+        using var release = new EventWaitHandle(true, EventResetMode.ManualReset);
+        try
+        {
+            Environment.SetEnvironmentVariable("SCALE_DEADLINE_AT", DateTimeOffset.UtcNow.AddMinutes(1).ToString("O"));
+            if (!WaitForAutomaticSnapshotRelease(release, rich: true))
+                throw new InvalidOperationException("A released rich publisher was rejected within its original suite budget.");
+            Environment.SetEnvironmentVariable("SCALE_DEADLINE_AT", DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
+            if (WaitForAutomaticSnapshotRelease(release, rich: true))
+                throw new InvalidOperationException("A released rich publisher passed after its original suite deadline.");
+            foreach (var invalid in new string?[] { null, "invalid" })
+            {
+                Environment.SetEnvironmentVariable("SCALE_DEADLINE_AT", invalid);
+                try
+                {
+                    WaitForAutomaticSnapshotRelease(release, rich: true);
+                    throw new InvalidOperationException("The rich publisher accepted an unavailable suite deadline.");
+                }
+                catch (FormatException) { }
+            }
+            if (!WaitForAutomaticSnapshotRelease(release, rich: false))
+                throw new InvalidOperationException("The ordinary publisher unexpectedly required a rich suite deadline.");
+        }
+        finally { Environment.SetEnvironmentVariable("SCALE_DEADLINE_AT", previous); }
     }
 
     private sealed class RestorationObserver(SnapshotAdoptionCommitControl adoption) : IWorkspaceFileObserver

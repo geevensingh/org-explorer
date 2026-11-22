@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -62,7 +63,7 @@ internal static partial class Program
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
-                () => release.WaitOne(TimeSpan.FromSeconds(args[0] == "--rich-scale-snapshot-fixture" ? 180 : 30)),
+                () => WaitForAutomaticSnapshotRelease(release, args[0] == "--rich-scale-snapshot-fixture"),
                 () => ended.Set());
             var window = CreateAutomaticSnapshotWindow(assembly.GetType("OrgExplorer.Desktop.MainWindow", true)!,
                 ApplicationWorkflow.CreateFileBacked(filePublisher: publisher,
@@ -76,6 +77,16 @@ internal static partial class Program
             registration.Unregister(null);
             AssemblyLoadContext.Default.Resolving -= Resolve;
         }
+    }
+
+    private static bool WaitForAutomaticSnapshotRelease(EventWaitHandle release, bool rich)
+    {
+        if (!rich) return release.WaitOne(TimeSpan.FromSeconds(30));
+        if (!DateTimeOffset.TryParseExact(Environment.GetEnvironmentVariable("SCALE_DEADLINE_AT"),
+            "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out var deadline))
+            throw new FormatException("The rich snapshot host requires its original whole-suite deadline.");
+        var remaining = deadline - DateTimeOffset.UtcNow;
+        return remaining > TimeSpan.Zero && release.WaitOne(remaining);
     }
 
     private static Window CreateAutomaticSnapshotWindow(Type windowType, IApplicationWorkflow workflow,
