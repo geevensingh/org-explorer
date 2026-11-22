@@ -24,10 +24,18 @@ internal static partial class Program
         }
     }
 
-    private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
+    private static string PersonCaptureState(string prefix, string email) =>
+        prefix + "-" + email.Split('@')[0].ToLowerInvariant();
+
+    private static void ValidateVisualEvidenceState(string state)
     {
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
+    }
+
+    private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
+    {
+        ValidateVisualEvidenceState(state);
         var desktop = new Rect(GetSystemMetrics(76), GetSystemMetrics(77),
             GetSystemMetrics(78), GetSystemMetrics(79));
         var windowBounds = window.Current.BoundingRectangle;

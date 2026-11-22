@@ -675,7 +675,7 @@ internal static partial class Program
                         action.Current.BoundingRectangle.Bottom > photo.Bottom + scale)
                         throw new InvalidOperationException("Narrow archived reading displaced an identity action: " + id);
                 }
-                CaptureVisualEvidence(window, "profile-reading-narrow-" + identityState.Email.Split('@')[0]);
+                CaptureVisualEvidence(window, PersonCaptureState("profile-reading-narrow", identityState.Email));
                 DragDivider(window, "PeopleDivider", archivedHost.Left + (archivedHost.Width - 8 * scale) * archivedPeoplePercent / 100);
                 ResizeWindow(window, 700, 500);
             }
@@ -692,7 +692,7 @@ internal static partial class Program
                         StringComparison.Ordinal) ||
                     IsVisible(window, "PersonArchivalStatus") != identityState.Archived)
                     throw new InvalidOperationException("Compact saved-name or archived identity is not bounded and accessible.");
-                AtSize("profile-inline-minimum-700-500-" + identityState.Email.Split('@')[0]);
+                AtSize(PersonCaptureState("profile-inline-minimum-700-500", identityState.Email));
             }
             finally { CancelProfileEditing(window); }
         }

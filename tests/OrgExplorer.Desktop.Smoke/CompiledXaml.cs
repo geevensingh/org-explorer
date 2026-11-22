@@ -59,6 +59,7 @@ internal static partial class Program
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false)
     {
         AssertDisplayInterop();
+        VerifyProfileCaptureStateNames();
         if (verifyProfileRefresh || verifyUpdateYield) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
@@ -704,6 +705,24 @@ internal static partial class Program
         ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (CompiledWorkspaceChoices.Count != 0)
             throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
+    }
+
+    private static void VerifyProfileCaptureStateNames()
+    {
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var state in CompactIdentityStateCases)
+        {
+            var stem = PersonCaptureState("profile-inline-minimum-700-500", state.Email);
+            var names = new List<string> { stem + "-top", stem + "-manager" };
+            if (state.Archived) names.Add(PersonCaptureState("profile-reading-narrow", state.Email));
+            foreach (var name in names)
+            {
+                ValidateVisualEvidenceState(name);
+                if (!emitted.Add(name))
+                    throw new InvalidOperationException("Profile evidence states must remain unique: " + name);
+            }
+        }
+        Console.WriteLine("PASS: actual profile-case capture names satisfy the strict path-safe contract and remain unique.");
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher)
