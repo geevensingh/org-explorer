@@ -114,6 +114,17 @@ internal static partial class Program
                 throw new InvalidOperationException("Normal-close preparation changed or failed to publish the exact independently reopened local revision.");
     }
 
+    private static void PublishSmokeWorkspaceForClose(string workspace, string folder, Action publish)
+    {
+        using (var current = OpenSmokeWorkspace(workspace))
+            if (current.Synchronization.Folder == folder &&
+                current.Synchronization.LocalRevision is { } revision &&
+                current.Synchronization.PublishedRevision == revision &&
+                !current.Synchronization.HasUnpublishedChanges && current.CanSafelyClose)
+                return;
+        PublishSmokeWorkspace(workspace, publish);
+    }
+
     private static void ReconcileSmokeLocalSaves(AutomationElement window)
     {
         Click(window, "NoticeRetry");

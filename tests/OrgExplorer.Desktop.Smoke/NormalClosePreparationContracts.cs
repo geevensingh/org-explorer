@@ -53,6 +53,15 @@ internal static partial class Program
         }
         Publish();
         var earlierPublished = model.Synchronization.PublishedRevision;
+        var closePublicationRequests = 0;
+        void PublishForClose() => PublishSmokeWorkspaceForClose(path, transport, () =>
+        {
+            closePublicationRequests++;
+            Publish();
+        });
+        PrepareSmokeNormalClose(path, PublishForClose);
+        if (closePublicationRequests != 0)
+            throw new InvalidOperationException("Normal-close preparation repeated synchronization for an independently confirmed current publication.");
         var newer = model.PreviewImport("""
             {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000114",
              "observedAt":"2026-11-02T17:00:00Z","people":[
@@ -61,7 +70,10 @@ internal static partial class Program
         if (!newer.CanApply || !model.ApplyImport(newer.Id) ||
             model.Synchronization.LocalRevision == earlierPublished || !model.Synchronization.HasUnpublishedChanges)
             throw new InvalidOperationException("Normal-close setup did not retain a genuinely newer committed Import.");
-        Publish();
+        PrepareSmokeNormalClose(path, PublishForClose);
+        if (closePublicationRequests != 1)
+            throw new InvalidOperationException("Normal-close preparation did not synchronize its actually unpublished newer revision exactly once.");
+        Console.WriteLine("PASS: independently confirmed current publication skips redundant close-preparation synchronization; a newer unpublished revision still synchronizes exactly once under unchanged freshness checks.");
         Invoke("OpenSettingsButton");
         var revision = model.Synchronization.LocalRevision;
         if (!model.IsImportOpen || Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Visible ||

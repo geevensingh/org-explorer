@@ -285,6 +285,14 @@ the unchanged latency samples and before its original 10-second close check;
 the publication stage still counts toward the whole suite budget. A pending
 publication is not a missing-folder error, and neither permits substituting
 Exit anyway or bypassing the normal close guard. The compiled
+Rich normal-close preparation avoids a redundant Sync now only when a fresh
+independent Open confirms the exact current revision is published in the intended
+folder, no unpublished changes remain, and safe close is available. Otherwise
+the original synchronization and 20-second observation remain. The existing
+before/after identity, revision, publication and configured-folder checks are
+unchanged; general incoming synchronization is never skipped by this helper.
+The compiled close-preparation contract covers both already-published nonmutation
+and a genuinely newer unpublished revision that still synchronizes exactly once. The compiled
 `--verify-normal-close-publication-preparation` regression drives
 actual Configure/Sync, a genuinely
 newer Import and normal Closed with an independent complete-snapshot receiver.
