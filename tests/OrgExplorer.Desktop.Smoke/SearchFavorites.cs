@@ -517,6 +517,7 @@ internal static partial class Program
             $"peopleVisible={Read(() => IsVisible(window, "People"))}; " +
             $"archivedPeopleVisible={Read(() => IsVisible(window, "ArchivedPeople"))}; " +
             $"peopleEntryKeyboardFocus={Read(() => Find(window, "OpenPeople").Current.HasKeyboardFocus)}; " +
+            $"nativeTrace='{Read(() => Find(window, "OpenPeople").Current.HelpText)}'; " +
             $"overlayVisible={Read(() =>
             {
                 var dismiss = window.FindFirst(TreeScope.Descendants, new AndCondition(

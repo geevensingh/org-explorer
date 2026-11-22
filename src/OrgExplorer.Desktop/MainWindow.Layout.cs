@@ -19,6 +19,9 @@ public partial class MainWindow
     private bool draggingPane;
     private string? pendingSearchRevealEmail;
     private int peopleBrowseRequest;
+    private readonly Queue<string> categoryOverlayTrace = [];
+    private string? categoryOverlayTraceEmail;
+    private int categoryOverlayToggleEntries;
 
     private void ResizeWorkspace(object sender, SizeChangedEventArgs e) => ArrangeWorkspace();
     private void ResizePersonBody(object sender, SizeChangedEventArgs e) => ArrangePersonBody();
@@ -124,6 +127,7 @@ public partial class MainWindow
 
     private void TogglePeople(object sender, RoutedEventArgs e)
     {
+        TraceCategoryOverlay("toggle-entry", toggleEntry: true);
         if (workflow.PeopleNavigation.OverlayOpen && workflow.PeopleNavigation.IsBrowsing) RememberPeopleBrowsing();
         workflow.ShowPeopleOverlay(!workflow.PeopleNavigation.OverlayOpen);
         UpdatePeopleNavigation();
@@ -143,6 +147,7 @@ public partial class MainWindow
             }, DispatcherPriority.Input);
         }
         else FocusPeopleEntry();
+        TraceCategoryOverlay("toggle-return");
     }
 
     private void ClosePeople(object sender, RoutedEventArgs e)
@@ -176,7 +181,7 @@ public partial class MainWindow
         ClosePeople(sender, e);
     }
 
-    private void UpdatePeopleNavigation()
+    private void UpdatePeopleNavigation([System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (PeoplePanel is null || ReportsSection is null || ReportsList is null) return;
         var overlay = !wideWorkspace && workflow.PeopleNavigation.OverlayOpen;
@@ -191,6 +196,29 @@ public partial class MainWindow
         BrowsingPanel.Visibility = workflow.PeopleNavigation.IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
         ReportsSection.Visibility = ReportsList.HasItems && (!wideWorkspace || !workflow.PeopleNavigation.IsBrowsing)
             ? Visibility.Visible : Visibility.Collapsed;
+        TraceCategoryOverlay("projection:" + caller);
+    }
+
+    private void TraceCategoryOverlay(string stage, bool toggleEntry = false)
+    {
+        if (OpenPeopleButton is null) return;
+        if (!string.Equals(categoryOverlayTraceEmail, selectedEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            categoryOverlayTraceEmail = selectedEmail;
+            categoryOverlayTrace.Clear();
+            categoryOverlayToggleEntries = 0;
+        }
+        if (toggleEntry) categoryOverlayToggleEntries++;
+        categoryOverlayTrace.Enqueue($"{DateTimeOffset.UtcNow:O} {stage}; owner={selectedEmail ?? "none"}; " +
+            $"toggleEntries={categoryOverlayToggleEntries}; open={workflow.PeopleNavigation.OverlayOpen}; " +
+            $"browsing={workflow.PeopleNavigation.IsBrowsing}; wide={wideWorkspace}; windowVisible={IsVisible}; active={IsActive}; " +
+            $"entryEnabled={OpenPeopleButton.IsEnabled}; entryVisible={OpenPeopleButton.IsVisible}; " +
+            $"panel={PeoplePanel.Visibility}/{PeoplePanel.IsVisible}/{PeoplePanel.RenderSize}; " +
+            $"backdrop={PeopleDismissSurface.Visibility}/{PeopleDismissSurface.IsVisible}; " +
+            $"workPending={workPending}; navigate={workflow.CanNavigatePeople}; draftDirty={workflow.ProfileEdit?.IsDirty == true}");
+        while (categoryOverlayTrace.Count > 16) categoryOverlayTrace.Dequeue();
+        System.Windows.Automation.AutomationProperties.SetHelpText(OpenPeopleButton,
+            "[DEBUG-category-row] native-trace: " + string.Join(" | ", categoryOverlayTrace));
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
