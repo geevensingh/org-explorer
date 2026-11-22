@@ -124,7 +124,11 @@ function Invoke-ScaleSuite(
                 [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $state.started.AddSeconds($ceilingSeconds).ToString('O'))
                 $process = Start-Process $FilePath -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
             } finally {
-                [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $previousDeadline)
+                if ($null -eq $previousDeadline) {
+                    [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', [NullString]::Value)
+                } else {
+                    [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $previousDeadline)
+                }
             }
             $heartbeat = [Diagnostics.Stopwatch]::StartNew()
             while (!$process.WaitForExit([int][Math]::Max(1, [Math]::Min(1000, $remaining * 1000)))) {

@@ -65,6 +65,8 @@ try {
     }
     Write-Host 'PASS: candidate mismatch fails before execution with identifiable revision and fresh failure results.'
     $lifecycle = Join-Path $results 'lifecycle'
+    $callerDeadline = [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT')
+    $callerDeadlinePresent = [Environment]::GetEnvironmentVariables().Contains('SCALE_DEADLINE_AT')
     Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $lifecycle -Selection @{} -Verify {
         param($run, $build)
         $running = Get-Content (Join-Path $run 'result.json') -Raw | ConvertFrom-Json
@@ -76,6 +78,10 @@ try {
         Invoke-ScaleProcess success pwsh @('-NoProfile', '-Command', 'Write-Output owned-success; exit 0')
     }
     $status = Get-Content (Join-Path $lifecycle 'result.json') -Raw | ConvertFrom-Json
+    if ([Environment]::GetEnvironmentVariables().Contains('SCALE_DEADLINE_AT') -ne $callerDeadlinePresent -or
+        [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT') -ne $callerDeadline) {
+        throw 'Owned-command launch did not restore the caller deadline value and exact presence.'
+    }
     if ($status.outcome -ne 'success' -or $status.steps.Count -ne 1 -or $status.steps[0].exitCode -ne 0 -or
         (Test-Path (Join-Path $lifecycle "$($status.runDirectory)\build"))) {
         throw 'Successful shared execution lost command evidence or fixture/build cleanup.'
@@ -243,7 +249,8 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
         if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 0 -or $status.executionSeconds -le 660) {
             throw 'Performance setup did not consume the shared execution budget.'
         }
-        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-657).ToString('O')
+        # Leave setup room to admit the held child; its original 660-second ceiling still expires.
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-650).ToString('O')
         $held = Join-Path $results 'held-command'
         Assert-Rejected {
             Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $held -Selection @{} -Verify {
