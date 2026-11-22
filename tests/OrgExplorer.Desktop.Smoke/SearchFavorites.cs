@@ -388,18 +388,39 @@ internal static partial class Program
             Await(() => IsVisible(window, "PeopleNavigation") && IsVisible(window, archived ? "ArchivedPeople" : "People"));
         }
         var list = Find(window, archived ? "ArchivedPeople" : "People");
-        Await(() =>
+        AutomationElement? observedRow = null;
+        System.Windows.Rect? predicateViewport = null;
+        System.Windows.Rect? predicateBounds = null;
+        var predicateObserved = false;
+        var rowLookupCompleted = false;
+        bool RowReady()
         {
+            predicateObserved = true;
+            rowLookupCompleted = false;
+            observedRow = null;
+            predicateViewport = predicateBounds = null;
             var row = list.FindFirst(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, email));
+            rowLookupCompleted = true;
+            observedRow = row;
             if (row is null || row.Current.IsOffscreen) return false;
             var viewport = list.Current.BoundingRectangle;
             var bounds = row.Current.BoundingRectangle;
+            predicateViewport = viewport;
+            predicateBounds = bounds;
             return bounds.Left >= viewport.Left && bounds.Left < viewport.Right &&
                 bounds.Top >= viewport.Top && bounds.Bottom <= viewport.Bottom && viewport.Contains(row.GetClickablePoint()) &&
                 ((SelectionItemPattern)row.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected &&
                 (compact || row.Current.HasKeyboardFocus);
-        });
+        }
+        if (email is "header-archived-name@example.com" or "V-header@example.com")
+        {
+            ControlReadiness.AwaitObservedReadiness(RowReady,
+                () => ObserveCategoryRow(window, list, observedRow, email, archived, compact,
+                    predicateObserved, rowLookupCompleted, predicateViewport, predicateBounds),
+                Await, observation => Console.WriteLine("[DEBUG-category-row] " + observation));
+        }
+        else Await(RowReady);
         if (archived)
         {
             if (((TogglePattern)Find(window, "ShowArchivedPeople").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On ||
@@ -422,6 +443,59 @@ internal static partial class Program
             Click(window, "ClosePeople");
             Await(() => Find(window, "OpenPeople").Current.HasKeyboardFocus);
         }
+    }
+
+    private static string ObserveCategoryRow(AutomationElement window, AutomationElement list, AutomationElement? row,
+        string email, bool archived, bool compact, bool predicateObserved, bool rowLookupCompleted,
+        System.Windows.Rect? predicateViewport, System.Windows.Rect? predicateBounds)
+    {
+        static string Read(Func<object?> read)
+        {
+            try { return read()?.ToString() ?? "unavailable"; }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or COMException)
+            {
+                return $"unavailable ({error.GetType().Name}: {error.Message})";
+            }
+        }
+        var exists = predicateObserved
+            ? rowLookupCompleted ? (row is not null).ToString() : "row lookup did not complete"
+            : Read(() =>
+            {
+                row = list.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, email));
+                return row is not null;
+            });
+        System.Windows.Point? point = null;
+        var clickable = row is null ? "row missing" : Read(() =>
+        {
+            var available = row.TryGetClickablePoint(out var observedPoint);
+            if (available) point = observedPoint;
+            return available;
+        });
+        return $"capturedAt={DateTimeOffset.UtcNow:O}; units=native-pixels; expectedEmail='{email}'; archived={archived}; compact={compact}; " +
+            $"predicateObserved={predicateObserved}; predicateRowLookupCompleted={rowLookupCompleted}; rowExists={exists}; " +
+            $"rowEmail='{(row is null ? "row missing or unavailable" : Read(() => row.Current.AutomationId))}'; " +
+            $"rowBounds='{(row is null ? "row missing" : Read(() => row.Current.BoundingRectangle))}'; " +
+            $"viewport='{Read(() => list.Current.BoundingRectangle)}'; " +
+            $"predicateBounds='{predicateBounds?.ToString() ?? "not evaluated"}'; " +
+            $"predicateViewport='{predicateViewport?.ToString() ?? "not evaluated"}'; " +
+            $"isOffscreen={(row is null ? "row missing" : Read(() => row.Current.IsOffscreen))}; " +
+            $"selected={(row is null ? "row missing" : Read(() => row.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var pattern)
+                ? ((SelectionItemPattern)pattern).Current.IsSelected : "selection pattern unavailable"))}; " +
+            $"clickablePointAvailable={clickable}; clickablePoint='{point?.ToString() ?? "unavailable"}'; " +
+            $"clickablePointContained={(point is { } location ? Read(() => list.Current.BoundingRectangle.Contains(location)) : "unavailable")}; " +
+            $"rowKeyboardFocus={(row is null ? "row missing" : Read(() => row.Current.HasKeyboardFocus))}; " +
+            $"peopleNavigationVisible={Read(() => IsVisible(window, "PeopleNavigation"))}; " +
+            $"peopleVisible={Read(() => IsVisible(window, "People"))}; " +
+            $"archivedPeopleVisible={Read(() => IsVisible(window, "ArchivedPeople"))}; " +
+            $"overlayVisible={Read(() =>
+            {
+                var dismiss = window.FindFirst(TreeScope.Descendants, new AndCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                    new PropertyCondition(AutomationElement.NameProperty, "Close People overlay")));
+                return dismiss is not null && !dismiss.Current.IsOffscreen;
+            })}; " +
+            $"owner='{Read(() => Find(window, "Email").Current.Name)}'; query='{Read(() => Value(window, "SearchQuery"))}'.";
     }
 
     private static void AssertQueryKeyboardNavigation(AutomationElement window, bool responsive)

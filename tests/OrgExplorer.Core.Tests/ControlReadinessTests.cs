@@ -7,6 +7,62 @@ public sealed class ControlReadinessTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Diagnostic_timeout_retains_the_last_rejected_observation_and_original_failure()
+    {
+        var state = "before";
+        var reports = new List<string>();
+        var captures = 0;
+        var original = new TimeoutException("Original 20-second row failure");
+        var observed = Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitObservedReadiness(
+            () => false,
+            () => { captures++; return state; },
+            predicate =>
+            {
+                state = "first rejected row";
+                Assert.False(predicate());
+                state = "last rejected row";
+                Assert.False(predicate());
+                state = "later state after the failed predicate";
+                throw original;
+            }, reports.Add));
+
+        Assert.Same(original, observed);
+        Assert.Equal(["before: before", "last-rejected: last rejected row"], reports);
+        Assert.Equal(3, captures);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Diagnostic_success_reports_only_the_initial_and_success_observations_without_extra_retries()
+    {
+        var state = "initial row";
+        var reports = new List<string>();
+        var polls = 0;
+        ControlReadiness.AwaitObservedReadiness(
+            () => { state = ++polls == 1 ? "rejected row" : "accepted row"; return polls == 2; },
+            () => state, AwaitReady, reports.Add);
+
+        Assert.Equal(2, polls);
+        Assert.Equal(["before: initial row", "success: accepted row"], reports);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Diagnostic_observation_does_not_turn_a_provider_failure_into_another_retry_or_success()
+    {
+        var polls = 0;
+        var reports = new List<string>();
+        var original = new InvalidOperationException("Original clickable-point provider failure");
+        var observed = Assert.Throws<InvalidOperationException>(() => ControlReadiness.AwaitObservedReadiness(
+            () => { polls++; throw original; }, () => "provider state", AwaitReady, reports.Add));
+
+        Assert.Same(original, observed);
+        Assert.Equal(1, polls);
+        Assert.Equal(["before: provider state"], reports);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
     {
         var observations = 0;
