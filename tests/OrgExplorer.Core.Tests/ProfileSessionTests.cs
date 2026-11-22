@@ -5,6 +5,36 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class ProfileSessionTests
 {
+    [Theory]
+    [InlineData("v-jane@example.com", "vendor", "Vendor")]
+    [InlineData("V-jane@example.com", "vendor", "Vendor")]
+    [InlineData("jane@example.com", "employee", "Employee")]
+    [InlineData("jane.v-smith@example.com", "employee", "Employee")]
+    [InlineData("t-jane@example.com", "employee", "Employee")]
+    [InlineData("a-jane@example.com", "employee", "Employee")]
+    public void Profile_category_comes_from_email_identity_not_names_titles_or_the_managers_category(
+        string email, string categoryId, string label)
+    {
+        var workflow = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(workflow);
+        Assert.True(app.OpenWorkspace("fictitious"));
+        ApplyContextImport(app, $$"""
+            {"email":"v-manager@example.com","displayName":"Employee manager","managerEmail":null},
+            {"email":"{{email}}","displayName":"v-Directory","preferredName":"Vendor",
+             "alias":"v-alias","jobTitle":"Vendor manager","managerEmail":"v-manager@example.com"}
+            """);
+
+        var profile = app.GetRelationships(email)!;
+
+        Assert.Equal(email, profile.Person.Email);
+        Assert.Equal(categoryId, profile.Category.Id);
+        Assert.Equal(label, profile.Category.DisplayName);
+        Assert.Equal(profile.Category, workflow.GetRelationships(email)!.Category);
+        Assert.Empty(profile.ImportedReports);
+        Assert.Equal("vendor", app.GetRelationships(profile.Manager!.Email)!.Category.Id);
+        Assert.Null(app.GetRelationships("missing@example.com"));
+    }
+
     [Fact]
     public void Current_Team_names_follow_the_reporting_chain_with_the_selected_managers_own_label_first()
     {

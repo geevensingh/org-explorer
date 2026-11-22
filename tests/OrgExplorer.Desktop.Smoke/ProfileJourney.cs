@@ -23,7 +23,8 @@ internal static partial class Program
              {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
               "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}]}
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -131,6 +132,12 @@ internal static partial class Program
             Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
+            SelectTreePerson(window, "V-reference@example.com");
+            AssertPersonCategory(window, "Vendor");
+            NavigateToManager(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
+            SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
             AssertTeamNameReading(window, null);
@@ -217,6 +224,7 @@ internal static partial class Program
             PressCopyKey(0x0D);
             Await(() => Status(window) == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertPersonCategory(window, "Employee");
             AssertPreferredNameReading(window, "Ave", "Edit");
             foreach (var dismissal in new[] { "cancel", "escape", "outside" })
             {
@@ -314,6 +322,25 @@ internal static partial class Program
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
             !Find(window, "DirectoryNameEditor").Current.IsOffscreen &&
             Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+    }
+
+    private static void AssertPersonCategory(AutomationElement window, string expected)
+    {
+        var category = ControlReadiness.AwaitControl(() => Find(window, "PersonCategoryLabel"),
+            control => !control.Current.IsOffscreen && control.Current.Name == $"Person category: {expected}", Await);
+        var current = category.Current;
+        var badge = current.BoundingRectangle;
+        var heading = Find(window, "ProfileHeading").Current.BoundingRectangle;
+        var photo = Find(window, "Photo").Current.BoundingRectangle;
+        var scale = DpiScale(window);
+        if (current.ControlType != ControlType.Text || !current.IsKeyboardFocusable ||
+            !current.HelpText.Contains("classification", StringComparison.Ordinal) ||
+            !current.HelpText.Contains("not verified", StringComparison.Ordinal) ||
+            badge.IsEmpty || badge.Width <= 0 || badge.Left < heading.Right - scale ||
+            badge.Top < heading.Top - scale || badge.Bottom > heading.Bottom + scale ||
+            badge.Right > Find(window, "ProfileScroll").Current.BoundingRectangle.Right + scale ||
+            badge.Bottom > photo.Bottom + scale)
+            throw new InvalidOperationException($"The read-only {expected} badge must be accessible and readable beside the name within anchored identity: badge={badge}, heading={heading}, photo={photo}.");
     }
 
     private static void AssertOwnedTeamNameEditing(AutomationElement window, string workspace)

@@ -22,6 +22,82 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
 
     [Fact]
+    public void Category_reopens_for_managers_and_archived_contributors_with_unrelated_private_context_intact()
+    {
+        using (var app = Open())
+        {
+            var preview = app.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000091",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"V-manager@example.com","displayName":"Employee manager","managerEmail":null},
+                 {"email":"v-contributor@example.com","displayName":"Employee","managerEmail":"V-manager@example.com"},
+                 {"email":"avery@example.com","managerEmail":"V-manager@example.com"}]}
+                """);
+            Assert.True(preview.CanApply, app.Status);
+            Assert.True(app.ApplyImport(preview.Id), app.Status);
+            SetTeamName(app, "V-manager@example.com", "Private platform");
+            Assert.NotNull(app.CreatePersonNote(Email, "Private", "# Retained context"));
+            Assert.True(app.EditFavorite(Email, true), app.Status);
+            Assert.True(app.EditPersonArchived("v-contributor@example.com", true), app.Status);
+        }
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        foreach (var (email, category) in new[] { ("V-manager@example.com", "Vendor"),
+            ("v-contributor@example.com", "Vendor"), (Email, "Employee") })
+        {
+            Assert.True(reopened.NavigatePerson(email), reopened.Status);
+            var profile = reopened.GetRelationships(reopened.PeopleNavigation.SelectedEmail!)!;
+            Assert.Equal(email, profile.Person.Email);
+            Assert.Equal(category, profile.Category.DisplayName);
+        }
+        Assert.True(reopened.GetRelationships("v-contributor@example.com")!.Person.Archived);
+        Assert.Equal(Email, Assert.Single(reopened.GetRelationships("V-manager@example.com")!.ImportedReports).Email);
+        Assert.Equal("Private platform", Assert.Single(reopened.GetTeamNames(Email)).Name);
+        Assert.Equal("# Retained context", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.True(reopened.GetRelationships(Email)!.Person.IsFavorite);
+    }
+
+    [Fact]
+    public void Accepted_external_refresh_keeps_the_selected_category_and_retained_writing_then_navigates_to_delivered_people()
+    {
+        using var app = Open();
+        Assert.True(app.NavigatePerson(Email), app.Status);
+        var note = app.CreatePersonNote(Email, "Private", "# Saved context")!;
+        var draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
+        app.RetainNoteDraft(draft);
+        var notifications = 0;
+        app.WorkspaceChanged += (_, _) => notifications++;
+        using (var provider = Reopen())
+        {
+            var preview = provider.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000092",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"V-delivered@example.com","displayName":"Delivered employee","managerEmail":null},
+                 {"email":"avery@example.com","displayName":"v-Delivered name","managerEmail":"V-delivered@example.com"},
+                 {"email":"t-delivered@example.com","displayName":"Delivered fallback","managerEmail":null,"archived":true}]}
+                """);
+            Assert.True(preview.CanApply, provider.Status);
+            Assert.True(provider.ApplyImport(preview.Id), provider.Status);
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        var selected = app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!;
+        Assert.Equal("employee", selected.Category.Id);
+        Assert.Equal("v-Delivered name", selected.Person.DirectoryName);
+        Assert.Equal("V-delivered@example.com", selected.Manager!.Email);
+        Assert.False(app.CanSafelyClose);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
+        Assert.True(app.NavigatePerson("V-delivered@example.com"), app.Status);
+        Assert.Equal("Vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
+        Assert.True(app.NavigatePerson("t-delivered@example.com"), app.Status);
+        Assert.True(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Person.Archived);
+        Assert.Equal("Employee", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
+        Assert.True(notifications > 0);
+        using var reopened = Reopen();
+        Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.Equal("vendor", reopened.GetRelationships("V-delivered@example.com")!.Category.Id);
+    }
+
+    [Fact]
     public void Inherited_names_reopen_with_duplicate_owners_dormant_ancestors_and_final_imported_relationships()
     {
         using var app = Open();

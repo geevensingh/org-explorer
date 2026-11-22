@@ -149,6 +149,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             var photo = AssertPhotoCircle(window);
             NavigateToManager(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
             AssertInitialsCircle(window, "M", photo);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
@@ -203,6 +204,7 @@ internal static partial class Program
             if (Bounds("DepartmentValue").Top < Bounds("ProfileScroll").Top)
                 throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
             AssertTeamNameReading(window, null);
+            AssertPersonCategory(window, "Employee");
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -249,6 +251,11 @@ internal static partial class Program
                 throw new InvalidOperationException("Adaptive navigation concealed search or Settings.");
             CaptureVisualEvidence(window, stateName);
             Console.WriteLine($"Adaptive measured: window={window.Current.BoundingRectangle}, profile={profile}, notes={notes}, wide={wide}, dpi={scale * 96}.");
+            QueryAndSelect(window, "longreading", "v-longread@example.com", "Current", "Profile:");
+            AssertPersonCategory(window, "Vendor");
+            AssertTeamNameReading(window, null);
+            QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+            AssertPersonCategory(window, "Employee");
         }
         Resize(700, 500);
         AtSize(false, "reading-minimum-700-500");
@@ -413,9 +420,10 @@ internal static partial class Program
         AwaitCopyFeedbackGone(window);
         AssertWorkspaceBytes(workspace, bytes);
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
-        QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
+        QueryAndSelect(window, "longreading", "v-longread@example.com", "Current", "Profile:");
         Await(() => Value(window, "SearchQuery") == "" && IsVisible(window, "People") &&
-            Find(window, "Email").Current.Name == "longread@example.com");
+            Find(window, "Email").Current.Name == "v-longread@example.com");
+        AssertPersonCategory(window, "Vendor");
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         for (var index = 0; index < ids.Length; index++)
@@ -572,6 +580,8 @@ internal static partial class Program
         Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
         void AtSize(string state)
         {
+            AssertPersonCategory(window, CompactIdentityStateCases.FirstOrDefault(identity =>
+                identity.Email == Find(window, "Email").Current.Name).Category ?? "Employee");
             var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
                 control =>
                 {
@@ -643,6 +653,7 @@ internal static partial class Program
         {
             QueryAndSelect(window, identityState.Email, identityState.Email,
                 identityState.Archived ? "Archived" : "Current", "Profile:");
+            AssertPersonCategory(window, identityState.Category);
             if (identityState.Archived)
             {
                 ResizeWindow(window, 1100, 900);
@@ -650,6 +661,7 @@ internal static partial class Program
                 var archivedPeoplePercent = RenderedPeoplePercent(window);
                 DragDivider(window, "PeopleDivider", archivedHost.Right - 20);
                 Await(() => Math.Abs(Bounds("ProfileScroll").Width / scale - 408) < 2);
+                AssertPersonCategory(window, identityState.Category);
                 var photo = Find(window, "Photo").Current.BoundingRectangle;
                 var marker = Find(window, "PersonArchivalStatus");
                 if (marker.Current.IsOffscreen || marker.Current.Name != "Archived Person" ||

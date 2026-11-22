@@ -30,7 +30,10 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 }
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
-public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
+public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports)
+{
+    public PersonCategory Category => PersonCategories.FromEmail(Person.Email);
+}
 public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly }
 
 public partial interface IApplicationWorkflow : IDisposable

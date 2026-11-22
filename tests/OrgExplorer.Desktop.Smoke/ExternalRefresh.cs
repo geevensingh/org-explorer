@@ -69,6 +69,7 @@ internal static partial class Program
             File.WriteAllText(inheritedTeamFile, File.ReadAllText(inheritedTeamFile).Replace("# Saved inherited Team context", "# External inherited Team context"));
             File.WriteAllText(teamMetadataFile, new JsonObject { ["casey@example.com"] = Guid.NewGuid() }.ToJsonString());
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
+            AssertPersonCategory(window, "Employee");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
             SelectTeamNote(window, "New Team note");

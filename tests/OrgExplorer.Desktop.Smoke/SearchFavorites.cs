@@ -175,7 +175,7 @@ internal static partial class Program
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
             """ + (responsive ? """
-            ,{"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
+            ,{"email":"v-longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
               "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
               "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
               "managerEmail":null}

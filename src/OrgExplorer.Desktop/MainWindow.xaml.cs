@@ -164,6 +164,8 @@ public partial class MainWindow : Window
         ClearPersonArchival();
         ShowProfileTimeline(null);
         ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
+        PersonCategoryLabel.Text = "";
+        PersonCategoryBadge.Visibility = Visibility.Collapsed;
         Manager.Content = "No Person selected";
         Manager.Tag = null;
         Manager.IsEnabled = false;
@@ -308,6 +310,8 @@ public partial class MainWindow : Window
             ClearPersonEditors();
             ClearPersonArchival();
             ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
+            PersonCategoryLabel.Text = "";
+            PersonCategoryBadge.Visibility = Visibility.Collapsed;
             DirectoryName.Text = Email.Text = "";
             Manager.IsEnabled = false;
             Manager.Content = "Person unavailable";
@@ -322,7 +326,11 @@ public partial class MainWindow : Window
     }
     private void ShowPerson(PersonProfile person)
     {
+        var context = workflow.GetRelationships(person.Email)!;
+        person = context.Person;
         ProfileHeading.Text = person.Heading;
+        PersonCategoryLabel.Text = context.Category.DisplayName;
+        PersonCategoryBadge.Visibility = Visibility.Visible;
         DirectoryName.Text = person.DirectoryName ?? "—";
         Email.Text = person.Email;
         ShowFavorite(person);
@@ -330,7 +338,6 @@ public partial class MainWindow : Window
         Photo.Show(workflow.GetPhoto(person.Email), person.Heading);
         Photo.ToolTip = person.PhotoPath is { } path ? $"Local photo: {path}" : "No local photo";
         UpdateProfileMode();
-        var context = workflow.GetRelationships(person.Email)!;
         Manager.Content = (person.Archived ? "Last stored: " : "") +
             (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "—");
         Manager.ToolTip = context.Manager is { } known

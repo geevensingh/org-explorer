@@ -106,6 +106,15 @@ Person More actions require confirmation before the same profile leave decision
 and apply archival/reactivation immediately through `EditPersonArchived`, not as
 profile-draft fields. Cancellation preserves the draft and saved history; Stay
 and rejected leave-save retain the owner. Profile Discard never clears note drafts.
+Person-category cases use the real workflow through
+`WorkspaceViewModel.GetRelationships`, including leading-prefix/fallback rules,
+unrelated names/titles, accepted navigation, archival/reactivation and rejection.
+Real-folder cases reopen categories and accept delivered People while retaining
+private context and note writing. The existing invisible profile-refresh contract
+checks actual Employee/Vendor badge text, accessible labels, report destinations
+and anchored geometry across its size matrix. Existing hosted profile, archival,
+external-refresh and responsive journeys assert rendered badges; invisible checks
+do not establish hosted presentation or keyboard evidence.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,

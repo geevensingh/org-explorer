@@ -23,12 +23,14 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly Queue<string?> CompiledWorkspaceChoices = new();
-    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager)[] CompactIdentityStateCases =
+    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager, string Category)[] CompactIdentityStateCases =
     [
-        ("header-directory@example.com", "Avery\r\nExample", null, false, false),
-        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false),
-        ("header-archived@example.com", "Archived Example", null, true, false),
-        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true)
+        ("header-directory@example.com", "Avery\r\nExample", null, false, false, "Employee"),
+        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false, "Employee"),
+        ("header-archived@example.com", "Archived Example", null, true, false, "Employee"),
+        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true, "Employee"),
+        ("V-header@example.com", "Vendor\r\nExample", null, false, false, "Vendor"),
+        ("v-header-archived@example.com", "Archived Vendor", null, true, true, "Vendor")
     ];
 
     private static JsonArray CompactIdentityFixturePeople()
@@ -126,6 +128,11 @@ internal static partial class Program
                 !Contains(readingScroll, (DependencyObject)window.FindName("ProfileSummary")) ||
                 !Contains(readingScroll, (DependencyObject)window.FindName("NotesPane")))
                 failures.Add("Identity must stay outside the shared facts-and-notes reading scroll.");
+            if (window.FindName("PersonCategoryLabel") is not TextBlock { Focusable: true } category ||
+                !Contains((DependencyObject)window.FindName("PersonIdentity"), category) ||
+                Contains(readingScroll, category) ||
+                !System.Windows.Automation.AutomationProperties.GetHelpText(category).Contains("classification", StringComparison.Ordinal))
+                failures.Add("A read-only, accessible Person-category badge belongs beside the anchored name.");
             if (window.FindName("ProfileDivider") is not null || window.FindName("ProfileDetails") is not null)
                 failures.Add("Ordinary reading must not retain an inner divider or a More details gate.");
             if (window.FindName("ClearSearchButton") is not Button { Focusable: true } clearSearch ||
@@ -753,7 +760,7 @@ internal static partial class Program
         VerifyPreferredNameEntry(window, folder, publisher);
         VerifyPhotoViewportLayout(window);
         VerifyHeaderTextAndReadingOrder(window);
-        VerifyCompactIdentityStates(window);
+        VerifyCompactIdentityStates(window, folder);
         VerifyIdentityContext(window);
         VerifyAdaptiveReadingLayout(window);
         if (new WorkspaceSettings(preferences).GetPaneProportions(folder)?.ProfilePercent != 92)
@@ -1382,7 +1389,7 @@ internal static partial class Program
         Console.WriteLine("PASS: multiline header values stay bounded without losing full text; Office automation order matches visual building/room order.");
     }
 
-    private static void VerifyCompactIdentityStates(Window window)
+    private static void VerifyCompactIdentityStates(Window window, string folder)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1431,6 +1438,23 @@ internal static partial class Program
                 failures.Add($"Compact identity lost the full saved name for {state.Email}.");
             if (heading.ActualHeight > heading.FontSize * heading.FontFamily.LineSpacing + 1)
                 failures.Add($"Compact heading adds extra lines for {state.Email}: {heading.ActualHeight}.");
+            foreach (var (width, height) in new[] { (684d, 461d), (700d, 500d), (1100d, 900d),
+                (959d, 900d), (960d, 900d), (961d, 900d), (1920d, 1040d) })
+            {
+                Layout(width, height);
+                var category = Control<TextBlock>("PersonCategoryLabel");
+                var badge = Bounds(category);
+                var name = Bounds(heading);
+                var peer = new TextBlockAutomationPeer(category);
+                if (category.Text != state.Category || peer.GetName() != $"Person category: {state.Category}" ||
+                    !category.IsDescendantOf(identity) || badge.Width <= 0 || badge.Left < name.Right - 1 ||
+                    badge.Top < name.Top - 1 || badge.Bottom > name.Bottom + 1 ||
+                    badge.Right > Bounds(identity).Right + 1 ||
+                    identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1 ||
+                    scroll.ScrollableWidth > 0)
+                    failures.Add($"Category badge must remain readable beside the full accessible name within the photo-height header at {width} for {state.Email}: badge={badge}, name={name}.");
+            }
+            Layout();
             if ((marker.Visibility == Visibility.Visible) != state.Archived ||
                 state.Archived && (marker.Text != "Archived Person" || marker.ToolTip is not string tip ||
                     !tip.Contains("retained", StringComparison.Ordinal) || !marker.IsDescendantOf(identity)))
@@ -1470,6 +1494,24 @@ internal static partial class Program
                 }
             }
             finally { Invoke("CancelProfileButton"); }
+            if (state.Email == "V-header@example.com")
+            {
+                using (var provider = ApplicationWorkflow.CreateFileBacked())
+                    if (!provider.OpenWorkspace(folder) ||
+                        !provider.EditPreferredName(state.Email, "Delivered Vendor") ||
+                        !provider.EditPersonArchived(state.Email, true))
+                        throw new InvalidOperationException("Vendor identity delivery failed: " + provider.Status);
+                PumpUntil(() => heading.Text == "Delivered Vendor" && marker.Visibility == Visibility.Visible);
+                if (Control<TextBlock>("PersonCategoryLabel").Text != "Vendor")
+                    failures.Add("Accepted external name/archival delivery left a stale selected category.");
+                using (var provider = ApplicationWorkflow.CreateFileBacked())
+                    if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived(state.Email, false) ||
+                        !provider.EditPreferredName(state.Email, null))
+                        throw new InvalidOperationException("Vendor reactivation delivery failed: " + provider.Status);
+                PumpUntil(() => heading.Text == fullName && marker.Visibility == Visibility.Collapsed);
+                if (new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Vendor")
+                    failures.Add("Accepted external reactivation lost the accessible selected category.");
+            }
         }
         Control<TextBox>("SearchQuery").Text = "";
         var tree = Control<TreeView>("PeopleList");
@@ -1480,7 +1522,7 @@ internal static partial class Program
         if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Compact identity-state checks must remain invisible without a native handle.");
-        Console.WriteLine("PASS: multiline saved names and populated archived identity retain their full values and usable dirty minimum-client editors.");
+        Console.WriteLine("PASS: Employee/Vendor badges remain accessible beside full multiline names in the anchored photo footprint across the size matrix; archived identity and dirty minimum-client editors remain usable.");
     }
 
     private static void VerifyIdentityContext(Window window)
@@ -2518,8 +2560,8 @@ internal static partial class Program
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
                 {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000001",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
-                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
-                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"}]}
+                {"email":"v-morgan@example.com","displayName":"Morgan","managerEmail":null},
+                {"email":"avery@example.com","displayName":"Avery","managerEmail":"v-morgan@example.com"}]}
                 """).Id))
                 throw new InvalidOperationException("Reports visibility fixture failed: " + seed.Status);
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -2560,6 +2602,10 @@ internal static partial class Program
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
             if (Control<TextBlock>("Email").Text != person.Person.Email)
                 throw new InvalidOperationException("The reports fixture did not navigate to its intended Person.");
+            var expectedCategory = person.Person.Email == "v-morgan@example.com" ? "Vendor" : "Employee";
+            if (Control<TextBlock>("PersonCategoryLabel").Text != expectedCategory ||
+                new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != $"Person category: {expectedCategory}")
+                throw new InvalidOperationException("Accepted report/manager navigation did not present that Person's category.");
         }
         Select(manager.Reports.Single());
         Layout(1100);
@@ -2588,8 +2634,10 @@ internal static partial class Program
         Expect(false, "return to wide tree browsing");
         Control<TextBox>("SearchQuery").Text = "avery";
         reports.SelectedItem = reports.Items.Cast<PersonProfile>().Single();
-        if (Control<TextBlock>("Email").Text != "avery@example.com")
-            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person.");
+        if (Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<TextBlock>("PersonCategoryLabel").Text != "Employee" ||
+            new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Employee")
+            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person and category.");
         Expect(false, "empty search destination");
         Console.WriteLine("PASS: nonempty reports appear only in compact/search, empty lists and counts stay hidden, and the People overlay does not reflow the profile.");
     }

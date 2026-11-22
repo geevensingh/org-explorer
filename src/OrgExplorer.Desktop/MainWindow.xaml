@@ -622,6 +622,16 @@
                           ToolTip="Add preferred name" Click="EditPreferredName"/>
                 </WrapPanel>
               </StackPanel>
+              <Border x:Name="PersonCategoryBadge" DockPanel.Dock="Right" VerticalAlignment="Center"
+                      Margin="8,0,6,0" Padding="6,2" CornerRadius="4"
+                      Background="#F6F8FA" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="1"
+                      Visibility="Collapsed">
+                <TextBlock x:Name="PersonCategoryLabel" FontSize="12" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                           AutomationProperties.AutomationId="PersonCategoryLabel"
+                           AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}, StringFormat='Person category: {0}'}"
+                           AutomationProperties.HelpText="Read-only classification derived from email identity; not verified employment or payroll status."
+                           ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.HelpText)}"/>
+              </Border>
               <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24" Focusable="True"
                          FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
             </DockPanel>

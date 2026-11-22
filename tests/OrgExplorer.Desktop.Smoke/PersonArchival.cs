@@ -123,6 +123,7 @@ internal static partial class Program
             }
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
+            AssertPersonCategory(window, "Employee");
             AssertTeamNameReading(window, null);
             AssertPhotoVisible(window);
             AssertPreferredNameReading(window, "Ave", "Edit");
@@ -171,6 +172,7 @@ internal static partial class Program
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Archived-profile navigation discarded an unsaved retained-note draft.");
             AssertSelectionMatchesProfile(window);
+            AssertPersonCategory(window, "Employee");
             Click(window, "DiscardPersonNoteDraft");
             Await(() => Find(window, "PersonNoteHeading").Current.Name == "Retained individual");
             AssertNoteView(window, "Person", editing: false);
