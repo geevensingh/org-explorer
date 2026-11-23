@@ -25,6 +25,47 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         """;
 
     [Fact]
+    public void Updater_restart_rejects_retained_divergence_without_unsubmitted_writing()
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        VerifyDivergenceBlocksRestart(app);
+    }
+
+    [Fact]
+    public void View_model_updater_restart_rejects_retained_divergence_without_unsubmitted_writing()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        VerifyDivergenceBlocksRestart(app);
+    }
+
+    private void VerifyDivergenceBlocksRestart(IApplicationWorkflow app)
+    {
+        var folder = Path.Combine(root, "restart-divergence-snapshots");
+        Assert.True(app.OpenWorkspace(Workspace), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
+        Assert.True(app.ConfigureSynchronizationFolder(folder), app.Status);
+        Assert.True(app.SyncNow(), app.Status);
+        using var remote = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(remote.OpenWorkspace(Path.Combine(root, "restart-remote")), remote.Status);
+        Assert.True(remote.ConfigureSynchronizationFolder(folder, true), remote.Status);
+        Assert.True(remote.SyncNow(), remote.Status);
+        Assert.True(app.EditPreferredName("report@example.com", "Locally committed branch"), app.Status);
+        Assert.True(remote.EditPreferredName("report@example.com", "Other complete committed branch"), remote.Status);
+        Assert.True(remote.SyncNow(), remote.Status);
+        Assert.False(app.SyncNow());
+        Assert.True(app.Synchronization.Diverged);
+        var before = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        var restarted = false;
+        Assert.False(app.RestartWhenSafe(_ => restarted = true));
+        Assert.False(restarted);
+        Assert.True(app.Synchronization.Diverged);
+        Assert.Contains("diverg", app.Status, StringComparison.OrdinalIgnoreCase);
+        var after = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(Workspace);
+        Assert.Equal(before.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
+    }
+
+    [Fact]
     public void Normal_creation_can_reopen_the_committed_empty_SQLite_Workspace()
     {
         using (var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked()))

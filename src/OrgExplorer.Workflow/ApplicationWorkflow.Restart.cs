@@ -11,6 +11,8 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
+            if (Synchronization.Diverged)
+                return Fail("Divergent Workspace versions are retained; automatic restart is blocked until an explicit resolution.");
             if (disposed || !CanSafelyClose)
                 return Fail("Local work was NOT saved; automatic restart is blocked. Retry or deliberately discard the retained writing.");
             restart(workspace);

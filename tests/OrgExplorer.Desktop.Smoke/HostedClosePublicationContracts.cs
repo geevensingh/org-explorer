@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -107,9 +108,10 @@ internal static partial class Program
             PumpUntil(() => entered.IsSet);
             RequireNoNativeCloseWindow(window);
             window.Close();
-            PumpUntil(() => closed || Volatile.Read(ref verified) >= 2);
-            if (closed)
-                throw new InvalidOperationException("Normal close completed before its already accepted synchronization operation.");
+            var waiting = Stopwatch.StartNew();
+            PumpUntil(() => closed || waiting.Elapsed >= TimeSpan.FromMilliseconds(300));
+            if (closed || Volatile.Read(ref verified) != 0)
+                throw new InvalidOperationException("Normal close completed or repeatedly verified publication before its already accepted synchronization operation.");
         }
         finally { release.Set(); }
         PumpUntil(() => closed);

@@ -31,7 +31,8 @@ public partial class MainWindow
     {
         // The signed updater retains its own safe-point/restart contract.
         if (updateInstaller?.Status == UpdateInstallStatus.Restarting &&
-            !updateHandoffPending && !HasUnsavedWindowChanges && workflow.CanSafelyClose) return;
+            !updateHandoffPending && !HasUnsavedWindowChanges && !workflow.Synchronization.Diverged &&
+            workflow.CanSafelyClose) return;
         if (normalExitReady && CanFinishNormalExit) return;
         if (!workflow.Synchronization.Supported && CanFinishNormalExit) return;
         e.Cancel = true;
@@ -55,6 +56,8 @@ public partial class MainWindow
             while (ReferenceEquals(exitIntent, intent))
             {
                 token.ThrowIfCancellationRequested();
+                while (updateHandoffPending || synchronizationPending)
+                    await Task.Delay(50, token);
                 var preparation = workflow.PrepareForExitAsync(token);
                 await WaitForLocalWork().WaitAsync(token);
                 await preparation;
