@@ -1,5 +1,6 @@
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
+using Microsoft.Data.Sqlite;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
@@ -81,9 +82,10 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
     [InlineData("teamNotes", "null")]
     [InlineData("teamNotes.0.markdown", "\"Silently rewritten\"")]
     [InlineData("teamNotes.0.ownerEmail", "\"alex@example.com\"")]
+    [InlineData("teamNotes.0.needsReview", null)]
     [InlineData("reportingChain.0.managerEmail", "\"alex@example.com\"")]
     [InlineData("transitions.0.change.evidence.source", "42")]
-    public void Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(string path, string json)
+    public void Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(string path, string? json)
     {
         var source = Seed();
         source.CreateTeamNote("casey@example.com", "Original", "Frozen writing");
@@ -102,7 +104,8 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
                 JsonNode target = document[0]!;
                 foreach (var segment in segments.SkipLast(1))
                     target = int.TryParse(segment, out var index) ? target[index]! : target[segment]!;
-                target[segments.Last()] = JsonNode.Parse(json);
+                if (json is null) target.AsObject().Remove(segments.Last());
+                else target[segments.Last()] = JsonNode.Parse(json);
             }));
         var rejected = File.ReadAllBytes(file);
         Assert.False(app.SyncNow());
@@ -111,6 +114,71 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         File.WriteAllBytes(file, original);
         Assert.True(app.SyncNow(), app.Synchronization.Error);
         Assert.Equal(before, JsonSerializer.Serialize(Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"))));
+    }
+
+    [Fact]
+    public void Missing_frozen_review_status_rejects_local_Open_without_rewriting_history_or_publication()
+    {
+        var source = Seed();
+        source.CreateTeamNote("casey@example.com", "Frozen review", "Exact frozen writing");
+        Assert.True(source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Director"), source.Status);
+        Apply(source, Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2));
+        var capture = Assert.Single(source.GetHistoricalTeamContexts("avery@example.com"));
+        Assert.True(Assert.Single(capture.TeamNotes).NeedsReview);
+        var expected = JsonSerializer.Serialize(capture);
+        Assert.True(source.ConfigureSynchronizationFolder(Path.Combine(folder, "transport")), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        source.Dispose();
+
+        var workspace = Path.Combine(folder, "workspace");
+        string original;
+        using (var connection = Connect())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT contexts FROM historical_team_context WHERE email='avery@example.com';";
+            original = (string)command.ExecuteScalar()!;
+            var contexts = JsonNode.Parse(original)!;
+            Assert.True(contexts[0]!["teamNotes"]![0]!.AsObject().Remove("needsReview"));
+            command.CommandText = "UPDATE historical_team_context SET contexts=$contexts WHERE email='avery@example.com';";
+            command.Parameters.AddWithValue("$contexts", contexts.ToJsonString());
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        var rejected = WorkspaceFixtures.Bytes(folder);
+        using (var app = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.False(app.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly), app.Status);
+            Assert.Equal(WorkspaceCompatibilityState.Unavailable, app.Compatibility.State);
+            Assert.False(app.IsWorkspaceCurrent);
+            Assert.False(app.Compatibility.SupportsNoteEdits);
+            Assert.False(app.SyncNow());
+        }
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(rejected.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in rejected) Assert.Equal(bytes, after[path]);
+
+        using (var connection = Connect())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE historical_team_context SET contexts=$contexts WHERE email='avery@example.com';";
+            command.Parameters.AddWithValue("$contexts", original);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        var restored = Open();
+        Assert.Equal(expected, JsonSerializer.Serialize(Assert.Single(restored.GetHistoricalTeamContexts("avery@example.com"))));
+        var receiver = Open("receiver");
+        WorkspaceFixtures.JoinSnapshot(restored, receiver, Path.Combine(folder, "transport"));
+        Assert.Equal(expected, JsonSerializer.Serialize(Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com"))));
+
+        SqliteConnection Connect()
+        {
+            var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(workspace, "workspace.sqlite"),
+                Mode = SqliteOpenMode.ReadWrite, Pooling = false
+            }.ToString());
+            connection.Open();
+            return connection;
+        }
     }
 
     [Fact]

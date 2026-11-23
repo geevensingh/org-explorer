@@ -228,7 +228,7 @@ public sealed partial class ApplicationWorkflow
                     while (captures.Read())
                     {
                         var email = captures.GetString(0);
-                        var items = JsonSerializer.Deserialize<List<HistoricalTeamContext>>(captures.GetString(1), JsonOptions)
+                        var items = JsonSerializer.Deserialize<List<HistoricalTeamContext>>(captures.GetString(1), SnapshotJson)
                             ?? throw new FormatException("Invalid local Historical team context.");
                         if (!loaded.ContainsKey(email) || !historical.TryAdd(email, items))
                             throw new FormatException("Unknown or duplicate Historical team context owner.");
