@@ -24,7 +24,8 @@ internal static partial class Program
               "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
-             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"}]}
+             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -133,14 +134,18 @@ internal static partial class Program
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, 3, 1, 2);
             SelectTreePerson(window, "V-reference@example.com");
             AssertPersonCategory(window, "Vendor");
+            AssertReportingStructure(window, 1, 0, 1);
             NavigateToManager(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, 3, 1, 2);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
             AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
@@ -303,6 +308,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNamePath(window, "Platform", "Platform");
+            AssertReportingStructure(window, 3, 1, 2);
             SelectTreePerson(window, "avery@example.com");
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
@@ -392,6 +398,7 @@ internal static partial class Program
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");
         AssertTeamNameReading(window, null);
+        AssertReportingStructure(window, 4, 2, 2);
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Platform");
         SaveProfileEditing(window);
@@ -442,6 +449,56 @@ internal static partial class Program
 
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
+
+    private static void AssertReportingStructure(AutomationElement window, int? total, int employees = 0, int vendors = 0)
+    {
+        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+            control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
+        if (total is null)
+        {
+            if (IsVisible(window, "ReportingStructureLabel") || IsVisible(window, "ReportingStructureValue") ||
+                IsVisible(window, "ReportingStructureScope"))
+                throw new InvalidOperationException("An ineligible Person retained a visible Reporting structure fact.");
+            return;
+        }
+        var counts = $"{total} total, {employees} Employees, {vendors} Vendors";
+        Await(() => IsVisible(window, "ReportingStructureValue") &&
+            Find(window, "ReportingStructureValue").Current.Name == $"Reporting structure: {counts}" &&
+            IsVisible(window, "ReportingStructureScope"));
+        var label = Find(window, "ReportingStructureLabel");
+        var value = Find(window, "ReportingStructureValue");
+        var scope = Find(window, "ReportingStructureScope");
+        if (label.Current.Name != "Reporting structure" || scope.Current.Name != "Known current reports, all levels" ||
+            value.Current.ControlType != ControlType.Text || value.TryGetCurrentPattern(ValuePattern.Pattern, out _))
+            throw new InvalidOperationException("Reporting structure lost its ordinary read-only fact, full counts or exact population scope.");
+        var scale = DpiScale(window);
+        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var team = Find(window, "TeamNameLabel").Current.BoundingRectangle;
+        var summary = label.Current.BoundingRectangle;
+        var department = Find(window, "DepartmentValue").Current.BoundingRectangle;
+        bool Before(Rect first, Rect second) => first.Top < second.Top - scale ||
+            Math.Abs(first.Top - second.Top) <= scale && first.Left < second.Left - scale;
+        if (!Before(team, summary) || !Before(summary, department) ||
+            Math.Abs(team.Top - summary.Top) > scale && Math.Abs(team.Left - summary.Left) > scale)
+            throw new InvalidOperationException("Reporting structure must be the next ordinary fact immediately after Team name.");
+        foreach (var element in new[] { label, value, scope })
+        {
+            var bounds = element.Current.BoundingRectangle;
+            if (element.Current.IsOffscreen || bounds.IsEmpty || scroll.Current.HorizontallyScrollable ||
+                bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
+                bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
+                throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");
+        }
+        if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
+            ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
+            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end ||
+            end.GetBoundingRectangles().Length == 0)
+            throw new InvalidOperationException("The final zero-inclusive category count is not actually rendered and readable.");
+    }
 
     private static bool IsFirstScrollingTeamName(Rect row, Rect manager, Rect viewport, double scale)
     {

@@ -115,6 +115,18 @@ checks actual Employee/Vendor badge text, accessible labels, report destinations
 and anchored geometry across its size matrix. Existing hosted profile, archival,
 external-refresh and responsive journeys assert rendered badges; invisible checks
 do not establish hosted presentation or keyboard evidence.
+Reporting-summary cases use that same public profile query for independent
+12/9/3 mixed graphs with Employee and Vendor roots, explicit single-category
+zeros, accepted moves/imports, rejection, archival/reactivation and visible-subset
+independence. The 12,000-report wide and 1,024-level deep cases prove uncapped
+counts, not either separate scale suite or a latency SLA. Real-folder cases
+reopen current counts and refresh selected profiles/ancestors while retaining
+private context and note writing. The existing invisible profile-refresh contract
+observes the ordinary zero-inclusive fact, accessible full text, placement,
+size matrix, delivered counts and eligibility changes without a native window.
+Existing hosted profile, archival, external-refresh and responsive journeys
+observe actual fact text, wrapping, Team-first order and report destinations;
+those presentation and keyboard assertions require the hosted desktop lanes.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,

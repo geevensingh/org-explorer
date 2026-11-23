@@ -43,6 +43,7 @@ internal static partial class Program
             Set(window, "TeamNoteTitle", "Retained owned Team note");
             Set(window, "TeamNoteMarkdown", "Owned Team writing");
             NavigateToManager(window, "morgan@example.com");
+            AssertReportingStructure(window, 1, 1, 0);
             Click(window, "NewTeamNote");
             Set(window, "TeamNoteTitle", "Manager context");
             Set(window, "TeamNoteMarkdown", "# Frozen Manager\nOriginal Manager writing");
@@ -125,6 +126,7 @@ internal static partial class Program
             Await(() => Find(window, "PersonArchivalStatus").Current.Name.StartsWith("Archived"));
             AssertPersonCategory(window, "Employee");
             AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
             AssertPhotoVisible(window);
             AssertPreferredNameReading(window, "Ave", "Edit");
             AssertProfileValue(window, "OfficeNumber", "007B");
@@ -178,6 +180,7 @@ internal static partial class Program
             AssertNoteView(window, "Person", editing: false);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
             BeginProfileEditing(window);
             if (IsVisible(window, "TeamNameEditor"))
                 throw new InvalidOperationException("A manager with only archived reports can edit a dormant Team name.");
@@ -209,6 +212,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Reactivation mixed frozen writing into current context.");
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNameReading(window, "Platform");
+            AssertReportingStructure(window, 1, 1, 0);
             OpenPerson(window, "casey@example.com", "morgan@example.com");
 
             BeginProfileEditing(window);

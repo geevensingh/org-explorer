@@ -822,6 +822,16 @@
               </StackPanel>
             </StackPanel>
           </StackPanel>
+          <StackPanel x:Name="ReportingStructureSlot" Style="{StaticResource FactSlot}" Visibility="Collapsed"
+                      AutomationProperties.AutomationId="ReportingStructure">
+            <TextBlock Text="Reporting structure" Style="{StaticResource FactLabel}"
+                       AutomationProperties.AutomationId="ReportingStructureLabel"/>
+            <TextBlock x:Name="ReportingStructureValue" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="ReportingStructureValue"
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}, StringFormat=Reporting structure: {0}}"/>
+            <TextBlock x:Name="ReportingStructureScope" Text="Known current reports, all levels" TextWrapping="Wrap"
+                       Foreground="{StaticResource MutedBrush}" AutomationProperties.AutomationId="ReportingStructureScope"/>
+          </StackPanel>
           <StackPanel x:Name="DepartmentValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Department" Style="{StaticResource FactLabel}"/>
             <local:ProfileCopyText x:Name="DepartmentValue" CopyLabel="Department" TextWrapping="Wrap" AutomationProperties.AutomationId="DepartmentValue"

@@ -150,6 +150,8 @@ internal static partial class Program
             var photo = AssertPhotoCircle(window);
             NavigateToManager(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
+            AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, 1, 1, 0);
             AssertInitialsCircle(window, "M", photo);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
@@ -205,6 +207,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
             AssertTeamNameReading(window, null);
             AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, null);
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -254,6 +257,7 @@ internal static partial class Program
             QueryAndSelect(window, "longreading", "v-longread@example.com", "Current", "Profile:");
             AssertPersonCategory(window, "Vendor");
             AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             AssertPersonCategory(window, "Employee");
         }

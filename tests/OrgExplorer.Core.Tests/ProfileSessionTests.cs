@@ -6,6 +6,155 @@ namespace OrgExplorer.Core.Tests;
 public sealed class ProfileSessionTests
 {
     [Theory]
+    [InlineData("root@example.com", "Employee")]
+    [InlineData("V-root@example.com", "Vendor")]
+    public void Reporting_summary_counts_all_twelve_descendants_through_Vendor_managers_but_not_the_root(
+        string root, string category)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious-reporting"));
+        ApplyContextImport(app, $$"""
+            {"email":"{{root}}","displayName":"Root","jobTitle":"Engineer","managerEmail":null},
+            {"email":"e1@example.com","displayName":"One","managerEmail":"{{root}}"},
+            {"email":"e2@example.com","displayName":"Two","managerEmail":"{{root}}"},
+            {"email":"v-one@example.com","displayName":"Vendor one","managerEmail":"{{root}}"},
+            {"email":"e3@example.com","displayName":"Three","managerEmail":"v-one@example.com"},
+            {"email":"e4@example.com","displayName":"Four","managerEmail":"v-one@example.com"},
+            {"email":"V-two@example.com","displayName":"Vendor two","managerEmail":"v-one@example.com"},
+            {"email":"e5@example.com","displayName":"Five","managerEmail":"V-two@example.com"},
+            {"email":"e6@example.com","displayName":"Six","managerEmail":"e5@example.com"},
+            {"email":"v-three@example.com","displayName":"Vendor three","managerEmail":"e2@example.com"},
+            {"email":"e7@example.com","displayName":"Seven","managerEmail":"v-three@example.com"},
+            {"email":"e8@example.com","displayName":"Eight","managerEmail":"e7@example.com"},
+            {"email":"e9@example.com","displayName":"Nine","managerEmail":"e8@example.com"}
+            """);
+        Assert.True(app.NavigatePerson(root));
+        var profile = app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!;
+        Assert.Equal(category, profile.Category.DisplayName);
+        Assert.Equal(3, profile.ImportedReports.Count);
+        AssertReporting(app, root, 12, 9, 3);
+        AssertReporting(app, "v-one@example.com", 5, 4, 1);
+        Assert.Null(app.GetRelationships("e9@example.com")!.ReportingSummary);
+        app.ChangePeopleQuery("e9");
+        app.Search("e9");
+        app.RememberPeopleBrowsing([], 0);
+        AssertReporting(app, root, 12, 9, 3);
+    }
+
+    private static void AssertReporting(WorkspaceViewModel app, string email, int total, int employees, int vendors)
+    {
+        var summary = Assert.IsType<ReportingSummary>(app.GetRelationships(email)!.ReportingSummary);
+        Assert.Equal(total, summary.Total);
+        Assert.Equal(new[] { ("employee", "Employees", employees), ("vendor", "Vendors", vendors) },
+            summary.Categories.Select(count => (count.Category.Id, count.Category.PluralDisplayName, count.Count)));
+        Assert.Equal(total, summary.Categories.Sum(count => count.Count));
+    }
+
+    [Theory]
+    [InlineData(false, 12, 0)]
+    [InlineData(true, 0, 12)]
+    public void Single_category_reporting_structures_include_the_other_categorys_zero(bool vendors, int employees, int vendorCount)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious-reporting"));
+        ApplyContextImport(app, """{"email":"root@example.com","displayName":"Root","managerEmail":null}""");
+        ApplyContextImport(app, string.Join(",", Enumerable.Range(1, 12).Select(index => $$"""
+            {"email":"{{(vendors ? "v-" : "")}}report{{index}}@example.com","displayName":"Report {{index}}",
+             "managerEmail":"root@example.com"}
+            """)));
+        AssertReporting(app, "root@example.com", 12, employees, vendorCount);
+        Assert.Equal(12, app.GetRelationships("root@example.com")!.ImportedReports.Count);
+    }
+
+    [Fact]
+    public void Reporting_summaries_follow_only_accepted_current_relationships_and_eligibility_not_titles_or_history()
+    {
+        using var app = OpenTeamNameChain();
+        const string owner = "bob@example.com";
+        const string ancestor = "charlie@example.com";
+        const string other = "dana@example.com";
+        Assert.True(app.NavigatePerson(ancestor));
+        AssertReporting(app, ancestor, 2, 2, 0);
+        ApplyContextImport(app, """
+            {"email":"v-report@example.com","displayName":"Report","managerEmail":"alice@example.com"},
+            {"email":"dana@example.com","jobTitle":"Manager"}
+            """);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        AssertReporting(app, owner, 2, 1, 1);
+        Assert.Null(app.GetRelationships(other)!.ReportingSummary);
+        Assert.True(app.EditPersonText(ancestor, PersonTextField.JobTitle, "Individual contributor"));
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.NotNull(app.CreatePersonNote(ancestor, "Unrelated writing", "# Context"));
+        AssertReporting(app, ancestor, 3, 2, 1);
+        var accepted = app.GetRelationships(ancestor)!.ReportingSummary;
+        var rejected = app.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-02T17:00:00Z",
+             "people":[{"email":"charlie@example.com","managerEmail":"v-report@example.com"}]}
+            """);
+        Assert.False(rejected.CanApply);
+        Assert.False(app.ApplyImport(rejected.Id));
+        Assert.False(app.EditPersonArchived(owner, true));
+        Assert.Equal(accepted, app.GetRelationships(ancestor)!.ReportingSummary);
+        Assert.True(app.BeginProfileEdit(owner));
+        Assert.True(app.StageProfileManager(other));
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+        Assert.Null(app.GetRelationships(ancestor)!.ReportingSummary);
+        AssertReporting(app, other, 3, 2, 1);
+        Assert.Equal(ancestor, app.PeopleNavigation.SelectedEmail);
+        Assert.NotEmpty(app.GetHistoricalTeamContexts("alice@example.com"));
+        Assert.True(app.EditPersonArchived("v-report@example.com", true), app.Status);
+        AssertReporting(app, other, 2, 2, 0);
+        Assert.Null(app.GetRelationships("alice@example.com")!.ReportingSummary);
+        Assert.True(app.EditPersonArchived("alice@example.com", true), app.Status);
+        Assert.Null(app.GetRelationships(owner)!.ReportingSummary);
+        AssertReporting(app, other, 1, 1, 0);
+        Assert.True(app.EditPersonArchived(owner, true), app.Status);
+        Assert.Null(app.GetRelationships(other)!.ReportingSummary);
+        Assert.Null(app.GetRelationships(owner)!.ReportingSummary);
+        Assert.Equal("Employee", app.GetRelationships(owner)!.Category.DisplayName);
+        Assert.False(app.EditPersonArchived("alice@example.com", false));
+        Assert.Null(app.GetRelationships(other)!.ReportingSummary);
+        Assert.True(app.EditPersonArchived(owner, false), app.Status);
+        AssertReporting(app, other, 1, 1, 0);
+        Assert.True(app.EditPersonArchived("alice@example.com", false), app.Status);
+        Assert.True(app.EditPersonArchived("v-report@example.com", false), app.Status);
+        AssertReporting(app, other, 3, 2, 1);
+        Assert.True(app.EditPersonManager(owner, ancestor), app.Status);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.Null(app.GetRelationships(other)!.ReportingSummary);
+        ApplyContextImport(app, """{"email":"charlie@example.com","department":"Delivered partial update"}""");
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.Equal("# Context", Assert.Single(app.GetPersonNotes(ancestor)).Markdown);
+    }
+
+    [Theory]
+    [InlineData(12000, false, 9000, 3000)]
+    [InlineData(1024, true, 768, 256)]
+    public void Valid_large_and_deep_reporting_graphs_have_complete_uncapped_counts(
+        int population, bool deep, int employees, int vendors)
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious-reporting"));
+        string Email(int index) => index == 0 ? "root@example.com" :
+            (index % 4 == 0 ? "v-" : "") + $"person{index}@example.com";
+        var records = Enumerable.Range(0, population + 1).Select(index => new
+        {
+            email = Email(index), displayName = $"Person {index}",
+            managerEmail = index == 0 ? null : Email(deep ? index - 1 : 0)
+        });
+        var review = app.PreviewImport(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, batchId = Guid.NewGuid(), observedAt = "2026-11-02T17:00:00Z", people = records
+        }));
+        Assert.True(review.CanApply, app.Status);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+        AssertReporting(app, Email(0), population, employees, vendors);
+        Assert.Equal(deep ? 1 : population, app.GetRelationships(Email(0))!.ImportedReports.Count);
+        if (deep) AssertReporting(app, Email(512), 512, 384, 128);
+    }
+
+    [Theory]
     [InlineData("v-jane@example.com", "vendor", "Vendor")]
     [InlineData("V-jane@example.com", "vendor", "Vendor")]
     [InlineData("jane@example.com", "employee", "Employee")]

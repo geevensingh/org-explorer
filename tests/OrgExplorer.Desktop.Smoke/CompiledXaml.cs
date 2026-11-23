@@ -2587,10 +2587,10 @@ internal static partial class Program
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var root = (FrameworkElement)window.Content;
-        void Layout(double width)
+        void Layout(double width, double height = 900)
         {
-            root.Measure(new Size(width, 900));
-            root.Arrange(new Rect(0, 0, width, 900));
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Reports visibility checks must not show a window or create its native handle.");
@@ -2607,6 +2607,24 @@ internal static partial class Program
             if (Presented(Control<ListBox>("ReportsList")) != visible ||
                 Presented(Control<TextBlock>("ReportCount")) != visible)
                 throw new InvalidOperationException($"Reports list and count must be {(visible ? "shown" : "hidden")} during {stage}.");
+        }
+        void ExpectSummary(string? counts)
+        {
+            if (window.FindName("ReportingStructureSlot") is not FrameworkElement slot ||
+                window.FindName("ReportingStructureValue") is not TextBlock value ||
+                window.FindName("ReportingStructureScope") is not TextBlock scope)
+                throw new InvalidOperationException("The compiled profile is missing its ordinary Reporting structure fact.");
+            if (Presented(slot) != (counts is not null) || value.Text != (counts ?? "") ||
+                counts is not null && new TextBlockAutomationPeer(value).GetName() != $"Reporting structure: {counts}" ||
+                scope.Text != "Known current reports, all levels")
+                throw new InvalidOperationException("The compiled Reporting structure fact lost counts, accessible text, scope or eligibility.");
+            if (counts is null) return;
+            var facts = Control<Panel>("FactsGrid");
+            if (facts.Children.IndexOf(slot) != 1 || !slot.IsDescendantOf(facts) ||
+                value.TextWrapping != TextWrapping.Wrap || scope.TextWrapping != TextWrapping.Wrap ||
+                value.ActualWidth <= 0 || value.ActualHeight <= 0 ||
+                value.TranslatePoint(new Point(value.ActualWidth, 0), facts).X > facts.ActualWidth + 1)
+                throw new InvalidOperationException("Reporting structure must wrap compactly immediately after the first Team-name fact.");
         }
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
@@ -2630,6 +2648,7 @@ internal static partial class Program
             Layout(700);
         }
         Activate("archived@example.com");
+        ExpectSummary(null);
         Activate("v-morgan@example.com");
         Invoke("OpenPeopleButton");
         Layout(700);
@@ -2661,11 +2680,13 @@ internal static partial class Program
         }
         Select(manager.Reports.Single());
         Layout(1100);
+        ExpectSummary(null);
         Expect(false, "empty wide browsing");
         Layout(700);
         Expect(false, "empty compact browsing");
         Select(manager);
         Layout(700);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
         Expect(true, "populated compact browsing");
         var viewport = Control<ScrollViewer>("PersonScroll");
         var reports = Control<ListBox>("ReportsList");
@@ -2679,6 +2700,7 @@ internal static partial class Program
             throw new InvalidOperationException("Opening People must not reflow the underlying reports or profile content.");
         Invoke("ClosePeopleButton");
         Layout(1100);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
         Expect(false, "populated wide tree browsing");
         Control<TextBox>("SearchQuery").Text = "avery";
         Expect(true, "populated wide search");
@@ -2691,7 +2713,65 @@ internal static partial class Program
             new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Employee")
             throw new InvalidOperationException("Visible report selection must still navigate to its exact Person and category.");
         Expect(false, "empty search destination");
-        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; report visibility and profile geometry remain intact.");
+        ExpectSummary(null);
+        Select(manager);
+        using (var provider = ApplicationWorkflow.CreateFileBacked())
+        {
+            var review = provider.OpenWorkspace(folder) ? provider.PreviewImport("""
+                {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000002",
+                 "observedAt":"2026-11-02T17:00:00Z","people":[
+                 {"email":"v-middle@example.com","displayName":"Vendor middle","managerEmail":"avery@example.com"},
+                 {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-middle@example.com"},
+                 {"email":"v-solo@example.com","displayName":"Vendor root","managerEmail":null},
+                 {"email":"v-only@example.com","displayName":"Vendor only","managerEmail":"v-solo@example.com"}]}
+                """) : null;
+            if (review is null || !review.CanApply || !provider.ApplyImport(review.Id))
+                throw new InvalidOperationException("Compiled reporting delivery failed: " + provider.Status);
+        }
+        PumpUntil(() => Control<TextBlock>("ReportingStructureValue").Text == "3 total, 2 Employees, 1 Vendors");
+        if (Control<ListBox>("ReportsList").Items.Count != 1 ||
+            Control<TextBlock>("ReportCount").Text != "Imported reports: 1 (selected population, not a full-company count)")
+            throw new InvalidOperationException("All-level reporting counts replaced the separate direct-only list or count.");
+        foreach (var (width, height) in new[] { (700d, 500d), (1100d, 900d), (1920d, 900d) })
+        {
+            Layout(width, height);
+            ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            var team = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>().Single(value =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
+            Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+            Control<ScrollViewer>("PersonScroll").ScrollToTop();
+            root.UpdateLayout();
+            if (!IsFirstScrollingTeamName(Bounds(team), Bounds(Control<Button>("Manager")),
+                Bounds(Control<ScrollViewer>("PersonScroll")), 1))
+                throw new InvalidOperationException("Reporting counts moved Team name out of the first scrolling position.");
+        }
+        Control<ListBox>("ReportsList").SelectedItem = Control<ListBox>("ReportsList").Items.Cast<PersonProfile>()
+            .Single(person => person.Email == "avery@example.com");
+        Layout(700, 500);
+        ExpectSummary("2 total, 1 Employees, 1 Vendors");
+        if (Control<TextBlock>("Email").Text != "avery@example.com" || Control<TextBlock>("PersonCategoryLabel").Text != "Employee")
+            throw new InvalidOperationException("Direct-report navigation lost its exact destination category or reporting summary.");
+        Activate("v-solo@example.com");
+        ExpectSummary("1 total, 0 Employees, 1 Vendors");
+        Activate("v-morgan@example.com");
+        using (var provider = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived("leaf@example.com", true) ||
+                !provider.EditPersonArchived("v-middle@example.com", true) || !provider.EditPersonArchived("avery@example.com", true))
+                throw new InvalidOperationException("Compiled reporting archival delivery failed: " + provider.Status);
+        }
+        PumpUntil(() => Control<FrameworkElement>("ReportingStructureSlot").Visibility == Visibility.Collapsed);
+        Layout(700);
+        ExpectSummary(null);
+        using (var provider = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived("avery@example.com", false))
+                throw new InvalidOperationException("Compiled reporting reactivation delivery failed: " + provider.Status);
+        }
+        PumpUntil(() => Control<TextBlock>("ReportingStructureValue").Text == "1 total, 1 Employees, 0 Vendors");
+        Layout(1100);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
+        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; compact zero-inclusive reporting facts refresh/reappear across the size matrix, preserving Team-first geometry and direct-only report destinations.");
     }
 
     private static void VerifyFactRowSpacing(Window window)
@@ -2742,12 +2822,16 @@ internal static partial class Program
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 7 || rows[0].Count() != columns ||
+            var expectedSlots = Control<FrameworkElement>("ReportingStructureSlot").Visibility == Visibility.Visible ? 8 : 7;
+            if (slots.Length != expectedSlots || rows[0].Count() != columns ||
                 Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
                 !Control<TextBlock>("TeamNameEmpty").IsDescendantOf(facts) ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
                 slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
-                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");
+                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP: " +
+                    $"slots={slots.Length}/{expectedSlots}, firstRow={rows[0].Count()}/{columns}, " +
+                    $"summary={Control<FrameworkElement>("ReportingStructureSlot").Visibility}, urlHeight={url.ActualHeight}, " +
+                    $"factsWidth={facts.ActualWidth}, rowSlots={string.Join("; ", slots.Select(slot => $"{slot.Name}={Bounds(slot)}"))}.");
             for (var index = 0; index < rows.Length - 1; index++)
             {
                 var row = rows[index].ToArray();

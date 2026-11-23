@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -120,6 +121,30 @@ internal static partial class Program
             AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
             AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
             AssertExplicitProfileDeliveryConflict(window, personFile);
+            using (var provider = ApplicationWorkflow.CreateFileBacked())
+            {
+                var review = provider.OpenWorkspace(folder) ? provider.PreviewImport("""
+                    {"schemaVersion":1,"batchId":"80000000-0000-4000-8000-000000000002",
+                     "observedAt":"2026-11-02T17:00:00Z","people":[
+                     {"email":"v-report@example.com","displayName":"Vendor report","managerEmail":"avery@example.com"},
+                     {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-report@example.com"}]}
+                    """) : null;
+                if (review is null || !review.CanApply || !provider.ApplyImport(review.Id))
+                    throw new InvalidOperationException("Hosted reporting delivery fixture failed: " + provider.Status);
+            }
+            AssertReportingStructure(window, 2, 1, 1);
+            NavigateToManager(window, "casey@example.com");
+            AssertReportingStructure(window, 3, 2, 1);
+            OpenPerson(window, "casey@example.com");
+            AssertReportingStructure(window, 2, 1, 1);
+            using (var provider = ApplicationWorkflow.CreateFileBacked())
+            {
+                if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived("leaf@example.com", true) ||
+                    !provider.EditPersonArchived("v-report@example.com", true))
+                    throw new InvalidOperationException("Hosted reporting archival delivery failed: " + provider.Status);
+            }
+            Await(() => !IsVisible(window, "ReportingStructureValue"));
+            AssertReportingStructure(window, null);
             Close(process);
             Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
         }

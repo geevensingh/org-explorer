@@ -166,6 +166,7 @@ public partial class MainWindow : Window
         ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
         PersonCategoryLabel.Text = "";
         PersonCategoryBadge.Visibility = Visibility.Collapsed;
+        ShowReportingSummary(null);
         Manager.Content = "No Person selected";
         Manager.Tag = null;
         Manager.IsEnabled = false;
@@ -316,6 +317,7 @@ public partial class MainWindow : Window
             ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
             PersonCategoryLabel.Text = "";
             PersonCategoryBadge.Visibility = Visibility.Collapsed;
+            ShowReportingSummary(null);
             DirectoryName.Text = Email.Text = "";
             Manager.IsEnabled = false;
             Manager.Content = "Person unavailable";
@@ -335,6 +337,7 @@ public partial class MainWindow : Window
         ProfileHeading.Text = person.Heading;
         PersonCategoryLabel.Text = context.Category.DisplayName;
         PersonCategoryBadge.Visibility = Visibility.Visible;
+        ShowReportingSummary(context.ReportingSummary);
         DirectoryName.Text = person.DirectoryName ?? "—";
         Email.Text = person.Email;
         ShowFavorite(person);
@@ -352,6 +355,16 @@ public partial class MainWindow : Window
         ReportsList.ItemsSource = context.ImportedReports;
         ReportCount.Text = $"Imported reports: {context.ImportedReports.Count} (selected population, not a full-company count)";
         ShowProfileTimeline(person.Email);
+    }
+    private void ShowReportingSummary(ReportingSummary? summary)
+    {
+        ReportingStructureValue.Text = summary is null ? "" :
+            string.Join(", ", new[] { $"{summary.Total} total" }.Concat(
+                summary.Categories.Select(count => $"{count.Count} {count.Category.PluralDisplayName}")));
+        ReportingStructureSlot.Visibility = summary is null ? Visibility.Collapsed : Visibility.Visible;
+        // WrapPanel's fixed ItemWidth reserves space even for a collapsed child.
+        if (summary is null) FactsGrid.Children.Remove(ReportingStructureSlot);
+        else if (!FactsGrid.Children.Contains(ReportingStructureSlot)) FactsGrid.Children.Insert(1, ReportingStructureSlot);
     }
     private void NavigateManager(object sender, RoutedEventArgs e)
     {

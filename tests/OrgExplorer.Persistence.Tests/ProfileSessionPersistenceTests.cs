@@ -22,6 +22,112 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
 
     [Fact]
+    public void Reporting_counts_reopen_from_current_people_with_archived_descendants_and_private_context_retained()
+    {
+        using (var app = Open())
+        {
+            SeedReporting(app);
+            SetTeamName(app, "morgan@example.com", "Private platform");
+            Assert.NotNull(app.CreatePersonNote(Email, "Private", "# Saved context"));
+            Assert.True(app.EditFavorite(Email, true));
+            AssertReporting(app, "riley@example.com", 4, 3, 1);
+            AssertReporting(app, "morgan@example.com", 3, 2, 1);
+            Assert.True(app.EditPersonArchived("leaf@example.com", true), app.Status);
+        }
+        using (var reopened = Reopen())
+        {
+            AssertReporting(reopened, "riley@example.com", 3, 2, 1);
+            AssertReporting(reopened, "morgan@example.com", 2, 1, 1);
+            Assert.Null(reopened.GetRelationships("v-middle@example.com")!.ReportingSummary);
+            Assert.True(reopened.EditPersonArchived("v-middle@example.com", true), reopened.Status);
+            Assert.True(reopened.EditPersonArchived(Email, true), reopened.Status);
+        }
+        using var dormant = Reopen();
+        AssertReporting(dormant, "riley@example.com", 1, 1, 0);
+        Assert.Null(dormant.GetRelationships("morgan@example.com")!.ReportingSummary);
+        Assert.Null(dormant.GetRelationships("v-middle@example.com")!.ReportingSummary);
+        Assert.Equal("Private platform", dormant.GetRelationships("morgan@example.com")!.Person.TeamName);
+        Assert.Equal("# Saved context", Assert.Single(dormant.GetPersonNotes(Email)).Markdown);
+        Assert.True(dormant.GetRelationships(Email)!.Person.IsFavorite);
+        Assert.True(dormant.EditPersonArchived(Email, false), dormant.Status);
+        AssertReporting(dormant, "morgan@example.com", 1, 1, 0);
+    }
+
+    [Fact]
+    public void External_reporting_delivery_refreshes_the_selected_profile_and_ancestors_without_losing_note_writing()
+    {
+        using var app = Open();
+        SeedReporting(app);
+        const string owner = "morgan@example.com";
+        const string ancestor = "riley@example.com";
+        SetTeamName(app, ancestor, "Saved ancestor");
+        Assert.True(app.NavigatePerson(owner));
+        var note = app.CreatePersonNote(owner, "Private", "# Saved context")!;
+        var draft = app.BeginNoteDraft(NoteScope.Person, owner, note.Id)!;
+        app.RetainNoteDraft(draft);
+        var notifications = 0;
+        app.WorkspaceChanged += (_, _) => notifications++;
+        AssertReporting(app, owner, 3, 2, 1);
+        using (var provider = Reopen())
+        {
+            var review = provider.PreviewImport($$"""
+                {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"v-middle@example.com","managerEmail":"riley@example.com"},
+                 {"email":"avery@example.com","archived":true}]}
+                """);
+            Assert.True(review.CanApply, provider.Status);
+            Assert.True(provider.ApplyImport(review.Id), provider.Status);
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal(owner, app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.ReportingSummary);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.Equal("Saved ancestor", Assert.Single(app.GetTeamNames(owner)).Name);
+        Assert.False(app.CanSafelyClose);
+        using (var provider = Reopen())
+        {
+            Assert.True(provider.EditPersonArchived(Email, false), provider.Status);
+            Assert.True(provider.EditPersonManager("v-middle@example.com", owner), provider.Status);
+        }
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        AssertReporting(app, app.PeopleNavigation.SelectedEmail!, 3, 2, 1);
+        AssertReporting(app, ancestor, 4, 3, 1);
+        Deliver("v-middle@example.com", "managerEmail", "missing@example.com");
+        Assert.False(app.RefreshWorkspace());
+        AssertReporting(app, owner, 3, 2, 1);
+        AssertReporting(app, ancestor, 4, 3, 1);
+        Deliver("v-middle@example.com", "managerEmail", owner);
+        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
+        Assert.True(notifications > 0);
+        using var reopened = Reopen();
+        AssertReporting(reopened, owner, 3, 2, 1);
+        AssertReporting(reopened, ancestor, 4, 3, 1);
+        Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(owner)).Markdown);
+        Assert.Equal("Saved ancestor", Assert.Single(reopened.GetTeamNames(owner)).Name);
+    }
+
+    private static void SeedReporting(WorkspaceViewModel app)
+    {
+        var review = app.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"morgan@example.com","managerEmail":"riley@example.com"},
+             {"email":"v-middle@example.com","displayName":"Vendor middle","managerEmail":"morgan@example.com"},
+             {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-middle@example.com"}]}
+            """);
+        Assert.True(review.CanApply, app.Status);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+    }
+
+    private static void AssertReporting(IApplicationWorkflow app, string email, int total, int employees, int vendors)
+    {
+        var summary = Assert.IsType<ReportingSummary>(app.GetRelationships(email)!.ReportingSummary);
+        Assert.Equal(total, summary.Total);
+        Assert.Equal(new[] { ("Employees", employees), ("Vendors", vendors) },
+            summary.Categories.Select(count => (count.Category.PluralDisplayName, count.Count)));
+    }
+
+    [Fact]
     public void Category_reopens_for_managers_and_archived_contributors_with_unrelated_private_context_intact()
     {
         using (var app = Open())
