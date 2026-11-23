@@ -25,8 +25,24 @@ if (!$ExpectedRevision -or $revision -cne $ExpectedRevision -or
     $env:GITHUB_SHA -cne $revision -or !$env:GITHUB_RUN_ID -or !$env:GITHUB_RUN_ATTEMPT) {
     throw 'Passive capture requires the exact dispatched diagnostic source, run and attempt.'
 }
-if ((Read-GitIdentity 'HEAD^') -cne $shipping) {
-    throw 'The isolated diagnostic commit must be a single direct child of the untouched shipping candidate.'
+$firstDiagnostic = '4229987d54c0d060f233fd88beb5556884f0381e'
+$firstTree = 'e36bf9945c36b288099a42175a9d9e69494948ca'
+$rawChain = @(& git -C $root rev-list --parents "$shipping..HEAD")
+if ($LASTEXITCODE -ne 0 -or !$rawChain.Count) { throw 'Cannot establish the exact isolated diagnostic ancestry.' }
+$chain = [Collections.Generic.List[object]]::new()
+$expected = $revision
+foreach ($line in $rawChain) {
+    $parts = $line.Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+    if ($parts.Length -ne 2 -or $parts[0] -cne $expected -or
+        $parts[0] -cnotmatch '^[0-9a-f]{40}$' -or $parts[1] -cnotmatch '^[0-9a-f]{40}$') {
+        throw 'Diagnostic source must be an exactly pinned linear chain without merges.'
+    }
+    $chain.Add(@{ revision = $parts[0]; parent = $parts[1]; tree = Read-GitIdentity "$($parts[0])`^{tree}" })
+    $expected = $parts[1]
+}
+if ($expected -cne $shipping -or $chain[$chain.Count - 1].revision -cne $firstDiagnostic -or
+    $chain[$chain.Count - 1].tree -cne $firstTree) {
+    throw 'Diagnostic ancestry must reach immutable shipping only through the known first diagnostic commit.'
 }
 foreach ($key in $pins.Keys) {
     $object = switch ($key) {
@@ -44,13 +60,14 @@ if (!$directory.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringCom
 $correlation = Join-Path $directory 'correlation'
 New-Item -ItemType Directory -Path $correlation -Force | Out-Null
 $binding = @{
-    schema = 1; diagnosticOnly = $true; purpose = 'One passive correlation capture; NEVER release or complete acceptance evidence'
+    schema = 2; diagnosticOnly = $true; purpose = 'One passive correlation capture; NEVER release or complete acceptance evidence'
     sourceRevision = $revision; sourceTree = Read-GitIdentity 'HEAD^{tree}'
     reviewedDiagnosticRevision = $ExpectedRevision
     sourceSrc = Read-GitIdentity 'HEAD:src'; sourceTests = Read-GitIdentity 'HEAD:tests'; sourceEng = Read-GitIdentity 'HEAD:eng'
     sourceCiWorkflow = Read-GitIdentity 'HEAD:.github/workflows/ci.yml'
     sourceScaleWorkflow = Read-GitIdentity 'HEAD:.github/workflows/scale-verification.yml'
     shippingRevision = $shipping; shipping = $pins
+    firstDiagnosticRevision = $firstDiagnostic; diagnosticChain = @($chain.ToArray())
     mainRevision = '53bd82496bbc0e64c041470c2e1b4ed90b577776'
     runId = $env:GITHUB_RUN_ID; runAttempt = $env:GITHUB_RUN_ATTEMPT; worker = $Worker
     setupInclusiveBudgetSeconds = if ($Worker -ceq 'workspace') { 900 } else { 660 }

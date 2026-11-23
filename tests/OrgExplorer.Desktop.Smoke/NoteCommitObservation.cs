@@ -110,11 +110,13 @@ internal sealed class NoteCommitObservation
 
     private void Stop(Exception? primary)
     {
+        var complete = false;
         stopped.Cancel();
         try
         {
             if (observed.GetAwaiter().GetResult() is null && primary is null)
                 throw new InvalidOperationException("The durable-note observation was cancelled, not confirmed saved.");
+            complete = primary is null;
         }
         catch (Exception secondary) when (primary is not null)
         {
@@ -125,6 +127,11 @@ internal sealed class NoteCommitObservation
                 catch (Exception reporting) { primary.Data["NoteCommitObservationReportingFailure"] = reporting; }
             }
         }
-        finally { stopped.Dispose(); }
+        finally
+        {
+            PassiveSaveCapture.EmitSample(PassiveSaveStage.HarnessSampleClosed,
+                outcome: complete ? PassiveSaveOutcome.Completed : PassiveSaveOutcome.Failed);
+            stopped.Dispose();
+        }
     }
 }

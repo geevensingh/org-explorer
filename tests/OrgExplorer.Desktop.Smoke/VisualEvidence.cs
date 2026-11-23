@@ -31,7 +31,9 @@ internal static partial class Program
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
         var captureId = Guid.NewGuid();
-        void Mark(PassiveSaveStage stage, uint? dpi = null) => PassiveSaveCapture.Emit(new(stage, Phase: captureId,
+        void Mark(PassiveSaveStage stage, uint? dpi = null) => PassiveSaveCapture.Emit(new(stage,
+            Scope: PassiveSaveCapture.Sample?.Scope, Note: PassiveSaveCapture.Sample?.Note,
+            Sample: PassiveSaveCapture.Sample?.Sample, Phase: captureId,
             HeldOperation: PassiveSaveCapture.HeldOperation, Dpi: dpi));
         Mark(PassiveSaveStage.CaptureGeometryBegin);
         var desktop = new Rect(GetSystemMetrics(76), GetSystemMetrics(77),

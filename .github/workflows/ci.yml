@@ -92,7 +92,7 @@ jobs:
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ inputs.run_passive_save_diagnostics && 2 || 1 }}
+          fetch-depth: ${{ inputs.run_passive_save_diagnostics && '0' || '1' }}
       - name: Bind isolated diagnostic source before building
         if: ${{ inputs.run_passive_save_diagnostics }}
         env:
@@ -112,8 +112,8 @@ jobs:
             .ci-results/desktop-${{ matrix.partition }}/*.json
             .ci-results/desktop-${{ matrix.partition }}/*.log
             .ci-results/desktop-${{ matrix.partition }}/*.png
-            .ci-results/desktop-${{ matrix.partition }}/correlation/*.jsonl
-            .ci-results/desktop-${{ matrix.partition }}/correlation/*.json
+            .ci-results/desktop-${{ matrix.partition }}/correlation/**/*.jsonl
+            .ci-results/desktop-${{ matrix.partition }}/correlation/**/*.json
 
   high-resolution:
     if: ${{ !inputs.run_passive_save_diagnostics }}

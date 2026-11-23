@@ -18,10 +18,12 @@ internal enum PassiveSaveStage
     CaptureAllocationBegin, CaptureAllocationEnd, CaptureBitBltBegin, CaptureBitBltEnd,
     CaptureCopyBegin, CaptureCopyEnd, CapturePngBegin, CapturePngEnd, CaptureCleanupBegin,
     CaptureCleanupEnd, CaptureIdentityBegin, CaptureIdentityEnd, CaptureMetadataBegin,
-    CaptureMetadataEnd, CaptureFailed
+    CaptureMetadataEnd, CaptureFailed, HarnessSampleClosed, HeldScopeBegin, HeldScopeEnd,
+    HeldSnapshotObserved, HeldObservationClosed
 }
 
 internal enum PassiveSaveFeedback { Other, Pending, ScopedLocalSave, TeamConfirmed, Published, LocalOnly }
+internal enum PassiveSaveOutcome { Completed, Failed, Cancelled }
 
 internal sealed record PassiveSaveFact(PassiveSaveStage Stage, NoteScope? Scope = null, Guid? Note = null,
     string? OwnerDigest = null, Guid? Incarnation = null, long? Generation = null, Guid? SaveCall = null,
@@ -30,7 +32,9 @@ internal sealed record PassiveSaveFact(PassiveSaveStage Stage, NoteScope? Scope 
     Guid? Phase = null, WorkspaceStoragePhaseKind? PhaseKind = null, int? Sample = null,
     int? ContinuedInput = null, string? RequestDigest = null, PassiveSaveFeedback? Feedback = null,
     Guid? SelectedNote = null, Guid? DisplayedNote = null, string? DisplayedOwnerDigest = null,
-    bool? Predicate = null, bool? InputReturned = null, Guid? HeldOperation = null, string? PrefixDigest = null, uint? Dpi = null)
+    bool? Predicate = null, bool? InputReturned = null, Guid? HeldOperation = null, string? PrefixDigest = null, uint? Dpi = null,
+    PassiveSaveOutcome? Outcome = null, long? KnownTransactionAt = null, long? HoldEndedAt = null,
+    long? CompletedAt = null, bool? HoldExpired = null, long? ObservedFrequency = null, int? ObservedProcessId = null)
 {
     [JsonIgnore] internal long? SourceTimestamp { get; init; }
 }
@@ -72,7 +76,22 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
     private readonly string? diagnosticPath;
     private readonly Thread drain;
     private readonly ManualResetEventSlim drained = new();
-    private long sequence, dropped, overflow, failures, identityFailures, firstProtectedAt;
+    private long sequence, dropped, overflow, failures, identityFailures, firstProtectedAt, attempted, filtered, emitted;
+    private readonly long[] attemptedStages = new long[Enum.GetValues<PassiveSaveStage>().Length];
+    private readonly long[] filteredStages = new long[Enum.GetValues<PassiveSaveStage>().Length];
+    private readonly long[] emittedStages = new long[Enum.GetValues<PassiveSaveStage>().Length];
+    private readonly long[] droppedStages = new long[Enum.GetValues<PassiveSaveStage>().Length];
+    private readonly long[] overflowStages = new long[Enum.GetValues<PassiveSaveStage>().Length];
+    private sealed class FiniteScope
+    {
+        internal long Attempted, Emitted, Dropped, Overflow;
+    }
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, FiniteScope> finiteScopes = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> callScopes = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> heldCommitScopes = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, Guid> adopting = new();
+    private readonly PassiveFiniteLimits finiteLimits = new();
+    private int scopeReservations;
     private int stopped, nativeRequested;
     private readonly bool previousGlobalLock;
     private readonly string clockDomain;
@@ -218,7 +237,7 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
             fact.PhaseKind is { } phase && !Enum.IsDefined(phase) ||
             fact.Feedback is { } feedback && !Enum.IsDefined(feedback) ||
             !IsDigest(fact.OwnerDigest) || !IsDigest(fact.DisplayedOwnerDigest) || !IsDigest(fact.RequestDigest) ||
-            !IsDigest(fact.PrefixDigest))
+            !IsDigest(fact.PrefixDigest) || fact.Outcome is { } outcome && !Enum.IsDefined(outcome))
         {
             capture.RefuseFact();
             return;
@@ -236,12 +255,12 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
     }
 
     internal static void EmitSample(PassiveSaveStage stage, int? input = null, string? requestDigest = null,
-        bool? predicate = null, bool? inputReturned = null)
+        bool? predicate = null, bool? inputReturned = null, PassiveSaveOutcome? outcome = null)
     {
         if (Sample is not { } value) return;
         Emit(new(stage, value.Scope, value.Note, value.OwnerDigest, Sample: value.Sample,
             ContinuedInput: input, RequestDigest: requestDigest ?? value.RequestDigest,
-            Predicate: predicate, InputReturned: inputReturned, PrefixDigest: value.RequestDigest));
+            Predicate: predicate, InputReturned: inputReturned, PrefixDigest: value.RequestDigest, Outcome: outcome));
     }
 
     public override void Write(string? message) { }
@@ -249,21 +268,136 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
     public override void WriteLine(object? value, string? category)
     {
         if (category != Category || value is not PassiveSaveFact fact) return;
+        Interlocked.Increment(ref attempted);
+        Interlocked.Increment(ref attemptedStages[(int)fact.Stage]);
+        if (fact.Stage == PassiveSaveStage.SaveSubmitted && callScopes.Count >= finiteLimits.Scopes)
+        {
+            Interlocked.Increment(ref sequence);
+            Interlocked.Increment(ref dropped);
+            Interlocked.Increment(ref overflow);
+            Interlocked.Increment(ref droppedStages[(int)fact.Stage]);
+            Interlocked.Increment(ref overflowStages[(int)fact.Stage]);
+            return;
+        }
+        var sourceScope = ScopeFor(fact);
+        if (sourceScope is null)
+        {
+            Interlocked.Increment(ref filtered);
+            Interlocked.Increment(ref filteredStages[(int)fact.Stage]);
+            return;
+        }
+        if (!finiteScopes.TryGetValue(sourceScope, out var scope))
+        {
+            if (Interlocked.Increment(ref scopeReservations) > finiteLimits.Scopes)
+            {
+                Interlocked.Decrement(ref scopeReservations);
+                Interlocked.Increment(ref dropped);
+                Interlocked.Increment(ref overflow);
+                Interlocked.Increment(ref droppedStages[(int)fact.Stage]);
+                Interlocked.Increment(ref overflowStages[(int)fact.Stage]);
+                return;
+            }
+            var candidate = new FiniteScope();
+            scope = finiteScopes.GetOrAdd(sourceScope, candidate);
+            if (!ReferenceEquals(scope, candidate)) Interlocked.Decrement(ref scopeReservations);
+        }
+        var scopedSequence = Interlocked.Increment(ref scope.Attempted);
         var index = Interlocked.Increment(ref sequence);
         var record = new PassiveSaveRecord(1, index, pid, processStart, Environment.CurrentManagedThreadId,
             Stopwatch.Frequency, fact.SourceTimestamp ?? Stopwatch.GetTimestamp(), role, clockDomain, true, fact);
         if (fact.Stage is PassiveSaveStage.DraftUpdated or PassiveSaveStage.SaveSubmitted or PassiveSaveStage.RequestBegin)
             Interlocked.CompareExchange(ref firstProtectedAt, record.QpcTicks, 0);
-        if (index > Capacity || Volatile.Read(ref stopped) != 0 || !pending.Writer.TryWrite(record))
+        if (index > finiteLimits.ProcessRecords || scopedSequence > finiteLimits.ScopeRecords || Volatile.Read(ref stopped) != 0)
         {
             Interlocked.Increment(ref dropped);
-            if (index > Capacity || Volatile.Read(ref stopped) == 0) Interlocked.Increment(ref overflow);
+            Interlocked.Increment(ref scope.Dropped);
+            Interlocked.Increment(ref overflow);
+            Interlocked.Increment(ref scope.Overflow);
+            Interlocked.Increment(ref droppedStages[(int)fact.Stage]);
+            Interlocked.Increment(ref overflowStages[(int)fact.Stage]);
+            return;
         }
+        Interlocked.Increment(ref scope.Emitted);
+        Interlocked.Increment(ref emitted);
+        Interlocked.Increment(ref emittedStages[(int)fact.Stage]);
+        var counts = new PassiveFiniteCounts(Interlocked.Read(ref scope.Attempted), Interlocked.Read(ref scope.Emitted),
+            0, Interlocked.Read(ref scope.Dropped), Interlocked.Read(ref scope.Overflow), Interlocked.Read(ref failures));
+        var close = fact.Stage is PassiveSaveStage.SaveAccepted or PassiveSaveStage.FeedbackWrite or
+            PassiveSaveStage.HarnessSampleClosed or PassiveSaveStage.CaptureMetadataEnd or PassiveSaveStage.HeldScopeEnd or
+            PassiveSaveStage.HeldObservationClosed ||
+            fact.Stage == PassiveSaveStage.ActualCommit && fact.PhaseKind != WorkspaceStoragePhaseKind.Begin &&
+                sourceScope.StartsWith("held:", StringComparison.Ordinal);
+        var processCounts = new PassiveFiniteCounts(Interlocked.Read(ref attempted), Interlocked.Read(ref emitted),
+            Interlocked.Read(ref filtered), Interlocked.Read(ref dropped), Interlocked.Read(ref overflow), Interlocked.Read(ref failures));
+        var accounting = close ? Enum.GetValues<PassiveSaveStage>().ToDictionary(stage => stage.ToString(),
+            stage => new PassiveFiniteCounts(Interlocked.Read(ref attemptedStages[(int)stage]),
+                Interlocked.Read(ref emittedStages[(int)stage]), Interlocked.Read(ref filteredStages[(int)stage]),
+                Interlocked.Read(ref droppedStages[(int)stage]), Interlocked.Read(ref overflowStages[(int)stage]), 0)) : null;
+        if (!pending.Writer.TryWrite(new PassiveFiniteEnvelope(record, sourceScope, scopedSequence, counts, close, processCounts, accounting)))
+        {
+            Interlocked.Decrement(ref scope.Emitted);
+            Interlocked.Decrement(ref emitted);
+            Interlocked.Decrement(ref emittedStages[(int)fact.Stage]);
+            Interlocked.Increment(ref dropped);
+            Interlocked.Increment(ref scope.Dropped);
+            Interlocked.Increment(ref overflow);
+            Interlocked.Increment(ref scope.Overflow);
+            Interlocked.Increment(ref droppedStages[(int)fact.Stage]);
+            Interlocked.Increment(ref overflowStages[(int)fact.Stage]);
+        }
+        if (fact.Stage == PassiveSaveStage.SaveAccepted && fact.SaveCall is { } returned) callScopes.TryRemove(returned, out _);
+    }
+
+    private string? ScopeFor(PassiveSaveFact fact)
+    {
+        var vm = fact.Stage is PassiveSaveStage.DraftUpdated or PassiveSaveStage.SaveSubmitted or
+            PassiveSaveStage.SaveReturned or PassiveSaveStage.SaveAccepted;
+        if (role is "rich-harness" or "workspace-harness" &&
+            (vm || fact.Stage == PassiveSaveStage.ActualCommit && fact.HeldOperation is null &&
+                !(fact.Phase is { } heldPhase && heldCommitScopes.ContainsKey(heldPhase))))
+            return null;
+        if (vm && fact.Scope is { } kind && fact.Note is { } note && fact.Incarnation is { } incarnation)
+        {
+            var key = $"note:{kind}:{note:N}:{incarnation:N}";
+            if (fact.Stage == PassiveSaveStage.SaveSubmitted && fact.SaveCall is { } call)
+            {
+                callScopes[call] = key;
+            }
+            return key;
+        }
+        if (fact.Stage == PassiveSaveStage.ActualCommit)
+        {
+            if (fact.SaveCall is { } call && callScopes.TryGetValue(call, out var key)) return key;
+            if (fact.HeldOperation is { } held) return "held:" + held.ToString("N");
+            if (fact.Phase is { } phase && heldCommitScopes.TryGetValue(phase, out key)) return key;
+            return null;
+        }
+        if (fact.HeldOperation is { } operation) return "held:" + operation.ToString("N");
+        if (fact.Stage == PassiveSaveStage.FeedbackWrite) return "presentation:" + fact.Scope;
+        if (fact.Sample is { } sampleIndex && fact.Note is { } sampleNote)
+            return $"sample:{fact.Scope}:{sampleNote:N}:{sampleIndex}";
+        if (fact.Phase is { } capture) return "capture:" + capture.ToString("N");
+        return "support";
+    }
+
+    internal static void KnownHeldCommit(WorkspaceStoragePhase phase)
+    {
+        if (Current is not { } capture) return;
+        capture.heldCommitScopes[phase.Id] = "held:" + phase.Id.ToString("N");
+        Emit(new(PassiveSaveStage.ActualCommit, Phase: phase.Id, PhaseKind: phase.Kind, HeldOperation: phase.Id)
+        { SourceTimestamp = phase.DiagnosticTimestamp == 0 ? null : phase.DiagnosticTimestamp });
     }
 
     public void Observe(WorkspaceFileEffect effect) { }
     public void ObservePhase(WorkspaceStoragePhase phase)
     {
+        if (phase.Name == "snapshot.adopt-commit")
+        {
+            if (phase.Kind == WorkspaceStoragePhaseKind.Begin) adopting[Environment.CurrentManagedThreadId] = phase.Id;
+            Emit(new(phase.Kind == WorkspaceStoragePhaseKind.Begin ? PassiveSaveStage.HeldScopeBegin : PassiveSaveStage.HeldScopeEnd,
+                HeldOperation: phase.Id, PhaseKind: phase.Kind));
+            if (phase.Kind != WorkspaceStoragePhaseKind.Begin) adopting.TryRemove(Environment.CurrentManagedThreadId, out _);
+        }
         if (phase.Name is "local-sqlite-commit" or "snapshot.adopt-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
             Interlocked.CompareExchange(ref firstProtectedAt, Stopwatch.GetTimestamp(), 0);
         if (phase.Name == "local-sqlite-read-snapshot" && phase.Kind == WorkspaceStoragePhaseKind.Begin &&
@@ -274,8 +408,10 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
         }
         if (phase.Name != "local-sqlite-commit") return;
         Emit(new(PassiveSaveStage.ActualCommit, SaveCall: Trace.CorrelationManager.ActivityId is var call &&
-            call != Guid.Empty ? call : null, Phase: phase.Id, PhaseKind: phase.Kind)
+            call != Guid.Empty ? call : null, Phase: phase.Id, PhaseKind: phase.Kind,
+            HeldOperation: adopting.TryGetValue(Environment.CurrentManagedThreadId, out var held) ? held : null)
         { SourceTimestamp = phase.DiagnosticTimestamp == 0 ? null : phase.DiagnosticTimestamp });
+        if (phase.Kind != WorkspaceStoragePhaseKind.Begin) heldCommitScopes.TryRemove(phase.Id, out _);
     }
 
     private void Drain()
@@ -284,6 +420,7 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
         {
             using (var stream = output())
             using (var writer = new StreamWriter(stream, new UTF8Encoding(false), 16384))
+            using (var finite = diagnosticPath is null ? null : new PassiveFiniteCapture(diagnosticPath + "-finite", processIdentity))
             {
                 Write(processIdentity);
                 while (pending.Reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
@@ -296,7 +433,7 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                             if (Interlocked.Read(ref firstProtectedAt) != 0)
                             {
                                 Interlocked.Increment(ref identityFailures);
-                                Write(new
+                                var nativeIdentity = new
                                 {
                                     schema = 1,
                                     stage = "diagnostic-native-incomplete",
@@ -305,7 +442,9 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                     processStartUtcTicks = processStart,
                                     role,
                                     reason = "ProtectedIntervalAlreadyBegan"
-                                });
+                                };
+                                Write(nativeIdentity);
+                                finite?.Identity(nativeIdentity);
                             }
                             else
                             {
@@ -316,7 +455,7 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                 if (modules.Length != 1)
                                 {
                                     Interlocked.Increment(ref identityFailures);
-                                    Write(new
+                                    var loadedNativeIdentity = new
                                     {
                                         schema = 1,
                                         stage = "diagnostic-native-incomplete",
@@ -325,7 +464,9 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                         processStartUtcTicks = processStart,
                                         role,
                                         reason = "LoadedModuleIdentityUnknown"
-                                    });
+                                    };
+                                    Write(loadedNativeIdentity);
+                                    finite?.Identity(loadedNativeIdentity);
                                 }
                                 else
                                 {
@@ -339,7 +480,7 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                         "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76" &&
                                         moduleSha256 == "922AB7FF7E47EF2694CA5F62ADBEFCC44C637BF5D082488C286816ED5D06363F";
                                     if (!outsideProtectedInterval || !matchesPin) Interlocked.Increment(ref identityFailures);
-                                    Write(new
+                                    var validNativeIdentity = new
                                     {
                                         schema = 1,
                                         stage = "diagnostic-loaded-sqlite",
@@ -356,12 +497,15 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                         moduleSha256,
                                         outsideProtectedInterval,
                                         matchesPin
-                                    });
+                                    };
+                                    Write(validNativeIdentity);
+                                    finite?.Identity(validNativeIdentity);
                                 }
                             }
                         }
                         else if (item is DesktopIdentityRequest loaded)
-                            Write(new
+                        {
+                            var desktopIdentity = new
                             {
                                 schema = 1,
                                 stage = "diagnostic-controlled-desktop-identity",
@@ -371,7 +515,15 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                                 role,
                                 clockDomain,
                                 desktop = loaded.Identity
-                            });
+                            };
+                            Write(desktopIdentity);
+                            finite?.Identity(desktopIdentity);
+                        }
+                        else if (item is PassiveFiniteEnvelope value)
+                        {
+                            Write(value.Record);
+                            finite?.Append(value);
+                        }
                         else Write(item);
                     writer.Flush();
                 }
@@ -390,12 +542,29 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                     overflow,
                     outputFailures = failures,
                     identityFailures,
+                    attempted,
+                    filtered,
+                    stageAccounting = Enum.GetValues<PassiveSaveStage>().ToDictionary(stage => stage.ToString(),
+                        stage => new
+                        {
+                            attempted = Interlocked.Read(ref attemptedStages[(int)stage]),
+                            emitted = Interlocked.Read(ref emittedStages[(int)stage]),
+                            filtered = Interlocked.Read(ref filteredStages[(int)stage]),
+                            dropped = Interlocked.Read(ref droppedStages[(int)stage]),
+                            overflow = Interlocked.Read(ref overflowStages[(int)stage]),
+                            outputFailureStage = "Unattributed; see process count"
+                        }),
                     nativeIdentityRequested = nativeRequested != 0,
                     diagnosticsComplete = dropped == 0 && overflow == 0 && failures == 0 && identityFailures == 0
                 });
                 writer.Flush();
 
-                void Write(object value) => writer.WriteLine(JsonSerializer.Serialize(value, Json));
+                void Write(object value)
+                {
+                    var line = JsonSerializer.Serialize(value, Json);
+                    finite?.WholeStreamBytes(Encoding.UTF8.GetByteCount(line) + 1);
+                    writer.WriteLine(line);
+                }
             }
             // A footer written before a failed Flush/Close is not complete transport evidence.
             if (diagnosticPath is not null)
@@ -412,6 +581,8 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                     overflow,
                     outputFailures = failures,
                     identityFailures,
+                    attempted,
+                    filtered,
                     diagnosticsComplete = dropped == 0 && overflow == 0 && failures == 0 && identityFailures == 0
                 }, Json));
         }
@@ -458,6 +629,12 @@ internal sealed class PassiveSaveCapture : TraceListener, IWorkspaceFileObserver
                 !group.OrderBy(record => record.Sequence).Select(record => record.Sequence)
                     .SequenceEqual(Enumerable.Range(1, group.Count()).Select(value => (long)value))))
             return null;
+        return FindPrefixCommitFacts(records, targetRole, note, prefixDigest);
+    }
+
+    internal static PassiveCommitLink? FindPrefixCommitFacts(IReadOnlyList<PassiveSaveRecord> records,
+        string targetRole, Guid note, string prefixDigest)
+    {
         var requests = records.Where(record => record.Fact.Stage == PassiveSaveStage.RequestBegin &&
             record.Fact.Note == note && record.Fact.RequestDigest == prefixDigest).ToArray();
         if (requests.Length != 1) return null;

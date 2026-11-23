@@ -160,12 +160,21 @@ internal static class HeldSnapshotAdoption
         var started = Stopwatch.GetTimestamp();
         Exception? failure = null;
         Guid? operation = null;
+        void ObserveSnapshot(SnapshotAdoptionCommitState? state, bool? predicate = null)
+        {
+            if (state is null) return;
+            PassiveSaveCapture.Emit(new(PassiveSaveStage.HeldSnapshotObserved, HeldOperation: state.OperationId,
+                PhaseKind: state.Kind, Predicate: predicate, KnownTransactionAt: state.KnownTransactionAt,
+                HoldEndedAt: state.HoldEndedAt, CompletedAt: state.CompletedAt, HoldExpired: state.HoldExpired,
+                ObservedFrequency: state.TimestampFrequency, ObservedProcessId: state.ProcessId));
+        }
         void Record(string stage)
         {
             var timestamp = Stopwatch.GetTimestamp();
             var state = control.Read();
             observation.Milestones.Add(new(stage, timestamp, Stopwatch.GetElapsedTime(started, timestamp).TotalMilliseconds,
                 state?.OperationId, state?.Held == true, state?.Kind == WorkspaceStoragePhaseKind.End && state.CompletedAt != 0, state));
+            ObserveSnapshot(state);
         }
         void Step(string name, Action action)
         {
@@ -180,6 +189,7 @@ internal static class HeldSnapshotAdoption
             var sameHeld = !(state?.OperationId != operation || state?.Held != true);
             observation.Milestones.Add(new(stage, timestamp, Stopwatch.GetElapsedTime(started, timestamp).TotalMilliseconds,
                 state?.OperationId, sameHeld, state?.Kind == WorkspaceStoragePhaseKind.End && state.CompletedAt != 0, state));
+            ObserveSnapshot(state, sameHeld);
             if (!sameHeld)
                 throw new InvalidOperationException("Native browsing/draft admission outlasted the actual held adoption Commit phase.");
         }
@@ -224,6 +234,10 @@ internal static class HeldSnapshotAdoption
             observation.DiagnosticErrorType = reportingError?.GetType().Name;
             try { report(observation); }
             catch (Exception error) { reportingError ??= error; }
+            if (operation is { } observedOperation)
+                PassiveSaveCapture.Emit(new(PassiveSaveStage.HeldObservationClosed, HeldOperation: observedOperation,
+                    Outcome: observation.Outcome == "Passed" && reportingError is null
+                        ? PassiveSaveOutcome.Completed : PassiveSaveOutcome.Failed));
             if (reportingError is not null)
             {
                 if (failure is not null)

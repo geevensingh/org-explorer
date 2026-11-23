@@ -7,8 +7,10 @@ $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name) }
 $source = 'd' * 40
 $shipping = 'cae977166df7327b4a2d268a10a20578adf338e6'
+$firstDiagnostic = '4229987d54c0d060f233fd88beb5556884f0381e'
+$chainLines = @("$source $firstDiagnostic", "$firstDiagnostic $shipping")
 $identities = @{
-    HEAD = $source; 'HEAD^' = $shipping
+    HEAD = $source; 'HEAD^' = $firstDiagnostic
     'HEAD^{tree}' = '1' * 40; 'HEAD:src' = '2' * 40; 'HEAD:tests' = '3' * 40; 'HEAD:eng' = '4' * 40
     'HEAD:.github/workflows/ci.yml' = '5' * 40; 'HEAD:.github/workflows/scale-verification.yml' = '6' * 40
     "$shipping`^{tree}" = 'ad625fa53e6592840e1e44e0bc5ef6e4ed65e9de'
@@ -16,6 +18,8 @@ $identities = @{
     "$shipping`:tests" = 'f5b7e1b303529af29c2a1e8a34a89cd5b00cc24d'
     "$shipping`:eng" = 'f0d4df23d4361e01fc5be4d32bfeeecba2211b7d'
     "$shipping`:.github/workflows/scale-verification.yml" = '019d5924de3378d077fac76abc8c04452846d18a'
+    "$source`^{tree}" = '1' * 40
+    "$firstDiagnostic`^{tree}" = 'e36bf9945c36b288099a42175a9d9e69494948ca'
 }
 try {
     $env:GITHUB_SHA = $source
@@ -25,6 +29,7 @@ try {
     $env:GITHUB_ENV = Join-Path $results 'owned-environment'
     # Replace only Git metadata in this support process. No hosted, UI or product command is invoked.
     function git {
+        if ($args -contains 'rev-list') { $global:LASTEXITCODE = 0; return $chainLines }
         $identity = $args[-1]
         if (!$identities.ContainsKey($identity)) { $global:LASTEXITCODE = 1; return }
         $global:LASTEXITCODE = 0
@@ -37,6 +42,7 @@ try {
         $budget = if ($worker -ceq 'workspace') { 900 } else { 660 }
         if (!$binding.diagnosticOnly -or $binding.sourceRevision -cne $source -or
             $binding.reviewedDiagnosticRevision -cne $source -or $binding.shippingRevision -cne $shipping -or
+            $binding.diagnosticChain.Count -ne 2 -or $binding.diagnosticChain[0].parent -cne $firstDiagnostic -or
             $binding.setupInclusiveBudgetSeconds -ne $budget -or $binding.runAttempt -cne '1') {
             throw 'An exact diagnostic source/budget/attempt binding was lost.'
         }
@@ -62,9 +68,14 @@ try {
     $env:GITHUB_RUN_ATTEMPT = ''
     Require-Refusal missing-attempt
     $env:GITHUB_RUN_ATTEMPT = '1'
-    $identities['HEAD^'] = 'e' * 40
+    $chainLines = @("$source $firstDiagnostic", "$firstDiagnostic $('e' * 40)")
     Require-Refusal wrong-shipping-parent
-    $identities['HEAD^'] = $shipping
+    $chainLines = @("$source $firstDiagnostic $shipping", "$firstDiagnostic $shipping")
+    Require-Refusal merged-diagnostic-chain
+    $chainLines = @("$source $firstDiagnostic", "$firstDiagnostic $shipping")
+    $identities["$firstDiagnostic`^{tree}"] = 'e' * 40
+    Require-Refusal altered-first-diagnostic-tree
+    $identities["$firstDiagnostic`^{tree}"] = 'e36bf9945c36b288099a42175a9d9e69494948ca'
     $identities["$shipping`:src"] = 'e' * 40
     Require-Refusal altered-shipping-source
     Remove-Item Function:\git
@@ -85,14 +96,14 @@ try {
     }
     $workspace = Job $ci desktop
     if (!$workspace.Contains('''[{"partition":"people"}]''') -or !$workspace.Contains('partition: [people, workspace]') -or
-        !$workspace.Contains('timeout-minutes: 15') -or !$workspace.Contains('inputs.run_passive_save_diagnostics && 2 || 1') -or
+        !$workspace.Contains('timeout-minutes: 15') -or !$workspace.Contains('inputs.run_passive_save_diagnostics && ''0'' || ''1''') -or
         !$workspace.Contains('LANE_STARTED_AT=') -or !$workspace.Contains('Run-CiLane.ps1 desktop -DesktopPartition ${{ matrix.partition }}') -or
         !$workspace.Contains('REVIEWED_DIAGNOSTIC_REVISION: ${{ inputs.diagnostic_revision }}')) {
         throw 'The exact original workspace invocation/setup budget or reviewed-pin gate changed.'
     }
     $prefix = Job $scale ui-scale-prefix
     if (!$prefix.Contains('timeout-minutes: 13') -or !$prefix.Contains('SCALE_STARTED_AT=') -or
-        !$prefix.Contains('inputs.passive_capture_only && 2 || 1') -or
+        !$prefix.Contains('inputs.passive_capture_only && ''0'' || ''1''') -or
         !$prefix.Contains('Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))') -or
         !$prefix.Contains('REVIEWED_DIAGNOSTIC_REVISION: ${{ inputs.reviewed_diagnostic_revision }}')) {
         throw 'The exact original prefix command/setup budget or reviewed-pin gate changed.'
@@ -107,7 +118,7 @@ try {
         !(Job $ci scale-verification).Contains('reviewed_diagnostic_revision: ${{ inputs.diagnostic_revision }}')) {
         throw 'Capture must use the registered ci.yml bridge at its exact reviewed diagnostic source.'
     }
-    Write-Host 'PASS: exact reviewed source/budgets/roles and four fail-closed binding cases; original two workers, no extra scale/union/release jobs.'
+    Write-Host 'PASS: exact reviewed linear source/budgets/roles and six fail-closed binding cases; original two workers, no extra scale/union/release jobs.'
 } finally {
     if (Test-Path Function:\git) { Remove-Item Function:\git }
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }

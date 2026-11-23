@@ -15,6 +15,8 @@ internal static partial class Program
     private static int Main(string[] args)
     {
         using var diagnostic = OrgExplorer.Workflow.PassiveSaveCapture.Install(
+            args.Length > 0 && args[0] is "--passive-exit-support" or "--passive-finite-work-support" or
+                "--passive-rich-count-support" or "--passive-rich-compiled-support" ? "support-test" :
             args.Length > 0 && args[0] == "--held-snapshot-fixture" ? "workspace-controlled-adoption-host" :
             args.Length > 0 && args[0] == "--rich-scale-snapshot-fixture" ? "rich-controlled-wpf-host" :
             args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--local-save-recovery-fixture" or "--workspace-exit-fixture"
@@ -23,6 +25,14 @@ internal static partial class Program
             Environment.GetEnvironmentVariable("ORG_EXPLORER_DIAGNOSTIC_WORKER") == "prefix" ? "rich-harness" : "workspace-harness");
         try
         {
+            if (args.Length > 0 && args[0] == "--passive-exit-support")
+                return RunPassiveExitSupport(args);
+            if (args.Length > 0 && args[0] == "--passive-rich-count-support")
+                return RunPassiveRichCountSupport(args);
+            if (args.Length > 0 && args[0] == "--passive-finite-work-support")
+                return RunPassiveFiniteWorkSupport(args);
+            if (args.Length == 3 && args[0] == "--passive-rich-compiled-support")
+                return VerifyHostedCutoverContracts(args[1], (type, root) => VerifyPassiveRichCompiledCounts(type, root, args[2]));
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
                 return RunLocalSaveRecoveryFixture(args);
             if (args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--rich-scale-snapshot-fixture")

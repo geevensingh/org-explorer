@@ -2549,7 +2549,8 @@ Every diagnostic result is nonaccepting, even when its original assertions pass.
 Only the existing `ci.yml` manual bridge may select the original workspace lane
 and original rich prefix together for this capture. `diagnostic_revision` must
 equal the reviewed full diagnostic SHA and the workflow/check-out SHA. The
-source binding checks its shipping parent and source/component pins before
+source binding checks immutable shipping, first diagnostic D1, every linear
+diagnostic parent/tree, and current source/component pins before
 building. The 900-second workspace and 660-second rich setup-inclusive budgets,
 15/13-minute watchdogs, all 21/20/42 samples, six 250-ms continued inputs,
 one-second nearest-rank durability p95, one-second actual adoption hold and
@@ -2557,12 +2558,34 @@ both same-held capture checks are unchanged. Tail, performance, acceptance
 union and release jobs are not selected. Push and the one dispatch require
 review of that exact pin; the source task itself does neither.
 
-The D-only observer/filtered Trace listener queues at most 4096 records per
-process without synchronous producer serialization or stream writes. Its owned
+The diagnostic-chain observer has a fixed 4096-record resident queue, not a
+whole-process lifetime ceiling. Irrelevant harness/setup VM/Commit facts are
+filtered with explicit per-stage/role accounting; genuinely held scopes and
+actual feedback writes remain. Limits are 32,768 records per scope, 262,144 per
+process, 256 scopes, 8,192 packets, 32 MiB per finite file and 128 MiB combined
+process output. Required overflow stays incomplete. No producer serialization
+or stream writes occur. Its owned
 drain records sequence/drop/overflow/output failures and writes a
 `.complete.json` marker only after stream Flush/Close; a footer alone is not
 complete transport evidence. Production exit never waits for diagnostic I/O,
-so termination without that marker remains incomplete. Startup component hashes
+so termination without that marker remains **whole-process incomplete**.
+Actual no-window Main lifecycle tests reproduce this race; a test that waits
+after Dispose is not production-exit evidence.
+
+Schema-2 `PassiveFiniteCapture` is a separate interface, never passed into the
+old `diagnosticsComplete` boolean. Immutable closed packets at natural VM
+accepted, actual feedback-write, existing harness sample/outcome, capture or
+held-scope completion points certify contiguous scoped ranges and explicit
+attempted/emitted/filtered/drop/overflow/output-failure accounting.
+Open/partial packets, absent identities/ranges, ambiguous lineage, missing
+original inputs or later target natural boundaries remain unknown. Verified
+earlier prefix Commit facts may be stated without claiming later target
+behavior. `ObservationCovered` certifies only these finite ranges through the
+native ACK plus the explicit harness closure, not the remaining process,
+native acceptance or release. No target fence, IPC, new queries, drain/exit
+waits, clock/assertion changes or relocated pixel checks are introduced.
+
+Startup component hashes
 and loaded-native identity have distinct process roles; the latter is requested
 only after that process's real SQLite initialization. A late or overlapping
 identity capture is explicitly incomplete, never a reason to warm up or wait.
@@ -2579,8 +2602,13 @@ and metadata operations. Post-capture expiry still fails regardless of when
 pixel copying finished. No timing overhead is subtracted or claimed absent.
 
 `PassiveSaveCaptureTests`, the held-adoption driver cases and
-`tests\PassiveSaveCapture.Tests.ps1` are non-UI support/refusal checks. They do
+`tests\PassiveSaveCapture.Tests.ps1`, `PassiveFiniteCaptureTests`,
+`tests\PassiveSaveCapture.Process.Tests.ps1` and
+`tests\PassiveFinite.Process.Tests.ps1` are non-UI support/refusal checks. They do
 not identify a hosted actor or prove release/complete native acceptance.
+The explicitly selected full-rich compiled producer replay exercises actual
+BAML/input/feedback/VM/SQLite paths, all 21 samples and owner-correct reopens
+without a native window. Its counts are not native-EXE/UIA latency proof.
 
 The complete workloads are outside required PR smoke, not removed:
 

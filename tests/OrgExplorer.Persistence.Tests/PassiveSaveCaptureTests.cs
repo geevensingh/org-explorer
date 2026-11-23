@@ -42,8 +42,8 @@ public sealed class PassiveSaveCaptureTests
             await Task.Run(() =>
             {
                 for (var index = 0; index <= PassiveSaveCapture.Capacity; index++)
-                    PassiveSaveCapture.Emit(new(PassiveSaveStage.ActualCommit, Phase: Guid.NewGuid(),
-                        PhaseKind: WorkspaceStoragePhaseKind.Begin));
+                    PassiveSaveCapture.Emit(new(PassiveSaveStage.NativePredicate, Sample: 0,
+                        Note: Guid.Parse("10000000-0000-4000-8000-000000000001")));
             }).WaitAsync(TimeSpan.FromSeconds(2));
             Assert.False(release.IsSet);
             Assert.True(capture.Dropped > 0);

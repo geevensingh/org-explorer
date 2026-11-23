@@ -17,6 +17,7 @@ internal static partial class Program
         public void ObservePhase(WorkspaceStoragePhase phase)
         {
             if (phase.Name != "local-sqlite-commit" || phase.Kind != WorkspaceStoragePhaseKind.Begin || !hold.WaitOne(0)) return;
+            PassiveSaveCapture.KnownHeldCommit(phase);
             entered.Set();
             if (!release.WaitOne(TimeSpan.FromSeconds(180)))
                 throw new IOException("The owned rich-profile transaction was not released.");
