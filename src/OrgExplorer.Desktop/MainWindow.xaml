@@ -826,7 +826,9 @@
                       AutomationProperties.AutomationId="ReportingStructure">
             <TextBlock Text="Reporting structure" Style="{StaticResource FactLabel}"
                        AutomationProperties.AutomationId="ReportingStructureLabel"/>
-            <TextBlock x:Name="ReportingStructureValue" TextWrapping="Wrap"
+            <TextBox x:Name="ReportingStructureValue" TextWrapping="Wrap" IsReadOnly="True"
+                     BorderThickness="0" Padding="0" Margin="0" MinHeight="0" Background="Transparent"
+                     HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
                        AutomationProperties.AutomationId="ReportingStructureValue"
                        AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}, StringFormat=Reporting structure: {0}}"/>
             <TextBlock x:Name="ReportingStructureScope" Text="Known current reports, all levels" TextWrapping="Wrap"

@@ -122,10 +122,14 @@ independence. The 12,000-report wide and 1,024-level deep cases prove uncapped
 counts, not either separate scale suite or a latency SLA. Real-folder cases
 reopen current counts and refresh selected profiles/ancestors while retaining
 private context and note writing. The existing invisible profile-refresh contract
-observes the ordinary zero-inclusive fact, accessible full text, placement,
-size matrix, delivered counts and eligibility changes without a native window.
+observes the ordinary zero-inclusive fact, its real read-only selectable
+TextPattern provider and final-category character layout, accessible full text,
+placement, size matrix, delivered counts and eligibility changes without a
+native window. The prior plain TextBlock had no TextPattern; source text and
+an outer control box alone cannot establish final-category glyph readability.
 Existing hosted profile, archival, external-refresh and responsive journeys
-observe actual fact text, wrapping, Team-first order and report destinations;
+observe every final count/category character's actual rendered text-range
+rectangles, fact text, wrapping, Team-first order and report destinations;
 those presentation and keyboard assertions require the hosted desktop lanes.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,

@@ -148,7 +148,10 @@ Immediately after Team name, show a compact `Reporting structure` fact when the
 selected Person has at least one current, non-archived direct report. Use the
 ordinary facts grid, not a separate card, chart, or large-number tiles. Put Total
 and every supported category count in short inline text, initially Total,
-Employees, and Vendors, including zero counts. Let the text wrap at narrow widths
+Employees, and Vendors, including zero counts. Only the count value uses a
+borderless, read-only selectable text control: selection and Copy are available,
+but the derived counts cannot be edited. Keep ordinary fact typography and
+content-sized spacing. Let the text wrap at narrow widths
 without reserving a separate row for each category. Add the scope hint
 `Known current reports, all levels`: counts cover imported Reporting descendants,
 exclude the selected manager, and do not establish company-directory completeness.

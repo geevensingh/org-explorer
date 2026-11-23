@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
+using System.Windows.Automation.Text;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -2611,11 +2612,11 @@ internal static partial class Program
         void ExpectSummary(string? counts)
         {
             if (window.FindName("ReportingStructureSlot") is not FrameworkElement slot ||
-                window.FindName("ReportingStructureValue") is not TextBlock value ||
+                window.FindName("ReportingStructureValue") is not TextBox value ||
                 window.FindName("ReportingStructureScope") is not TextBlock scope)
                 throw new InvalidOperationException("The compiled profile is missing its ordinary Reporting structure fact.");
             if (Presented(slot) != (counts is not null) || value.Text != (counts ?? "") ||
-                counts is not null && new TextBlockAutomationPeer(value).GetName() != $"Reporting structure: {counts}" ||
+                counts is not null && new TextBoxAutomationPeer(value).GetName() != $"Reporting structure: {counts}" ||
                 scope.Text != "Known current reports, all levels")
                 throw new InvalidOperationException("The compiled Reporting structure fact lost counts, accessible text, scope or eligibility.");
             if (counts is null) return;
@@ -2625,6 +2626,49 @@ internal static partial class Program
                 value.ActualWidth <= 0 || value.ActualHeight <= 0 ||
                 value.TranslatePoint(new Point(value.ActualWidth, 0), facts).X > facts.ActualWidth + 1)
                 throw new InvalidOperationException("Reporting structure must wrap compactly immediately after the first Team-name fact.");
+            if (UIElementAutomationPeer.CreatePeerForElement(value)?.GetPattern(PatternInterface.Text) is not ITextProvider text)
+                throw new InvalidOperationException("The compiled reporting value must expose a real TextPattern provider for final-category readability.");
+            var finalCategory = counts[(counts.LastIndexOf(", ", StringComparison.Ordinal) + 2)..];
+            var finalRange = text.DocumentRange.FindText(finalCategory, false, false);
+            if (text.DocumentRange.GetText(-1) != counts || finalRange is null || finalRange.GetText(-1) != finalCategory)
+                throw new InvalidOperationException("The actual reporting TextPattern must retain the complete count and final category.");
+            var peer = UIElementAutomationPeer.CreatePeerForElement(value)!;
+            if (peer.GetPattern(PatternInterface.Value) is not IValueProvider { IsReadOnly: true } readOnly ||
+                !value.IsReadOnly || !value.Focusable || !KeyboardNavigation.GetIsTabStop(value) ||
+                value.BorderThickness != new Thickness(0) || value.Padding != new Thickness(0) ||
+                value.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                value.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled)
+                throw new InvalidOperationException("Reporting counts must remain borderless, selectable and read-only without inner scrolling.");
+            var rejected = false;
+            try { readOnly.SetValue("Attempted reporting edit"); }
+            catch (InvalidOperationException) { rejected = true; }
+            value.SelectAll();
+            if (!rejected || value.Text != counts || value.SelectedText != counts)
+                throw new InvalidOperationException("Selecting reporting counts must not permit editing their derived value.");
+            value.Select(0, 0);
+            var ordinary = new TextBlock { Text = counts, TextWrapping = TextWrapping.Wrap,
+                FontFamily = value.FontFamily, FontSize = value.FontSize };
+            ordinary.Measure(new Size(value.ActualWidth, double.PositiveInfinity));
+            if (Math.Abs(value.ActualHeight - ordinary.DesiredSize.Height) > 1)
+                throw new InvalidOperationException("Selectable reporting counts must retain the ordinary fact's content-sized line spacing.");
+            var start = counts.Length - finalCategory.Length;
+            var cursor = finalRange.Clone();
+            cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
+            for (var index = start; index < counts.Length; index++)
+            {
+                var character = cursor.Clone();
+                if (character.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1) != 1 ||
+                    character.GetText(-1) != counts[index].ToString())
+                    throw new InvalidOperationException($"The final reporting category character {index - start} is missing from the actual provider range.");
+                var leading = value.GetRectFromCharacterIndex(index);
+                var trailing = value.GetRectFromCharacterIndex(index, trailingEdge: true);
+                if (leading.IsEmpty || trailing.IsEmpty ||
+                    leading.Left < -1 || trailing.Right > value.ActualWidth + 1 ||
+                    leading.Top < -1 || leading.Bottom > value.ActualHeight + 1 ||
+                    trailing.Top < -1 || trailing.Bottom > value.ActualHeight + 1)
+                    throw new InvalidOperationException($"The final reporting category character {index - start} has clipped actual text layout.");
+                cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, character, TextPatternRangeEndpoint.End);
+            }
         }
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
@@ -2728,7 +2772,7 @@ internal static partial class Program
             if (review is null || !review.CanApply || !provider.ApplyImport(review.Id))
                 throw new InvalidOperationException("Compiled reporting delivery failed: " + provider.Status);
         }
-        PumpUntil(() => Control<TextBlock>("ReportingStructureValue").Text == "3 total, 2 Employees, 1 Vendors");
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "3 total, 2 Employees, 1 Vendors");
         if (Control<ListBox>("ReportsList").Items.Count != 1 ||
             Control<TextBlock>("ReportCount").Text != "Imported reports: 1 (selected population, not a full-company count)")
             throw new InvalidOperationException("All-level reporting counts replaced the separate direct-only list or count.");
@@ -2736,6 +2780,18 @@ internal static partial class Program
         {
             Layout(width, height);
             ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            if (width == 1100)
+            {
+                var value = Control<TextBox>("ReportingStructureValue");
+                value.Text = "12000 total, 9000 Employees, 3000 Vendors";
+                root.UpdateLayout();
+                if (value.LineCount < 2)
+                    throw new InvalidOperationException("The reporting text-layout fixture must exercise actual width-dependent wrapping.");
+                ExpectSummary("12000 total, 9000 Employees, 3000 Vendors");
+                value.Text = "3 total, 2 Employees, 1 Vendors";
+                root.UpdateLayout();
+                ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            }
             var team = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>().Single(value =>
                 System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
             Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
@@ -2768,7 +2824,7 @@ internal static partial class Program
             if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived("avery@example.com", false))
                 throw new InvalidOperationException("Compiled reporting reactivation delivery failed: " + provider.Status);
         }
-        PumpUntil(() => Control<TextBlock>("ReportingStructureValue").Text == "1 total, 1 Employees, 0 Vendors");
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "1 total, 1 Employees, 0 Vendors");
         Layout(1100);
         ExpectSummary("1 total, 1 Employees, 0 Vendors");
         Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; compact zero-inclusive reporting facts refresh/reappear across the size matrix, preserving Team-first geometry and direct-only report destinations.");

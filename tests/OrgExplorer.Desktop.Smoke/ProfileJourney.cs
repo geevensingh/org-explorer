@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Text;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
@@ -473,7 +474,9 @@ internal static partial class Program
         var value = Find(window, "ReportingStructureValue");
         var scope = Find(window, "ReportingStructureScope");
         if (label.Current.Name != "Reporting structure" || scope.Current.Name != "Known current reports, all levels" ||
-            value.Current.ControlType != ControlType.Text || value.TryGetCurrentPattern(ValuePattern.Pattern, out _))
+            value.Current.ControlType != ControlType.Edit ||
+            !value.TryGetCurrentPattern(ValuePattern.Pattern, out var readOnly) ||
+            !((ValuePattern)readOnly).Current.IsReadOnly || !value.Current.IsKeyboardFocusable)
             throw new InvalidOperationException("Reporting structure lost its ordinary read-only fact, full counts or exact population scope.");
         var scale = DpiScale(window);
         var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
@@ -495,9 +498,34 @@ internal static partial class Program
         }
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
             ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
-            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end ||
-            end.GetBoundingRectangles().Length == 0)
+            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end)
             throw new InvalidOperationException("The final zero-inclusive category count is not actually rendered and readable.");
+        var finalCategory = $"{vendors} Vendors";
+        if (end.GetText(-1) != finalCategory)
+            throw new InvalidOperationException("The rendered reporting range lost the full final count/category.");
+        var cursor = end.Clone();
+        cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
+        for (var index = 0; index < finalCategory.Length; index++)
+        {
+            var character = cursor.Clone();
+            if (character.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1) != 1 ||
+                character.GetText(-1) != finalCategory[index].ToString())
+                throw new InvalidOperationException($"The final reporting category character {index} is missing from the real text range.");
+            var rectangles = character.GetBoundingRectangles();
+            if (rectangles.Length == 0)
+                throw new InvalidOperationException($"The final reporting category character {index} has no rendered glyph rectangle.");
+            foreach (var glyph in rectangles)
+            {
+                var bounds = value.Current.BoundingRectangle;
+                if (glyph.IsEmpty || glyph.Width <= 0 || glyph.Height <= 0 ||
+                    glyph.Left < bounds.Left - scale || glyph.Right > bounds.Right + scale ||
+                    glyph.Top < bounds.Top - scale || glyph.Bottom > bounds.Bottom + scale ||
+                    glyph.Left < viewport.Left - scale || glyph.Right > viewport.Right + scale ||
+                    glyph.Top < viewport.Top - scale || glyph.Bottom > viewport.Bottom + scale)
+                    throw new InvalidOperationException($"The final reporting category character {index} is clipped: glyph={glyph}; value={bounds}; viewport={viewport}.");
+            }
+            cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, character, TextPatternRangeEndpoint.End);
+        }
     }
 
     private static bool IsFirstScrollingTeamName(Rect row, Rect manager, Rect viewport, double scale)
