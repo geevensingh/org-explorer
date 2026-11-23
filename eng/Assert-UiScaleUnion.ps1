@@ -19,6 +19,8 @@ $report = @{ schemaVersion = 1; suite = 'ui-scale'; verificationMode = 'isolated
     runDirectory = $runName; collectionStartedAt = [DateTimeOffset]::UtcNow.ToString('O') }
 $path = Join-Path $ResultsDirectory 'result.json'
 $report | ConvertTo-Json | Set-Content $path
+$primaryFailure = $null
+$reportingFailures = [Collections.Generic.List[Management.Automation.ErrorRecord]]::new()
 try {
     if ($RequiredJobOutcomes.Count -and ($RequiredJobOutcomes.Count -ne 3 -or
         @($RequiredJobOutcomes | Where-Object { $_ -cne 'success' }).Count)) {
@@ -29,16 +31,25 @@ try {
     Copy-Item -LiteralPath $TailDirectory -Destination (Join-Path $run 'tail') -Recurse
     Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $ExpectedRevision $RunId $RunAttempt
     $report.outcome = 'success'
-    Write-Host 'PASS: both isolated UI-scale workers, complete original phase/scenario union and exact validated logical snapshot handoff.'
 } catch {
+    $primaryFailure = $_
     $report.outcome = 'failure'
     $report.failure = $_.Exception.Message
-    throw
 } finally {
     $report.collectionCompletedAt = [DateTimeOffset]::UtcNow.ToString('O')
-    $json = $report | ConvertTo-Json
-    foreach ($target in @($path, (Join-Path $run 'result.json'))) {
-        [IO.File]::WriteAllText("$target.writing", $json)
-        [IO.File]::Move("$target.writing", $target, $true)
+    foreach ($target in @((Join-Path $run 'result.json'), $path)) {
+        try {
+            $json = $report | ConvertTo-Json
+            [IO.File]::WriteAllText("$target.writing", $json)
+            [IO.File]::Move("$target.writing", $target, $true)
+        } catch {
+            $reportingFailures.Add($_)
+            $report.outcome = 'failure'
+            $report.reportingFailures = @($reportingFailures | ForEach-Object { $_.Exception.Message })
+            Write-Warning "UI-scale union report failed at ${target}: $($_.Exception.Message)" -WarningAction Continue
+        }
     }
 }
+if ($primaryFailure) { throw $primaryFailure }
+if ($reportingFailures.Count) { throw $reportingFailures[0] }
+Write-Host 'PASS: both isolated UI-scale workers, complete original phase/scenario union and exact validated logical snapshot handoff.'

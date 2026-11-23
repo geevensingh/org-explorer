@@ -71,14 +71,14 @@ publisher/update trust. Preserve the signing warnings and ordinary release gates
 
 One non-cancelling production concurrency group covers planning, fresh scale
 verification, packaging and publication. Every product attempt calls the same
-`scale-verification.yml` used by nightly/manual checks, at the exact candidate:
+`scale-verification.yml` used by nightly/manual checks, at the exact candidate.
+That workflow runs non-UI performance, two isolated rich UI workers and their
+strict union collector. The tail joins the prefix's actual complete logical
+snapshot; it does not reseed equivalent data. Each execution retains its own
+660-second budget. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
+one rich worker cannot establish complete verification.
 
-```powershell
-.\eng\Run-Performance.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
-.\eng\Run-UiScale.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
-```
-
-Both jobs must succeed now. Publication downloads only this run/attempt's named
+All jobs must succeed now. Publication downloads only this run/attempt's named
 artifacts, verifies clean exact source and execution times, and revalidates the
 complete named TRX/scenario results. Missing, stale, partial, skipped, failed,
 cancelled or timed-out work blocks publication. Nightly success is diagnostic

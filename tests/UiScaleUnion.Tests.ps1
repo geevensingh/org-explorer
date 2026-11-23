@@ -82,3 +82,42 @@ if (!$rejected -or $failure.outcome -cne 'failure' -or !$failure.failure.Contain
     throw 'An upstream failure must remain primary and retain a failed union artifact.'
 }
 Write-Host 'PASS: upstream failure produces retained nonaccepting union evidence even when both synthetic UI workers passed.'
+
+foreach ($defect in @('primary-run-report', 'primary-both-reports', 'run-report', 'root-report')) {
+    $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+    $blocked = Join-Path $ResultsDirectory $defect
+    $outcomes = if ($defect.StartsWith('primary-')) { @('failure', 'success', 'success') }
+        else { @('success', 'success', 'success') }
+    $failure = $null
+    try {
+        & {
+            # Obstruct real report paths immediately after the initial running report.
+            function Set-Content {
+                [CmdletBinding()]
+                param([Parameter(Position = 0)][string] $Path, [Parameter(ValueFromPipeline)][object] $Value)
+                process {
+                    Microsoft.PowerShell.Management\Set-Content -LiteralPath $Path -Value $Value
+                    $ownedRun = @(Get-ChildItem -LiteralPath (Split-Path $Path) -Directory -Filter 'run-*')
+                    if ($ownedRun.Count -ne 1) { throw 'Expected exactly one owned union run for report obstruction.' }
+                    $targets = if ($defect -eq 'root-report') { @($Path) }
+                        elseif ($defect -eq 'primary-both-reports') { @($Path, (Join-Path $ownedRun[0].FullName 'result.json')) }
+                        else { @((Join-Path $ownedRun[0].FullName 'result.json')) }
+                    foreach ($target in $targets) { New-Item -ItemType Directory -Path "$target.writing" | Out-Null }
+                }
+            }
+            & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
+                -ExpectedRevision $candidate -RunId '123' -RunAttempt '2' -RequiredJobOutcomes $outcomes `
+                -ResultsDirectory $blocked
+        }
+    } catch { $failure = $_ }
+    if (!$failure) { throw "Union verification passed $defect." }
+    if ($defect.StartsWith('primary-') -and !$failure.Exception.Message.Contains('Missing, failed')) {
+        throw "Report failure replaced the original union rejection for $defect`: $($failure.Exception.Message)"
+    }
+    $rootReport = Get-Content (Join-Path $blocked 'result.json') -Raw | ConvertFrom-Json
+    if ($rootReport.outcome -ceq 'success' -or
+        ($defect -in 'primary-run-report', 'run-report' -and $rootReport.outcome -cne 'failure')) {
+        throw "A report failure must remain nonaccepting and still attempt the writable root report for $defect."
+    }
+}
+Write-Host 'PASS: report I/O faults preserve primary rejection, attempt both outputs and cannot publish accepting root evidence.'

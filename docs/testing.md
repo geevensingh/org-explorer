@@ -2470,6 +2470,11 @@ The complete workloads are outside required PR smoke, not removed:
 | `.\eng\Run-UiScale.ps1 -Worker tail -PrefixResultsDirectory <prefix-artifacts>` | `scale-mutation-delivery-tail`, then `scale-navigation-rendering` | Separate worker result, public Join receipt, ordinary profile samples and complete tail/navigation evidence |
 | `.\eng\Assert-UiScaleUnion.ps1` | Both workers; every scenario in `tests\UiScaleScenarios.json` and phase in `tests\UiScalePhases.json` | `.ci-results\ui-scale-union\result.json` and unique run directory containing both complete worker artifacts |
 
+Both rich worker commands require `-ExpectedRevision`, `-RunId` and
+`-RunAttempt` (the last two default to the current GitHub Actions environment).
+These selectors are not standalone complete-suite commands. The hosted workflow
+owns isolated execution, current-attempt artifact transfer and union verification.
+
 Non-UI performance proves genuine 10,000-Person load/reopen, current/historical
 search, durable mutations, reviewed 10,000-record imports, original/latest batch
 replay, external delivery/recovery and complete retained-data comparisons.
@@ -2715,13 +2720,15 @@ viewport offset and selected email; it retains the existing 180-second bound.
 
 ## Nightly and manual execution
 
-`.github\workflows\scale-verification.yml` owns **both** independent jobs and
-calls the exact commands above. Separate invocations can overlap on the same ref;
-no scale concurrency group serializes or cancels them. Each job uses its own
-hosted Windows runner. UI scenarios are serial within their own job, not parallel
-competing windows. Each suite records the same exact candidate SHA
-in independently named results/artifacts; artifacts upload even on failure, and
-missing artifacts fail. Neither job is another required PR check.
+`.github\workflows\scale-verification.yml` owns the independent non-UI job, the
+two isolated rich workers and their strict union collector. Separate invocations
+can overlap on the same ref; no scale concurrency group serializes or cancels
+them. Each execution job uses its own hosted Windows runner; the tail consumes
+its successful prefix's current-attempt handoff. UI scenarios are serial within
+their own worker, not parallel competing windows. Each suite records the same
+exact candidate SHA in independently named results/artifacts; artifacts upload
+even on failure, and missing artifacts fail. These are not additional required
+PR checks.
 
 The workflow declares **10:23 UTC nightly**, direct manual dispatch and
 `workflow_call` with a required exact candidate. The nightly schedule and new
@@ -2743,7 +2750,8 @@ result passed and both artifacts identify that SHA. The bridge calls the same
 local reusable workflow at `github.sha`; it duplicates no suite commands. The
 Boolean defaults to false and its guard requires manual dispatch. The ordinary
 four lanes still run on a bridge dispatch, but their independent `CI` aggregate
-does not attest to scale success: inspect both scale jobs and the whole run.
+does not attest to scale success: inspect non-UI performance, both rich workers,
+the strict union collector and the whole run.
 Omit the flag for ordinary focused CI only.
 
 Once GitHub registers the scale workflow, direct manual execution is:
@@ -2753,23 +2761,30 @@ gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOU
 ```
 
 Blank `revision` uses that workflow dispatch's commit; supplied values must be a
-full immutable SHA, not a mutable ref. Both jobs check that checkout equals the
+full immutable SHA, not a mutable ref. All execution jobs check that checkout equals the
 requested SHA before invoking the runner with `-ExpectedRevision`.
 
 ## Active pre-publication integration
 
 `release.yml` calls the reusable scale workflow with the exact source SHA after
 successful trusted main CI and product-impact planning. Every product publication
-uses a fresh clean checkout and **both** established commands:
+uses the complete hosted workflow described above: non-UI performance, both
+isolated rich workers and their strict union. Its execution entry points are:
 
 ```powershell
 .\eng\Run-Performance.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
-.\eng\Run-UiScale.ps1 -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA
+.\eng\Run-UiScale.ps1 -Worker prefix -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA -RunId RUN_ID -RunAttempt RUN_ATTEMPT
+.\eng\Run-UiScale.ps1 -Worker tail -PrefixResultsDirectory PREFIX_ARTIFACTS -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA -RunId RUN_ID -RunAttempt RUN_ATTEMPT
+.\eng\Assert-UiScaleUnion.ps1 -PrefixDirectory PREFIX_ARTIFACTS -TailDirectory TAIL_ARTIFACTS -ExpectedRevision FULL_40_CHARACTER_CANDIDATE_SHA -RunId RUN_ID -RunAttempt RUN_ATTEMPT
 ```
 
+The two rich invocations belong on separate isolated authorized desktops, not
+this shared machine. Use the hosted workflow for artifact transfer and complete
+candidate verification, not a single rich invocation.
 Expected-revision execution refuses a different SHA, tracked changes or
-non-ignored untracked files, and rechecks after assertions. Exploratory execution
-without that argument reports modifications honestly; it is not candidate proof.
+non-ignored untracked files, and rechecks after assertions. Non-UI exploratory
+execution without that argument reports modifications honestly; it is not
+candidate proof. Rich workers always require explicit candidate/run/attempt binding.
 The publisher requires both successful, complete, same-revision suite results
 from its own run/attempt, and blocks on failure, absence, required skip,
 cancellation or timeout.
