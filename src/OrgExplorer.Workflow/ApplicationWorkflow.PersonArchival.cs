@@ -26,7 +26,7 @@ public sealed partial class ApplicationWorkflow
         {
             if (!confirmed) return Fail("Person archival action canceled. Saved data and profile draft are unchanged.");
             if (workspace is null || !people.ContainsKey(email)) return Fail("Open a Person first.");
-            if (!TryLeaveProfileEdit(profileDecision)) return false;
+            if (!TryLeaveProfileEdit(email, profileDecision)) return false;
             if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
             return SavePersonRelationship(person, person with { Archived = archived }, "archived",
                 archived ? "Person archived locally; profile, photos, notes and history retained." :

@@ -107,16 +107,28 @@ public sealed partial class ApplicationWorkflow
     {
         lock (workspaceGate)
         {
-            if (profileEdit is null) return true;
-            if (!Enum.IsDefined(decision)) return Fail("Choose Save, Discard or Stay.");
-            if (profileEdit.IsDirty)
-            {
-                if (decision == ProfileLeaveDecision.Stay) return Fail("Stayed on the unsaved profile draft.");
-                if (decision == ProfileLeaveDecision.Save) return SaveProfileEdit();
-            }
-            CancelProfileEdit();
-            return true;
+            return ProfileEdit is not { } edit || TryLeaveProfileEdit(edit.Basis.Email, decision);
         }
+    }
+
+    private bool TryLeaveProfileEdit(string owner, ProfileLeaveDecision decision)
+    {
+        ProfileEditSession edit;
+        lock (profileDraftGate)
+        {
+            if (!localProfileEdits.TryGetValue(owner, out var retained)) return true;
+            edit = retained;
+            if (!Enum.IsDefined(decision)) return Fail("Choose Save, Discard or Stay.");
+            if (!edit.IsDirty || decision == ProfileLeaveDecision.Discard)
+            {
+                if (Volatile.Read(ref localProfileRequests) != 0)
+                    return Fail("Cancel cannot revoke an admitted profile write. Wait for its reconciled outcome; browsing remains available.");
+                CancelProfileEditCore(owner);
+                return true;
+            }
+        }
+        return decision == ProfileLeaveDecision.Stay
+            ? Fail("Stayed on the unsaved profile draft.") : SaveProfileEdit(edit);
     }
 
     public void DiscardPersonChanges(string email)
@@ -140,16 +152,14 @@ public sealed partial class ApplicationWorkflow
                 Fail("Cancel cannot revoke an admitted profile write. Wait for its reconciled outcome; browsing remains available.");
                 return;
             }
-            CancelProfileEditCore();
+            if (profileEdit is { } edit) CancelProfileEditCore(edit.Basis.Email);
         }
     }
 
-    private void CancelProfileEditCore()
+    private void CancelProfileEditCore(string owner)
     {
-        if (profileEdit is null) return;
-        var owner = profileEdit.Basis.Email;
         localProfileEdits.Remove(owner);
-        profileEdit = null;
+        if (string.Equals(profileEdit?.Basis.Email, owner, StringComparison.OrdinalIgnoreCase)) profileEdit = null;
         failedSaves.Remove($"profile-session:{owner.ToLowerInvariant()}");
         Status = "Profile draft discarded. Independently saved personal context is retained.";
     }
