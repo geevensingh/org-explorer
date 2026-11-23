@@ -392,6 +392,7 @@ public sealed partial class ApplicationWorkflow
         {
             if (localSaveFault is not null)
                 return Fail("Reconcile the original local transaction before retrying. No replacement write was started.");
+            EnsureWorkspaceWritable();
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();

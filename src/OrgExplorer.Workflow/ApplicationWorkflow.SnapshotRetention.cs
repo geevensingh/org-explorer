@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace OrgExplorer.Workflow;
 
 public sealed partial class ApplicationWorkflow
@@ -42,12 +44,18 @@ public sealed partial class ApplicationWorkflow
                 IsPrefix(entry.Item.Data.Ancestry, published.Ancestry))
             .OrderByDescending(entry => entry.Item.Data.Ancestry.Length).FirstOrDefault();
         if (previous.Item is not null) keep.Add(previous.Item.Data.Revision);
+        var retiring = owned.Where(entry => !keep.Contains(entry.Item.Data.Revision) &&
+            !retained.Contains(entry.Item.Data.Revision) &&
+            Continues(entry.Item.Data.Ancestry, published.Ancestry, published.ResolvedRevisions)).ToArray();
 
         lock (workspaceGate)
         {
-            if (workspace != path) throw new IOException("Workspace changed before snapshot cleanup. Nothing was reclaimed.");
+            EnsureSynchronizationWorkspace(path, folder, published.WorkspaceId);
             using var connection = OpenLocalConnection();
+            using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            ValidateLocalInventory(command);
             command.CommandText = """
                 CREATE TABLE IF NOT EXISTS snapshot_inventory (
                     folder TEXT NOT NULL, name TEXT NOT NULL, revision TEXT NOT NULL, hash TEXT NOT NULL,
@@ -70,17 +78,45 @@ public sealed partial class ApplicationWorkflow
                 command.Parameters.AddWithValue("$hash", item.Hash);
                 command.ExecuteNonQuery();
             }
-            foreach (var (file, item) in owned)
+            transaction.Commit();
+        }
+        foreach (var (file, item) in retiring)
+        {
+            RetireInventoriedSnapshot(file, item.Hash);
+            lock (workspaceGate)
             {
-                if (keep.Contains(item.Data.Revision) || retained.Contains(item.Data.Revision) ||
-                    !Continues(item.Data.Ancestry, published.Ancestry, published.ResolvedRevisions)) continue;
-                RetireInventoriedSnapshot(file, item.Hash);
-                command.Parameters.Clear();
-                command.CommandText = "DELETE FROM snapshot_inventory WHERE folder=$folder AND name=$name;";
+                EnsureSynchronizationWorkspace(path, folder, published.WorkspaceId);
+                using var connection = OpenLocalConnection();
+                using var transaction = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                ValidateLocalInventory(command);
+                command.CommandText = """
+                    DELETE FROM snapshot_inventory WHERE folder=$folder AND name=$name
+                        AND revision=$revision AND hash=$hash;
+                    """;
                 command.Parameters.AddWithValue("$folder", folder);
                 command.Parameters.AddWithValue("$name", Path.GetFileName(file));
-                command.ExecuteNonQuery();
+                command.Parameters.AddWithValue("$revision", item.Data.Revision.ToString("D"));
+                command.Parameters.AddWithValue("$hash", item.Hash);
+                if (command.ExecuteNonQuery() != 1)
+                    throw new IOException("Snapshot inventory changed during cleanup. The current inventory was retained.");
+                transaction.Commit();
             }
+        }
+
+        void ValidateLocalInventory(SqliteCommand command)
+        {
+            command.CommandText = """
+                SELECT workspace.identity, workspace.format_version, synchronization.folder
+                    FROM workspace JOIN synchronization ON workspace.singleton=synchronization.singleton
+                    WHERE workspace.singleton=1;
+                """;
+            using var reader = command.ExecuteReader();
+            if (!reader.Read() || reader.GetInt32(1) != 3 ||
+                ParseSnapshotId(reader.GetString(0)) != published.WorkspaceId ||
+                reader.IsDBNull(2) || reader.GetString(2) != folder)
+                throw new IOException("Workspace identity or synchronization configuration changed during cleanup. Local inventory was retained.");
         }
     }
 

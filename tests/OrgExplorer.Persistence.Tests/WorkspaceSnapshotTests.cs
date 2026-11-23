@@ -24,6 +24,168 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Held_incoming_retention_provider_IO_does_not_block_or_overwrite_a_healthy_local_save(
+        bool holdWrite, bool siblingSave)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(NoteScope.Person, "report@example.com")!,
+            "Local owner note", "Original committed note")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        var publisher = new SnapshotPublisher();
+        using var writeEntered = new ManualResetEventSlim();
+        using var releaseWrite = new ManualResetEventSlim();
+        var observer = new RetentionWriteObserver(Local("incoming"), writeEntered, releaseWrite);
+        using var second = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher, fileObserver: observer);
+        Assert.True(second.OpenWorkspace(Local("second")), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        var previous = Assert.Single(Directory.GetFiles(Local("incoming"), "*.oesnapshot"));
+        var previousBytes = File.ReadAllBytes(previous);
+        var originalRevision = second.Synchronization.LocalRevision;
+        var basis = second.BeginNoteDraft(NoteScope.Person, "report@example.com", note.Id)!;
+        Assert.True(first.EditPreferredName("report@example.com", "Incoming must not replace later local writing"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        File.Delete(previous);
+        observer.Armed = holdWrite;
+        publisher.Hold = !holdWrite;
+        publisher.Entered.Reset();
+        var entered = holdWrite ? writeEntered : publisher.Entered;
+        var syncing = Task.Run(second.SyncNow);
+        Task<NoteDraft?>? saving = null;
+        bool synchronized;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)), "Incoming adoption did not reach actual retained-snapshot provider I/O.");
+            saving = Task.Run(() =>
+            {
+                if (!siblingSave)
+                    return second.SaveNoteDraft(basis, note.Title, "Saved while provider retention is held");
+                using var sibling = ApplicationWorkflow.CreateFileBacked();
+                Assert.True(sibling.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), sibling.Status);
+                return sibling.SaveNoteDraft(sibling.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!,
+                    note.Title, "Saved while provider retention is held");
+            });
+            Assert.NotNull(await saving.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(syncing.IsCompleted);
+            Assert.False(holdWrite ? releaseWrite.IsSet : publisher.Release.IsSet);
+            using var independent = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(independent.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), independent.Status);
+            Assert.NotEqual(originalRevision, independent.Synchronization.LocalRevision);
+            Assert.Equal("Saved while provider retention is held",
+                independent.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!.Markdown);
+        }
+        finally
+        {
+            releaseWrite.Set();
+            publisher.Release.Set();
+            if (saving is not null) await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            synchronized = await syncing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.False(synchronized);
+        Assert.Equal(previousBytes, File.ReadAllBytes(previous));
+        Assert.Null(second.GetRelationships("report@example.com")!.Person.PreferredName);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Saved while provider retention is held",
+            reopened.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!.Markdown);
+        Assert.Null(reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
+    [Theory]
+    [InlineData("note-draft")]
+    [InlineData("workspace-path")]
+    [InlineData("workspace-identity")]
+    public async Task Incoming_retention_revalidates_Workspace_and_retained_writing_after_held_provider_publication(string change)
+    {
+        using var first = Create("first");
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        var publisher = new SnapshotPublisher();
+        using var second = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        Assert.True(second.OpenWorkspace(Local("second")), second.Status);
+        Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.True(second.SyncNow(), second.Status);
+        var previous = Assert.Single(Directory.GetFiles(Local("incoming"), "*.oesnapshot"));
+        var basis = second.BeginNoteDraft(NoteScope.Person, "report@example.com")!;
+        var originalRevision = second.Synchronization.LocalRevision;
+        var currentIdentity = second.Synchronization.WorkspaceId;
+        Assert.True(first.EditPreferredName("report@example.com", "Incoming must remain deferred"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Deliver("outgoing", "incoming");
+        File.Delete(previous);
+        publisher.Hold = true;
+        publisher.Entered.Reset();
+        var syncing = Task.Run(second.SyncNow);
+        Task? changing = null;
+        bool synchronized;
+        try
+        {
+            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)), "Retained-snapshot publication was not held.");
+            changing = Task.Run(() =>
+            {
+                if (change == "note-draft")
+                {
+                    second.RetainNoteDraft(basis);
+                    Assert.True(second.HasUnsavedNoteDraft(NoteScope.Person, basis.Id));
+                }
+                else if (change == "workspace-path")
+                {
+                    Assert.True(second.OpenWorkspace(Local("other")), second.Status);
+                    currentIdentity = second.Synchronization.WorkspaceId;
+                }
+                else
+                {
+                    using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    {
+                        DataSource = Path.Combine(Local("second"), "workspace.sqlite"),
+                        Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1
+                    }.ToString());
+                    connection.Open();
+                    using var command = connection.CreateCommand();
+                    command.CommandText = "UPDATE workspace SET identity='96000000-0000-4000-8000-000000000099';";
+                    command.ExecuteNonQuery();
+                    currentIdentity = Guid.Parse("96000000-0000-4000-8000-000000000099");
+                }
+            });
+            await changing.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(publisher.Release.IsSet);
+            Assert.False(syncing.IsCompleted);
+        }
+        finally
+        {
+            publisher.Release.Set();
+            if (changing is not null) await changing.WaitAsync(TimeSpan.FromSeconds(10));
+            synchronized = await syncing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.False(synchronized);
+        if (change == "note-draft")
+        {
+            Assert.True(second.HasUnsavedNoteDraft(NoteScope.Person, basis.Id));
+            Assert.False(second.CanSafelyClose);
+        }
+        if (change == "workspace-path")
+        {
+            Assert.Empty(second.People);
+            Assert.Null(second.Synchronization.Folder);
+            Assert.Equal(currentIdentity, second.Synchronization.WorkspaceId);
+        }
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(originalRevision, reopened.Synchronization.LocalRevision);
+        Assert.Null(reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+        if (change == "workspace-identity") Assert.Equal(currentIdentity, reopened.Synchronization.WorkspaceId);
+    }
+
     [Fact]
     public async Task Held_exit_publication_read_does_not_block_local_writing_or_acknowledge_its_newer_head()
     {
@@ -1330,6 +1492,172 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Fact]
+    public async Task Held_completed_retirement_Delete_callback_does_not_block_local_saving_or_publish_its_newer_head()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var observer = new CompletedRetirementObserver(Local("outgoing"), entered, release);
+        using var first = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var oldest = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        Assert.True(first.EditPreferredName("report@example.com", "Previous published state"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var previous = first.Synchronization.LocalRevision;
+        Assert.True(first.EditPreferredName("report@example.com", "Latest exported state"), first.Status);
+        var exported = first.Synchronization.LocalRevision;
+        var basis = first.BeginNoteDraft(NoteScope.Person, "report@example.com")!;
+        observer.Armed = true;
+        var publishing = Task.Run(first.SyncNow);
+        Task<NoteDraft?>? saving = null;
+        bool published;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)), "Cleanup never reached its completed provider Delete callback.");
+            Assert.False(File.Exists(oldest));
+            Assert.NotNull(observer.CompletedDeletion);
+            Assert.False(File.Exists(observer.CompletedDeletion));
+            saving = Task.Run(() => first.SaveNoteDraft(basis, "Local owner note", "Durable during a completed-effect callback hold"));
+            Assert.NotNull(await saving.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(release.IsSet);
+            Assert.False(publishing.IsCompleted);
+            using var independent = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(independent.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), independent.Status);
+            Assert.Equal("Durable during a completed-effect callback hold",
+                independent.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!.Markdown);
+            Assert.NotEqual(exported, independent.Synchronization.LocalRevision);
+            Assert.Equal(exported, independent.Synchronization.PublishedRevision);
+        }
+        finally
+        {
+            release.Set();
+            if (saving is not null) await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            published = await publishing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.True(published, first.Synchronization.Error);
+        Assert.Equal(exported, first.Synchronization.PublishedRevision);
+        Assert.True(first.Synchronization.HasUnpublishedChanges);
+        var remaining = Directory.GetFiles(Local("outgoing"), "*.oesnapshot");
+        Assert.Equal(2, remaining.Length);
+        Assert.Contains(remaining, file => file.Contains(previous!.Value.ToString("D")));
+        Assert.Contains(remaining, file => file.Contains(exported!.Value.ToString("D")));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Durable during a completed-effect callback hold",
+            reopened.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData("workspace-path")]
+    [InlineData("workspace-identity")]
+    [InlineData("configuration")]
+    [InlineData("inventory")]
+    [InlineData("provider-replacement")]
+    public async Task Completed_retirement_callback_preserves_provider_replacements_and_fences_local_inventory_changes(string change)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var observer = new CompletedRetirementObserver(Local("outgoing"), entered, release);
+        using var first = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var oldest = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        var expectedHash = JsonNode.Parse(File.ReadAllBytes(oldest))!["sha256"]!.GetValue<string>();
+        Assert.True(first.EditPreferredName("report@example.com", "Previous"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.True(first.EditPreferredName("report@example.com", "Current"), first.Status);
+        var replacement = System.Text.Encoding.UTF8.GetBytes("Uninventoried provider bytes arriving after completed Delete");
+        observer.Armed = true;
+        var publishing = Task.Run(first.SyncNow);
+        Task? changing = null;
+        bool published;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)), "Cleanup never reached its completed provider Delete callback.");
+            Assert.False(File.Exists(oldest));
+            Assert.Equal(expectedHash, ReadInventoryHash());
+            changing = Task.Run(() =>
+            {
+                if (change == "workspace-path")
+                    Assert.True(first.OpenWorkspace(Local("other")), first.Status);
+                else if (change == "configuration")
+                {
+                    using var sibling = ApplicationWorkflow.CreateFileBacked();
+                    Assert.True(sibling.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), sibling.Status);
+                    Assert.True(sibling.ConfigureSynchronizationFolder(Local("other-provider")), sibling.Status);
+                }
+                else if (change == "provider-replacement")
+                    File.WriteAllBytes(oldest, replacement);
+                else
+                {
+                    using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    {
+                        DataSource = Path.Combine(Local("first"), "workspace.sqlite"),
+                        Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1
+                    }.ToString());
+                    connection.Open();
+                    using var command = connection.CreateCommand();
+                    if (change == "workspace-identity")
+                        command.CommandText = "UPDATE workspace SET identity='96000000-0000-4000-8000-000000000098';";
+                    else
+                    {
+                        expectedHash = (expectedHash[0] == 'A' ? "B" : "A") + expectedHash[1..];
+                        command.CommandText = "UPDATE snapshot_inventory SET hash=$hash WHERE folder=$folder AND name=$name;";
+                        command.Parameters.AddWithValue("$hash", expectedHash);
+                        command.Parameters.AddWithValue("$folder", Local("outgoing"));
+                        command.Parameters.AddWithValue("$name", Path.GetFileName(oldest));
+                    }
+                    Assert.Equal(1, command.ExecuteNonQuery());
+                }
+            });
+            await changing.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(release.IsSet);
+            Assert.False(publishing.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            if (changing is not null) await changing.WaitAsync(TimeSpan.FromSeconds(10));
+            published = await publishing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        if (change == "provider-replacement")
+        {
+            Assert.True(published, first.Synchronization.Error);
+            Assert.Equal(replacement, File.ReadAllBytes(oldest));
+            Assert.Null(ReadInventoryHash());
+        }
+        else
+        {
+            Assert.False(published);
+            Assert.Equal(expectedHash, ReadInventoryHash());
+            if (change == "workspace-path")
+            {
+                Assert.Empty(first.People);
+                Assert.Null(first.Synchronization.Folder);
+            }
+        }
+
+        string? ReadInventoryHash()
+        {
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(Local("first"), "workspace.sqlite"),
+                Mode = SqliteOpenMode.ReadOnly, Pooling = false, DefaultTimeout = 1
+            }.ToString());
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT hash FROM snapshot_inventory WHERE folder=$folder AND name=$name;";
+            command.Parameters.AddWithValue("$folder", Local("outgoing"));
+            command.Parameters.AddWithValue("$name", Path.GetFileName(oldest));
+            return command.ExecuteScalar() as string;
+        }
+    }
+
+    [Fact]
     public void Routine_retention_keeps_two_complete_versions_without_pruning_resources_history_or_provider_files()
     {
         using var first = Create("first");
@@ -2390,6 +2718,34 @@ public sealed class WorkspaceSnapshotTests : IDisposable
             Assert.Equal("Exact prepared owner draft", second.ProfileEdit!.Draft.JobTitle);
             Assert.Same(draftBasis, second.ProfileEdit.Basis);
             Assert.Equal("Incoming after prepared controls", second.GetRelationships("report@example.com")!.Person.PreferredName);
+        }
+    }
+
+    private sealed class CompletedRetirementObserver(string folder, ManualResetEventSlim entered,
+        ManualResetEventSlim release) : IWorkspaceFileObserver
+    {
+        public bool Armed;
+        public string? CompletedDeletion;
+        public void Observe(WorkspaceFileEffect effect)
+        {
+            if (!Armed || effect.Kind != WorkspaceFileEffectKind.Delete ||
+                Path.GetDirectoryName(effect.Path) != folder || !effect.Path.EndsWith(".retiring", StringComparison.Ordinal)) return;
+            CompletedDeletion = effect.Path;
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("The completed Delete callback's cleanup lifetime hold was not released.");
+        }
+    }
+
+    private sealed class RetentionWriteObserver(string folder, ManualResetEventSlim entered,
+        ManualResetEventSlim release) : IWorkspaceFileObserver
+    {
+        public bool Armed;
+        public void Observe(WorkspaceFileEffect effect)
+        {
+            if (!Armed || effect.Kind != WorkspaceFileEffectKind.Flush ||
+                Path.GetDirectoryName(effect.Path) != folder || !effect.Path.EndsWith(".pending", StringComparison.Ordinal)) return;
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Retained-snapshot provider write was not released.");
         }
     }
 

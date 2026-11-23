@@ -165,56 +165,98 @@ public sealed partial class ApplicationWorkflow
         string? expectedWorkspacePath = null, Guid? expectedWorkspaceId = null)
     {
         lock (synchronizationGate)
-        lock (workspaceGate)
         {
             try
             {
-                if ((expectedWorkspacePath is not null || expectedWorkspaceId is not null) &&
-                    (!string.Equals(expectedWorkspacePath, workspace, StringComparison.OrdinalIgnoreCase) ||
-                        expectedWorkspaceId != Synchronization.WorkspaceId))
-                    return Fail("The Workspace changed before synchronization configuration. Nothing was configured for the current Workspace.");
-                if (!localSqlite || !workspaceCurrent)
-                    throw new IOException("Open a current local SQLite Workspace before configuring synchronization.");
-                OpenLocalSqlite(false);
-                var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
-                var local = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspace!));
-                if (ContainsPath(full, local) || ContainsPath(local, full))
-                    throw new IOException("The synchronization folder and authoritative local Workspace must be separate, non-nested folders.");
+                string path, full, expectedRevision;
+                Guid? identity;
+                string? previousFolder;
+                lock (workspaceGate)
+                {
+                    if (!ExpectedWorkspaceMatches())
+                        return Fail("The Workspace changed before synchronization configuration. Nothing was configured for the current Workspace.");
+                    if (!localSqlite || !workspaceCurrent)
+                        throw new IOException("Open a current local SQLite Workspace before configuring synchronization.");
+                    OpenLocalSqlite(false);
+                    if (!ExpectedWorkspaceMatches())
+                        return Fail("The Workspace changed before synchronization configuration. Nothing was configured for the current Workspace.");
+                    full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+                    path = workspace!;
+                    var local = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+                    if (ContainsPath(full, local) || ContainsPath(local, full))
+                        throw new IOException("The synchronization folder and authoritative local Workspace must be separate, non-nested folders.");
+                    EnsureConfigurationAllowed();
+                    identity = Synchronization.WorkspaceId;
+                    expectedRevision = revision!;
+                    previousFolder = Synchronization.Folder;
+                }
                 RejectSnapshotLinks(full);
-                if (joinExistingWorkspace && (people.Count != 0 || batches.Count != 0 ||
-                    localAncestry.Length != 1 || Synchronization.PublishedRevision is not null || !CanSafelyClose))
-                    throw new IOException("Join requires a new empty local Workspace without writing or publication.");
-                if (Synchronization.Diverged)
-                    throw new IOException("Preserved divergent versions require explicit resolution before changing synchronization folders.");
                 Directory.CreateDirectory(full);
                 if (Directory.Exists(Path.Combine(full, "people")) || File.Exists(Path.Combine(full, "workspace.json")) ||
                     File.Exists(Path.Combine(full, SqliteDatabase)) || File.Exists(Path.Combine(full, SqliteDiscriminator)))
                     throw new IOException("Choose a snapshot interchange folder, not an existing legacy or local Workspace.");
-                using var connection = OpenLocalConnection();
-                using var transaction = connection.BeginTransaction();
-                using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                if (LocalSqliteRevision() != revision)
-                    throw new IOException("A new local commit arrived before folder configuration. Refresh before retrying.");
-                EnsureLocalSynchronization(command);
-                CreateLocalNoteSchema(command);
-                CreateLocalProfileSchema(command);
-                command.CommandText = """
-                    UPDATE workspace SET format_version=3 WHERE singleton=1;
-                    UPDATE synchronization SET folder=$folder, joining=$joining,
-                        published_revision=CASE WHEN folder=$folder THEN published_revision ELSE NULL END WHERE singleton=1;
-                    """;
-                command.Parameters.AddWithValue("$folder", full);
-                command.Parameters.AddWithValue("$joining", joinExistingWorkspace ? 1 : 0);
-                command.ExecuteNonQuery();
-                transaction.Commit();
-                OpenLocalSqlite(false);
-                Status = joinExistingWorkspace ? "Synchronization folder configured. Sync now will validate the existing Workspace before joining." :
-                    "Synchronization folder configured. Local commits remain independent; use Sync now to publish.";
-                return true;
+                lock (workspaceGate)
+                {
+                    EnsureSynchronizationWorkspace(path, previousFolder, identity);
+                    if (!ExpectedWorkspaceMatches() || revision != expectedRevision)
+                        throw new IOException("The local Workspace changed before folder configuration. Refresh before retrying.");
+                    EnsureConfigurationAllowed();
+                    using var connection = OpenLocalConnection();
+                    using var transaction = connection.BeginTransaction();
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    EnsureSynchronizationHead(command, identity, expectedRevision);
+                    EnsureLocalSynchronization(command);
+                    CreateLocalNoteSchema(command);
+                    CreateLocalProfileSchema(command);
+                    command.CommandText = """
+                        UPDATE workspace SET format_version=3 WHERE singleton=1;
+                        UPDATE synchronization SET folder=$folder, joining=$joining,
+                            published_revision=CASE WHEN folder=$folder THEN published_revision ELSE NULL END WHERE singleton=1;
+                        """;
+                    command.Parameters.AddWithValue("$folder", full);
+                    command.Parameters.AddWithValue("$joining", joinExistingWorkspace ? 1 : 0);
+                    command.ExecuteNonQuery();
+                    EnsureConfigurationAllowed();
+                    transaction.Commit();
+                    OpenLocalSqlite(false);
+                    Status = joinExistingWorkspace ? "Synchronization folder configured. Sync now will validate the existing Workspace before joining." :
+                        "Synchronization folder configured. Local commits remain independent; use Sync now to publish.";
+                    return true;
+                }
             }
             catch (Exception error) when (StorageError(error)) { return SynchronizationFailed(error.Message); }
         }
+
+        bool ExpectedWorkspaceMatches() =>
+            expectedWorkspacePath is null && expectedWorkspaceId is null ||
+            string.Equals(expectedWorkspacePath, workspace, StringComparison.OrdinalIgnoreCase) &&
+                expectedWorkspaceId == Synchronization.WorkspaceId;
+
+        void EnsureConfigurationAllowed()
+        {
+            if (joinExistingWorkspace && (people.Count != 0 || batches.Count != 0 ||
+                localAncestry.Length != 1 || Synchronization.PublishedRevision is not null || !CanSafelyClose))
+                throw new IOException("Join requires a new empty local Workspace without writing or publication.");
+            if (Synchronization.Diverged)
+                throw new IOException("Preserved divergent versions require explicit resolution before changing synchronization folders.");
+        }
+    }
+
+    private void EnsureSynchronizationWorkspace(string path, string? folder, Guid? identity)
+    {
+        if (!localSqlite || !workspaceCurrent || workspace != path ||
+            Synchronization.WorkspaceId != identity || Synchronization.Folder != folder)
+            throw new SnapshotAdoptionDeferred("Workspace changed while synchronization was running. Retry for the current Workspace.");
+    }
+
+    private static void EnsureSynchronizationHead(SqliteCommand command, Guid? identity, string expectedRevision)
+    {
+        command.CommandText = "SELECT identity, revision, format_version FROM workspace WHERE singleton=1;";
+        using var reader = command.ExecuteReader();
+        if (!reader.Read() || reader.GetInt32(2) != 3 ||
+            ParseSnapshotId(reader.GetString(0)) != identity || reader.GetString(1) != expectedRevision)
+            throw new SnapshotAdoptionDeferred("The local Workspace identity or commit changed before synchronization could commit. Refresh before retrying.");
     }
 
     public bool SyncNow()
@@ -225,12 +267,16 @@ public sealed partial class ApplicationWorkflow
             try
             {
                 string path, folder;
+                Guid? identity;
+                bool joining;
                 lock (workspaceGate)
                 {
                     if (!localSqlite || !workspaceCurrent || Synchronization.Folder is not { } configured)
                         throw new IOException("Configure a synchronization folder for a current local SQLite Workspace first.");
                     path = workspace!;
                     folder = configured;
+                    identity = Synchronization.WorkspaceId;
+                    joining = joiningWorkspace;
                     if (Synchronization.Diverged) throw new IOException("Divergent versions are preserved. Explicit resolution is required.");
                 }
                 RejectSnapshotLinks(folder);
@@ -242,7 +288,7 @@ public sealed partial class ApplicationWorkflow
                 foreach (var item in delivered)
                 {
                     using var validated = ValidateSnapshot(path, item.Data);
-                    if (!joiningWorkspace && item.Data.WorkspaceId != Synchronization.WorkspaceId ||
+                    if (!joining && item.Data.WorkspaceId != identity ||
                         delivered.Any(other => item.Data.WorkspaceId != other.Data.WorkspaceId))
                         throw new FormatException("Synchronization folder contains a different Workspace identity. Nothing adopted or overwritten.");
                     if (delivered.Any(other => other.Data.Revision == item.Data.Revision && other.Hash != item.Hash))
@@ -260,11 +306,14 @@ public sealed partial class ApplicationWorkflow
                 if (newest is not null)
                 {
                     using var candidate = ValidateSnapshot(path, newest.Data);
+                    LogicalSnapshot? previous = null;
+                    string? expectedRevision = null;
                     lock (workspaceGate)
                     {
-                        if (workspace != path) throw new IOException("Workspace changed while synchronization was running. Retry for the current Workspace.");
+                        EnsureSynchronizationWorkspace(path, folder, identity);
                         // A second local process may have committed while folder validation ran.
                         ObserveStoragePhase("snapshot.local-read", () => OpenLocalSqlite(false));
+                        EnsureSynchronizationWorkspace(path, folder, identity);
                         if (!joiningWorkspace && !Continues(localAncestry, newest.Data.Ancestry, newest.Data.ResolvedRevisions) &&
                             !Continues(newest.Data.Ancestry, localAncestry, localResolvedRevisions))
                         {
@@ -273,10 +322,29 @@ public sealed partial class ApplicationWorkflow
                         }
                         if (joiningWorkspace || newest.Data.Revision != Synchronization.LocalRevision &&
                             Continues(localAncestry, newest.Data.Ancestry, newest.Data.ResolvedRevisions))
+                        {
+                            EnsureSnapshotAdoptionAllowed();
+                            expectedRevision = revision;
+                            if (!joiningWorkspace) previous = CaptureLocalSnapshot();
+                        }
+                    }
+                    if (expectedRevision is not null)
+                    {
+                        if (previous is not null)
+                        {
+                            using var validatedPrevious = ValidateSnapshot(path, previous);
+                            EnsureSnapshotArtifact(folder, EncodeSnapshot(previous));
+                        }
+                        lock (workspaceGate)
+                        {
+                            EnsureSynchronizationWorkspace(path, folder, identity);
+                            if (revision != expectedRevision || joiningWorkspace != joining)
+                                throw new SnapshotAdoptionDeferred("A new local commit arrived during retention. Incoming data was not installed.");
                             AdoptSnapshot(candidate, newest);
+                        }
                     }
                 }
-                else if (joiningWorkspace)
+                else if (joining)
                     throw new IOException("No complete Workspace snapshot is available to join. Incomplete delivery is not an empty Workspace.");
                 SetSynchronizationPhase(WorkspaceSynchronizationPhase.Publishing);
                 PublishLocalSnapshot(path, folder);
@@ -558,7 +626,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void AdoptSnapshot(ValidatedSnapshot candidate, DeliveredSnapshot incoming, bool explicitChoice = false)
+    private void EnsureSnapshotAdoptionAllowed(bool explicitChoice = false)
     {
         if (LocalSave.HasUnresolvedOutcome || !CanSafelyClose || pending is not null ||
             Volatile.Read(ref snapshotAdoptionDeferrals) != 0 ||
@@ -566,23 +634,21 @@ public sealed partial class ApplicationWorkflow
                 ? people.Count != 0 || batches.Count != 0 || localAncestry.Length != 1 || Synchronization.PublishedRevision is not null
                 : !explicitChoice && Synchronization.HasUnpublishedChanges))
             throw new IOException("Incoming version is waiting: unpublished local changes or unsaved drafts must be preserved.");
-        if (!joiningWorkspace && !explicitChoice)
-        {
-            var previous = CaptureLocalSnapshot();
-            using var validatedPrevious = ValidateSnapshot(workspace!, previous);
-            EnsureSnapshotArtifact(Synchronization.Folder!, EncodeSnapshot(previous));
-        }
+    }
+
+    private void AdoptSnapshot(ValidatedSnapshot candidate, DeliveredSnapshot incoming, bool explicitChoice = false)
+    {
+        EnsureSnapshotAdoptionAllowed(explicitChoice);
         try
         {
             var expected = revision;
             using var connection = OpenLocalConnection();
             using var transaction = connection.BeginTransaction();
-            if (LocalSqliteRevision() != expected)
-                throw new SnapshotAdoptionDeferred("A new local commit arrived during adoption. Retry without overwriting it.");
-            using var evidence = BeginLocalWrite(incoming.Data.Revision.ToString("D"));
-            WriteLogicalSnapshot(connection, transaction, incoming.Data);
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
+            EnsureSynchronizationHead(command, Synchronization.WorkspaceId, expected!);
+            using var evidence = BeginLocalWrite(incoming.Data.Revision.ToString("D"));
+            WriteLogicalSnapshot(connection, transaction, incoming.Data);
             command.CommandText = """
                 UPDATE synchronization SET published_revision=$revision, joining=0,
                     divergence=CASE WHEN $choice=1 THEN

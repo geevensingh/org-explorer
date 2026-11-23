@@ -82,6 +82,10 @@ cycle. Folder failure is a synchronization error, not local data loss.
 Queued folder configuration retains the initiating physical Workspace path and
 identity. The locked configuration operation rejects a replaced Workspace before
 creating or attaching the chosen interchange folder.
+Directory preparation, incoming-artifact retention and routine retirement do
+not hold the local writer gate. Recheck the captured Workspace, revision and
+retained writing after provider work before configuring or atomically adopting
+local state.
 
 Receive only after strict envelope/version/identity/ancestry/resource and full
 domain validation. A clean continuation may install in one local transaction
@@ -122,7 +126,8 @@ Domain history is never routine snapshot garbage.
 Normal close requires latest local Commit and latest local publication, not
 remote delivery. A clean published exit freshly checks the authoritative local
 head and transaction evidence plus the exact known complete artifact and receipt;
-cached Ready alone is insufficient. It need not repeat receive/adoption/export
+already accepted folder/version operations must also finish before normal close.
+Cached Ready alone is insufficient. It need not repeat receive/adoption/export
 solely to quit. Capture the local head/receipt under local locks, release the
 local transaction and locks for provider reads, then freshly revalidate the same
 Workspace/head/folder/receipt before accepting the result. Provider I/O and its

@@ -368,6 +368,43 @@ public sealed class PhotoTests : IDisposable
         Assert.Null(reopened.GetPhoto("avery@example.com"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rejected_Workspace_refresh_blocks_photo_writes_and_retains_an_independent_note_draft(bool replace)
+    {
+        using var app = ImportOriginalPhoto();
+        var revision = app.Synchronization.LocalRevision;
+        var original = app.GetRelationships("avery@example.com")!.Person;
+        var draft = app.BeginNoteDraft(NoteScope.Person, original.Email)!;
+        app.RetainNoteDraft(draft);
+        var selected = Path.Combine(Producer, "selected.jpg");
+        File.WriteAllBytes(selected, Jpeg);
+        var discriminator = Path.Combine(Workspace, "local-workspace.format");
+        var validFormat = File.ReadAllBytes(discriminator);
+        File.WriteAllText(discriminator, "An incompatible local Workspace");
+        try
+        {
+            Assert.False(app.RefreshWorkspace());
+            Assert.False(app.IsWorkspaceCurrent);
+            Assert.False(app.EditPhoto(original.Email, replace ? selected : null), app.Status);
+            Assert.False(app.IsWorkspaceCurrent);
+            Assert.Equal(revision, app.Synchronization.LocalRevision);
+            Assert.Equal(original, app.GetRelationships(original.Email)!.Person);
+            Assert.Equal(Png, app.GetPhoto(original.Email)!.Bytes.ToArray());
+            Assert.Empty(app.GetProfileTimeline(original.Email)!.Changes);
+            Assert.False(app.CanSafelyClose);
+            Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, draft.Id));
+        }
+        finally { File.WriteAllBytes(discriminator, validFormat); }
+        using var reopened = CreateWorkflow();
+        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
+        Assert.Equal(original, reopened.GetRelationships(original.Email)!.Person);
+        Assert.Equal(Png, reopened.GetPhoto(original.Email)!.Bytes.ToArray());
+        Assert.Empty(reopened.GetProfileTimeline(original.Email)!.Changes);
+    }
+
     [Fact]
     public void Distinct_images_stay_with_the_intended_Person_and_reordered_replay_remains_a_no_op()
     {
