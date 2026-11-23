@@ -35,13 +35,6 @@ internal static partial class Program
 
     private static void CaptureVisualEvidence(AutomationElement window, string state, bool captureMonitor = false)
     {
-        using (ObserveUiTiming("capture"))
-            CaptureVisualEvidenceCore(window, state, captureMonitor);
-        WriteUiTiming(state);
-    }
-
-    private static void CaptureVisualEvidenceCore(AutomationElement window, string state, bool captureMonitor)
-    {
         ValidateVisualEvidenceState(state);
         var desktop = new Rect(GetSystemMetrics(76), GetSystemMetrics(77),
             GetSystemMetrics(78), GetSystemMetrics(79));

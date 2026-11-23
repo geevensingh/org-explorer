@@ -18,7 +18,6 @@ internal static partial class Program
         // Capture again after an action or on the next readiness poll; this is not a window-wide cache.
         internal static ControlObservation Capture(AutomationElement window, params string[] ids)
         {
-            using var timing = ObserveUiTiming("control-observation");
             var conditions = ids.Distinct(StringComparer.Ordinal)
                 .Select(id => (Condition)new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray();
             if (conditions.Length == 0) throw new ArgumentException("Supply the controls to observe.", nameof(ids));
