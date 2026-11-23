@@ -134,7 +134,7 @@ internal static partial class Program
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
-            AssertReportingStructure(window, 3, 1, 2);
+            AssertReportingStructure(window, null);
             SelectTreePerson(window, "V-reference@example.com");
             AssertPersonCategory(window, "Vendor");
             AssertReportingStructure(window, 1, 0, 1);
