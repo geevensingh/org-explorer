@@ -55,7 +55,8 @@ public sealed partial class WorkspaceViewModel
                 Synchronization.Folder, Synchronization.LocalRevision, Synchronization.PublishedRevision);
             long epoch, order;
             lock (noteDraftGate) { epoch = noteAutosaveEpoch; order = noteDraftOrder; }
-            var verified = await Task.Run(workflow.VerifyExitPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
+            var verified = ExitStatus.CanClose &&
+                await Task.Run(workflow.VerifyExitPublication).WaitAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             bool sameDrafts;
             lock (noteDraftGate)

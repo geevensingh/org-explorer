@@ -14,8 +14,10 @@ public sealed partial class WorkspaceViewModel
     public WorkspaceSynchronization Synchronization => Volatile.Read(ref synchronizationWorkerError) is { } error
         ? workflow.Synchronization with { Error = error } : workflow.Synchronization;
     public bool IsSynchronizing { get { lock (synchronizationLifecycle) return synchronizationTask is not null; } }
-    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false) =>
-        Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace));
+    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false,
+        string? expectedWorkspacePath = null, Guid? expectedWorkspaceId = null) =>
+        Observe(() => workflow.ConfigureSynchronizationFolder(folder, joinExistingWorkspace,
+            expectedWorkspacePath, expectedWorkspaceId));
     public bool SyncNow() => SynchronizeAsync().GetAwaiter().GetResult();
     public IDisposable DeferSnapshotAdoption() => workflow.DeferSnapshotAdoption();
 

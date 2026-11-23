@@ -25,6 +25,85 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         """;
 
     [Fact]
+    public async Task Held_exit_publication_read_does_not_block_local_writing_or_acknowledge_its_newer_head()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var observer = new ExitPublicationObserver
+        {
+            BeforePublicationRead = () =>
+            {
+                entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Exit publication read was not released.");
+            }
+        };
+        using var first = Create("first", observer);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var published = first.Synchronization.LocalRevision;
+        var basis = first.BeginNoteDraft(NoteScope.Person, "report@example.com")!;
+        var verifying = Task.Run(first.VerifyExitPublication);
+        Task<NoteDraft?>? saving = null;
+        bool verified;
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+            saving = Task.Run(() => first.SaveNoteDraft(basis, "Exact local note", "Writing while provider verification is held"));
+            Assert.NotNull(await saving.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(release.IsSet);
+            Assert.NotEqual(published, first.Synchronization.LocalRevision);
+        }
+        finally
+        {
+            release.Set();
+            if (saving is not null) await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            verified = await verifying.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.False(verified);
+        Assert.True(first.Synchronization.HasUnpublishedChanges);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("Writing while provider verification is held",
+            reopened.BeginNoteDraft(NoteScope.Person, basis.OwnerEmail, basis.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Known_blocked_publication_does_not_repeatedly_probe_local_exit_state(bool configured)
+    {
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked();
+        using var first = new WorkspaceViewModel(proxy);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        if (configured)
+        {
+            Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+            Directory.Move(Local("outgoing"), Local("offline"));
+        }
+        var verifications = 0;
+        boundary.BeforeExitVerification = () => Interlocked.Increment(ref verifications);
+        using var cancel = new CancellationTokenSource();
+        var closing = first.PrepareForExitAsync(cancel.Token);
+        try
+        {
+            await AwaitSnapshot(() => first.Synchronization.Error is not null && !first.IsSynchronizing);
+            await Task.Delay(250);
+            Assert.Equal(0, Volatile.Read(ref verifications));
+            Assert.False(closing.IsCompleted);
+            Assert.True(first.CanEditLocalWorkspace);
+        }
+        finally
+        {
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    [Fact]
     public async Task Normal_exit_freshly_verifies_an_already_published_head_without_revalidating_or_exporting_it()
     {
         var observer = new ExitPublicationObserver();
@@ -2317,13 +2396,17 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     private sealed class ExitPublicationObserver : IWorkspaceFileObserver
     {
         public int ValidationWrites, PublicationReads;
+        public Action? BeforePublicationRead;
         public void Observe(WorkspaceFileEffect effect) { }
         public void ObservePhase(WorkspaceStoragePhase phase)
         {
             if (phase.Name == "snapshot.validate-write" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
                 Interlocked.Increment(ref ValidationWrites);
             if (phase.Name == "exit.publication-read" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
+            {
                 Interlocked.Increment(ref PublicationReads);
+                BeforePublicationRead?.Invoke();
+            }
         }
     }
 
@@ -2368,11 +2451,13 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         public Action? AfterFavorite { get; set; }
         public Action? BeforeSync { get; set; }
         public Action? AfterSync { get; set; }
+        public Action? BeforeExitVerification { get; set; }
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod!.Name == nameof(IApplicationWorkflow.DiscardUnsavedChanges)) BeforeDiscard?.Invoke();
             if (targetMethod.Name == nameof(IApplicationWorkflow.SaveNoteDraft)) BeforeNoteSave?.Invoke();
             if (targetMethod.Name == nameof(IApplicationWorkflow.SyncNow)) BeforeSync?.Invoke();
+            if (targetMethod.Name == nameof(IApplicationWorkflow.VerifyExitPublication)) BeforeExitVerification?.Invoke();
             object? result;
             try { result = targetMethod!.Invoke(Inner, args); }
             catch (TargetInvocationException error) when (error.InnerException is { } inner)

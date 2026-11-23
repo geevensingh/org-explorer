@@ -7,9 +7,12 @@ public partial interface IApplicationWorkflow
 
 public sealed partial class ApplicationWorkflow
 {
+    private sealed record ExitPublicationReceipt(string Workspace, Guid Identity, Guid Head,
+        string Folder, string Name, string Hash);
+
     public bool VerifyExitPublication()
     {
-        bool ready;
+        ExitPublicationReceipt? expected;
         WorkspaceSynchronization previous;
         WorkspaceCompatibility previousCompatibility;
         lock (synchronizationGate)
@@ -18,14 +21,30 @@ public sealed partial class ApplicationWorkflow
             previous = Synchronization;
             previousCompatibility = Compatibility;
             if (!localSqlite) return CanSafelyClose;
-            if (disposed || !workspaceCurrent || localSaveFault is not null || !CanSafelyClose ||
-                Synchronization.Diverged) return false;
-            try { ready = VerifyCurrentExitPublication(reloadChangedHead: true); }
-            catch (Exception error) when (StorageError(error))
+            expected = CaptureExitPublicationReceipt();
+        }
+        var ready = false;
+        if (expected is not null)
+        {
+            string? publicationError = null;
+            try
             {
-                LocalStorageFailed(error);
-                MarkCompatibilityFailure(error);
-                ready = Fail("Normal exit cannot verify committed local data. Last valid information is STALE: " + error.Message);
+                using var lease = AcquireSnapshotFolder(expected.Folder);
+                var delivered = ObserveStoragePhase("exit.publication-read",
+                    () => ReadDeliveredSnapshot(Path.Combine(expected.Folder, expected.Name)));
+                if (delivered.Data.WorkspaceId != expected.Identity || delivered.Data.Revision != expected.Head ||
+                    delivered.Hash != expected.Hash)
+                    throw new IOException("The latest complete publication no longer matches its known local receipt. Evidence is retained.");
+            }
+            catch (Exception error) when (StorageError(error)) { publicationError = error.Message; }
+            // Release the provider lease before reacquiring local locks, matching synchronization's lock order.
+            lock (synchronizationGate)
+            lock (workspaceGate)
+            {
+                if (CaptureExitPublicationReceipt() == expected)
+                    ready = publicationError is null
+                        ? CanSafelyClose && !Synchronization.Diverged && localSaveFault is null
+                        : SynchronizationFailed(publicationError);
             }
         }
         if (previous != Synchronization || previousCompatibility != Compatibility)
@@ -33,7 +52,21 @@ public sealed partial class ApplicationWorkflow
         return ready;
     }
 
-    private bool VerifyCurrentExitPublication(bool reloadChangedHead)
+    private ExitPublicationReceipt? CaptureExitPublicationReceipt()
+    {
+        if (disposed || !workspaceCurrent || localSaveFault is not null || !CanSafelyClose ||
+            Synchronization.Diverged) return null;
+        try { return CaptureCurrentExitPublicationReceipt(reloadChangedHead: true); }
+        catch (Exception error) when (StorageError(error))
+        {
+            LocalStorageFailed(error);
+            MarkCompatibilityFailure(error);
+            Fail("Normal exit cannot verify committed local data. Last valid information is STALE: " + error.Message);
+            return null;
+        }
+    }
+
+    private ExitPublicationReceipt? CaptureCurrentExitPublicationReceipt(bool reloadChangedHead)
     {
         RequireLocalSqliteLocation(workspace!);
         if (File.Exists(Path.Combine(workspace!, "workspace.json")) ||
@@ -59,38 +92,28 @@ public sealed partial class ApplicationWorkflow
         {
             transaction.Dispose();
             connection.Dispose();
-            if (!reloadChangedHead) return false;
+            if (!reloadChangedHead) return null;
             ObserveStoragePhase("exit.local-reload", () => OpenLocalSqlite(false));
-            return VerifyCurrentExitPublication(reloadChangedHead: false);
+            return CaptureCurrentExitPublicationReceipt(reloadChangedHead: false);
         }
         LoadLocalSynchronization(connection, identity, head);
-        if (!ReconcileLocalWriteEvidence() || !CanSafelyClose) return false;
+        if (!ReconcileLocalWriteEvidence() || !CanSafelyClose) return null;
         var state = Synchronization;
         if (state.Diverged || state.Error is not null || joiningWorkspace ||
-            state.LocalRevision != state.PublishedRevision || state.Folder is not { } folder) return false;
+            state.LocalRevision != state.PublishedRevision || state.Folder is not { } folder) return null;
         var name = $"{identity:D}-{head:D}.oesnapshot";
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='snapshot_inventory';";
-        if (Convert.ToInt32(command.ExecuteScalar()) == 0) return false;
+        if (Convert.ToInt32(command.ExecuteScalar()) == 0) return null;
         command.CommandText = "SELECT revision,hash FROM snapshot_inventory WHERE folder=$folder AND name=$name;";
         command.Parameters.AddWithValue("$folder", folder);
         command.Parameters.AddWithValue("$name", name);
         string hash;
         using (var receipt = command.ExecuteReader())
         {
-            if (!receipt.Read() || receipt.GetString(0) != head.ToString("D")) return false;
+            if (!receipt.Read() || receipt.GetString(0) != head.ToString("D")) return null;
             hash = receipt.GetString(1);
         }
-        try
-        {
-            // Hold the local read transaction and the shared folder lease through exact receipt verification.
-            // No incoming adoption, candidate database, export, reclamation or version authorization is needed.
-            using var lease = AcquireSnapshotFolder(folder);
-            var delivered = ObserveStoragePhase("exit.publication-read", () => ReadDeliveredSnapshot(Path.Combine(folder, name)));
-            if (delivered.Data.WorkspaceId != identity || delivered.Data.Revision != head || delivered.Hash != hash)
-                throw new IOException("The latest complete publication no longer matches its known local receipt. Evidence is retained.");
-            return CanSafelyClose && !Synchronization.Diverged && localSaveFault is null;
-        }
-        catch (Exception error) when (StorageError(error)) { return SynchronizationFailed(error.Message); }
+        return new(workspace!, identity, head, folder, name, hash);
     }
 }
 

@@ -26,7 +26,8 @@ public sealed record WorkspaceSynchronization(bool Supported, string? Folder = n
 public partial interface IApplicationWorkflow
 {
     WorkspaceSynchronization Synchronization { get; }
-    bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false);
+    bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false,
+        string? expectedWorkspacePath = null, Guid? expectedWorkspaceId = null);
     bool SyncNow();
     IDisposable DeferSnapshotAdoption();
 }
@@ -160,13 +161,18 @@ public sealed partial class ApplicationWorkflow
         synchronization = new(true, folder, identity, committedRevision, published, error, divergence is not null, phase);
     }
 
-    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false)
+    public bool ConfigureSynchronizationFolder(string folder, bool joinExistingWorkspace = false,
+        string? expectedWorkspacePath = null, Guid? expectedWorkspaceId = null)
     {
         lock (synchronizationGate)
         lock (workspaceGate)
         {
             try
             {
+                if ((expectedWorkspacePath is not null || expectedWorkspaceId is not null) &&
+                    (!string.Equals(expectedWorkspacePath, workspace, StringComparison.OrdinalIgnoreCase) ||
+                        expectedWorkspaceId != Synchronization.WorkspaceId))
+                    return Fail("The Workspace changed before synchronization configuration. Nothing was configured for the current Workspace.");
                 if (!localSqlite || !workspaceCurrent)
                     throw new IOException("Open a current local SQLite Workspace before configuring synchronization.");
                 OpenLocalSqlite(false);

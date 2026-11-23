@@ -79,6 +79,9 @@ A single-flight async lifecycle checks incoming versions and publishes
 approximately every 60 seconds without waiting for idle. Sync now and normal
 close request it immediately; requests during a cycle coalesce into a later
 cycle. Folder failure is a synchronization error, not local data loss.
+Queued folder configuration retains the initiating physical Workspace path and
+identity. The locked configuration operation rejects a replaced Workspace before
+creating or attaching the chosen interchange folder.
 
 Receive only after strict envelope/version/identity/ancestry/resource and full
 domain validation. A clean continuation may install in one local transaction
@@ -120,7 +123,13 @@ Normal close requires latest local Commit and latest local publication, not
 remote delivery. A clean published exit freshly checks the authoritative local
 head and transaction evidence plus the exact known complete artifact and receipt;
 cached Ready alone is insufficient. It need not repeat receive/adoption/export
-solely to quit. Changed local heads reload and revalidate; unconfirmed publication
+solely to quit. Capture the local head/receipt under local locks, release the
+local transaction and locks for provider reads, then freshly revalidate the same
+Workspace/head/folder/receipt before accepting the result. Provider I/O and its
+folder lease never hold the local writer gate; a canceled close cannot leave
+healthy local writes waiting behind that read. Known blocked publication states
+wait without repeatedly probing SQLite. Changed local heads reload and revalidate;
+unconfirmed publication
 requests the shared real publication immediately and rechecks the latest head.
 Failed or unavailable probes, retained writing, unresolved receipts and known
 divergence cannot authorize close or clear retained versions/review evidence.

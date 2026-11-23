@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Loader;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,5 +107,82 @@ internal static partial class Program
             receiver.GetRelationships("owner@example.com")?.Person.IsFavorite != true)
             throw new InvalidOperationException("Actual normal close did not publish the exact latest complete writing: " + receiver.Status);
         Console.WriteLine("PASS: shared snapshot chooser preparation reaches actual compiled Configure/Sync and normal latest-publication close; independent real-store joining verifies the committed writing. No native UI or Exit anyway.");
+        VerifySynchronizationConfigurationOwnership(windowType, root);
+    }
+
+    public class QueuedSynchronizationBoundary : DispatchProxy
+    {
+        public IApplicationWorkflow Inner = null!;
+        public Action? BeforeConfigure;
+        protected override object? Invoke(MethodInfo? method, object?[]? arguments)
+        {
+            if (method!.Name == nameof(IApplicationWorkflow.ConfigureSynchronizationFolder)) BeforeConfigure?.Invoke();
+            try { return method.Invoke(Inner, arguments); }
+            catch (TargetInvocationException error) when (error.InnerException is { } inner)
+            {
+                ExceptionDispatchInfo.Capture(inner).Throw();
+                throw;
+            }
+        }
+    }
+
+    private static void VerifySynchronizationConfigurationOwnership(Type windowType, string root)
+    {
+        foreach (var join in new[] { false, true })
+        {
+            var source = Path.Combine(root, "configuration-source-" + join);
+            var replacement = Path.Combine(root, "configuration-replacement-" + join);
+            var folder = Path.Combine(root, "configuration-folder-" + join);
+            using var store = ApplicationWorkflow.CreateFileBacked();
+            var proxy = DispatchProxy.Create<IApplicationWorkflow, QueuedSynchronizationBoundary>();
+            var boundary = (QueuedSynchronizationBoundary)(object)proxy;
+            boundary.Inner = store;
+            var choice = source;
+            var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+                null, [proxy, (Func<Window, string?>)(_ => choice), (Action<string>)(_ => { })], null)!;
+            T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+            void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
+            PumpUntil(() => model.IsWorkspaceCurrent && Control<Button>("OpenWorkspaceButton").IsEnabled);
+            var original = model.Synchronization.WorkspaceId;
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            boundary.BeforeConfigure = () =>
+            {
+                entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10)))
+                    throw new IOException("Queued synchronization configuration was not released.");
+            };
+            choice = folder;
+            Invoke(join ? "JoinSynchronizationFolderButton" : "ConfigureSynchronizationFolderButton");
+            try
+            {
+                PumpUntil(() => entered.IsSet);
+                choice = replacement;
+                Invoke("OpenWorkspaceButton");
+                PumpUntil(() => model.Compatibility.WorkspacePath == replacement &&
+                    Control<Button>("OpenWorkspaceButton").IsEnabled);
+                if (model.Synchronization.WorkspaceId == original)
+                    throw new InvalidOperationException("Configuration replacement did not establish an independent Workspace.");
+            }
+            finally { release.Set(); }
+            PumpUntil(() => Control<Button>("SyncNowButton").IsEnabled ||
+                Control<Button>("ConfigureSynchronizationFolderButton").IsEnabled);
+            boundary.BeforeConfigure = null;
+            if (model.Compatibility.WorkspacePath != replacement || model.Synchronization.Folder is not null ||
+                Directory.Exists(folder) || !model.Status.Contains("changed", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Queued Configure/Join mutated the replacement Workspace instead of refusing its original request.");
+            if (!model.ConfigureSynchronizationFolder(Path.Combine(root, "configuration-cleanup-" + join)) || !model.SyncNow())
+                throw new InvalidOperationException(model.Status);
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Configuration ownership verification cannot create a native window.");
+            window.Close();
+            PumpUntil(() => closed);
+        }
+        Console.WriteLine("PASS: actual compiled queued Configure and Join reject a replaced Workspace without configuring or creating the captured folder.");
     }
 }

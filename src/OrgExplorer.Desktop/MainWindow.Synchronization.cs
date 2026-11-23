@@ -26,11 +26,14 @@ public partial class MainWindow
 
     private async void ConfigureSynchronization(bool join)
     {
-        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending || !workflow.Synchronization.Supported ||
-            chooseWorkspaceFolder(this) is not { } folder) return;
+        if (synchronizationPending || workflow.IsSynchronizing || updateHandoffPending ||
+            !workflow.Synchronization.Supported) return;
+        var path = workflow.Compatibility.WorkspacePath;
+        var identity = workflow.Synchronization.WorkspaceId;
+        if (chooseWorkspaceFolder(this) is not { } folder) return;
         synchronizationPending = true;
         ShowSynchronizationStatus();
-        try { await Task.Run(() => workflow.ConfigureSynchronizationFolder(folder, join)); }
+        try { await Task.Run(() => workflow.ConfigureSynchronizationFolder(folder, join, path, identity)); }
         finally
         {
             synchronizationPending = false;
