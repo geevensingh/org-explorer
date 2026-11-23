@@ -38,10 +38,12 @@ public partial class MainWindow
             workPending = false;
             ordinaryLocalWorkPending = false;
             localImportPending = false;
-            if (pendingPreferredNameCancellation is { } cancelledName)
+            if (pendingPreferredNameCancellations.Count != 0)
             {
-                pendingPreferredNameCancellation = null;
-                workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
+                var cancellations = pendingPreferredNameCancellations.Values.ToArray();
+                pendingPreferredNameCancellations.Clear();
+                foreach (var cancelledName in cancellations)
+                    workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
                 externalRefreshPending = true;
             }
             completion.TrySetResult();

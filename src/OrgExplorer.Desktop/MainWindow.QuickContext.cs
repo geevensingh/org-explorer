@@ -9,7 +9,7 @@ public partial class MainWindow
     private string? preferredNameOwner;
     private PersonProfile? displayedPreferredNameBase;
     private PersonProfile? preferredNameBasis;
-    private PersonProfile? pendingPreferredNameCancellation;
+    private readonly Dictionary<string, PersonProfile> pendingPreferredNameCancellations = new(StringComparer.OrdinalIgnoreCase);
     private bool preferredNameEditing;
     private bool preferredNameDirty;
     private bool preferredNameSavePending;
@@ -48,9 +48,8 @@ public partial class MainWindow
     private void SetPreferredNameEditing(bool editing)
     {
         // A restored entry is a new generation, not the entry an earlier Cancel dismissed.
-        if (editing && string.Equals(pendingPreferredNameCancellation?.Email, preferredNameOwner,
-                StringComparison.OrdinalIgnoreCase))
-            pendingPreferredNameCancellation = null;
+        if (editing && preferredNameOwner is { } owner)
+            pendingPreferredNameCancellations.Remove(owner);
         preferredNameEditing = editing;
         PreferredNameEditorPanel.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         // Invisible compiled-control checks must not create the Popup's native window.
@@ -107,7 +106,13 @@ public partial class MainWindow
             preferredNameBasis = accepted;
             preferredNameSaveError = null;
             if (currentEntry && PreferredName.Text == text) FinishPreferredNameEntry();
-            else preferredNameDirty = PreferredName.Text != (accepted.PreferredName ?? "");
+            else
+            {
+                preferredNameDirty = PreferredName.Text != (accepted.PreferredName ?? "");
+                if (RetainsPersonDrafts && preferredNameDirty)
+                    workflow.RetainPersonTextDraft(accepted, PersonTextField.PreferredName,
+                        PreferredName.Text.Length == 0 ? null : PreferredName.Text);
+            }
         }
         else if (!currentEntry)
         {
@@ -136,7 +141,8 @@ public partial class MainWindow
         FinishPreferredNameEntry();
         if (workPending)
         {
-            if (!preferredNameSavePending || RetainsPersonDrafts) pendingPreferredNameCancellation = basis;
+            if (basis is not null && (!preferredNameSavePending || RetainsPersonDrafts))
+                pendingPreferredNameCancellations[basis.Email] = basis;
             StatusText.Text = "Preferred-name entry closed. Admitted local work is still in progress; wait for its outcome.";
             return;
         }

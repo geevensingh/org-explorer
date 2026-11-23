@@ -11,6 +11,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     private string? navigationError;
     private readonly object personTextDraftGate = new();
     private readonly Dictionary<(string Email, PersonTextField Field), RetainedPersonTextDraft> personTextDrafts = [];
+    private readonly Dictionary<(string Email, PersonTextField Field), int> personTextSaveRequests = [];
     private bool HasLocalPersonTextDrafts { get { lock (personTextDraftGate) return personTextDrafts.Count != 0; } }
     public WorkspaceViewModel(IApplicationWorkflow workflow, WorkspaceSettings? settings = null, TimeProvider? timeProvider = null,
         TimeProvider? synchronizationTimeProvider = null)
@@ -164,8 +165,12 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         lock (personTextDraftGate)
         {
             var key = (basis.Email.ToLowerInvariant(), field);
-            if (value == basis.PreferredName && !personTextDrafts.ContainsKey(key)) return;
-            personTextDrafts[key] = new(basis, field, value, personTextDrafts.GetValueOrDefault(key)?.Error);
+            var error = personTextDrafts.GetValueOrDefault(key)?.Error;
+            if (value == basis.PreferredName && error is null && localSaveRequests.Status.OutstandingRequests == 0 &&
+                !personTextSaveRequests.ContainsKey(key) &&
+                workflow.GetRelationships(basis.Email)?.Person is { } current && current.PreferredName == basis.PreferredName)
+                personTextDrafts.Remove(key);
+            else personTextDrafts[key] = new(basis, field, value, error);
             workflow.RetainPersonTextDraft(basis, field, value);
         }
         Notify();
@@ -179,21 +184,36 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value) => ObserveLocalSave(() =>
     {
         if (!CanSubmitLocalSave()) return null;
-        var accepted = workflow.SavePersonTextDraft(basis, field, value);
+        var key = (basis.Email.ToLowerInvariant(), field);
         lock (personTextDraftGate)
+            personTextSaveRequests[key] = personTextSaveRequests.GetValueOrDefault(key) + 1;
+        try
         {
-            var key = (basis.Email.ToLowerInvariant(), field);
-            if (personTextDrafts.TryGetValue(key, out var latest))
+            var accepted = workflow.SavePersonTextDraft(basis, field, value);
+            lock (personTextDraftGate)
             {
-                if (accepted is not null && latest.Value == value) personTextDrafts.Remove(key);
-                else personTextDrafts[key] = latest with
+                if (personTextDrafts.TryGetValue(key, out var latest))
                 {
-                    Basis = accepted ?? latest.Basis,
-                    Error = accepted is null ? workflow.LocalSaveError ?? workflow.Status : null
-                };
+                    if (accepted is not null && latest.Value == value && personTextSaveRequests[key] == 1)
+                        personTextDrafts.Remove(key);
+                    else
+                    {
+                        personTextDrafts[key] = latest with
+                        {
+                            Basis = accepted ?? latest.Basis,
+                            Error = accepted is null ? workflow.LocalSaveError ?? workflow.Status : null
+                        };
+                        if (accepted is not null) workflow.RetainPersonTextDraft(accepted, field, latest.Value);
+                    }
+                }
             }
+            return accepted;
         }
-        return accepted;
+        finally
+        {
+            lock (personTextDraftGate)
+                if (--personTextSaveRequests[key] == 0) personTextSaveRequests.Remove(key);
+        }
     });
     public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field) =>
         Observe(() =>
@@ -215,6 +235,19 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     private void Notify()
     {
         if (noteAutosaveStopped) return;
+        lock (personTextDraftGate)
+        {
+            if (personTextDrafts.Count != 0 && personTextSaveRequests.Count == 0 &&
+                localSaveRequests.Status.OutstandingRequests == 0 && !LocalSave.EditsPaused)
+                foreach (var (key, draft) in personTextDrafts.ToArray())
+                    if (draft.Error is null && draft.Value == draft.Basis.PreferredName &&
+                        workflow.GetRelationships(draft.Basis.Email)?.Person is { } current &&
+                        current.PreferredName == draft.Basis.PreferredName)
+                    {
+                        workflow.RetainPersonTextDraft(draft.Basis, draft.Field, draft.Value);
+                        personTextDrafts.Remove(key);
+                    }
+        }
         UpdateSynchronizationSchedule();
         PropertyChanged?.Invoke(this, new(nameof(LocalSave)));
         PropertyChanged?.Invoke(this, new(nameof(CanEditLocalWorkspace)));

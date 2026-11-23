@@ -24,11 +24,20 @@ public sealed partial class ApplicationWorkflow
 {
     private readonly IProfileLinkOpener? profileLinkOpener;
     private readonly Dictionary<(string Email, PersonTextField Field), string?> retainedPersonTextDrafts = [];
+    private readonly Dictionary<(string Email, PersonTextField Field), int> personTextSaveRequests = [];
     private bool HasRetainedPersonTextDrafts { get { lock (profileDraftGate) return retainedPersonTextDrafts.Count != 0; } }
 
     public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
     {
-        lock (profileDraftGate) retainedPersonTextDrafts[(basis.Email.ToLowerInvariant(), field)] = value;
+        lock (profileDraftGate)
+        {
+            var key = (basis.Email.ToLowerInvariant(), field);
+            if (field == PersonTextField.PreferredName && value == basis.PreferredName &&
+                !personTextSaveRequests.ContainsKey(key) && !failedSaves.ContainsKey($"profile:{key.Item1}:{field}") &&
+                people.TryGetValue(basis.Email, out var current) && current.PreferredName == basis.PreferredName)
+                retainedPersonTextDrafts.Remove(key);
+            else retainedPersonTextDrafts[key] = value;
+        }
     }
 
     public bool OpenLinkedInProfile(string email)
@@ -59,7 +68,17 @@ public sealed partial class ApplicationWorkflow
     { lock (workspaceGate) return EditPersonTextCore(email, field, value); }
 
     public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
-        => CanBeginLocalSave() ? TrackLocalSave(() => SavePersonTextDraftCore(basis, field, value)) : null;
+    {
+        var key = (basis.Email.ToLowerInvariant(), field);
+        lock (profileDraftGate)
+            personTextSaveRequests[key] = personTextSaveRequests.GetValueOrDefault(key) + 1;
+        try { return CanBeginLocalSave() ? TrackLocalSave(() => SavePersonTextDraftCore(basis, field, value)) : null; }
+        finally
+        {
+            lock (profileDraftGate)
+                if (--personTextSaveRequests[key] == 0) personTextSaveRequests.Remove(key);
+        }
+    }
 
     private PersonProfile? SavePersonTextDraftCore(PersonProfile basis, PersonTextField field, string? value)
     {
@@ -89,7 +108,8 @@ public sealed partial class ApplicationWorkflow
             lock (profileDraftGate)
             {
                 var key = (basis.Email.ToLowerInvariant(), field);
-                if (retainedPersonTextDrafts.TryGetValue(key, out var latest) && latest == value)
+                if (retainedPersonTextDrafts.TryGetValue(key, out var latest) && latest == value &&
+                    personTextSaveRequests[key] == 1)
                     retainedPersonTextDrafts.Remove(key);
             }
             return people[basis.Email];

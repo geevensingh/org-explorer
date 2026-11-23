@@ -78,11 +78,14 @@ public partial class MainWindow
 
     private async void RetryProfileSave(object sender, RoutedEventArgs e)
     {
-        if (selectedEmail is null) return;
+        if (workPending || selectedEmail is not { } owner) return;
+        var submitted = workflow.ProfileEdit;
         if (workflow.LocalSave.EditsPaused &&
             !await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome..."))
         { ShowStatus(); return; }
-        if (workflow.ProfileEdit is not null)
+        if (selectedEmail != owner || !ReferenceEquals(workflow.ProfileEdit, submitted))
+        { ShowStatus(); return; }
+        if (submitted is not null)
         {
             await SaveProfileSessionAsync();
             return;

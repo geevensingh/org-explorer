@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -13,10 +14,247 @@ internal static partial class Program
     private static void VerifyPreferredNameRetention(Type windowType, string settings,
         Func<Window, string?> chooseFolder)
     {
+        VerifyProfileRetryOwner(windowType, settings);
+        VerifyPreferredNameCancellations(windowType, settings, restoreFirstOwner: false);
+        VerifyPreferredNameCancellations(windowType, settings, restoreFirstOwner: true);
+        VerifyPreferredNameCleanReturn(windowType, settings);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: true, newerWhilePending: true, discardNewer: true);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: false, newerWhilePending: false);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: true, newerWhilePending: true);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: false, newerWhilePending: true);
+        VerifyPreferredNameOriginalDuringReturn(windowType, settings);
+    }
+
+    private static void VerifyProfileRetryOwner(Type windowType, string settings)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "profile-retry-owner"));
+        fixture.Select("casey@example.com");
+        fixture.Click("EditProfileButton");
+        fixture.Control<TextBox>("OfficeNumber").Text = "B never submitted";
+        var unsubmitted = fixture.Model.ProfileEdit!;
+        fixture.Select("avery@example.com");
+        fixture.Click("EditProfileButton");
+        fixture.Control<TextBox>("OfficeNumber").Text = "A explicitly submitted";
+        var submitted = fixture.Model.ProfileEdit!;
+        using (WorkspaceFixtures.LockLocalStore(fixture.Path))
+        {
+            fixture.Click("SaveProfileButton");
+            PumpUntil(() => fixture.Model.LocalSave.Phase == LocalSavePhase.Failed &&
+                fixture.Control<Button>("RetryProfileButton").IsEnabled);
+        }
+        fixture.Observer.Hold("local-sqlite-read-snapshot");
+        fixture.Click("RetryProfileButton");
+        PumpUntil(() => fixture.Observer.Entered.IsSet);
+        fixture.Select("casey@example.com");
+        fixture.Observer.Release.Set();
+        fixture.AwaitIdle();
+        using (var reading = OpenSmokeWorkspace(fixture.Path))
+            if (fixture.Model.ProfileEdit != unsubmitted ||
+                reading.GetRelationships("casey@example.com")!.Person != unsubmitted.Basis ||
+                reading.GetRelationships("avery@example.com")!.Person != submitted.Basis)
+                throw new InvalidOperationException("Profile Retry submitted another owner's retained draft after reconciliation.");
+        fixture.Select("avery@example.com");
+        if (fixture.Model.ProfileEdit != submitted)
+            throw new InvalidOperationException("Navigation during Retry lost the explicitly submitted owner's retained session.");
+        fixture.Click("RetryProfileButton");
+        fixture.AwaitIdle();
+        using (var reading = OpenSmokeWorkspace(fixture.Path))
+            if (reading.GetRelationships("avery@example.com")!.Person != submitted.Draft ||
+                reading.GetRelationships("casey@example.com")!.Person != unsubmitted.Basis)
+                throw new InvalidOperationException("The same owner's explicit Retry did not save only its captured complete profile.");
+        Console.WriteLine("PASS: actual compiled profile Retry cannot submit B while reconciling A; A remains retained until its own explicit Retry.");
+    }
+
+    private static void VerifyPreferredNameCancellations(Type windowType, string settings, bool restoreFirstOwner)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType,
+            Path.Combine(settings, "preferred-cancel-owners-" + restoreFirstOwner));
+        foreach (var owner in new[] { "avery@example.com", "casey@example.com" })
+        {
+            fixture.Select(owner);
+            fixture.Click("EditPreferredNameButton");
+            fixture.Control<TextBox>("PreferredName").Text = "Unsubmitted " + owner;
+        }
+        fixture.Observer.Hold("local-sqlite-commit");
+        fixture.Click("FavoriteButton");
+        PumpUntil(() => fixture.Observer.Entered.IsSet);
+        fixture.Select("avery@example.com");
+        fixture.Click("CancelPreferredNameButton");
+        fixture.Select("casey@example.com");
+        fixture.Click("CancelPreferredNameButton");
+        if (restoreFirstOwner)
+            fixture.Select("avery@example.com");
+        fixture.Observer.Release.Set();
+        fixture.AwaitIdle();
+        if (fixture.Model.GetPersonTextDraft("casey@example.com", PersonTextField.PreferredName) is not null ||
+            (restoreFirstOwner
+                ? fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)?.Value != "Unsubmitted avery@example.com"
+                : fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null) ||
+            fixture.Model.CanSafelyClose == restoreFirstOwner)
+            throw new InvalidOperationException("Deferred Preferred-name cancellation lost an owner or cleared its newer generation.");
+        if (restoreFirstOwner)
+        {
+            var editor = fixture.Control<TextBox>("PreferredName");
+            if (!editor.IsEnabled) throw new InvalidOperationException("The restored owner's input did not become writable.");
+            editor.Text = "Newer A generation";
+            if (fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)?.Value != editor.Text)
+                throw new InvalidOperationException("The restored owner's newer generation was not retained.");
+        }
+        using (var reading = OpenSmokeWorkspace(fixture.Path))
+            if (reading.People.Any(person => person.PreferredName is not null) ||
+                !reading.GetRelationships("casey@example.com")!.Person.IsFavorite)
+                throw new InvalidOperationException("Preferred-name Cancel submitted writing or revoked the unrelated admitted Favorite.");
+        Console.WriteLine($"PASS: actual compiled deferred Cancels retain every owner and protect restored newer writing; restoredA={restoreFirstOwner}.");
+    }
+
+    private static void VerifyPreferredNameCleanReturn(Type windowType, string settings)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-clean-return"));
+        fixture.Select("avery@example.com");
+        fixture.Click("EditPreferredNameButton");
+        fixture.Control<TextBox>("PreferredName").Text = "Changed but not submitted";
+        fixture.Control<TextBox>("PreferredName").Text = "";
+        fixture.Select("casey@example.com");
+        fixture.Select("avery@example.com");
+        if (!fixture.Model.CanSafelyClose || !fixture.Model.CanEnterImport ||
+            fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
+            fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Changing then restoring the original Preferred name retained false unsaved writing after browsing.");
+        Console.WriteLine("PASS: actual compiled clean Preferred-name return retires unsaved retention without Save or Cancel.");
+    }
+
+    private static void VerifyPreferredNameOriginalDuringReturn(Type windowType, string settings)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-original-return"));
+        fixture.Select("avery@example.com");
+        fixture.Click("EditPreferredNameButton");
+        var editor = fixture.Control<TextBox>("PreferredName");
+        editor.Text = "First admitted name";
+        var queued = 0;
+        var typed = false;
+        PropertyChangedEventHandler retypeOriginal = (_, e) =>
+        {
+            if (e.PropertyName != nameof(WorkspaceViewModel.People) ||
+                fixture.Model.GetRelationships("avery@example.com")?.Person.PreferredName != "First admitted name" ||
+                fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
+                Interlocked.CompareExchange(ref queued, 1, 0) != 0) return;
+            fixture.Window.Dispatcher.BeginInvoke(() =>
+            {
+                if (!editor.IsEnabled) throw new InvalidOperationException("The admitted Preferred-name entry is not writable.");
+                editor.Text = "";
+                fixture.Select("casey@example.com");
+                fixture.Select("avery@example.com");
+                typed = true;
+            }, System.Windows.Threading.DispatcherPriority.Send);
+        };
+        fixture.Model.PropertyChanged += retypeOriginal;
+        try
+        {
+            fixture.Observer.Hold("local-sqlite-commit");
+            fixture.Click("SavePreferredNameButton");
+            PumpUntil(() => fixture.Observer.Entered.IsSet);
+            fixture.Observer.Release.Set();
+            fixture.AwaitIdle();
+            if (!typed || editor.Text != "" ||
+                fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not
+                    { Value: null, Basis.PreferredName: "First admitted name", Error: null } ||
+                fixture.Model.CanSafelyClose)
+                throw new InvalidOperationException("Retyping the original value before the compiled Save acknowledgment lost newer writing or its accepted base.");
+            using (var reading = OpenSmokeWorkspace(fixture.Path))
+                if (reading.GetRelationships("avery@example.com")!.Person.PreferredName != "First admitted name")
+                    throw new InvalidOperationException("An earlier Save implicitly submitted the retyped original value.");
+            fixture.Click("SavePreferredNameButton");
+            fixture.AwaitIdle();
+            using var reopened = OpenSmokeWorkspace(fixture.Path);
+            if (reopened.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
+                fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
+                !fixture.Model.CanSafelyClose)
+                throw new InvalidOperationException("The retyped original value did not save explicitly against its accepted base.");
+        }
+        finally { fixture.Model.PropertyChanged -= retypeOriginal; }
+        Console.WriteLine("PASS: actual compiled original-value typing and owner browsing before Save acknowledgment remain retained until their own explicit Save.");
+    }
+
+    private sealed class PreferredRetentionWindow : IDisposable
+    {
+        internal string Path { get; }
+        internal Window Window { get; }
+        internal WorkspaceViewModel Model { get; }
+        internal PreferredRetentionObserver Observer { get; } = new();
+
+        internal PreferredRetentionWindow(Type windowType, string path)
+        {
+            Path = path;
+            using (var seed = ApplicationWorkflow.CreateFileBacked())
+                if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport("""
+                    {"schemaVersion":1,"batchId":"95000000-0000-4000-8000-000000000093",
+                     "observedAt":"2026-11-01T17:00:00Z","people":[
+                     {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
+                     {"email":"casey@example.com","displayName":"Casey","managerEmail":null}]}
+                    """).Id))
+                    throw new InvalidOperationException(seed.Status);
+            Window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                [ApplicationWorkflow.CreateFileBacked(fileObserver: Observer), (Func<Window, string?>)(_ => path)], null)!;
+            Model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+            Click("OpenSettingsButton");
+            Click("OpenWorkspaceButton");
+            PumpUntil(() => Model.People.Count == 2 && Control<TextBlock>("WorkflowActivity").Text == "Ready");
+        }
+
+        internal T Control<T>(string name) where T : FrameworkElement => (T)Window.FindName(name);
+        internal void Click(string name)
+        {
+            var button = Control<Button>(name);
+            if (!button.IsEnabled) throw new InvalidOperationException(name + " is not enabled.");
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+        internal void AwaitIdle() => PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
+        internal void Select(string owner)
+        {
+            var tree = Control<TreeView>("PeopleList");
+            if (!tree.IsEnabled || !Model.CanNavigatePeople)
+                throw new InvalidOperationException("Public Person browsing is disabled.");
+            var node = Model.ReportingRoots.SelectMany(root => new[] { root }.Concat(root.Reports))
+                .Single(item => item.Person.Email == owner);
+            tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, node, TreeView.SelectedItemChangedEvent));
+            if (Control<TextBlock>("Email").Text != owner)
+                throw new InvalidOperationException("Public Person selection did not reach " + owner);
+        }
+        public void Dispose()
+        {
+            Observer.Release.Set();
+            AwaitIdle();
+            if (Model.LocalSave.EditsPaused) Model.ReconcileLocalSaves();
+            foreach (var owner in Model.People.Select(person => person.Email))
+            {
+                if (Model.GetPersonTextDraft(owner, PersonTextField.PreferredName) is { } draft)
+                    Model.DiscardPersonTextDraft(draft.Basis, PersonTextField.PreferredName);
+                Model.SelectProfilePerson(owner);
+                Model.CancelProfileEdit();
+            }
+            if (Window.IsVisible || new WindowInteropHelper(Window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Preferred retention contracts created a native or visible window.");
+            ClosePublishedCompiledWindow(Window);
+            Observer.Dispose();
+        }
+    }
+
+    private sealed class PreferredRetentionObserver : IWorkspaceFileObserver, IDisposable
+    {
+        private string? heldPhase;
+        internal ManualResetEventSlim Entered { get; } = new();
+        internal ManualResetEventSlim Release { get; } = new();
+        internal void Hold(string phase) => heldPhase = phase;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            if (phase.Kind != WorkspaceStoragePhaseKind.Begin || phase.Name != Volatile.Read(ref heldPhase)) return;
+            Interlocked.Exchange(ref heldPhase, null);
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(15)))
+                throw new TimeoutException("The fixture did not release its held real storage phase.");
+        }
+        public void Dispose() { Entered.Dispose(); Release.Dispose(); }
     }
 
     private static void VerifyPreferredNameReturn(Type windowType, string settings,
