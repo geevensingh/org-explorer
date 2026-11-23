@@ -48,6 +48,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public TeamNote? CreateTeamNote(string email, string title, string markdown)
+        => CanBeginLocalSave() ? TrackLocalSave(() => CreateTeamNoteLocked(email, title, markdown)) : null;
+
+    private TeamNote? CreateTeamNoteLocked(string email, string title, string markdown)
     { lock (workspaceGate) return CreateTeamNoteCore(email, title, markdown); }
 
     private TeamNote? CreateTeamNoteCore(string email, string title, string markdown)

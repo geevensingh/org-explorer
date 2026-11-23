@@ -42,6 +42,130 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public async Task Direct_creation_queued_behind_Import_tracks_the_original_request_and_stalls_before_writer_admission(NoteScope scope)
+    {
+        using var boundary = new HeldCommit();
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
+        var preview = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","department":"Imported while creation is queued"}]}
+            """);
+        Assert.True(preview.CanApply, app.Status);
+        boundary.Hold = true;
+        var importing = Task.Factory.StartNew(() => app.ApplyImport(preview.Id),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task<Guid>? creating = null;
+        using var requested = new ManualResetEventSlim();
+        try
+        {
+            Assert.True(boundary.Entered.Wait(TimeSpan.FromSeconds(5)));
+            creating = Task.Factory.StartNew(() =>
+            {
+                requested.Set();
+                return Create(app, scope, "Queued original title", "Exact original queued writing");
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Assert.True(requested.Wait(TimeSpan.FromSeconds(1)));
+            Assert.True(SpinWait.SpinUntil(() => app.LocalSave.Phase == LocalSavePhase.Stalled,
+                TimeSpan.FromSeconds(5)), $"Queued direct creation reported {app.LocalSave}.");
+            Assert.False(boundary.Release.IsSet);
+            Assert.False(creating.IsCompleted);
+            Assert.Equal(1, app.LocalSave.OutstandingRequests);
+            Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+            Assert.False(app.CanSafelyClose);
+            Assert.False(app.CanEditLocalWorkspace);
+            Assert.Empty(app.GetPersonNotes(Owner));
+            Assert.Empty(app.GetTeamNotes(Owner));
+            Assert.Null(scope == NoteScope.Person
+                ? (object?)app.CreatePersonNote(Owner, "Competing title", "Must not be replayed")
+                : app.CreateTeamNote(Owner, "Competing title", "Must not be replayed"));
+        }
+        finally
+        {
+            boundary.Release.Set();
+            Assert.True(await importing.WaitAsync(TimeSpan.FromSeconds(5)), app.Status);
+            if (creating is not null) await creating.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        var id = await creating!;
+        Assert.True(app.CanSafelyClose, app.Status);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        var saved = reopened.BeginNoteDraft(scope, Owner, id)!;
+        Assert.Equal("Queued original title", saved.Title);
+        Assert.Equal("Exact original queued writing", saved.Markdown);
+        Assert.Equal(Owner, saved.OwnerEmail);
+        Assert.Equal(id, Assert.Single(scope == NoteScope.Person
+            ? reopened.GetPersonNotes(Owner).Select(note => note.Id)
+            : reopened.GetTeamNotes(Owner).Select(note => note.Id)));
+        Assert.Equal("Imported while creation is queued", reopened.GetRelationships(Owner)!.Person.Department);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Commit_and_followup_read_failure_reports_unknown_not_definite_noncommit_and_blocks_replacement_writes(NoteScope scope)
+    {
+        using var boundary = new CommitAndReadRefusal(folder);
+        var workflow = ApplicationWorkflow.CreateFileBacked(fileObserver: boundary);
+        using var app = new WorkspaceViewModel(workflow);
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
+        var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Original", "Saved writing"));
+        Assert.True(app.OpenOwnedNotes(scope, Owner), app.Status);
+        Assert.True(app.OpenOwnedNote(scope, original.Id, editing: true), app.Status);
+        boundary.Armed = true;
+        app.UpdateNoteDraft(scope, original.Id, "Retained title", "Unconfirmed writing");
+        Assert.False(await app.FlushNoteDraftsAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(SpinWait.SpinUntil(() => app.GetRetainedNoteDraft(scope, original.Id) is { IsSaving: false, Error: not null },
+            TimeSpan.FromSeconds(5)), "The actual failed save did not retain its draft error.");
+        Assert.True(boundary.ActualCommitFailed);
+        Assert.True(boundary.ReadBlocked);
+        Assert.Equal(LocalSaveOutcome.Unknown, app.LocalSave.Outcome);
+        Assert.Equal(LocalSavePhase.Indeterminate, app.LocalSave.Phase);
+        Assert.Contains("NOT confirmed saved locally", workflow.Status);
+        Assert.DoesNotContain("NOT saved locally", workflow.Status);
+        Assert.Contains("NOT confirmed saved locally", workflow.LocalSaveError);
+        Assert.DoesNotContain("NOT saved locally", workflow.LocalSaveError);
+        Assert.Contains("NOT confirmed saved locally", app.LocalSaveError);
+        Assert.DoesNotContain("NOT saved locally", app.LocalSaveError);
+        Assert.Contains("unknown", app.Status);
+        Assert.DoesNotContain("NOT saved locally", app.Status);
+        Assert.Contains("SqliteException", app.LocalSave.Error);
+        Assert.DoesNotContain("NOT saved locally", app.LocalSave.Message);
+        var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, original.Id));
+        Assert.Equal("Retained title", retained.Title);
+        Assert.Equal("Unconfirmed writing", retained.Markdown);
+        Assert.Contains("NOT confirmed saved locally", retained.Error);
+        Assert.DoesNotContain("NOT saved locally", retained.Error);
+        Assert.True(app.HasUnsavedNoteDraft(scope, original.Id));
+        Assert.False(app.CanSafelyClose);
+        var attempts = boundary.CommitAttempts;
+        var unknown = app.LocalSave;
+        var noteError = app.LocalSaveError;
+        Assert.Null(app.SaveNoteDraft(original, "Competing retry", "Must not be written"));
+        Assert.Equal(attempts, boundary.CommitAttempts);
+        Assert.Equal(unknown, app.LocalSave);
+        Assert.Equal(noteError, app.LocalSaveError);
+        Assert.Equal(retained, app.GetRetainedNoteDraft(scope, original.Id));
+        Assert.NotEmpty(Directory.GetFiles(folder, "local-write-*.json"));
+        boundary.Release();
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal("Saved writing", reopened.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.True(await app.RetryNoteDraftAsync(scope, original.Id).WaitAsync(TimeSpan.FromSeconds(5)), app.Status);
+        using var saved = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(saved.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly), saved.Status);
+        Assert.Equal("Unconfirmed writing", saved.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public void Rejected_Workspace_refresh_blocks_a_previously_captured_note_draft_without_losing_writing(NoteScope scope)
     {
         using var app = ApplicationWorkflow.CreateFileBacked();
@@ -145,7 +269,12 @@ public sealed class NoteDraftPersistenceTests : IDisposable
         using var app = Open();
         var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(app.BeginNoteDraft(scope, Owner)!, "Context", "Original"));
         using (WorkspaceFixtures.LockLocalStore(folder))
+        {
             Assert.Null(app.SaveNoteDraft(original, "First edit", "First writing"));
+            Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+            Assert.Contains("NOT saved locally", app.LocalSaveError);
+            Assert.DoesNotContain("NOT confirmed saved locally", app.LocalSaveError);
+        }
         Assert.False(app.CanSafelyClose);
         using (var prior = Open())
             Assert.Equal("Original", prior.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
@@ -282,6 +411,29 @@ public sealed class NoteDraftPersistenceTests : IDisposable
             if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new IOException("Controlled local commit was not released.");
         }
         public void Dispose() { Release.Set(); Entered.Dispose(); Release.Dispose(); }
+    }
+
+    private sealed class CommitAndReadRefusal(string workspace) : IWorkspaceFileObserver, IDisposable
+    {
+        private readonly WorkspaceFixtures.WalCommitRefusal commit = new(workspace);
+        private FileStream? blockedRead;
+        public bool Armed { set => commit.Armed = value; }
+        public bool ActualCommitFailed => commit.ActualCommitFailed;
+        public int CommitAttempts => commit.CommitAttempts;
+        public bool ReadBlocked => blockedRead is not null;
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
+        {
+            commit.ObservePhase(phase);
+            if (!ActualCommitFailed || phase.Name != "local-sqlite-commit" ||
+                phase.Kind != WorkspaceStoragePhaseKind.Failed) return;
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The read-refusal fixture requires Windows byte-range locks.");
+            blockedRead = new FileStream(Path.Combine(workspace, "workspace.sqlite"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            blockedRead.Lock(0, 100);
+        }
+        public void Release() { blockedRead?.Dispose(); blockedRead = null; }
+        public void Dispose() { Release(); commit.Dispose(); }
     }
 
     private void DeleteFolder() { if (Directory.Exists(folder)) Directory.Delete(folder, true); }

@@ -22,6 +22,9 @@ public sealed partial class ApplicationWorkflow
         Array.AsReadOnly(PersonNotesOf(email).Where(n => includeArchived || !n.Archived).ToArray()); }
 
     public PersonNote? CreatePersonNote(string email, string title, string markdown)
+        => CanBeginLocalSave() ? TrackLocalSave(() => CreatePersonNoteLocked(email, title, markdown)) : null;
+
+    private PersonNote? CreatePersonNoteLocked(string email, string title, string markdown)
     { lock (workspaceGate) return CreatePersonNoteCore(email, title, markdown); }
 
     private PersonNote? CreatePersonNoteCore(string email, string title, string markdown)
@@ -104,7 +107,8 @@ public sealed partial class ApplicationWorkflow
         catch (Exception ex) when (StorageError(ex))
         {
             RetainNoteBase(NoteScope.Person, note.Id);
-            return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
+            var outcome = localSaveFault?.Outcome == LocalSaveOutcome.Unknown ? "NOT confirmed saved locally" : "NOT saved locally";
+            return SaveFailed($"note:{note.Id}", $"Person note save failed; changes are {outcome}: " + ex.Message);
         }
     }
 

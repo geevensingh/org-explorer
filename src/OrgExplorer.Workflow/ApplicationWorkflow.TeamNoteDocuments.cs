@@ -28,7 +28,8 @@ public sealed partial class ApplicationWorkflow
         catch (Exception ex) when (StorageError(ex))
         {
             RetainNoteBase(NoteScope.Team, note.Id);
-            return SaveFailed($"team-note:{note.Id}", "Team note save failed; changes are NOT saved locally: " + ex.Message);
+            var outcome = localSaveFault?.Outcome == LocalSaveOutcome.Unknown ? "NOT confirmed saved locally" : "NOT saved locally";
+            return SaveFailed($"team-note:{note.Id}", $"Team note save failed; changes are {outcome}: " + ex.Message);
         }
     }
 }
