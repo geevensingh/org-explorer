@@ -2,9 +2,17 @@
 
 `release.yml` publishes only after a **successful `ci.yml` push run on main** in
 `geevensingh/org-explorer`. It checks the run's source/repository/event and all
-ordinary core/filesystem/desktop lanes plus `CI` again through GitHub. The current
-`CI` aggregate additionally requires the fourth, separate high-resolution smoke
-lane; historical original-product CI remains authenticated at its own revision.
+ordinary core/filesystem lanes, both desktop partitions (`people`, `workspace`),
+both high-resolution partitions (`reading`, `context`) and `CI` again through
+GitHub. Every required job must occur exactly once and succeed; all jobs pages
+are inspected, and mixed singular/partitioned or unexpected native selections
+are rejected. Current-main approval never falls back to a historical layout.
+Historical original-product CI remains authenticated at its own revision:
+the exact candidate's committed `ci.yml` blob selects its recognized original
+layout (including high-resolution smoke when that revision required it).
+The historical workflow blob identities are pinned in `ReleaseGitHub.ps1`;
+missing jobs cannot select an older policy. Unrecognized workflows must satisfy
+the full current layout, not a guessed historical subset.
 PR, fork and manual CI runs
 cannot authorize production. Ordinary CI still runs for every PR/main commit,
 including repository documentation and tests.

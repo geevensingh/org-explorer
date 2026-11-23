@@ -29,8 +29,13 @@ $run = @{
     id = 42; event = 'push'; head_branch = 'main'; head_sha = $candidate; conclusion = 'success'; status = 'completed'
     path = '.github/workflows/ci.yml'; head_repository = @{ full_name = 'geevensingh/org-explorer' }
 }
-$jobNames = @('Core and view models', 'Real filesystem persistence', 'Actual Windows desktop smoke', 'CI')
+$jobNames = @('Core and view models', 'Real filesystem persistence',
+    'Actual Windows desktop smoke (people)', 'Actual Windows desktop smoke (workspace)',
+    'High-resolution Windows smoke (reading)', 'High-resolution Windows smoke (context)', 'CI')
 $jobs = @($jobNames | ForEach-Object { @{ name = $_; status = 'completed'; conclusion = 'success' } })
+$workflowBlob = '6bca4e7e585fef8e9a8c2b6cbdb6a0562bcb5cb9'
+$originalCiJobs = $null
+$extraJobPage = @()
 $main = $candidate
 $effects = [Collections.Generic.List[string]]::new()
 $releases = @()
@@ -72,7 +77,23 @@ function gh {
     $method = if ($methodIndex -ge 0) { $arguments[$methodIndex + 1] } else { 'GET' }
     switch -Regex ($endpoint) {
         '/git/matching-refs/tags/v$' { ConvertTo-Json -InputObject @(@($script:reservedRefs)) -Depth 10 -Compress; return }
-        '/actions/runs/(42|44)/jobs$' { @{ jobs = $script:jobs } | ConvertTo-Json -Depth 10 -Compress; return }
+        '/actions/runs/(42|44)/jobs\?per_page=100$' {
+            if ($arguments -cnotcontains '--paginate' -or $arguments -cnotcontains '--slurp') {
+                throw 'CI validation must inspect every jobs page.'
+            }
+            $selectedJobs = if ($endpoint.Contains('/42/') -and $null -ne $script:originalCiJobs) {
+                $script:originalCiJobs
+            } else { $script:jobs }
+            ConvertTo-Json -InputObject @(@{ jobs = @($selectedJobs) }, @{ jobs = $script:extraJobPage }) -Depth 10 -Compress
+            return
+        }
+        '/contents/\.github/workflows/ci\.yml\?ref=' {
+            if ($endpoint -cne "repos/geevensingh/org-explorer/contents/.github/workflows/ci.yml?ref=$candidate") {
+                throw 'Historical CI policy must come from the exact authenticated original source, not main.'
+            }
+            @{ type = 'file'; path = '.github/workflows/ci.yml'; sha = $script:workflowBlob } | ConvertTo-Json -Compress
+            return
+        }
         '/actions/runs/42$' { $script:run | ConvertTo-Json -Depth 10 -Compress; return }
         '/actions/runs/44$' { $newRun = $script:run.Clone(); $newRun.id = 44; $newRun.head_sha = 'd' * 40; $newRun | ConvertTo-Json -Depth 10 -Compress; return }
         '/actions/workflows/ci.yml/runs\?' {
@@ -116,7 +137,8 @@ function gh {
 }
 try {
     Assert-TrustedMainCi -Candidate $candidate -CiRunId 42
-    foreach ($field in @('event', 'head_branch', 'head_sha', 'conclusion', 'path')) {
+    Assert-TrustedCi -Candidate $candidate -CiRunId 42
+    foreach ($field in @('id', 'event', 'head_branch', 'head_sha', 'status', 'conclusion', 'path')) {
         $old = $run[$field]; $run[$field] = 'untrusted'
         Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "untrusted CI $field"
         $run[$field] = $old
@@ -124,14 +146,60 @@ try {
     $run.head_repository.full_name = 'attacker/fork'
     Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } 'fork-origin CI'
     $run.head_repository.full_name = 'geevensingh/org-explorer'
-    foreach ($bad in @('failure', 'skipped', 'cancelled', 'timed_out', '')) {
-        $jobs[2].conclusion = $bad
-        Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "required lane $bad"
+    $currentJobs = $jobs
+    foreach ($job in $currentJobs) {
+        foreach ($bad in @('failure', 'skipped', 'cancelled', 'timed_out', '')) {
+            $job.conclusion = $bad
+            Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "required $($job.name) $bad"
+        }
+        $job.conclusion = 'success'
+        $job.status = 'in_progress'
+        Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "unfinished $($job.name)"
+        $job.status = 'completed'
+        $jobs = @($currentJobs | Where-Object { $_ -ne $job })
+        Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "missing $($job.name)"
+        $jobs = @($currentJobs) + @($job)
+        Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } "duplicated $($job.name)"
+        $jobs = $currentJobs
     }
-    $jobs[2].conclusion = 'success'
-    $savedJobs = $jobs; $jobs = @($jobs[0], $jobs[1], $jobs[3])
-    Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } 'missing required desktop lane'
-    $jobs = $savedJobs
+    $extraJobPage = @($jobs[2])
+    Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } 'a duplicated partition on a later jobs page'
+    $extraJobPage = @()
+    foreach ($layout in @(
+        @{ blob = '959f172a7a495274b15dd95598930d6ca17c8084'; highResolution = $false },
+        @{ blob = '2e07763102c4fd4187d6ea1f4094120e5efd0fc2'; highResolution = $false },
+        @{ blob = '299ed12a0c9513ec6740bd4300df7466a6399d05'; highResolution = $true },
+        @{ blob = '044330069aa2c0e80f663aad6816dc6795a54865'; highResolution = $true },
+        @{ blob = 'a8070b98ddb256dbf6dfd8880c0ededfe9cdb369'; highResolution = $true }
+    )) {
+        $workflowBlob = $layout.blob
+        $historicalNames = @('Core and view models', 'Real filesystem persistence', 'Actual Windows desktop smoke', 'CI')
+        if ($layout.highResolution) { $historicalNames += 'High-resolution Windows smoke' }
+        $jobs = @($historicalNames | ForEach-Object { @{ name = $_; status = 'completed'; conclusion = 'success' } })
+        Assert-TrustedCi -Candidate $candidate -CiRunId 42
+        Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } 'a historical-layout downgrade of current main approval'
+        $historicalJobs = $jobs
+        foreach ($job in $historicalJobs) {
+            $jobs = @($historicalJobs | Where-Object { $_ -ne $job })
+            Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } "missing historical $($job.name)"
+            $jobs = @($historicalJobs) + @($job)
+            Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } "duplicate historical $($job.name)"
+            $jobs = $historicalJobs
+            $job.conclusion = 'skipped'
+            Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } "skipped historical $($job.name)"
+            $job.conclusion = 'success'
+        }
+        $jobs = @($historicalJobs) + @($currentJobs[2])
+        Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } 'a spoofed mixed historical/current subset'
+        $jobs = $currentJobs
+        Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } 'current job names substituted for the historical source layout'
+    }
+    $workflowBlob = '6bca4e7e585fef8e9a8c2b6cbdb6a0562bcb5cb9'
+    $jobs = $historicalJobs
+    Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } 'historical job names substituted for current source policy'
+    $jobs = @($currentJobs[0], $currentJobs[1], $historicalJobs[2], $currentJobs[4], $currentJobs[5], $currentJobs[6])
+    Rejects { Assert-TrustedCi -Candidate $candidate -CiRunId 42 } 'a singular desktop substituted for the required current partition pair'
+    $jobs = $currentJobs
     $main = 'b' * 40
     Rejects { Assert-TrustedMainCi -Candidate $candidate -CiRunId 42 } 'older finishing candidate after main moves'
     $main = $candidate
@@ -293,7 +361,11 @@ try {
         $renewalProof = Get-Content "$renewalDirectory\release-provenance.json" -Raw | ConvertFrom-Json
         $renewalProof.controllerSha = 'd' * 40; $renewalProof.controllerCiRunId = 44
         $renewalProof | ConvertTo-Json -Depth 10 | Set-Content "$renewalDirectory\release-provenance.json"
+        $originalCiJobs = $historicalJobs
+        $workflowBlob = 'a8070b98ddb256dbf6dfd8880c0ededfe9cdb369'
         Publish-MetadataRenewal -Plan $renewalPlan -OriginalDirectory $fixture -RenewalDirectory $renewalDirectory -ControllerCiRunId 44 -Key $key -KeyId test-active
+        $originalCiJobs = $null
+        $workflowBlob = '6bca4e7e585fef8e9a8c2b6cbdb6a0562bcb5cb9'
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish' -and $currentTag -ceq 'metadata-v0.1.0-123-1') 'Renewal must publish only an immutable metadata tag while preserving the original app version.'
         Assert ($createdBody -ceq "Metadata renewal only. Original app/package remains v0.1.0 at $candidate; no new app version. Bootstrap assets are byte-identical. Fresh exact-product scale verification and provenance are recorded in release-provenance.json.") 'Metadata renewal descriptions must remain unchanged, without a new source-subject paragraph.'
         $renewalProvenanceResponse = Get-Content "$renewalDirectory\release-provenance.json" -Raw
