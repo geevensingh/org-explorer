@@ -1283,7 +1283,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(scope, "manager@example.com"));
         const string prefix = "# Independently observed ongoing writing";
         var readNumber = 0;
-        using var observation = NoteCommitObservation.Begin(
+        await NoteCommitObservation.RunAsync(
             () => app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix),
             () =>
             {
@@ -1294,32 +1294,34 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                 return committed is not null && committed.Id == draft.Id && committed.Scope == scope &&
                     committed.OwnerEmail == "manager@example.com" && committed.Title == "Observed context" &&
                     committed.Markdown.StartsWith(prefix, StringComparison.Ordinal);
-            });
-        for (var index = 0; index < 6; index++)
+            }, async observation =>
         {
-            await Task.Delay(60);
-            app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix + $"\nContinued entry {index}");
-            Assert.True(app.NavigatePerson("report@example.com"), app.Status);
-            Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
-        }
-        var observedMs = Assert.IsType<double>(await observation.Completion.WaitAsync(TimeSpan.FromSeconds(20)));
-        await Task.Delay(1100);
-        var collectedMs = observation.ElapsedMs;
-        var commitMs = observation.Complete();
-        Console.WriteLine("NOTE-OBSERVATION-TIMING " + System.Text.Json.JsonSerializer.Serialize(new
-        {
-            scope = scope.ToString(), firstReadDelayMs = 1100, observation.RequestMs, observation.WorkerAdmittedMs,
-            observation.FirstReadStartedMs, observation.SuccessfulReadStartedMs,
-            observation.ReadCount, observation.ReadMs, observedMs, collectedMs, returnedMs = commitMs,
-            safelyClose = app.CanSafelyClose, hasSaveError = app.LocalSaveError is not null
-        }));
-        Assert.Equal(observedMs, commitMs);
-        Assert.True(collectedMs - observedMs >= 1000,
-            "Collection must be deliberately delayed after the actual coherent read, not used as a local latency SLA.");
-        Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
-        Assert.Equal(prefix + "\nContinued entry 5", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+            for (var index = 0; index < 6; index++)
+            {
+                await Task.Delay(60);
+                app.UpdateNoteDraft(scope, draft.Id, "Observed context", prefix + $"\nContinued entry {index}");
+                Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+                Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+            }
+            var observedMs = Assert.IsType<double>(await observation.Completion.WaitAsync(TimeSpan.FromSeconds(20)));
+            await Task.Delay(1100);
+            var collectedMs = observation.ElapsedMs;
+            var commitMs = observation.Complete();
+            Console.WriteLine("NOTE-OBSERVATION-TIMING " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                scope = scope.ToString(), firstReadDelayMs = 1100, observation.RequestMs, observation.WorkerAdmittedMs,
+                observation.FirstReadStartedMs, observation.SuccessfulReadStartedMs,
+                observation.ReadCount, observation.ReadMs, observedMs, collectedMs, returnedMs = commitMs,
+                safelyClose = app.CanSafelyClose, hasSaveError = app.LocalSaveError is not null
+            }));
+            Assert.Equal(observedMs, commitMs);
+            Assert.True(collectedMs - observedMs >= 1000,
+                "Collection must be deliberately delayed after the actual coherent read, not used as a local latency SLA.");
+            Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+            using var reopened = ApplicationWorkflow.CreateFileBacked();
+            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+            Assert.Equal(prefix + "\nContinued entry 5", reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id)!.Markdown);
+        });
     }
 
     [Fact]
@@ -1336,7 +1338,7 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
             var expectedFinal = prefix + string.Concat(Enumerable.Range(0, 20).Select(index => $"\nContinued entry {index}"));
             var firstRead = 0;
             var typingFinished = false;
-            using var observation = NoteCommitObservation.Begin(
+            await NoteCommitObservation.RunAsync(
                 () => app.UpdateNoteDraft(scope, draft.Id, "Sustained context", prefix),
                 () =>
                 {
@@ -1357,40 +1359,93 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
                         committed.OwnerEmail == "manager@example.com" &&
                         committed.Markdown == expectedFinal &&
                         reading.BeginNoteDraft(scope, "report@example.com", draft.Id) is null;
+                }, async observation =>
+            {
+                var latest = prefix;
+                var typing = observation.ContinueTyping(index =>
+                {
+                    latest += $"\nContinued entry {index}";
+                    app.UpdateNoteDraft(scope, draft.Id, "Sustained context", latest);
+                    Assert.True(app.NavigatePerson("report@example.com"), app.Status);
+                    Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
                 });
-            var latest = prefix;
-            var typing = observation.ContinueTyping(index =>
-            {
-                latest += $"\nContinued entry {index}";
-                app.UpdateNoteDraft(scope, draft.Id, "Sustained context", latest);
-                Assert.True(app.NavigatePerson("report@example.com"), app.Status);
-                Assert.True(app.NavigatePerson("manager@example.com"), app.Status);
+                Volatile.Write(ref typingFinished, true);
+                var observedMs = observation.Complete();
+                Console.WriteLine("NOTE-SUSTAINED-TYPING-REOPEN " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    scope = scope.ToString(), readDelayMs = 450, observedMs,
+                    continuedEditRequestStartedMs = typing.RequestStartedMs,
+                    continuedEditRequestCompletedMs = typing.RequestCompletedMs,
+                    typingCompletedMs = typing.RequestCompletedMs[^1],
+                    observationCompletedDuringTyping = observedMs <= typing.RequestCompletedMs[^1],
+                    timingUse = "Diagnostic only; final exact writing must reopen within the existing observation window, not before typing ends."
+                }));
+                Assert.True(typing.RequestStartedMs[^1] - typing.RequestCompletedMs[0] >= 1000,
+                    "The fixed typing workload ended before the approved one-second observation window could be exercised.");
+                Assert.Equal(typing.RequestStartedMs.Length, typing.RequestCompletedMs.Length);
+                Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
+                using var reopened = ApplicationWorkflow.CreateFileBacked();
+                Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+                var final = Assert.IsType<NoteDraft>(reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id));
+                Assert.Equal(draft.Id, final.Id);
+                Assert.Equal(scope, final.Scope);
+                Assert.Equal("manager@example.com", final.OwnerEmail);
+                Assert.Equal("Sustained context", final.Title);
+                Assert.Equal(expectedFinal, final.Markdown);
+                Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", draft.Id));
             });
-            Volatile.Write(ref typingFinished, true);
-            var observedMs = observation.Complete();
-            Console.WriteLine("NOTE-SUSTAINED-TYPING-REOPEN " + System.Text.Json.JsonSerializer.Serialize(new
-            {
-                scope = scope.ToString(), readDelayMs = 450, observedMs,
-                continuedEditRequestStartedMs = typing.RequestStartedMs,
-                continuedEditRequestCompletedMs = typing.RequestCompletedMs,
-                typingCompletedMs = typing.RequestCompletedMs[^1],
-                observationCompletedDuringTyping = observedMs <= typing.RequestCompletedMs[^1],
-                timingUse = "Diagnostic only; final exact writing must reopen within the existing observation window, not before typing ends."
-            }));
-            Assert.True(typing.RequestStartedMs[^1] - typing.RequestCompletedMs[0] >= 1000,
-                "The fixed typing workload ended before the approved one-second observation window could be exercised.");
-            Assert.Equal(typing.RequestStartedMs.Length, typing.RequestCompletedMs.Length);
-            Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
-            using var reopened = ApplicationWorkflow.CreateFileBacked();
-            Assert.True(reopened.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reopened.Status);
-            var final = Assert.IsType<NoteDraft>(reopened.BeginNoteDraft(scope, "manager@example.com", draft.Id));
-            Assert.Equal(draft.Id, final.Id);
-            Assert.Equal(scope, final.Scope);
-            Assert.Equal("manager@example.com", final.OwnerEmail);
-            Assert.Equal("Sustained context", final.Title);
-            Assert.Equal(expectedFinal, final.Markdown);
-            Assert.Null(reopened.BeginNoteDraft(scope, "report@example.com", draft.Id));
         }
+    }
+
+    [Fact]
+    public void Note_input_failure_stays_primary_when_the_observer_also_faults()
+    {
+        var primary = new InvalidOperationException("Controlled input failure");
+        var secondary = new IOException("Controlled concurrent observer failure");
+        using var reading = new ManualResetEventSlim();
+        var actual = Record.Exception((Action)(() =>
+        {
+            NoteCommitObservation.Run(
+                () =>
+                {
+                    Assert.True(reading.Wait(TimeSpan.FromSeconds(5)));
+                    throw primary;
+                },
+                () => { reading.Set(); throw secondary; }, _ => { });
+        }));
+        Assert.Same(primary, actual);
+        Assert.Same(secondary, primary.Data["NoteCommitObservationSecondaryFailure"]);
+    }
+
+    [Fact]
+    public void Note_assertion_failure_stays_primary_when_the_observer_also_faults()
+    {
+        var primary = new InvalidOperationException("Controlled assertion failure");
+        var secondary = new IOException("Controlled concurrent observer failure");
+        using var reading = new ManualResetEventSlim();
+        var actual = Record.Exception((Action)(() =>
+        {
+            NoteCommitObservation.Run(() => { }, () => { reading.Set(); throw secondary; }, _ =>
+            {
+                Assert.True(reading.Wait(TimeSpan.FromSeconds(5)));
+                throw primary;
+            });
+        }));
+        Assert.Same(primary, actual);
+        Assert.Same(secondary, primary.Data["NoteCommitObservationSecondaryFailure"]);
+    }
+
+    [Fact]
+    public void Note_observer_failure_still_rejects_an_otherwise_successful_observation()
+    {
+        var secondary = new IOException("Controlled observer failure");
+        using var reading = new ManualResetEventSlim();
+        var actual = Record.Exception((Action)(() =>
+        {
+            NoteCommitObservation.Run(() => { }, () => { reading.Set(); throw secondary; },
+                _ => Assert.True(reading.Wait(TimeSpan.FromSeconds(5))));
+        }));
+        Assert.Same(secondary, actual);
     }
 
     [Fact]
@@ -1403,17 +1458,20 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         connection.Open();
         using var held = connection.BeginTransaction();
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "manager@example.com"));
-        var observation = NoteCommitObservation.Begin(
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => NoteCommitObservation.RunAsync(
             () => app.UpdateNoteDraft(NoteScope.Team, draft.Id, "Pending context", "Not yet committed"),
             () =>
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
                 Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
                 return reading.BeginNoteDraft(NoteScope.Team, "manager@example.com", draft.Id)?.Markdown == "Not yet committed";
-            });
-        try { await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true); }
-        finally { observation.Dispose(); }
-        Assert.Contains("cancelled", Assert.Throws<InvalidOperationException>(() => { observation.Complete(); }).Message);
+            }, async observation =>
+            {
+                await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
+                observation.Cancel();
+                observation.Complete();
+            }));
+        Assert.Contains("cancelled", failure.Message);
         Assert.False(app.CanSafelyClose);
         held.Commit();
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);

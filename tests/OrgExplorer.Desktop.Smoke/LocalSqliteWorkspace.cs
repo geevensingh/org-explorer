@@ -268,7 +268,7 @@ internal static partial class Program
                     Team<TextBox>("NoteTitle").ActualWidth <= 0 || Team<TextBox>("MarkdownEditor").ActualHeight <= 0)
                     throw new InvalidOperationException("The real compiled Add handler/layout did not expose its writable editor.");
                 var prefix = $"# Compiled independently observed note {sample}";
-                using var observation = NoteCommitObservation.Begin(
+                NoteCommitObservation.Run(
                     () => Team<TextBox>("MarkdownEditor").Text = prefix,
                     () =>
                     {
@@ -276,21 +276,23 @@ internal static partial class Program
                         if (!reading.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly))
                             throw new InvalidOperationException("Compiled commit observation could not reopen the real Workspace: " + reading.Status);
                         return reading.BeginNoteDraft(NoteScope.Team, "morgan@example.com", id)?.Markdown == prefix;
-                    });
-                elapsed.Restart();
-                Select("avery@example.com");
-                selectionDispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
-                Layout();
-                selectionMs.Add(elapsed.Elapsed.TotalMilliseconds);
-                elapsed.Restart();
-                Select("morgan@example.com");
-                selectionDispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
-                Layout();
-                selectionMs.Add(elapsed.Elapsed.TotalMilliseconds);
-                VerifyCompiledNoteObservation(teams, NoteScope.Team, workflow.TeamNotesView.SelectedNote!);
-                PumpUntil(() => workflow.CanSafelyClose);
-                commitMs.Add(observation.Complete());
-                reopenMs.Add(observation.ReadMs);
+                    }, observation =>
+                {
+                    elapsed.Restart();
+                    Select("avery@example.com");
+                    selectionDispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                    Layout();
+                    selectionMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                    elapsed.Restart();
+                    Select("morgan@example.com");
+                    selectionDispatchMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                    Layout();
+                    selectionMs.Add(elapsed.Elapsed.TotalMilliseconds);
+                    VerifyCompiledNoteObservation(teams, NoteScope.Team, workflow.TeamNotesView.SelectedNote!);
+                    PumpUntil(() => workflow.CanSafelyClose);
+                    commitMs.Add(observation.Complete());
+                    reopenMs.Add(observation.ReadMs);
+                });
             }
             double P95(List<double> values) => values.Order().ElementAt((int)Math.Ceiling(values.Count * .95) - 1);
             Console.WriteLine("DIAGNOSTIC: compiled SQLite note dispatch/layout/selection and independently reopened commits " +
@@ -918,16 +920,18 @@ internal static partial class Program
                 control => control.Current.IsEnabled,
                 control => control.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern)
                     ? pattern as InvokePattern : null, Await);
-            using var observation = NoteCommitObservation.Begin(save.Invoke, () =>
+            NoteCommitObservation.Run(save.Invoke, () =>
             {
                 using var reading = ApplicationWorkflow.CreateFileBacked();
                 if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly))
                     throw new InvalidOperationException("Hosted profile commit could not reopen: " + reading.Status);
                 return reading.GetRelationships("avery@example.com")!.Person.OfficeNumber == expected &&
                     reading.GetPhoto("avery@example.com")?.Width == 2;
+            }, observation =>
+            {
+                AwaitLocalWorkIdle(window);
+                saves.Add(observation.Complete());
             });
-            AwaitLocalWorkIdle(window);
-            saves.Add(observation.Complete());
         }
         AssertPhotoVisible(window);
         CaptureVisualEvidence(window, "sqlite-person-saves-committed");
@@ -1097,7 +1101,7 @@ internal static partial class Program
                 var inputReturned = 0;
                 var acknowledgment = richFixture is null ? null :
                     new NoteCommitAcknowledgment(scope, id, ownerEmail, titleText, prefix);
-                using var firstCommit = NoteCommitObservation.Begin(() =>
+                NoteCommitObservation.Run(() =>
                 {
                     bodyPattern.SetValue(prefix);
                     Volatile.Write(ref inputReturned, 1);
@@ -1115,99 +1119,100 @@ internal static partial class Program
                         throw new InvalidOperationException("Could not observe the hosted durable local commit: " + reading.Status);
                     return reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown
                         .StartsWith(prefix, StringComparison.Ordinal) == true;
-                });
-
-                interaction.Restart();
-                selectReport.Select();
-                nativeMs = interaction.Elapsed.TotalMilliseconds;
-                polls = ObserveNoteLatency(() => PersonReady(reportEmail, reportHeading));
-                navigation.Add(interaction.Elapsed.TotalMilliseconds);
-                navigationRequests.Add(nativeMs);
-                navigationPolls.Add(polls);
-                interaction.Restart();
-                manager.Invoke();
-                nativeMs = interaction.Elapsed.TotalMilliseconds;
-                polls = ObserveNoteLatency(() => PersonReady(ownerEmail, ownerHeading));
-                navigation.Add(interaction.Elapsed.TotalMilliseconds);
-                navigationRequests.Add(nativeMs);
-                navigationPolls.Add(polls);
-                requireHeldExport?.Invoke();
-                var edit = (SelectionItemPattern)Find(window, family + "NoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern);
-                if (!edit.Current.IsSelected) edit.Select();
-                bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
-                ObserveNoteLatency(() =>
+                }, firstCommit =>
                 {
-                    var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
-                    return frame.Identity == id.ToString() && frame.Title == titleText && frame.Markdown == text &&
-                        frame.Writable && frame.Editing;
-                });
-
-                var continuedTyping = firstCommit.ContinueTyping(edit =>
-                {
-                    text += richFixture is null ? $"\nContinuing entry {edit}" : $" {edit}";
-                    bodyPattern.SetValue(text);
-                }, continuedEdits, editSpacingMs);
-                var completedTyping = continuedTyping.RequestCompletedMs[^1];
-                if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
-                    throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
-                durability.Add(firstCommit.Complete());
-                if (richFixture is not null)
-                {
-                    var verification = Stopwatch.StartNew();
-                    using var reading = ApplicationWorkflow.CreateFileBacked();
-                    if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
-                        reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown.StartsWith(prefix, StringComparison.Ordinal) != true ||
-                        reading.BeginNoteDraft(scope, reportEmail, id) is not null)
-                        throw new InvalidOperationException("The actual WPF saved acknowledgment was not backed by exact committed owner writing.");
-                    independentVerificationMs.Add(verification.Elapsed.TotalMilliseconds);
-                    noteAcknowledgments.Add(new
+                    interaction.Restart();
+                    selectReport.Select();
+                    nativeMs = interaction.Elapsed.TotalMilliseconds;
+                    polls = ObserveNoteLatency(() => PersonReady(reportEmail, reportHeading));
+                    navigation.Add(interaction.Elapsed.TotalMilliseconds);
+                    navigationRequests.Add(nativeMs);
+                    navigationPolls.Add(polls);
+                    interaction.Restart();
+                    manager.Invoke();
+                    nativeMs = interaction.Elapsed.TotalMilliseconds;
+                    polls = ObserveNoteLatency(() => PersonReady(ownerEmail, ownerHeading));
+                    navigation.Add(interaction.Elapsed.TotalMilliseconds);
+                    navigationRequests.Add(nativeMs);
+                    navigationPolls.Add(polls);
+                    requireHeldExport?.Invoke();
+                    var edit = (SelectionItemPattern)Find(window, family + "NoteEditTab").GetCurrentPattern(SelectionItemPattern.Pattern);
+                    if (!edit.Current.IsSelected) edit.Select();
+                    bodyPattern = (ValuePattern)Find(window, family + "NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
+                    ObserveNoteLatency(() =>
                     {
-                        scope = family,
-                        ownerEmail,
-                        noteId = id,
-                        requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix))),
-                        acknowledgment!.PendingObservedAt,
-                        acknowledgment.AcknowledgmentObservedAt,
-                        independentlyVerifiedOwnerAndRequest = true
+                        var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: richFixture is not null);
+                        return frame.Identity == id.ToString() && frame.Title == titleText && frame.Markdown == text &&
+                            frame.Writable && frame.Editing;
                     });
-                }
-                commitRequests.Add(firstCommit.RequestMs);
-                commitReads.Add(firstCommit.ReadCount);
-                commitReadMs.Add(firstCommit.ReadMs);
-                observerAdmittedMs.Add(firstCommit.WorkerAdmittedMs);
-                firstReadStartedMs.Add(firstCommit.FirstReadStartedMs);
-                successfulReadStartedMs.Add(firstCommit.SuccessfulReadStartedMs);
-                continuedEditRequestStartedMs.Add(continuedTyping.RequestStartedMs);
-                continuedEditRequestCompletedMs.Add(continuedTyping.RequestCompletedMs);
-                typingCompletedMs.Add(completedTyping);
-                requireHeldExport?.Invoke();
-                AssertNoteView(window, family, editing: true);
-                AssertValue(window, family + "NoteTitle", titleText);
-                AssertValue(window, family + "NoteMarkdown", text);
-                if (Find(window, family + "NoteHeading").Current.HelpText != id.ToString())
-                    throw new InvalidOperationException("Native Person switches redirected the retained draft to another note.");
-                if (sample == 19)
-                {
-                    var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
-                    if (scroll.Current.VerticallyScrollable)
-                        scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
-                    Await(() => !Find(window, "TeamNoteTitle").Current.IsOffscreen &&
-                        !Find(window, "TeamNoteMarkdown").Current.IsOffscreen);
-                    CaptureVisualEvidence(window, "sqlite-nonblocking-note-editing" +
-                        (richFixture is null ? "" : "-rich-" + phase));
-                }
-                Await(() =>
-                {
-                    using var reading = ApplicationWorkflow.CreateFileBacked();
-                    var frame = ReadNoteEditor(surface, editorCache, family);
-                    return reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) &&
-                        reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown == text &&
-                        Activity(window) == "Ready" && CurrentPersonEmail(window) == ownerEmail &&
-                        frame.Identity == id.ToString() && frame.Title == titleText &&
-                        frame.Markdown == text && frame.Writable && frame.Editing;
+
+                    var continuedTyping = firstCommit.ContinueTyping(edit =>
+                    {
+                        text += richFixture is null ? $"\nContinuing entry {edit}" : $" {edit}";
+                        bodyPattern.SetValue(text);
+                    }, continuedEdits, editSpacingMs);
+                    var completedTyping = continuedTyping.RequestCompletedMs[^1];
+                    if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
+                        throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
+                    durability.Add(firstCommit.Complete());
+                    if (richFixture is not null)
+                    {
+                        var verification = Stopwatch.StartNew();
+                        using var reading = ApplicationWorkflow.CreateFileBacked();
+                        if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
+                            reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown.StartsWith(prefix, StringComparison.Ordinal) != true ||
+                            reading.BeginNoteDraft(scope, reportEmail, id) is not null)
+                            throw new InvalidOperationException("The actual WPF saved acknowledgment was not backed by exact committed owner writing.");
+                        independentVerificationMs.Add(verification.Elapsed.TotalMilliseconds);
+                        noteAcknowledgments.Add(new
+                        {
+                            scope = family,
+                            ownerEmail,
+                            noteId = id,
+                            requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix))),
+                            acknowledgment!.PendingObservedAt,
+                            acknowledgment.AcknowledgmentObservedAt,
+                            independentlyVerifiedOwnerAndRequest = true
+                        });
+                    }
+                    commitRequests.Add(firstCommit.RequestMs);
+                    commitReads.Add(firstCommit.ReadCount);
+                    commitReadMs.Add(firstCommit.ReadMs);
+                    observerAdmittedMs.Add(firstCommit.WorkerAdmittedMs);
+                    firstReadStartedMs.Add(firstCommit.FirstReadStartedMs);
+                    successfulReadStartedMs.Add(firstCommit.SuccessfulReadStartedMs);
+                    continuedEditRequestStartedMs.Add(continuedTyping.RequestStartedMs);
+                    continuedEditRequestCompletedMs.Add(continuedTyping.RequestCompletedMs);
+                    typingCompletedMs.Add(completedTyping);
+                    requireHeldExport?.Invoke();
+                    AssertNoteView(window, family, editing: true);
+                    AssertValue(window, family + "NoteTitle", titleText);
+                    AssertValue(window, family + "NoteMarkdown", text);
+                    if (Find(window, family + "NoteHeading").Current.HelpText != id.ToString())
+                        throw new InvalidOperationException("Native Person switches redirected the retained draft to another note.");
+                    if (sample == 19)
+                    {
+                        var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
+                        if (scroll.Current.VerticallyScrollable)
+                            scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
+                        Await(() => !Find(window, "TeamNoteTitle").Current.IsOffscreen &&
+                            !Find(window, "TeamNoteMarkdown").Current.IsOffscreen);
+                        CaptureVisualEvidence(window, "sqlite-nonblocking-note-editing" +
+                            (richFixture is null ? "" : "-rich-" + phase));
+                    }
+                    Await(() =>
+                    {
+                        using var reading = ApplicationWorkflow.CreateFileBacked();
+                        var frame = ReadNoteEditor(surface, editorCache, family);
+                        return reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) &&
+                            reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown == text &&
+                            Activity(window) == "Ready" && CurrentPersonEmail(window) == ownerEmail &&
+                            frame.Identity == id.ToString() && frame.Title == titleText &&
+                            frame.Markdown == text && frame.Writable && frame.Editing;
+                    });
+                    AssertValue(window, family + "NoteMarkdown", text);
+                    saved[scope] = (id, titleText, text);
                 });
-                AssertValue(window, family + "NoteMarkdown", text);
-                saved[scope] = (id, titleText, text);
             }
         Click(window, "UseAsOngoingTeamNote");
         Await(() => Find(window, "TeamNoteKind").Current.Name.Contains("Ongoing Team note"));

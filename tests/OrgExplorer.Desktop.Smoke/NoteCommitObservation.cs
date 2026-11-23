@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace OrgExplorer.Desktop.Smoke;
 
-internal sealed class NoteCommitObservation : IDisposable
+internal sealed class NoteCommitObservation
 {
     internal const int ContinuedEditCount = 20;
     internal const int ContinuedEditSpacingMs = 60;
@@ -62,19 +62,37 @@ internal sealed class NoteCommitObservation : IDisposable
         return (started, completed);
     }
 
-    internal static NoteCommitObservation Begin(Action request, Func<bool> committed)
+    internal static void Run(Action request, Func<bool> committed, Action<NoteCommitObservation> body)
     {
         var observation = new NoteCommitObservation(committed);
-        var admitted = false;
+        Exception? primary = null;
         try
         {
-            var native = Stopwatch.StartNew();
-            request();
-            observation.RequestMs = native.Elapsed.TotalMilliseconds;
-            admitted = true;
-            return observation;
+            observation.Request(request);
+            body(observation);
         }
-        finally { if (!admitted) observation.Dispose(); }
+        catch (Exception error) { primary = error; throw; }
+        finally { observation.Stop(primary); }
+    }
+
+    internal static async Task RunAsync(Action request, Func<bool> committed, Func<NoteCommitObservation, Task> body)
+    {
+        var observation = new NoteCommitObservation(committed);
+        Exception? primary = null;
+        try
+        {
+            observation.Request(request);
+            await body(observation).ConfigureAwait(false);
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally { observation.Stop(primary); }
+    }
+
+    private void Request(Action request)
+    {
+        var native = Stopwatch.StartNew();
+        request();
+        RequestMs = native.Elapsed.TotalMilliseconds;
     }
 
     internal double Complete()
@@ -83,10 +101,25 @@ internal sealed class NoteCommitObservation : IDisposable
             ?? throw new InvalidOperationException("The durable-note observation was cancelled, not confirmed saved.");
     }
 
-    public void Dispose()
+    internal void Cancel() => stopped.Cancel();
+
+    private void Stop(Exception? primary)
     {
         stopped.Cancel();
-        try { observed.GetAwaiter().GetResult(); }
+        try
+        {
+            if (observed.GetAwaiter().GetResult() is null && primary is null)
+                throw new InvalidOperationException("The durable-note observation was cancelled, not confirmed saved.");
+        }
+        catch (Exception secondary) when (primary is not null)
+        {
+            if (!ReferenceEquals(primary, secondary))
+            {
+                primary.Data["NoteCommitObservationSecondaryFailure"] = secondary;
+                try { Console.Error.WriteLine("NOTE-COMMIT-OBSERVATION-SECONDARY " + secondary); }
+                catch (Exception reporting) { primary.Data["NoteCommitObservationReportingFailure"] = reporting; }
+            }
+        }
         finally { stopped.Dispose(); }
     }
 }
