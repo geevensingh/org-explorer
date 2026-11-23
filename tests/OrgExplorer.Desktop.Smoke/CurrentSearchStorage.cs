@@ -183,6 +183,47 @@ internal static partial class Program
         window.Closed += (_, _) => closed = true;
         window.Close();
         PumpUntil(() => closed);
+        VerifyRetainedInheritedTeamNoteMode(windowType, root);
         Console.WriteLine("PASS: actual grouped/background single-Enter search browses during held SQLite Save and both-scope retained secondary failures, preserving exact identities/views/errors/bases, submitted versus newer writing and actual normal closure. No native keyboard/focus acceptance claimed.");
+    }
+
+    private static void VerifyRetainedInheritedTeamNoteMode(Type windowType, string root)
+    {
+        foreach (var editing in new[] { true, false })
+        {
+            using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(root, "inherited-note-mode-" + editing));
+            var note = fixture.Model.CreateTeamNote("casey@example.com", "Saved inherited context", "Saved inherited writing")
+                ?? throw new InvalidOperationException(fixture.Model.Status);
+            fixture.Select(note.OwnerEmail);
+            var surface = fixture.Control<UserControl>("TeamNotes");
+            T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
+            Note<TabControl>("Views").SelectedItem = Note<TabItem>("EditTab");
+            Note<TextBox>("NoteTitle").Text = "";
+            Note<TextBox>("MarkdownEditor").Text = "Exact retained inherited writing";
+            PumpUntil(() => fixture.Model.GetRetainedNoteDraft(NoteScope.Team, note.Id)?.Error is not null);
+            var retained = fixture.Model.GetRetainedNoteDraft(NoteScope.Team, note.Id)!;
+            try
+            {
+                if (!editing) Note<TabControl>("Views").SelectedItem = Note<TabItem>("ReadTab");
+                fixture.Select("avery@example.com");
+                var link = Note<StackPanel>("ReviewOwners").Children.OfType<Button>()
+                    .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) ==
+                        "ReviewTeamNote-" + note.Id);
+                link.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (fixture.Model.PeopleNavigation.SelectedEmail != note.OwnerEmail ||
+                    fixture.Model.TeamNotesView.SelectedNote?.Id != note.Id ||
+                    fixture.Model.TeamNotesView.IsEditing != editing ||
+                    Note<TabControl>("Views").SelectedItem != Note<TabItem>(editing ? "EditTab" : "ReadTab") ||
+                    fixture.Model.GetRetainedNoteDraft(NoteScope.Team, note.Id) != retained ||
+                    editing && (Note<TextBox>("NoteTitle").Text != retained.Title ||
+                        Note<TextBox>("MarkdownEditor").Text != retained.Markdown))
+                    throw new InvalidOperationException("The actual inherited owner link replaced the same retained note's explicit mode, identity or writing.");
+                using var independent = OpenSmokeWorkspace(fixture.Path);
+                if (independent.BeginNoteDraft(NoteScope.Team, note.OwnerEmail, note.Id)?.Markdown != note.Markdown)
+                    throw new InvalidOperationException("Inherited navigation implicitly committed the retained Team note.");
+            }
+            finally { fixture.Model.DiscardUnsavedChanges(note.Id); }
+        }
+        Console.WriteLine("PASS: actual compiled inherited owner links retain the same unsaved Team note's Edit or explicit Read mode without implicit saving.");
     }
 }

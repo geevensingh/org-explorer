@@ -250,7 +250,17 @@ public sealed partial class WorkspaceViewModel
         }
         changingDestination = true;
         bool accepted;
-        try { accepted = NavigatePeopleCore(context.Owner.Email, null) && OpenOwnedNote(NoteScope.Team, noteId); }
+        try
+        {
+            accepted = NavigatePeopleCore(context.Owner.Email, null);
+            if (accepted)
+            {
+                var view = TeamNotesView;
+                var editing = view.SelectedNote?.Id == noteId && view.IsEditing &&
+                    HasUnsavedNoteDraft(NoteScope.Team, noteId);
+                accepted = OpenOwnedNote(NoteScope.Team, noteId, editing);
+            }
+        }
         finally { changingDestination = false; }
         if (accepted) RememberCurrentView(NoteScope.Team);
         return accepted;

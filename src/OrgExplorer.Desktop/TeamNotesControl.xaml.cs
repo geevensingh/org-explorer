@@ -73,7 +73,10 @@ public partial class TeamNotesControl : UserControl
     public void OpenNote(Guid id)
     {
         if (workflow is null || owner is null) return;
-        if (!workflow.OpenOwnedNote(NoteScope.Team, id)) { ShowPresentation(); return; }
+        var view = workflow.TeamNotesView;
+        var editing = view.SelectedNote?.Id == id && view.IsEditing &&
+            workflow.HasUnsavedNoteDraft(NoteScope.Team, id);
+        if (!workflow.OpenOwnedNote(NoteScope.Team, id, editing)) { ShowPresentation(); return; }
         loading = true;
         if (workflow.TeamNotesView.SelectedNote?.Archived == true)
             IncludeArchived.IsChecked = includeArchived = true;

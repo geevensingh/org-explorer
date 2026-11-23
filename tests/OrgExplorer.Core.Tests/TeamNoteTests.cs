@@ -24,6 +24,29 @@ public sealed class TeamNoteTests
         return app;
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Inherited_navigation_preserves_the_same_retained_Team_notes_explicit_mode(bool editing)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var note = app.CreateTeamNote("manager@example.com", "Saved context", "Saved writing")!;
+        Assert.True(app.NavigatePerson(note.OwnerEmail));
+        Assert.True(app.OpenOwnedNote(NoteScope.Team, note.Id, editing: true));
+        app.UpdateNoteDraft(NoteScope.Team, note.Id, "", "Exact retained Team writing");
+        Assert.False(await app.FlushNoteDraftsAsync());
+        var retained = app.GetRetainedNoteDraft(NoteScope.Team, note.Id)!;
+        if (!editing) Assert.True(app.OpenOwnedNote(NoteScope.Team, note.Id, editing: false));
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.NavigateInheritedTeamNote(note.Id), app.Status);
+        Assert.Equal(note.OwnerEmail, app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(note.Id, app.TeamNotesView.SelectedNote!.Id);
+        Assert.Equal(editing, app.TeamNotesView.IsEditing);
+        Assert.Equal(retained, app.GetRetainedNoteDraft(NoteScope.Team, note.Id));
+        Assert.Equal("Exact retained Team writing", app.TeamNotesView.SelectedNote.Markdown);
+        Assert.Equal("Saved writing", Assert.Single(app.GetTeamNotes(note.OwnerEmail)).Markdown);
+    }
+
     [Fact]
     public async Task Inherited_secondary_notes_reach_their_exact_owner_while_retaining_Person_writing()
     {
