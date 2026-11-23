@@ -70,8 +70,10 @@ internal static partial class Program
             throw new InvalidOperationException(model.Status);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Manager-choice verification cannot create a native window.");
-        model.Dispose();
+        var closed = false;
+        window.Closed += (_, _) => closed = true;
         window.Close();
+        PumpUntil(() => closed);
         Console.WriteLine("PASS: actual compiled ordinary reading avoids whole-population Manager-picker construction; actual Edit still has every candidate/current base, real choice staging and independently nonmutating Cancel.");
     }
 }

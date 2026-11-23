@@ -77,8 +77,10 @@ internal static partial class Program
             throw new InvalidOperationException(model.Status);
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Independent-note leave verification cannot create a native window.");
-        model.Dispose();
+        var closed = false;
+        window.Closed += (_, _) => closed = true;
         window.Close();
+        PumpUntil(() => closed);
         Console.WriteLine("PASS: actual BAML shared mutation/replacement guard rejects after real profile-only Discard while exact independent invalid note survives; no admitted mutation work, owner/data loss or native dialog.");
     }
 }

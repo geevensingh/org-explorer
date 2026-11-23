@@ -244,6 +244,11 @@ Cancel preserves unsubmitted profile/Preferred-name drafts, selection, exact
 stalled owner writing and the original local fault without waiting for the
 admitted transaction/export. Missing folders and failed exports remain distinct
 from local loss; a fresh close retries publication without mutation replay.
+The existing exit-publication read observer also holds that actual provider read
+while the same public Workspace saves and independently reopens newer note
+writing. The old publication cannot acknowledge the new head. The blocked-folder
+cases count calls at the public workflow proxy and require no repeated expensive
+exit verification while publication is already known to be unavailable.
 The invisible compiled `--verify-exit` check (also in the existing required
 `--verify-profile-refresh` command) drives the real BAML close/Cancel controls,
 repeated/canceled intents, newer writing and late exports. Nine owned non-UI
@@ -280,6 +285,12 @@ Cancel the decision before their original retry, preserving drafts/bytes and
 profile navigation Save/Discard/Stay without leaving a latent close intent.
 No scenario, sample, previous assertion scope, lane budget or latency target is
 removed or extended. Local compiled/process success is not hosted UI acceptance.
+The existing invisible Configure/Sync contract also queues both Configure and
+Join at the public workflow boundary, replaces the Workspace through actual
+compiled Open controls, and requires rejection without configuring the new
+Workspace or creating the captured folder. The Manager-choice and independent
+note-leave contracts pump through actual `Closed`; its normal handler owns model
+disposal, so a canceled close cannot be reported as completed cleanup.
 
 Fixtures expecting ordinary process exit first establish its real publication
 precondition through the existing Settings Configure/Sync controls and an
