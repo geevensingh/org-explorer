@@ -131,6 +131,12 @@ Existing hosted profile, archival, external-refresh and responsive journeys
 observe every final count/category character's actual rendered text-range
 rectangles, fact text, wrapping, Team-first order and report destinations;
 those presentation and keyboard assertions require the hosted desktop lanes.
+Read-only multi-control native checks batch their requested IDs and properties
+in one fresh UI Automation observation, avoiding a full-window search for each
+field. Each readiness poll and post-action check captures again; observations
+do not survive navigation, focus/scroll changes or updates. Text-pattern, pixel,
+selection and keyboard assertions remain actual provider/desktop observations,
+with the same complete scenario selection, size matrices and execution budgets.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,

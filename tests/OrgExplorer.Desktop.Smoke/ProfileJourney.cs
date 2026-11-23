@@ -468,22 +468,28 @@ internal static partial class Program
             return;
         }
         var counts = $"{total} total, {employees} Employees, {vendors} Vendors";
-        Await(() => IsVisible(window, "ReportingStructureValue") &&
-            Find(window, "ReportingStructureValue").Current.Name == $"Reporting structure: {counts}" &&
-            IsVisible(window, "ReportingStructureScope"));
-        var label = Find(window, "ReportingStructureLabel");
-        var value = Find(window, "ReportingStructureValue");
-        var scope = Find(window, "ReportingStructureScope");
-        if (label.Current.Name != "Reporting structure" || scope.Current.Name != "Known current reports, all levels" ||
-            value.Current.ControlType != ControlType.Edit ||
+        Await(() =>
+        {
+            var ready = ControlObservation.Capture(window, "ReportingStructureValue", "ReportingStructureScope");
+            return ready.IsVisible("ReportingStructureValue") &&
+                ready["ReportingStructureValue"].Cached.Name == $"Reporting structure: {counts}" &&
+                ready.IsVisible("ReportingStructureScope");
+        });
+        var controls = ControlObservation.Capture(window, "ReportingStructureLabel", "ReportingStructureValue",
+            "ReportingStructureScope", "ProfileScroll", "TeamNameLabel", "DepartmentValue");
+        var label = controls["ReportingStructureLabel"];
+        var value = controls["ReportingStructureValue"];
+        var scope = controls["ReportingStructureScope"];
+        if (label.Cached.Name != "Reporting structure" || scope.Cached.Name != "Known current reports, all levels" ||
+            value.Cached.ControlType != ControlType.Edit ||
             !value.TryGetCurrentPattern(ValuePattern.Pattern, out var readOnly) ||
-            !((ValuePattern)readOnly).Current.IsReadOnly || !value.Current.IsKeyboardFocusable)
+            !((ValuePattern)readOnly).Current.IsReadOnly || !value.Cached.IsKeyboardFocusable)
             throw new InvalidOperationException("Reporting structure lost its ordinary read-only fact, full counts or exact population scope.");
         var scale = DpiScale(window);
-        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
-        var team = Find(window, "TeamNameLabel").Current.BoundingRectangle;
-        var summary = label.Current.BoundingRectangle;
-        var department = Find(window, "DepartmentValue").Current.BoundingRectangle;
+        var viewport = controls.Bounds("ProfileScroll");
+        var team = controls.Bounds("TeamNameLabel");
+        var summary = label.Cached.BoundingRectangle;
+        var department = controls.Bounds("DepartmentValue");
         bool Before(Rect first, Rect second) => first.Top < second.Top - scale ||
             Math.Abs(first.Top - second.Top) <= scale && first.Left < second.Left - scale;
         if (!Before(team, summary) || !Before(summary, department) ||
@@ -491,8 +497,8 @@ internal static partial class Program
             throw new InvalidOperationException("Reporting structure must be the next ordinary fact immediately after Team name.");
         foreach (var element in new[] { label, value, scope })
         {
-            var bounds = element.Current.BoundingRectangle;
-            if (element.Current.IsOffscreen || bounds.IsEmpty || scroll.Current.HorizontallyScrollable ||
+            var bounds = element.Cached.BoundingRectangle;
+            if (element.Cached.IsOffscreen || bounds.IsEmpty || scroll.Current.HorizontallyScrollable ||
                 bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
                 bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
                 throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");

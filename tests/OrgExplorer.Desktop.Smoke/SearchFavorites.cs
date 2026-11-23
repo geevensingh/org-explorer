@@ -249,14 +249,20 @@ internal static partial class Program
         PressCopyKey(0x0D);
     }
 
-    private static bool OrdinarySearchProfileReady(AutomationElement window, string email)
+    private static readonly string[] OrdinaryProfileControls =
+        ["Email", "ProfileHeading", "SaveProfile", "PersonNoteEditTab", "PersonNoteReadTab", "TeamNoteEditTab", "TeamNoteReadTab"];
+
+    private static bool OrdinarySearchProfileReady(AutomationElement window, string email) =>
+        OrdinarySearchProfileReady(ControlObservation.Capture(window, OrdinaryProfileControls), email);
+
+    private static bool OrdinarySearchProfileReady(ControlObservation controls, string email)
     {
-        return Find(window, "Email").Current.Name == email && IsVisible(window, "ProfileHeading") &&
-            !IsVisible(window, "SaveProfile") &&
-            (!IsVisible(window, "PersonNoteEditTab") ||
-                ((SelectionItemPattern)Find(window, "PersonNoteReadTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
-            (!IsVisible(window, "TeamNoteEditTab") ||
-                ((SelectionItemPattern)Find(window, "TeamNoteReadTab").GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
+        return controls["Email"].Cached.Name == email && controls.IsVisible("ProfileHeading") &&
+            !controls.IsVisible("SaveProfile") &&
+            (!controls.IsVisible("PersonNoteEditTab") ||
+                ((SelectionItemPattern)controls["PersonNoteReadTab"].GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
+            (!controls.IsVisible("TeamNoteEditTab") ||
+                ((SelectionItemPattern)controls["TeamNoteReadTab"].GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
     }
 
     private static void AssertOrdinarySearchProfile(AutomationElement window, string email)
@@ -364,9 +370,15 @@ internal static partial class Program
         try
         {
             ControlReadiness.AwaitSearchBrowsing(() => compact = IsVisible(window, "OpenPeople"),
-                isCompact => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email) &&
-                    (isCompact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                        : IsVisible(window, "People") && IsVisible(window, "Favorites")), Await);
+                isCompact =>
+                {
+                    var controls = ControlObservation.Capture(window,
+                        [.. OrdinaryProfileControls, "SearchQuery", "PeopleNavigation", "OpenPeople", "People", "Favorites"]);
+                    return ((ValuePattern)controls["SearchQuery"].GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "" &&
+                        OrdinarySearchProfileReady(controls, email) &&
+                        (isCompact ? !controls.IsVisible("PeopleNavigation") && controls["OpenPeople"].Cached.HasKeyboardFocus
+                            : controls.IsVisible("People") && controls.IsVisible("Favorites"));
+                }, Await);
         }
         catch (TimeoutException error)
         {
