@@ -68,10 +68,55 @@ internal static partial class Program
         }
         VerifyHostedUnavailableClosePublication(windowType, root);
         VerifyHostedDivergedClosePublication(windowType, root);
+        VerifyHostedQueuedSynchronizationClose(windowType, root);
         var existingExitRoot = Path.Combine(root, "close-existing");
         Directory.CreateDirectory(existingExitRoot);
         VerifyCompiledWorkspaceExit(windowType, existingExitRoot);
         Console.WriteLine("PASS: actual compiled Closing freshly verifies cached Ready without a validation/export cycle; confirms a real sibling-local head; refuses unavailable publication and retained divergence; preserves older-export/newer-writing and repeated/canceled intents. Independent real stores confirm exact writing and retained evidence. No native UI.");
+    }
+
+    private static void VerifyHostedQueuedSynchronizationClose(Type windowType, string root)
+    {
+        var path = Path.Combine(root, "close-queued-configuration");
+        var originalFolder = path + "-published";
+        var selectedFolder = path + "-new-folder";
+        using var store = SeedClosePublicationWorkspace(path, originalFolder);
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, QueuedSynchronizationBoundary>();
+        var boundary = (QueuedSynchronizationBoundary)(object)proxy;
+        boundary.Inner = store;
+        // The fixture owns the store so a failed Close assertion can still release queued work safely.
+        boundary.CallerOwnsLifetime = true;
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [proxy, (Func<Window, string?>)(_ => selectedFolder)], null)!;
+        var closed = false;
+        window.Closed += (_, _) => closed = true;
+        var verified = 0;
+        boundary.AfterExitVerification = () => Interlocked.Increment(ref verified);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        boundary.BeforeConfigure = () =>
+        {
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+                throw new IOException("Queued close configuration was not released.");
+        };
+        ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        ((Button)window.FindName("ConfigureSynchronizationFolderButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        try
+        {
+            PumpUntil(() => entered.IsSet);
+            RequireNoNativeCloseWindow(window);
+            window.Close();
+            PumpUntil(() => closed || Volatile.Read(ref verified) >= 2);
+            if (closed)
+                throw new InvalidOperationException("Normal close completed before its already accepted synchronization operation.");
+        }
+        finally { release.Set(); }
+        PumpUntil(() => closed);
+        using var reopened = OpenSmokeWorkspace(path);
+        if (reopened.Synchronization.Folder != selectedFolder || reopened.Synchronization.HasUnpublishedChanges)
+            throw new InvalidOperationException("Normal close did not finish and publish its accepted folder configuration.");
+        Console.WriteLine("PASS: actual compiled normal close waits for queued synchronization work and its latest publication.");
     }
 
     private static IApplicationWorkflow SeedClosePublicationWorkspace(string path, string folder,

@@ -114,10 +114,19 @@ internal static partial class Program
     {
         public IApplicationWorkflow Inner = null!;
         public Action? BeforeConfigure;
+        public Action? AfterExitVerification;
+        public bool CallerOwnsLifetime;
         protected override object? Invoke(MethodInfo? method, object?[]? arguments)
         {
+            if (method!.Name == nameof(IDisposable.Dispose) && CallerOwnsLifetime) return null;
             if (method!.Name == nameof(IApplicationWorkflow.ConfigureSynchronizationFolder)) BeforeConfigure?.Invoke();
-            try { return method.Invoke(Inner, arguments); }
+            try
+            {
+                var result = method.Invoke(Inner, arguments);
+                if (method.Name == nameof(IApplicationWorkflow.VerifyExitPublication) && result is true)
+                    AfterExitVerification?.Invoke();
+                return result;
+            }
             catch (TargetInvocationException error) when (error.InnerException is { } inner)
             {
                 ExceptionDispatchInfo.Capture(inner).Throw();

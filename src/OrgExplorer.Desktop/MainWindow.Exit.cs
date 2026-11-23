@@ -13,7 +13,8 @@ public partial class MainWindow
 
     private bool HasUnsavedWindowChanges => workPending || HasPreferredNameDraft || HasUnsavedRelationship ||
         PersonNotes.HasUnsavedChanges || TeamNotes.HasUnsavedChanges;
-    private bool CanFinishNormalExit => !updateHandoffPending && !HasUnsavedWindowChanges && workflow.ExitStatus.CanClose;
+    private bool CanFinishNormalExit => !updateHandoffPending && !synchronizationPending &&
+        !HasUnsavedWindowChanges && workflow.ExitStatus.CanClose;
 
     private void InitializeExit()
     {

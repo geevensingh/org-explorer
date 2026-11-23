@@ -291,6 +291,9 @@ compiled Open controls, and requires rejection without configuring the new
 Workspace or creating the captured folder. The Manager-choice and independent
 note-leave contracts pump through actual `Closed`; its normal handler owns model
 disposal, so a canceled close cannot be reported as completed cleanup.
+The compiled close contract also holds accepted folder configuration at that
+queue boundary. Cached publication cannot close the window before the operation
+finishes and its resulting folder is published; Exit anyway still bypasses waits.
 
 Fixtures expecting ordinary process exit first establish its real publication
 precondition through the existing Settings Configure/Sync controls and an
@@ -2605,6 +2608,11 @@ owner, writing or durability remains a failure within the original observations.
 
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.
+The shared observation lifecycle owns request, body and cleanup so an observer
+fault cannot replace an initiating input/assertion exception. Secondary faults
+remain attached/reported, and an otherwise successful body still fails when its
+observer faults or never confirms durability. Request clocks, continued typing
+and the original observation window are unchanged.
 Pending observation is diagnostic, not mandatory: a fast Commit may finish
 before the first observer call. The exact Person/Team saved-success (or Team
 saved-and-confirmed) acknowledgment and truthful complete-publication/local-only
