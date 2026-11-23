@@ -81,7 +81,8 @@ public partial class MainWindow
         if (workPending || selectedEmail is not { } owner) return;
         var submitted = workflow.ProfileEdit;
         if (workflow.LocalSave.EditsPaused &&
-            !await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome..."))
+            !await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...",
+                browseSafeRecovery: true))
         { ShowStatus(); return; }
         if (selectedEmail != owner || !ReferenceEquals(workflow.ProfileEdit, submitted))
         { ShowStatus(); return; }

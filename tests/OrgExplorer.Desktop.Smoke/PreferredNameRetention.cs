@@ -1,9 +1,11 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Input;
 using OrgExplorer.TestFixtures;
 using OrgExplorer.Workflow;
 
@@ -27,7 +29,13 @@ internal static partial class Program
 
     private static void VerifyProfileRetryOwner(Type windowType, string settings)
     {
-        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "profile-retry-owner"));
+        foreach (var retry in new[] { "RetryProfileButton", "NoticeRetryButton" })
+            VerifyProfileRetryOwner(windowType, settings, retry);
+    }
+
+    private static void VerifyProfileRetryOwner(Type windowType, string settings, string retry)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "profile-retry-owner-" + retry));
         fixture.Select("casey@example.com");
         fixture.Click("EditProfileButton");
         fixture.Control<TextBox>("OfficeNumber").Text = "B never submitted";
@@ -43,10 +51,32 @@ internal static partial class Program
                 fixture.Control<Button>("RetryProfileButton").IsEnabled);
         }
         fixture.Observer.Hold("local-sqlite-read-snapshot");
-        fixture.Click("RetryProfileButton");
+        fixture.Click(retry);
         PumpUntil(() => fixture.Observer.Entered.IsSet);
-        fixture.Select("casey@example.com");
-        fixture.Observer.Release.Set();
+        try
+        {
+            var content = (FrameworkElement)fixture.Window.Content;
+            content.Measure(new Size(1100, 900));
+            content.Arrange(new Rect(0, 0, 1100, 900));
+            content.UpdateLayout();
+            var query = fixture.Control<TextBox>("SearchQuery");
+            query.Text = "casey@example.com";
+            query.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = content }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            var waiting = Stopwatch.StartNew();
+            PumpUntil(() =>
+            {
+                if (waiting.Elapsed > TimeSpan.FromSeconds(5))
+                    throw new InvalidOperationException("Person search stayed blocked during the same held reconciliation.");
+                return fixture.Control<TextBlock>("Email").Text == "casey@example.com" && query.Text == "";
+            });
+            if (!fixture.Observer.Active || fixture.Observer.Release.IsSet ||
+                fixture.Control<Button>("OpenWorkspaceButton").IsEnabled ||
+                fixture.Control<Button>("SaveProfileButton").IsEnabled)
+                throw new InvalidOperationException("Recovery search must finish while reconciliation stays held and edit/replacement guards remain active.");
+        }
+        finally { fixture.Observer.Release.Set(); }
         fixture.AwaitIdle();
         using (var reading = OpenSmokeWorkspace(fixture.Path))
             if (fixture.Model.ProfileEdit != unsubmitted ||
@@ -62,7 +92,8 @@ internal static partial class Program
             if (reading.GetRelationships("avery@example.com")!.Person != submitted.Draft ||
                 reading.GetRelationships("casey@example.com")!.Person != unsubmitted.Basis)
                 throw new InvalidOperationException("The same owner's explicit Retry did not save only its captured complete profile.");
-        Console.WriteLine("PASS: actual compiled profile Retry cannot submit B while reconciling A; A remains retained until its own explicit Retry.");
+        Console.WriteLine("PASS: actual compiled " + retry +
+            " permits search during held reconciliation, cannot submit B, and retains A until its own explicit Retry.");
     }
 
     private static void VerifyPreferredNameCancellations(Type windowType, string settings, bool restoreFirstOwner)
@@ -244,15 +275,21 @@ internal static partial class Program
         private string? heldPhase;
         internal ManualResetEventSlim Entered { get; } = new();
         internal ManualResetEventSlim Release { get; } = new();
+        internal volatile bool Active;
         internal void Hold(string phase) => heldPhase = phase;
         public void Observe(WorkspaceFileEffect effect) { }
         public void ObservePhase(WorkspaceStoragePhase phase)
         {
             if (phase.Kind != WorkspaceStoragePhaseKind.Begin || phase.Name != Volatile.Read(ref heldPhase)) return;
             Interlocked.Exchange(ref heldPhase, null);
+            Active = true;
             Entered.Set();
-            if (!Release.Wait(TimeSpan.FromSeconds(15)))
-                throw new TimeoutException("The fixture did not release its held real storage phase.");
+            try
+            {
+                if (!Release.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("The fixture did not release its held real storage phase.");
+            }
+            finally { Active = false; }
         }
         public void Dispose() { Entered.Dispose(); Release.Dispose(); }
     }

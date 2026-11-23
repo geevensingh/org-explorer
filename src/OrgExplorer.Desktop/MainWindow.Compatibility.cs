@@ -108,7 +108,8 @@ public partial class MainWindow
         if (workPending) return;
         if (workflow.Compatibility.SupportsNonblockingNoteAutosave && workflow.LocalSave.EditsPaused)
         {
-            await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...");
+            await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...",
+                browseSafeRecovery: true);
             RefreshExternalWorkspace();
             return;
         }

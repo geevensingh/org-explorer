@@ -194,8 +194,19 @@ rejected startup restoration reports recovery without publishing a partial remem
 Blocked Workspace replacement is distinct from an attempted open failure. The
 compiled Retry action must still reconcile the current local store without
 reopening or creating the blocked destination or resetting the current view.
+Both profile and notice recovery actions permit actual query/Enter Person
+browsing while the same real reconciliation read remains held. Their separate
+browse-safe recovery mode keeps editing and Workspace replacement guarded and
+never routes reconciliation through the ordinary local-save admission queue.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
+
+Local SQLite Historical reads reject omitted nested capture fields, including
+frozen Team-note review status, without rewriting local or published bytes.
+Direct Person/Team creation is tracked before waiting behind a real Import
+Commit and reaches the unchanged three-second stall while queued. Actual note
+Commit plus follow-up-read refusal keeps every workflow/view-model/retained-draft
+projection unknown/not confirmed saved, distinct from confirmed noncommit.
 
 `WorkspaceWriteObservationTests` drives the real SQLite-backed workflow with an
 optional `IWorkspaceFileObserver`; actual local Commit/evidence effects and
@@ -294,6 +305,8 @@ disposal, so a canceled close cannot be reported as completed cleanup.
 The compiled close contract also holds accepted folder configuration at that
 queue boundary. Cached publication cannot close the window before the operation
 finishes and its resulting folder is published; Exit anyway still bypasses waits.
+Waiting for window-level update/configuration/version work does not repeatedly
+read or hash its already published snapshot.
 
 Fixtures expecting ordinary process exit first establish its real publication
 precondition through the existing Settings Configure/Sync controls and an

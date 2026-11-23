@@ -7,6 +7,7 @@ public partial class MainWindow
     private bool workPending;
     private bool ordinaryLocalWorkPending;
     private bool localImportPending;
+    private bool recoveryWorkPending;
     private bool externalRefreshPending;
     private TaskCompletionSource? workCompleted;
 
@@ -15,11 +16,12 @@ public partial class MainWindow
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        bool isImport = false, bool ordinarySave = false)
+        bool isImport = false, bool ordinarySave = false, bool browseSafeRecovery = false)
     {
         ordinaryLocalWorkPending = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
         workPending = true;
         localImportPending = isImport && RetainsPersonDrafts;
+        recoveryWorkPending = browseSafeRecovery;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = false;
@@ -38,6 +40,7 @@ public partial class MainWindow
             workPending = false;
             ordinaryLocalWorkPending = false;
             localImportPending = false;
+            recoveryWorkPending = false;
             if (pendingPreferredNameCancellations.Count != 0)
             {
                 var cancellations = pendingPreferredNameCancellations.Values.ToArray();

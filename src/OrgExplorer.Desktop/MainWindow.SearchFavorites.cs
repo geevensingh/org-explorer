@@ -28,7 +28,8 @@ public partial class MainWindow
     private int queryRequest;
     private int queryIntent;
     private Task searchRefresh = Task.CompletedTask;
-    private bool PeopleSearchWorkBlocked => workPending && !ordinaryLocalWorkPending && !localImportPending;
+    private bool PeopleSearchWorkBlocked => workPending && !ordinaryLocalWorkPending &&
+        !localImportPending && !recoveryWorkPending;
     private bool activatingSearch;
     private FrameworkElement? matchedProfileValue;
     private string? matchedProfileHelp;
