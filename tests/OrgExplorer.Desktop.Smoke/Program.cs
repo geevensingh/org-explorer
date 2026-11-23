@@ -13,6 +13,7 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        highResolutionTimingProbe = args.Length == 2 && args[1] == "--high-resolution";
         try
         {
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
@@ -61,12 +62,14 @@ internal static partial class Program
             var fixtures = Path.GetFullPath(Path.Combine(".test-workspaces", "desktop-" + Guid.NewGuid().ToString("N")));
             var scenarios = selected.Select(name => new SmokeScenario(name, root =>
             {
+                StartUiTiming(name);
                 diagnostics = Path.Combine(results, name + "-ui.log");
                 var previousSettings = Environment.GetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY");
                 Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", Path.Combine(root, "app-settings"));
                 try { actions[name](root); }
                 finally
                 {
+                    WriteUiTiming("finish-" + name);
                     foreach (var process in Applications) { StopApplication(process); process.Dispose(); }
                     Applications.Clear();
                     Environment.SetEnvironmentVariable("ORG_EXPLORER_SETTINGS_DIRECTORY", previousSettings);
@@ -128,6 +131,7 @@ internal static partial class Program
     }
     internal static AutomationElement Find(AutomationElement window, string id, ControlType? controlType = null)
     {
+        using var timing = ObserveUiTiming("find-by-id");
         Condition condition = new PropertyCondition(AutomationElement.AutomationIdProperty, id);
         if (controlType is not null)
             condition = new AndCondition(condition, new PropertyCondition(AutomationElement.ControlTypeProperty, controlType));
@@ -141,6 +145,7 @@ internal static partial class Program
     }
     internal static void Click(AutomationElement window, string id, ControlType? controlType = null)
     {
+        using var timing = ObserveUiTiming("invoke");
         ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
     }
@@ -250,6 +255,7 @@ internal static partial class Program
     }
     internal static void Await(Func<bool> condition)
     {
+        using var timing = ObserveUiTiming("await");
         var timer = Stopwatch.StartNew();
         while (timer.Elapsed < TimeSpan.FromSeconds(20))
         {

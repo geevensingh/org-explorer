@@ -194,6 +194,7 @@ internal static partial class Program
     private static void QueryAndSelect(AutomationElement window, string query, string email, string context,
         string source, string? owner = null, bool expectNavigation = true)
     {
+        using var timing = ObserveUiTiming("query-and-select");
         if (expectNavigation) AwaitLocalWorkIdle(window);
         var beforeEmail = CurrentPersonEmail(window);
         string? PersonNoteIdentity() => window.FindFirst(TreeScope.Descendants,

@@ -453,6 +453,7 @@ internal static partial class Program
 
     private static void AssertReportingStructure(AutomationElement window, int? total, int employees = 0, int vendors = 0)
     {
+        using var timing = ObserveUiTiming("reporting-summary");
         var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
             control => control.Current.IsEnabled && !control.Current.IsOffscreen,
             control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
@@ -496,6 +497,7 @@ internal static partial class Program
                 bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
                 throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");
         }
+        using var rangeTiming = ObserveUiTiming("reporting-text-ranges");
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
             ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
             ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end)

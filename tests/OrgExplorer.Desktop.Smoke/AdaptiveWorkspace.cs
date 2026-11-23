@@ -568,9 +568,13 @@ internal static partial class Program
     private static string DescribeBrowsingRows(TreeItemRealization.BrowsingPosition position) =>
         string.Join("; ", position.Rows.Select(row => $"{row.Email}:({row.Left:F1},{row.Top:F1})"));
 
-    private static bool IsVisible(AutomationElement window, string id) =>
-        window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element &&
-        !element.Current.IsOffscreen;
+    private static bool IsVisible(AutomationElement window, string id)
+    {
+        using var timing = ObserveUiTiming("visibility");
+        return window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, id)) is { } element &&
+            !element.Current.IsOffscreen;
+    }
 
     private static void EnsurePeopleBrowsing(AutomationElement window) =>
         ControlReadiness.PreparePeopleBrowsing(
