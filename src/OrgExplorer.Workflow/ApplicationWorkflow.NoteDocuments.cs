@@ -19,7 +19,9 @@ public sealed partial class ApplicationWorkflow
         Dictionary<string, PersonProfile> owners, string context)
     {
         var kind = scope == NoteScope.Person ? "person" : "team";
-        if (metadata.SchemaVersion != 1 || metadata.Kind != kind)
+        if (metadata.SchemaVersion != 1)
+            throw new UnsupportedWorkspaceVersion($"{scope} note", metadata.SchemaVersion);
+        if (metadata.Kind != kind)
             throw new FormatException($"{context}: expected kind '{kind}'.");
         Email(JsonSerializer.SerializeToElement(metadata.OwnerEmail), $"{scope} note ownerEmail");
         if (!owners.ContainsKey(metadata.OwnerEmail))

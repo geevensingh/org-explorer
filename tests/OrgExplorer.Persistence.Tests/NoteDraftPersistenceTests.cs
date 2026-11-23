@@ -42,6 +42,49 @@ public sealed class NoteDraftPersistenceTests : IDisposable
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public void Rejected_Workspace_refresh_blocks_a_previously_captured_note_draft_without_losing_writing(NoteScope scope)
+    {
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport(Population).Id), app.Status);
+        var original = Assert.IsType<NoteDraft>(app.SaveNoteDraft(
+            app.BeginNoteDraft(scope, Owner)!, "Context", "Original writing"));
+        app.RetainNoteDraft(original);
+        var marker = Path.Combine(folder, "local-workspace.format");
+        var validMarker = File.ReadAllBytes(marker);
+        File.WriteAllText(marker, "Unrecognized Workspace format");
+        Assert.False(app.RefreshWorkspace());
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.False(app.CanEditLocalWorkspace);
+        var rejected = WorkspaceFixtures.Bytes(folder);
+
+        Assert.Null(app.SaveNoteDraft(original, "Retained title", "Retained local writing"));
+        Assert.Contains("NOT saved locally", app.Status);
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.False(app.Compatibility.SupportsNoteEdits);
+        Assert.True(app.HasUnsavedNoteDraft(scope, original.Id));
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Original writing", app.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(rejected.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in rejected) Assert.Equal(bytes, after[path]);
+
+        File.WriteAllBytes(marker, validMarker);
+        using (var reopened = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
+            Assert.Equal("Original writing", reopened.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.NotNull(app.SaveNoteDraft(original, "Retained title", "Retained local writing"));
+        using var saved = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(saved.OpenWorkspace(folder), saved.Status);
+        Assert.Equal("Retained local writing", saved.BeginNoteDraft(scope, Owner, original.Id)!.Markdown);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public void Failed_secondary_draft_retains_exact_owner_and_writing_while_ongoing_browsing_remains_available(NoteScope scope)
     {
         using var app = Open();
