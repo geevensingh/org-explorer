@@ -80,8 +80,8 @@ public sealed class AutomaticUpdateTests : IDisposable
     {
         using var fixture = new SignedReleaseFixture { Package = Package() };
         var release = (await fixture.Checker().CheckAsync()).Release!;
-        var publisher = new HeldPublisher();
-        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        var publisher = new HeldCommit();
+        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: publisher);
         var workspace = Path.Combine(root, "import");
         Assert.True(app.OpenWorkspace(workspace), app.Status);
         var preview = app.PreviewImport("""
@@ -131,11 +131,10 @@ public sealed class AutomaticUpdateTests : IDisposable
         Assert.True(app.OpenWorkspace(workspace), app.Status);
         var note = team ? app.CreateTeamNote("avery@example.com", "Context", "Saved writing")!.Id
             : app.CreatePersonNote("avery@example.com", "Context", "Saved writing")!.Id;
-        var notePath = Path.Combine(workspace, team ? "team-notes" : "notes", note + ".md");
         var effect = new RestartEffect();
         using var installer = new UpdateInstaller(new PackageTransport(fixture.Package), effect,
             Path.Combine(root, "staging"), new Version("0.1.0"));
-        using (File.Open(notePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (WorkspaceFixtures.LockLocalStore(workspace))
         {
             Assert.False(Edit("Retained unsaved writing"));
             await installer.InstallAsync(release, restart => Task.Run(() => app.RestartWhenSafe(restart)));
@@ -143,8 +142,10 @@ public sealed class AutomaticUpdateTests : IDisposable
             Assert.Null(effect.Bytes);
             Assert.False(app.CanSafelyClose);
             Assert.Contains("NOT saved", app.Status);
-            Assert.Contains("Saved writing", File.ReadAllText(notePath));
+            Assert.Equal("Saved writing", app.BeginNoteDraft(team ? NoteScope.Team : NoteScope.Person,
+                "avery@example.com", note)!.Markdown);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(Edit("Retained unsaved writing"), app.Status);
         await installer.InstallAsync(release, restart => Task.Run(() => app.RestartWhenSafe(restart)));
         Assert.Equal(UpdateInstallStatus.Restarting, installer.Status);
@@ -264,12 +265,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         using var fixture = new SignedReleaseFixture { Package = Package() };
         var release = (await fixture.Checker().CheckAsync()).Release!;
         var workspace = Path.Combine(root, "unsupported");
-        if (version < 3) WorkspaceFixtures.CopyVersion(version, workspace);
-        else WorkspaceFixtures.CopyCurrent(workspace);
-        var pointer = Path.Combine(workspace, "workspace.json");
-        var unsupported = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(pointer))!;
-        unsupported["schemaVersion"] = version;
-        File.WriteAllText(pointer, unsupported.ToJsonString());
+        WorkspaceFixtures.CopyVersion(version, workspace);
         var original = Directory.GetFiles(workspace, "*", SearchOption.AllDirectories)
             .ToDictionary(file => file, File.ReadAllBytes);
         var directories = Directory.GetDirectories(workspace, "*", SearchOption.AllDirectories).Order().ToArray();
@@ -310,19 +306,19 @@ public sealed class AutomaticUpdateTests : IDisposable
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
-    private sealed class HeldPublisher : IWorkspaceFilePublisher
+    private sealed class HeldCommit : IWorkspaceFileObserver
     {
         public bool Hold { get; set; }
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ManualResetEventSlim Release { get; } = new();
-        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
+        public void Observe(WorkspaceFileEffect effect) { }
+        public void ObservePhase(WorkspaceStoragePhase phase)
         {
-            if (Hold)
+            if (Hold && phase.Name == "local-sqlite-commit" && phase.Kind == WorkspaceStoragePhaseKind.Begin)
             {
                 Entered.TrySetResult();
                 if (!Release.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Controlled publication was not released.");
             }
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
         }
     }
 
@@ -343,7 +339,7 @@ public sealed class AutomaticUpdateTests : IDisposable
         var release = (await fixture.Checker().CheckAsync()).Release!;
         var workspace = Path.Combine(root, "current");
         WorkspaceFixtures.CopyCurrent(workspace);
-        var originalPointer = File.ReadAllBytes(Path.Combine(workspace, "workspace.json"));
+        var original = WorkspaceFixtures.Bytes(workspace);
         var path = Path.Combine(root, "update-attempt.json");
         new UpdateRestartJournal(path).Begin(release, workspace);
         using var oldApp = ApplicationWorkflow.CreateFileBacked();
@@ -356,7 +352,9 @@ public sealed class AutomaticUpdateTests : IDisposable
         Assert.Contains("not confirmed", oldJournal.Message, StringComparison.OrdinalIgnoreCase);
         Assert.NotEmpty(oldApp.People);
         Assert.Equal(WorkspaceCompatibilityState.Compatible, oldApp.Compatibility.State);
-        Assert.Equal(originalPointer, File.ReadAllBytes(Path.Combine(workspace, "workspace.json")));
+        var after = WorkspaceFixtures.Bytes(workspace);
+        Assert.Equal(original.Keys.Order(), after.Keys.Order());
+        foreach (var (file, bytes) in original) Assert.Equal(bytes, after[file]);
         new UpdateRestartJournal(path).Begin(release, workspace);
         using var newApp = ApplicationWorkflow.CreateFileBacked();
         var newJournal = new UpdateRestartJournal(path);

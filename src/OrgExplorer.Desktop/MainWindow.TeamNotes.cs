@@ -2,8 +2,6 @@ namespace OrgExplorer.Desktop;
 
 public partial class MainWindow
 {
-    private bool TryLeaveNotes() => PersonNotes.TryLeave() && TeamNotes.TryLeave();
-
     private void AttachTeamNotes()
     {
         TeamNotes.Attach(workflow, () =>
@@ -14,7 +12,7 @@ public partial class MainWindow
         });
         TeamNotes.OwnerRequested += noteId =>
         {
-            if (!TryLeaveLocalEdits()) return;
+            if (!TryLeaveLocalEdits(browsing: true)) return;
             if (!workflow.NavigateInheritedTeamNote(noteId))
             {
                 ShowNavigationBlocked(workflow.Status);

@@ -23,6 +23,45 @@ public interface IWorkspaceFileObserver
 
 public sealed partial class ApplicationWorkflow
 {
+    private sealed class LocalReadSnapshotObservation(IWorkspaceFileObserver observer) : IDisposable
+    {
+        // Begin is a known-held snapshot point, not acquisition time. Only End confirms
+        // successful transaction/connection disposal; Failed makes no release claim.
+        private readonly Guid id = Guid.NewGuid();
+        private System.Diagnostics.Stopwatch? timer;
+        private bool terminal;
+
+        public void KnownHeld()
+        {
+            timer = System.Diagnostics.Stopwatch.StartNew();
+            Report(WorkspaceStoragePhaseKind.Begin);
+        }
+
+        public void Released()
+        {
+            terminal = true;
+            Report(WorkspaceStoragePhaseKind.End);
+        }
+
+        public void Dispose()
+        {
+            if (timer is null || terminal) return;
+            terminal = true;
+            Report(WorkspaceStoragePhaseKind.Failed);
+        }
+
+        private void Report(WorkspaceStoragePhaseKind kind)
+        {
+            try { observer.ObservePhase(new(id, "local-sqlite-read-snapshot", kind, timer!.Elapsed.TotalMilliseconds)); }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.TraceError(
+                    "Workspace read observation failed: kind={0}; type={1}; hresult=0x{2:X8}. Storage outcome is unchanged.",
+                    kind, error.GetType().Name, error.HResult);
+            }
+        }
+    }
+
     private T ObserveStoragePhase<T>(string name, Func<T> action)
     {
         if (fileObserver is null) return action();

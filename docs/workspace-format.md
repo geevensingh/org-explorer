@@ -1,550 +1,324 @@
-# Workspace format, version 3
-
-The Workspace is a chosen local folder, not installation data or an Import file.
-The normal desktop/workflow creates and opens version 3. Older versions (including
-1 and 2) and future versions are rejected **without mutation**, before creating a
-writer lease. There is no automatic conversion, downgrade or legacy cleanup.
-Preserve the old folder and explicitly choose a new empty folder to create a
-Workspace; do not delete the owner's data. Import version 1 is independent and
-unchanged.
-
-`workspace.json` is the atomic current selector:
-
-```json
-{
-  "schemaVersion": 3,
-  "storageProtocol": 1,
-  "commit": "14000000-0000-4000-8000-000000000000",
-  "roots": {
-    "people": null,
-    "profileHistory": null,
-    "acceptedBatches": null,
-    "photos": null,
-    "teamContext": null,
-    "historicalTeamContext": null
-  },
-  "recordVersions": {
-    "people": 2,
-    "profileHistory": 2,
-    "acceptedBatches": 1,
-    "personNotes": 1,
-    "teamNotes": 1,
-    "photos": 1,
-    "teamContext": 1,
-    "historicalTeamContext": 1
-  }
-}
-```
-
-This illustrates an empty Workspace, not a population-wide manifest. Each nonnull
-root names a version-1 bounded radix index below `index\`. A node has a family
-and either up to 16 identity/location `entries` or up to 16 hexadecimal `children`,
-partitioned by normalized-identity SHA-256. Missing indexes/documents never mean
-an empty family. Unknown Workspace/family/record versions block writes; missing,
-duplicate or malformed metadata is unavailable data, not permission to guess.
-The [storage safety protocol](incremental-workspace-storage-protocol.md) specifies
-containment, indexes, transactions, recovery and reclamation in detail.
-
-The required `storageProtocol: 1` is the fail-closed discriminator for the
-owner-approved publication-conflict protocol in unreleased version 3. Older
-strict readers reject this unknown field; the new reader rejects its absence.
-There is no automatic conversion or supported mixed-protocol writing.
-
-Current documents have unique locations below `documents\<family>\`. App saves
-replace only affected documents and ancestor index nodes; unchanged documents
-remain referenced in place. There is no full-generation writer or activation
-flag. These physical locations are not domain identities or immutable content
-hash promises: valid direct external edits remain supported.
-
-Person documents retain record version 2, stable email, Directory name, Preferred
-name, Alias, job title, department, office building/number/state/country,
-LinkedIn URL, explicit Manager or null, archival, favorite and photo state.
-Canonical properties include `directoryName`, `preferredName`, `alias`, `jobTitle`,
-`department`, `officeBuilding`, `officeNumber`, `officeState`, `officeCountry`
-and `linkedInProfileUrl`; Import `displayName` maps to `directoryName`.
-Office identifiers remain text; unknown optional values stay unknown.
-Email inside the record is authoritative. All textual values and the complete
-reporting graph are validated on load as well as edit/Import.
-
-The optional `teamName` on the owning Person document is private current context:
-nonblank text or null (omission in existing version-2 records also means unset).
-It is not a structured observed attribute or an Import field. Only that owned
-value is stored; applicability is derived from current non-archived direct
-reports, so dormant labels remain durable. A label-only save uses the same
-incremental publication, recovery and delivery guards without creating Profile
-changes, Team-note review revisions or Historical team context. Captured former
-chain profiles omit `teamName`; the historical reader rejects it. Existing strict
-readers reject a nonnull unknown `teamName` instead of silently erasing it.
-
-Each accepted-batch document retains one entry of the version-1 map representation:
-batch identity, logical fingerprint, original source envelope (producer and
-Observation times) and local application time. Each Team-context document
-similarly retains one Manager's version-1 review-revision entry.
-Profile-history documents retain version 2, `email`, `changes` and `observations`.
-Changes retain typed old/new values, accepted evidence and nullable prior evidence.
-Evidence includes the supplied field/value, source (`0` Import, `1` local edit),
-source `observedAt` (null for local edits), local `recordedAt`, batch/producer.
-Initial creation is a baseline; same-value explicit Imports add evidence without
-inventing a change. Missing prior evidence stays unknown, not reconstructed from
-timestamps or envelopes. External Person/history edits must be mutually consistent.
-
-Person `photoPath` is a logical SHA-256-named `.png`/`.jpg` resource identity,
-resolved through the photo-family index to ordinary copied image bytes. Images
-must be contained and decode successfully; damage is an error, not a placeholder.
-Fingerprint actual bytes even if timestamps and paths did not change.
-Import-batch identity includes the producer image's exact digest.
-All indexed images and images required by history/evidence/captured former chains
-remain roots after replacing or clearing a current photo. Producer source paths
-are evidence, never Workspace resource locations to reopen or reclaim.
-
-**Settings and upgrade guidance** remains accessible before open or after
-incompatibility/unavailable data. `IApplicationWorkflow.Compatibility` exposes
-NotOpened, Compatible, Unsupported, RecoveryRequired or Unavailable, supported
-and observed versions and explicit guidance. **Retry Workspace validation /
-storage maintenance** revalidates, then completes maintenance for a compatible
-current Workspace; it never converts incompatible bytes. Restart receipts live outside
-the Workspace. Normal restart uses this same reader/refusal policy, and a failed
-open never replaces the remembered successful folder. Installer rollback is not
-Workspace rollback. See [the update protocol](update-protocol.md).
-
-## Observation dates and the timeline
-
-The shared workflow exposes typed changes, all recorded evidence, and current
-field-specific confirmations. The desktop timeline orders changes by recording
-order, not by source dates, and labels imported Observations separately from
-local edits and application times. Same-value older evidence remains reviewable
-but does not replace a newer confirmation of that value. Explicitly accepting a
-different value from older evidence records the difference and staleness; it does
-not silently reject the user's reviewed choice.
-
-A Manager change may show an observed interval after the prior Manager
-confirmation and by the new Manager Observation only when those source times
-are ordered. Equal/older source dates and missing prior source evidence show
-detection time with an unknown effective date. These are evidence bounds, never
-claims of an exact transfer date. Office-only evidence does not reconfirm the
-Manager. Previews warn about older supplied evidence, including evidence that
-predates a local edit; exact accepted replays remain warning-free no-ops.
-
-## Commit and recovery
-
-### Ordinary local saves
-
-Under the process-local I/O gate and short exclusive `.workspace.lock`, validate
-the complete current byte revision and proposed state. Providers do not honor
-that lease. Flush durable intent/individual creation inventories before payloads,
-write only changed documents and affected bounded index paths, and prepare
-independent recovery. Flush every write and validate the candidate graph and
-producer resources before atomically replacing `workspace.json`. Retain
-the exact base selector and unique displaced-target backup in the publishing
-transaction as protected transition roots. Existing `workspace.previous.json`
-roots remain protected when present. Multi-Person Imports
-publish one coherent selector, never intermediate graph states. Exact accepted
-replay writes nothing. Current Person/Team Markdown remains independently atomic
-at its stable GUID location; it does not gain user-visible edit-version history.
-
-The accepted revision is the validated base plus the operation's exact written
-bytes, not an unconditional post-publication scan. Delivery inside the publisher
-boundary is checked separately against durable superseded-source roots and the
-actual displaced destination. Canonical fingerprints alone cannot detect edits
-to files the new selector no longer references. Fresh complete byte fingerprints include
-the selected current index/document closure and ordinary notes, not recovery,
-transactions or maintenance. Read snapshots never fall back to uncaptured bytes.
-Handles allow external write/delete sharing and close before local publication.
-The process-local gate coordinates read lifetimes, not synchronization or merges.
-Watcher callbacks defer rather than occupying workers behind that gate.
-
-Incomplete/invalid delivery retains the last valid view, marks it stale and
-blocks writes without repairing provider files. Validate all required history,
-accepted evidence, notes, context and decoded resources, including same-path
-changes. Missing indexed data cannot be silently accepted as a smaller population.
-Unknown/provider-conflict files are not substitutes for required documents.
-Stale previews/drafts require renewed review; Apply rechecks source/photo bytes.
-Numeric Import version 1 representations accepted by preview (such as `1.0`)
-still reopen and replay; Workspace and record header rules remain independent.
-
-### Independent committed recovery
-
-`recovery\current.json` selects a complete independently stored snapshot, with
-its own bounded indexes/documents and captured Person/Team Markdown. No current
-file is physically aliased, hard-linked or shared with recovery. Unchanged
-recovery references may be reused across recovery snapshots only. Every recovery
-object has a SHA-256 seal. Capture actual validated bytes, not reconstructed data.
-
-Recovery selection requires a durable receipt binding the accepted revision and
-candidate envelope to successful current/note publication, plus complete
-seal/semantic validation. An intent, newest GUID or complete orphan candidate is
-not a committed snapshot. If current publication succeeds but receipt/selection
-fails, report **saved locally; storage maintenance incomplete**, retain the prior
-recovery and block safe close/restart. `RetryStorageMaintenance()` protects the
-already committed current state without replaying edits/Imports, reconfirming
-notes or inventing dates. Generic draft discard cannot erase this obligation.
-After reopen, maintenance independently accepts completely validated current
-bytes; it does not adopt an unreceipted orphan. Recovery-only maintenance does not
-invalidate a preview of unchanged current data.
-The existing Settings validation/maintenance action provides this explicit retry
-after a committed save failure or validated external delivery.
-
-### Bounded reclamation
-
-Only after durable committed recovery selection may maintenance retire its
-transaction and reclaim redundant objects. A durable pending plan survives
-interruption. Protect exact validated current/previous/recovery closures,
-receipts, retained history/evidence/photos, and every unretired in-flight
-transaction. Delete only individually inventoried, durably retired,
-unreferenced files whose bytes still match ownership digests, in batches of at
-most 32 with selector/root guards before and after each batch.
-
-Unknown files, provider conflicts, changed retired bytes and ambiguous interrupted
-work remain untouched. Malformed or incomplete structural delivery suspends
-deletion. Absence of a receipt is not proof of abortion. Retry recomputes roots
-and resumes idempotently; locked/access failures remain explicit and block safe
-close. No broad directory deletion, legacy-generation cleanup or time-based
-provider-acknowledgment assumption is permitted. Genuine history and its required
-resources are retained user data, not redundant storage.
-
-### Restoration
-
-With other clients closed, back up the source. `RecoverWorkspace(destinationPath)`
-validates the selected recovery receipt, seals and complete semantic graph, copies
-it to an **empty isolated destination outside the source**, materializes captured
-notes at their normal paths, and opens it through the normal reader. The source
-and protected recovery are never repaired or edited, even if current is damaged.
-A failed copy may leave a partial destination; do not retry into it. The restored
-folder initially contains current data only; explicitly run maintenance there to
-establish its own independent recovery before safe close/restart. This is a
-workflow operation, not a new recovery UI or an old-format migration.
-
-Unsaved-write failure remains different from committed-maintenance failure:
-retain the actual draft and visible error until explicit retry or deliberate
-discard. Refresh/unrelated successful saves cannot acknowledge another failed
-operation. Invalid files and incompatible versions are never repaired or
-downgraded. Stages are not automatically applied after restart. Resolve competing
-provider versions externally; installation/upgrades must not remove this folder.
-Dispose file-backed workflows before releasing fixture/folder ownership: watcher
-reads finish under the same gate and cannot reenter after disposal.
-
-### Publication conflicts and explicit resolution
-
-The owner deliberately superseded the unconditional final-window precommit
-rejection guarantee with durable postpublication conflict handling. Prepublication
-stale checks remain. Expected absence uses create-only/no-overwrite; expected
-presence uses replace-only with a unique transaction backup, never a create
-fallback. A known refusal is unsaved. A positively published conflict is **saved
-locally; external conflict unresolved**. An unconfirmed/partial result is
-**publication outcome unknown**; an exception is not automatically a clean refusal.
-
-Transaction publication intent/outcome/check records, an exact base selector,
-displaced bytes and operation-sized local-writing references survive restart.
-Observed external bytes are independently copied exactly, individually sealed,
-and preceded by bounded durable inventories. Current/recovery files remain
-physically independent. A backup or retained reference alone is not an immutable
-snapshot; providers can rewrite/delete bytes before capture, and a selector
-backup does not contain its graph. Preservation covers bytes actually captured,
-not every intermediate external version. File flushes do not prove power-loss
-atomicity of the namespace/backup/receipt sequence.
-
-Settings exposes IDs, completeness and comparison paths. Review the current
-revision and captured evidence, choose complete current files outside the app,
-then explicitly acknowledge the exact reviewed IDs/revision. The workflow
-revalidates membership, seals and actual current bytes. Newer observed delivery
-requires another review. No automatic rollback, merge or mutation replay occurs.
-Unresolved state blocks mutation, autosave, safe close and updater restart;
-generic Discard/Refresh/storage retry cannot clear it. Submitted writing and newer
-typing remain distinct. Acknowledgment records survive restart, and retained
-conflict evidence/source resources are not automatically reclaimed. Ordinary
-bounded-overhead promises do not cover unresolved/conflicting transactions.
-
-## Private Person notes
-
-`notes\<note-id>.md` holds one UTF-8 Markdown Person note. Notes are outside
-the indexed profile graph so editing or archiving a note replaces only that document;
-the app does not create a full note edit-version history. Multiple documents may
-belong to the same Person, including an Archived person. Reporting relationships
-never inherit Person notes.
-
-Each document starts with JSON front matter between `---` lines:
-
-```markdown
----
-{
-  "schemaVersion": 1,
-  "kind": "person",
-  "id": "30000000-0000-4000-8000-000000000001",
-  "ownerEmail": "avery@example.com",
-  "title": "Meeting context",
-  "archived": false,
-  "createdAt": "2026-11-01T17:00:00+00:00",
-  "updatedAt": "2026-11-01T17:00:00+00:00"
-}
----
-# Meeting
-Private **writing** about Avery.
-```
-
-The nonempty UUID and email identify the note and its Person independently of
-names or Manager changes. Keep the filename equal to the UUID plus `.md`; do not
-rename it, change its ID, or omit metadata. Dates are UTC. Title, writing, and
-archival state may be edited with local tools while retaining valid metadata.
-Unknown owners, properties, unsupported versions, missing metadata, conflicting
-copies, and linked/junction note paths are errors, not silently repaired files.
-These Workspace documents are not Import batches. Imports still reject all
-Person/Team note payloads and note operations.
-
-Autosave flushes a staged `.next` file and atomically publishes the Markdown
-document under the same short Workspace lease. An archive changes metadata but
-retains all writing; **Show archived notes** makes it readable and restorable.
-There is no sharing endpoint, upload, or app-hosted backend. Device and external
-sync-account permissions govern access.
-
-The open workflow watches real local folder events for Person, note, photo, and
-Workspace-pointer changes, coalesces event bursts, and retries incomplete delivery.
-It validates a complete before/after-fingerprinted Workspace, including scalar
-formats, stable identities, the full reporting graph, note ownership, and decoded
-photos, before publishing one coherent current state to the UI. No restart or
-manual reload is required. Invalid/unsupported/missing data retain last valid
-information with an explicit **STALE / unavailable** warning and blocked writes.
-Only a subsequent complete valid delivery removes that warning. Removing a note
-document is a valid external removal; removing a referenced Manager is not a
-new reporting root. Provider conflict copies in canonical Person/note locations
-are reported, not merged, renamed, or repaired.
-
-Workspace readers permit external write/delete sharing, including clients
-waiting on a failed or incompatible open. They do not hold read leases that
-prevent an owner/provider from replacing incomplete bytes with a valid delivery.
-Before/after byte fingerprints and complete validation establish the accepted
-view; a concurrently changed or invalid read is unavailable/stale and retried,
-not rewritten.
-
-Ordinary compatible-version refresh is read-only: it does not replay accepted imports, invent Observations,
-or write current documents/history. Own-save event bursts match the accepted byte
-revision and cause no refresh notification or recursive save. The watcher is
-disposed when the client closes or switches Workspaces. Local edits invalidate
-old import previews. Save errors keep the draft visible and explicitly **NOT
-saved**; leaving/closing is blocked until retry succeeds or the owner deliberately
-chooses **Discard unsaved draft**. Resolving competing versions remains the
-external provider/owner's responsibility; the app does not merge them.
-If an external note version arrives while a failed draft is retained, retry
-cannot overwrite it implicitly; the owner must discard that draft before editing
-the delivered version. Valid external profile/photo changes can still be shown
-without erasing the visible unsaved note draft.
-
-The reading view renders CommonMark headings, emphasis, lists, quotations, code,
-and links as native WPF text. Markdown images are labeled **Image not loaded**,
-including local references; raw HTML is inert text. No image, stylesheet, embedded
-object, or remote document is fetched. Only a deliberately clicked HTTP/HTTPS
-link launches the user's external handler; other URI schemes are inert.
-
-## Private manager-owned Team notes
-
-`team-notes\<note-id>.md` contains an explicitly opted-in Team note. It uses the
-same UTF-8 JSON-front-matter/Markdown layout as Person notes, with `kind: "team"`
-and the additional required `confirmedContextRevision` UUID:
-
-```markdown
----
-{
-  "schemaVersion": 1,
-  "kind": "team",
-  "id": "90000000-0000-4000-8000-000000000003",
-  "ownerEmail": "avery@example.com",
-  "title": "Reporting subtree context",
-  "archived": false,
-  "createdAt": "2026-11-01T17:00:00+00:00",
-  "updatedAt": "2026-11-01T17:00:00+00:00",
-  "confirmedContextRevision": "00000000-0000-0000-0000-000000000000"
-}
----
-# Context
-Private **writing** for Avery's current formal descendants.
-```
-
-The UUID is a local review marker, not an Observation/effective date, shared team
-identity, or note-version history. Keep it when editing with external tools;
-external text edits do not silently confirm a warning. Use the app's confirm/edit
-actions to deliberately acknowledge current applicability. Ownership always stays
-with `ownerEmail`, even if that Person stops managing reports or is archived.
-The zero revision is the initial baseline. The version-1 Person/Team-note encodings and ownership/date semantics are unchanged.
-
-The committed `teamContext` index maps Person emails to individual version-1
-revision-map documents containing opaque context revision UUIDs. A new revision is committed atomically with a role
-(job title/department), archival, or complete Reporting-chain change. All affected
-descendants' context revisions change for an ancestor move; ordinary office/name
-changes and exact batch retries do not. Notes whose confirmation differs from
-their owner's current revision remain visible but need review, even after a
-change is reverted. These markers are canonical review state, not reconstructed
-history. An absent marker means the initial baseline; later commits preserve
-existing markers.
-
-Confirmation or editing saves the note's current owner revision without changing
-ownership. Archival retains writing and confirmation state while excluding the
-note from current inheritance; restoration does not implicitly confirm it.
-Imports may change context revisions but never supply or rewrite note bodies.
-Invalid imports and failed saves never publish review changes.
-
-Both note directories and the committed Team context revisions are loaded inside
-the same whole-Workspace validation and before/after fingerprint boundary as
-profiles, photos, accepted batches, and Profile history. Invalid/incomplete
-delivery retains all last-valid writing and context with the Workspace's
-**STALE / unavailable** warning; Team-note writes and review actions are blocked.
-Valid external writing and review metadata refresh owned and inherited views
-without reopening, confirming notes, recording history, or rewriting provider files.
-Staged/flushed document replacement, conflict refusal, unsaved-draft safety,
-metadata validation, and private Markdown rendering apply to both kinds.
-`IApplicationWorkflow` exposes explicit Team-note create/query/edit/confirm/archive
-and inherited-context queries, with `InheritedTeamNote` carrying the owning Person.
-The existing note-refresh hook refreshes the complete Workspace coherently;
-`RefreshTeamNotes` uses that same workflow. No provider-specific sync adapter,
-per-record public repository, permanent-team model, or sharing endpoint is added.
-These mutable current documents never serve as frozen history.
-
-## Immutable Historical team context
-
-Each document selected by the `historicalTeamContext` index contains
-`schemaVersion: 1`, `email`, and a `contexts` array for a Person with captured
-former contexts. A capture contains a UUID `id`, stable `personEmail`, local UTC
-`capturedAt`, the former `reportingChain`, frozen `teamNotes`, and causal
-`transitions`. Chain members retain their old Person values for identity,
-attribution, and coherent old Manager links; they are not live current profiles
-or references to current photos.
-
-A direct or ancestor-chain transition captures once per affected existing active
-Person, comparing the complete accepted old population with the complete final
-proposed population. Newly created people establish a baseline, even when their
-Manager appears later in the same batch. Exact accepted replay, case-only
-references, same-value confirmations, office/name edits, and role-only changes
-do not manufacture transfers. Role/context review markers still follow
-the `teamContext` family independently. Reversion and subsequent moves preserve
-separate captures rather than overwriting or reopening an earlier one.
-Explicit active-to-archived status changes also close the Person's old context,
-even without a Manager change. A combined Manager/status change produces one
-capture with both causal changes, never intermediate captures. A root archival
-can have an empty Reporting chain and no inherited notes. Archived creation is a
-baseline, not a discovered prior context. Reactivation resumes the current valid
-chain without reopening earlier captures or inventing a transfer while archived.
-
-Each frozen note retains `id`, `ownerEmail`, `title`, `markdown`, UTC
-`createdAt`/`updatedAt`, its `confirmedContextRevision`, `needsReview` at capture,
-and `version`. The version is SHA-256 of the canonically serialized identity,
-title/body, note dates, and confirmation revision, not a full edit-version
-history or an actual-transfer timestamp. Review status is retained separately,
-not used to change that document-content version. Only active Team notes known
-on the former chain are captured, including visible notes needing review;
-archived notes no longer contribute inherited context. Person notes never
-inherit or enter the capture. Empty writing/absent Team notes do not erase the
-former Reporting chain.
-
-Transitions attribute each changed Manager edge to its Person and retain the
-existing structured `ProfileChange` and `FieldEvidence`, including previous
-evidence, import/local source, source Observation, local recording time,
-batch identity, and producer. For ancestor moves, the causal ancestor's Manager
-evidence supplies dates; an unaffected descendant's Manager is not reconfirmed.
-Ordered source dates can bound that edge's observed interval; missing/equal/older
-evidence uses detection information with unknown effective date. Multiple changed
-edges have separate evidence bounds, not a guessed common effective instant.
-Captured note text is **locally known at processing time**, not guaranteed to
-have been the writing at the unknown actual transfer instant. File timestamps
-are never used to fill unknown evidence.
-
-An archival closure adds a transition for the captured Person with `field:
-"archived"`, Boolean `oldValue: false`/`newValue: true`, and matching accepted
-evidence. It is not a changed Manager edge or proof of departure. Imported
-closures retain the source Observation and local recording time; in-app closures
-retain local-edit provenance with no source Observation. The UI labels these
-**Archival closure**, showing detection information rather than a guessed exact
-real-world effective date. Validation requires the closure to belong to the
-captured Person, not an ancestor, and permits at most one transition per
-Person/field. Existing Manager-only version-1 captures remain readable; this uses
-the same history document shape, not a new import/Workspace version.
-
-The workflow exposes read-only frozen values through `GetHistoricalTeamContexts`.
-WPF presents **Historical team context** and its read-only rendered writing
-separately from current inherited Team context. Later note edits, confirmations,
-archival, owner renaming, or new imports cannot rewrite earlier captures.
-Historical Markdown uses the same private renderer: images and raw HTML do not
-load content, and links launch only on deliberate selection.
-
-Captures publish under the same atomic selector as profiles, Profile history,
-accepted batches, and Team-context revisions. A failed commit publishes none of
-them. The bounded index declares historical documents, so withheld files
-are incomplete delivery, not silently missing history. Opening/automatic refresh
-validates frozen identities, chain coherence, note attribution/content versions,
-and causal evidence before accepting the complete byte revision. Invalid
-delivery retains the last valid current/history views with the common STALE
-warning and blocked writes. Compatible-version refresh is read-only: it loads delivered captures
-without another transition, note confirmation, or replay.
-
-An empty historical family means no captured prior context, not fabricated
-pre-import history. The next transition captures the actually known old chain
-and notes; missing prior Manager evidence remains unknown. Review markers and
-the partial Import contract are unchanged; imported note operations remain rejected.
-
-## Person archival and reactivation
-
-Person `archived` is retained independently of note archival. A status change
-never deletes the Person, removes a note document, or drops their referenced
-photo. Current indexed photos, structured history, historical captures,
-accepted batches and Team review revisions are committed together through the
-same save boundary as imports and explicit Manager changes. Failure publishes
-none of the proposed status/context changes; local retry/discard and safe-close
-state still apply. External refresh loads validated delivered status/history
-without recording another closure or implicitly reactivating anyone.
-
-`IApplicationWorkflow.ArchivedPeople` exposes the retained-profile projection,
-while `ReportingRoots` always excludes archived people. `EditPersonArchived`
-and `EditPersonManager` validate the complete proposed graph and record local
-history through the same incremental workflow used by Import apply. Active
-reports require active Managers; unknown references and active cycles are
-errors. Reports must be explicitly reassigned, cleared or archived by the owner
-or a reviewed Import batch before Manager archival is accepted. No inferred
-cascade, replacement Manager or permanent-delete operation exists.
-
-Archived profiles expose their last stored Manager for inspection but no
-current inherited Team context. Their owned writing remains available. Boolean
-omission in an Import record preserves the existing status and its field
-confirmation; absence of a Person is also nonmutation. Explicit false is
-validated before rejoining the current org. The desktop archived filter is
-navigation over retained profiles; Search and favorites also open these profiles.
-
-## Local Search and favorites
-
-`IApplicationWorkflow.Search` performs trimmed, case-insensitive substring
-queries over the accepted local Workspace. Empty queries return no matches.
-Stored Directory/Preferred names, email, Alias, job title, department,
-office/geographic fields, LinkedIn URL, Manager email, photo reference and
-Boolean profile values are searchable. Person and owned Team notes include
-title and Markdown text, including retained archived writing. Current inherited
-Team matches use the same all-ancestor query as profiles; Person notes never
-inherit and archived notes never contribute current inheritance.
-
-Each result identifies its Person, source and current/archived/historical
-applicability. Notes carry their owning Person and stable document ID; archived
-notes are explicitly labeled as not current writing. Historical results identify
-the exact immutable capture snapshot and frozen note, retaining former-owner
-attribution and review status. Activation rechecks the query against validated
-state; it does not dereference a possibly changed live capture or note version.
-Former-chain attributes and structured Profile changes' old values are
-searchable too. The desktop opens the appropriate profile/note, a specific
-read-only frozen capture, or the matching Profile change with its existing
-Observation/detection provenance. No live note lookup substitutes for frozen
-writing. A historical match on an archived Person carries both distinctions.
-
-`FavoritePeople` is derived from canonical `isFavorite`, includes explicitly
-labeled archived profiles, and is sorted by profile heading. `EditFavorite`
-marks/unmarks locally through the same atomic profile/history save boundary.
-Import omission preserves favorite state and its field evidence; explicit false
-removes it after preview/apply. New people default to false. Replay remains a
-no-op, including after later local favorite edits. Favorite-only changes do not
-manufacture reporting captures or Team-review revisions.
-
-Read-only query snapshots are published only from complete accepted state.
-Their sorted population, Reporting tree, report/owner lookups and substring
-search entries are rebuilt lazily after validated changes, not on every profile
-selection or keystroke. Current-status labels are still refreshed independently.
-These private in-memory projections are never stored as authoritative indexes,
-and queries do not wait on document/index staging or file decoding. WPF requeries after validated mutations and
-external Workspace notifications. Invalid delivery keeps the last valid
-results/favorites explicitly **STALE retained**, blocks writes, and never
-publishes unvalidated text. Failed favorite saves retain the saved star/list and
-offer retry/discard before safe navigation/close. Querying does not write files,
-replay imports, manufacture history, fetch remote content, or upload private
-information. Search-match Markdown uses the same private native renderer.
+# Local Workspace and snapshot formats
+
+The normal desktop and `ApplicationWorkflow.CreateFileBacked` Create/Open path
+uses local SQLite. There is no activation flag, readable-file authority, dual
+writer, direct-external-editing path or hidden fallback.
+
+**Settings -> Create new local Workspace** chooses a fresh app-managed folder
+under `%LOCALAPPDATA%\OrgExplorer\LocalWorkspaces`. **Open Workspace...** can
+open an existing compatible local Workspace or create one in an empty chosen
+folder. Known OneDrive roots, network shares, folder links and installation
+locations are rejected for authoritative storage. Keep it outside any other
+synchronization provider too; the app cannot discover every provider.
+
+Remembered startup/update reopening is existing-only: it never recreates a
+missing folder or invents empty state. A failed open does not replace the last
+successful startup preference. Presentation preferences remain device-local,
+separate from portable Workspace data and update settings.
+
+## Local SQLite format 3
+
+`local-workspace.format` contains the immutable discriminator
+`OrgExplorer local SQLite Workspace`. It identifies the format, not a second
+population authority. The local SQLite database is the sole committed-state authority,
+with SQLite application ID `0x4f455850`, local format 3, a Workspace identity
+and committed revision. In WAL mode this includes committed frames in
+`workspace.sqlite-wal`, not just the `workspace.sqlite` main file.
+
+Creation writes the discriminator before the database so interrupted creation
+cannot become an empty fallback. A missing discriminator/database, corrupt
+state, incompatible version, or mixed `workspace.json`/SQLite authorities is an
+explicit open failure. Retired readable-file formats (including readable-file
+version 3) and earlier staged SQLite formats are unsupported. Preserve the old
+folder and create a new empty Workspace. No conversion, overwrite, deletion,
+downgrade or accumulated legacy-folder cleanup is performed. Import version 1
+is a different contract and is unchanged.
+
+SQLite uses verified WAL mode, `synchronous=FULL`, foreign keys and transactions.
+Each actual connection verifies FULL, and ordinary connections refuse non-WAL
+operation. Compatible existing format-3 data is fully validated before WAL is
+established. If that negotiation is unavailable after complete validation,
+including on a cold open, the full validated graph/resources remain browsable
+but explicitly read-only with a retained WAL error. Ordinary writes, automatic
+retry and normal exit stay blocked until explicit successful reconciliation;
+a later background/manual refresh alone cannot clear that fault. Independent
+unknown transaction/receipt faults remain independent. Invalid or unsupported
+data still fails closed, not as an empty or read-only fallback.
+Unsupported formats are not converted. Success means `Commit` completed, not dispatch/enqueue, timer
+expiry or an optimistic view-model value. Creation, reviewed Imports, profiles,
+photos, favorites, archival, Manager changes and note edits commit coherent
+state with the new revision. OS/storage-device durability limits still apply.
+Do not synchronize or externally edit the live database, WAL, SHM or receipts.
+
+SQLite's default automatic checkpoint and last-connection cleanup are used.
+Older readers retain a coherent snapshot without excluding a later ordinary
+writer. They can delay a checkpoint and grow the WAL; that does not undo a
+confirmed local Commit. Other writers, disk/I/O failures and crash recovery may
+still report busy/failure/unknown outcomes and require the existing recovery
+protocol. No custom checkpoint worker or exit-time checkpoint is added.
+Never copy only the main file or manually delete WAL/SHM as a backup/repair
+technique. Logical export reads committed state through SQLite, including
+uncheckpointed frames; only complete `.oesnapshot` files enter the provider folder.
+The bundled native engine is pinned to the supported `SQLite` NuGet package
+3.54.1, including SQLite's 2026 WAL-reset fix and its
+[Windows mapped-SHM recovery correction](https://sqlite.org/src/info/7c103a0b7d).
+The latter invalidates the SHM header with a checked eight-byte write when the
+first exclusive dead-man-switch owner cannot truncate an old mapped section,
+then recovers the index from the original WAL. It is not an application Open
+retry or a blanket suppression of I/O errors. The existing wrappers, format 3,
+WAL/FULL policy and default checkpoint ownership are unchanged.
+
+### Logical data and validation
+
+The local store retains complete Person profiles keyed by stable email, accepted
+Import envelopes and logical fingerprints, Profile observations/changes, Person
+and Team notes, Team confirmation/context revisions, frozen Historical team
+contexts, and required photo bytes.
+
+Explicit profile/Preferred-name Save always reads the actual SQLite head and
+format. If that revision still matches the already validated local state, Save
+reuses that state instead of loading/validating the whole population again.
+A failed head read is not cached success; a changed revision fully reloads and
+revalidates. The write transaction rechecks the head before mutation. Immutable
+draft bases, staged-photo/source validation, Team-name eligibility and
+unknown/paused receipt recovery remain required.
+
+Opening checks SQLite integrity before exposing data. Person text, complete
+reporting graph, history/evidence consistency, accepted-Import provenance,
+note identity/owner/title/UTC timestamps, capture versions and resource
+associations must all validate. Missing data is an error, never permission to
+open a smaller population, repair data or substitute empty state.
+
+Photos are decoded JPEG/PNG bytes keyed by SHA-256 plus their decoded extension.
+Current profiles, all retained Profile observations/changes and frozen
+former-chain profiles retain their required bytes after replacing/clearing a
+photo or removing the selected producer file. Hashes, decoding and associations
+are validated. Routine snapshot rotation does not prune domain photo/history
+resources from the database.
+
+Imports preserve omission/null/false semantics and whole-batch graph validation.
+All accepted data, resources and history commit together. Preview changes to
+the base, JSON or producer-photo bytes require a fresh review. Exact original
+and later accepted-batch replay remains a no-op after subsequent edits; a reused
+batch identity with different logical data is rejected. Notes and Team names
+cannot be supplied, overwritten or cleared by Import.
+
+Team names retain private owner values, including dormant labels. Applicability
+and ordered owner-attributed paths follow the current non-archived reporting
+graph: an eligible selected Manager's own name precedes ancestor names,
+duplicates have distinct owners and unnamed gaps retain higher context.
+Visibility/editability requires an active owner with current active direct
+reports. Save rechecks eligibility. Label-only changes create no Profile
+changes, Team-note review revisions or frozen Team-name history.
+
+### Drafts, failures and local recovery
+
+The shared workflow and observable view model retain immutable owner/note bases,
+stable pending-creation IDs and latest generations independently of selection.
+Person browsing never waits for a save, Import, export, adoption or divergence
+decision. Returning shows the exact latest owner writing. Late accepted returns
+acknowledge only their submitted generation; newer typing remains pending.
+
+Note autosave continues on a bounded cadence while typing continues. Explicit
+profile and Preferred-name drafts require their own Save/Cancel and are never
+submitted by blur, navigation, Settings or generic close/update draining.
+Profile Cancel/discard does not clear unrelated writing or storage recovery.
+Storage I/O is not performed while holding the short draft bookkeeping gates.
+
+An ordinary request outstanding for three seconds, including queueing and
+scheduling from the oldest request, becomes explicitly stalled/not confirmed
+saved. Further typing cannot postpone that deadline. Failed or unknown local
+outcomes retain drafts and pause new edits, not browsing. Validation rejection
+is distinct from a failed local storage device.
+
+Each local transaction durably flushes `local-write-<id>.json` before changing
+payloads. Revision-only format-1 evidence binds its identity, base and intended
+next revision without note contents. The writer holds a lease through commit
+acknowledgment and receipt deletion, releasing it only after retirement succeeds
+or reports an explicit failure. Reconciliation likewise retains read/write
+exclusivity through deletion. Delete sharing permits retirement through the
+owned handle; it does not admit a competing reader or writer. This prevents
+a public reopen from acquiring the receipt between lease release and deletion.
+This is local recovery evidence, not another authority or a
+synchronized artifact.
+
+Timeout is not rollback. A replacement write or adoption cannot compete with an
+unknown original outcome. Explicit **Retry** recovery validates the committed
+database and reconciles the original transaction before permitting retry.
+An exclusively accessible intent is retired only when the validated revision
+establishes that exact commit or rollback. Active, malformed, unmatched or
+unavailable evidence remains visible and read-only, including a real sharing
+refusal; elapsed time or a known commit alone does not establish receipt
+availability. Known commit with failed cleanup is committed maintenance, never
+permission to replay.
+
+On reopen, validated committed data remains available for browsing while
+unresolved evidence pauses editing. No valid local state means an explicit
+recovery failure, not a successful empty Workspace. Unsaved editor buffers are
+not durable restart data.
+
+## Complete logical snapshots (interchange 1)
+
+Configure a separate, non-nested provider-carried folder in Settings. Multiple
+computers are supported one at a time. A new empty local Workspace may explicitly
+**Join folder**, then **Sync now**; a pristine seed identity is replaced only
+after complete validation.
+
+An immutable `<workspace-id>-<revision>.oesnapshot` owns a complete logical
+version and every required resource byte. It is not a SQLite database copy.
+The strict JSON envelope contains `format: "OrgExplorer complete logical Workspace"`,
+`version: 1`, uppercase `sha256` of decoded `content`, and base64 `content`.
+SHA-256 establishes completeness/integrity, not authenticity.
+
+Decoded content has `workspaceFormat: 3`, `workspaceId`, `revision`, ordered
+root-through-current `ancestry`, and complete arrays:
+
+| Member | Retained data |
+|---|---|
+| `people` | `{key,value}` Person profiles, including private dormant Team names |
+| `history` | Complete Profile observations, confirmations and changes |
+| `acceptedImports` | Original accepted envelopes, fingerprints and application times |
+| `teamContexts` | Owner/context revision values |
+| `historicalContexts` | Complete frozen former-chain/note/transition evidence |
+| `notes` | Scope, ID, owner, metadata and full Markdown |
+| `photos` | Immutable references and base64 resource bytes |
+
+Optional `resolvedRevisions` records exact branch revisions acknowledged by a
+deliberate whole-version choice. The chosen data remains intact; its ancestry
+gains a fresh resolution revision. A known rejected revision is stale; an unseen
+descendant remains divergent. There is no semantic merge or timestamp-based
+last-writer-wins.
+
+Local synchronization metadata records the configured folder, join/divergence
+state, published revision, ordered revision lineage and acknowledged branches.
+Each local note/profile/Import commit appends its new revision in that same
+transaction. Export/hashing is not per-edit work. Durable committed versus
+published revisions rediscover unpublished work after restart without mutation
+replay. A lineage mismatch fails closed instead of resetting ancestry.
+
+### Publication, receiving and scheduling
+
+Export reads a coherent committed transaction, validates the complete logical
+version/resources, durably writes a unique `.pending` artifact, then publishes
+create-only. An identical existing artifact permits idempotent retry, including
+interruption before its publication receipt. An older export never acknowledges
+a newer local revision. Local commits remain independent during export.
+
+Three facts remain distinct: **locally saved**, **published to this computer's
+configured folder**, and **provider delivery elsewhere unknown**. Publication
+is not proof of transfer to another computer.
+
+The observable view-model lifecycle runs publication and incoming checks
+approximately every 60 seconds, starting at open/configuration rather than the
+latest edit. Sync now and normal exit request the same single-flight async
+lifecycle immediately. Concurrent requests coalesce into one subsequent cycle.
+Disposal stops future timer requests without awaiting an active export.
+
+Incoming validation checks envelope, format, identity, ancestry, full logical
+state/history and decoded resources in isolated staging before one atomic local
+installation. Partial, corrupt or incompatible delivery leaves the valid local
+Workspace usable with a separate synchronization error, not stale or edit-paused.
+Duplicate/stale/reordered delivery cannot roll back current data. A file event,
+filename or apparently complete folder is not a receipt.
+
+Automatic continuation adoption requires a published local base with no retained
+writing or unresolved outcome. Selection/navigation is preserved where possible.
+Draft-admission leases cover core and view-model request/generation lifetimes,
+including accepted-return gaps, canceled/discarded buffers with unknown outcomes
+and later typing. Short commit admission is sealed under the draft gate; no
+commit I/O runs under it. A non-base lease protects independent unknown saves
+until actual reconciliation. Recovery epochs fence late returns. Ordinary
+success or unrelated Cancel cannot release another operation's protection.
+Incoming Commit failure enters the same local transaction recovery path.
+
+### Divergence and retention
+
+Preserve both complete versions on divergence, pause edits and keep browsing.
+Settings **Review complete versions / retained recovery** presents exact local,
+incoming and retained identities/counts. **Continue using selected complete
+version** selects one entire state, not fields, through a fresh revision-bound
+review. New arrivals invalidate the decision; arrivals during commit are
+rechecked and retained. A durable paused marker survives restart until the final
+check succeeds.
+
+Chosen and unchosen conflict artifacts remain in `snapshot-conflicts` after
+selection and later ordinary publication. Only explicit fresh, confirmed
+**Delete selected retained recovery** removes an unneeded retained copy, never
+the active version or unresolved conflict. Unknown/provider copies are untouched.
+
+Routine publication retains current and previous available known-good complete
+snapshots. Adoption preserves the validated local base even if its old export
+was removed. Removal of an export is not deletion of a Workspace.
+`snapshot_inventory` binds canonical artifact names and hashes to the configured
+folder. Cleanup excludes retained conflicts, unknown/provider-named files,
+pending writes, newer continuations and divergence. Each artifact owns its
+resources; routine cleanup never prunes Profile changes or Historical contexts.
+
+A per-folder `.orgexplorer-snapshot-lease` coordinates app publication/adoption/
+review/reclamation, not ordinary local commits or the external provider.
+Candidates are revalidated, renamed uniquely to `.retiring`, and checked again
+before deletion. Changed/provider bytes and interrupted retirement remain
+preserved with an error. This does not serialize noncooperating providers.
+Local `snapshot-*` directories are disposable validation staging, never
+accepted recovery or a second local authority.
+
+## Close and determined exit
+
+Normal close drains autosaved notes and immediately requests publication of the
+latest committed version. It requires actual latest local/published revision
+equality, not success of an older sync task or provider delivery elsewhere.
+Unsubmitted profile/Preferred-name drafts are not autosaved by close.
+
+A nonmodal live decision distinguishes locally unsaved writing that may be lost
+from saved-but-unpublished work remaining on this computer. **Cancel** invalidates
+that exact close intent while retaining drafts/status; late work cannot close the
+canceled window. New writing needs its own commit and publication.
+
+**Exit anyway** directly terminates the process without secondary window/editor/
+updater vetoes or worker/Dispose waits. It does not manufacture storage success:
+incomplete SQLite transactions roll back; committed state/evidence must still
+validate on reopening. Unpublished work and unresolved divergence remain
+discoverable without replay. With no synchronization folder, normal publication
+cannot complete; configure one or make the informed Exit anyway choice.
+The signed updater keeps its existing safe local-drain/restart/refusal contract.
+
+## Observation dates, notes and Historical reading
+
+Person identity, partial Imports and Manager-owned Team scope are unchanged.
+Person notes never inherit; every active Team note on the current formal chain
+contributes, not just an ongoing designation. Ongoing choices and exact remembered
+views are device-local preferences, never portable domain data.
+
+Initial Import creates a baseline, not pre-Import changes. Explicit same-value
+updates retain observations without inventing changes. Omission does not
+reconfirm a field. Imported source Observation, local recording time and
+unknown real-world effective time stay separate. Ordered Manager evidence can
+bound an interval; missing/equal/older evidence cannot establish an exact date.
+
+Direct or ancestor reporting moves and active-to-Archived closures capture the
+coherent former chain and locally known active Team-note versions once per
+affected Person, using complete old/final graphs. New/Archived creation,
+reactivation, accepted replay, label-only edits and unrelated attribute changes
+do not manufacture transfers. Empty chains/no-note captures remain meaningful.
+
+Captures retain exact IDs, former owner profiles (without Team names), causal
+Profile evidence, note IDs/title/Markdown/UTC dates, confirmation revision,
+captured review state and content-version digest. Later rename/edit/confirmation/
+archival/Import cannot rewrite frozen content. WPF keeps collapsed, read-only,
+copyable **Capture details** separate from frozen Markdown, including complete
+provenance, exact identities/versions, owner/review labels and former-chain
+navigation. Local capture time is not the unknown actual transition instant.
+The full compiled/hosted responsive disclosure and Team-name matrices remain.
+
+## Restoration
+
+Preserve the local folder before manual repair, replacement or uninstall.
+Installer rollback changes binaries, not Workspace data. A valid local database
+uses transaction reconciliation; a preserved complete snapshot can join a new
+empty compatible local Workspace. Divergent retained versions require explicit
+whole-version review. Do not copy selected private database tables, reinterpret
+retired canonical-file recovery selectors or overwrite an existing folder.
+
+See the [storage safety protocol](incremental-workspace-storage-protocol.md),
+[testing strategy](testing.md), [update protocol](update-protocol.md) and
+[accepted design](reliable-nonblocking-saves.md).

@@ -67,6 +67,8 @@ public partial class MainWindow
         }
         if (!preferredNameEditing) return;
         preferredNameDirty = editor.Text != (preferredNameBasis?.PreferredName ?? "");
+        if (RetainsPersonDrafts && preferredNameBasis is { } basis)
+            workflow.RetainPersonTextDraft(basis, PersonTextField.PreferredName, value);
         MarkDraftPending();
         ApplyButton.IsEnabled = false;
         preview = null;
@@ -76,8 +78,15 @@ public partial class MainWindow
 
     private async void RetryProfileSave(object sender, RoutedEventArgs e)
     {
-        if (selectedEmail is null) return;
-        if (workflow.ProfileEdit is not null)
+        if (workPending || selectedEmail is not { } owner) return;
+        var submitted = workflow.ProfileEdit;
+        if (workflow.LocalSave.EditsPaused &&
+            !await RunWorkflowAsync(workflow.ReconcileLocalSaves, "Reconciling the original local save outcome...",
+                browseSafeRecovery: true))
+        { ShowStatus(); return; }
+        if (selectedEmail != owner || !ReferenceEquals(workflow.ProfileEdit, submitted))
+        { ShowStatus(); return; }
+        if (submitted is not null)
         {
             await SaveProfileSessionAsync();
             return;

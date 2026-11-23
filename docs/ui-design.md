@@ -9,6 +9,13 @@ facts above full-width notes, anchored identity, always-visible fact slots and
 the single People divider; the remaining refresh is still in progress.
 No whole-pass hosted or owner visual acceptance is claimed here.
 
+The [reliable-save design](reliable-nonblocking-saves.md) refines storage and
+draft/exit semantics: normal local SQLite, complete independent snapshots,
+retained owner writing across browsing and an informed Exit anyway choice.
+Old pending-navigation and non-overridable-close examples are superseded, not
+reintroduced by this presentation design. Ongoing/exact-view preferences,
+Team-name ownership and the complete Historical/responsive matrices remain.
+
 This refines [the v1 design](design.md), not the product's identity, supported
 platforms, or data-safety boundaries. Keep the native Windows .NET/WPF direction
 in [ADR 0005](adr/0005-native-windows-dotnet.md). This is not a request for a web
@@ -53,7 +60,7 @@ compatibility/recovery/technical material behind a disclosure.
 
 Keep Settings accessible before opening a Workspace and during invalid,
 incompatible, or unavailable Workspace states. Preserve existing opening,
-validation/conversion, recovery, update, and draft-protection flows.
+validation/unsupported-format refusal, recovery, update, and draft-protection flows.
 
 Healthy reading omits routine Ready/validated/saved rows and inactive recovery
 actions. Concise notices and accessible Details retain errors, stale/unavailable data, pending or failed
@@ -244,6 +251,16 @@ deliver the combined implementation and this documentation together.
   unsaved writing, with actionable feedback; it must not clear search or dismiss
   the overlay. Moving the search highlight alone does not navigate away from
   an editor.
+
+For the normal SQLite Workspace, valid Person activation is browsing, not
+permission to submit or discard writing. It remains available during local
+saving, publication and retained failures, preserving each owner's exact draft,
+generation and immutable base. Clean notes use ordinary ongoing Read; a selected
+unsaved secondary note retains its exact Edit view when its owner is revisited.
+Profile and Preferred-name drafts still require their own Save or Cancel.
+Request/query/Workspace freshness and genuine unavailable or stale destination
+rejections remain; protected mutations, Workspace replacement and safe updater
+restart do not inherit this browse-only allowance.
 
 ## Ongoing notes and secondary notes
 

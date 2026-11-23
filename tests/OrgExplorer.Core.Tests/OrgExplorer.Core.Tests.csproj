@@ -10,15 +10,24 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\DesktopScenarios.json" Link="DesktopScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\DesktopPartitions.json" Link="DesktopPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\HighResolutionScenarios.json" Link="HighResolutionScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\HighResolutionPartitions.json" Link="HighResolutionPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\UiScaleScenarios.json" Link="UiScaleScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\UiScaleWorkers.json" Link="UiScaleWorkers.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\DesktopScenarioSelection.cs" Link="DesktopScenarioSelection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\HostedDisplayPreparation.cs" Link="HostedDisplayPreparation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\TreeItemRealization.cs" Link="TreeItemRealization.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\ControlReadiness.cs" Link="ControlReadiness.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\ClipboardObservation.cs" Link="ClipboardObservation.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\AutomaticHostLifecycle.cs" Link="AutomaticHostLifecycle.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\SnapshotNativeUsability.cs" Link="SnapshotNativeUsability.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\LocalWorkObservation.cs" Link="LocalWorkObservation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\MainReadingNavigation.cs" Link="MainReadingNavigation.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\WorkspaceRestoration.cs" Link="WorkspaceRestoration.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs" Link="SmokeScenarioRunner.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\HarnessRuntime.cs" Link="HarnessRuntime.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\ImportNavigationTiming.cs" Link="ImportNavigationTiming.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\NavigationRejection.cs" Link="NavigationRejection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\RetryRejection.cs" Link="RetryRejection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\PersonSelection.cs" Link="PersonSelection.cs" />

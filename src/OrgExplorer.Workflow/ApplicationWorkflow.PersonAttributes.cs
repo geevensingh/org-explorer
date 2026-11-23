@@ -15,6 +15,7 @@ public interface IProfileLinkOpener
 
 public partial interface IApplicationWorkflow
 {
+    void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
     PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value);
     void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field);
 }
@@ -22,6 +23,22 @@ public partial interface IApplicationWorkflow
 public sealed partial class ApplicationWorkflow
 {
     private readonly IProfileLinkOpener? profileLinkOpener;
+    private readonly Dictionary<(string Email, PersonTextField Field), string?> retainedPersonTextDrafts = [];
+    private readonly Dictionary<(string Email, PersonTextField Field), int> personTextSaveRequests = [];
+    private bool HasRetainedPersonTextDrafts { get { lock (profileDraftGate) return retainedPersonTextDrafts.Count != 0; } }
+
+    public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+    {
+        lock (profileDraftGate)
+        {
+            var key = (basis.Email.ToLowerInvariant(), field);
+            if (field == PersonTextField.PreferredName && value == basis.PreferredName &&
+                !personTextSaveRequests.ContainsKey(key) && !failedSaves.ContainsKey($"profile:{key.Item1}:{field}") &&
+                people.TryGetValue(basis.Email, out var current) && current.PreferredName == basis.PreferredName)
+                retainedPersonTextDrafts.Remove(key);
+            else retainedPersonTextDrafts[key] = value;
+        }
+    }
 
     public bool OpenLinkedInProfile(string email)
     { lock (workspaceGate) return OpenLinkedInProfileCore(email); }
@@ -45,12 +62,34 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPersonText(string email, PersonTextField field, string? value)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonTextLocked(email, field, value));
+
+    private bool EditPersonTextLocked(string email, PersonTextField field, string? value)
     { lock (workspaceGate) return EditPersonTextCore(email, field, value); }
 
     public PersonProfile? SavePersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
     {
+        var key = (basis.Email.ToLowerInvariant(), field);
+        lock (profileDraftGate)
+            personTextSaveRequests[key] = personTextSaveRequests.GetValueOrDefault(key) + 1;
+        try { return CanBeginLocalSave() ? TrackLocalSave(() => SavePersonTextDraftCore(basis, field, value)) : null; }
+        finally
+        {
+            lock (profileDraftGate)
+                if (--personTextSaveRequests[key] == 0) personTextSaveRequests.Remove(key);
+        }
+    }
+
+    private PersonProfile? SavePersonTextDraftCore(PersonProfile basis, PersonTextField field, string? value)
+    {
         lock (workspaceGate)
         {
+            if (localSqlite && !RefreshWorkspaceCore(onlyIfRevisionChanged: true))
+            {
+                SaveFailed($"profile:{basis.Email.ToLowerInvariant()}:{field}",
+                    "Profile field NOT saved. Draft retained; restore local storage and retry. " + Status);
+                return null;
+            }
             if (!Enum.IsDefined(field))
             {
                 EditPersonTextCore(basis.Email, field, value);
@@ -65,22 +104,35 @@ public sealed partial class ApplicationWorkflow
                     "Discard the draft before editing the delivered value.");
                 return null;
             }
-            return EditPersonTextCore(basis.Email, field, value) ? people[basis.Email] : null;
+            if (!EditPersonTextCore(basis.Email, field, value)) return null;
+            lock (profileDraftGate)
+            {
+                var key = (basis.Email.ToLowerInvariant(), field);
+                if (retainedPersonTextDrafts.TryGetValue(key, out var latest) && latest == value &&
+                    personTextSaveRequests[key] == 1)
+                    retainedPersonTextDrafts.Remove(key);
+            }
+            return people[basis.Email];
         }
     }
 
     public void DiscardPersonTextDraft(PersonProfile basis, PersonTextField field)
     {
+        if (localSqlite) { DiscardPersonTextDraftCore(basis, field); return; }
         lock (workspaceGate)
+            DiscardPersonTextDraftCore(basis, field);
+    }
+
+    private void DiscardPersonTextDraftCore(PersonProfile basis, PersonTextField field)
+    {
+        if (!Enum.IsDefined(field))
         {
-            if (!Enum.IsDefined(field))
-            {
-                Fail("Choose a supported textual Person field to cancel.");
-                return;
-            }
-            failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
-            Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
+            Fail("Choose a supported textual Person field to cancel.");
+            return;
         }
+        failedSaves.Remove($"profile:{basis.Email.ToLowerInvariant()}:{field}");
+        lock (profileDraftGate) retainedPersonTextDrafts.Remove((basis.Email.ToLowerInvariant(), field));
+        Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
     }
 
     private bool EditPersonTextCore(string email, PersonTextField field, string? value)

@@ -10,6 +10,14 @@ being delivered in slices; see its implementation-status section. Where
 presentation differs, use that refinement while
 preserving the ownership, inheritance, import, editing, and data-safety rules here.
 
+The [local-transaction design](reliable-nonblocking-saves.md) and
+[ADR 0008](adr/0008-local-transactions-independent-sync.md) supersede the
+original readable-file architecture and persistence/navigation coupling.
+Normal Create/Open now uses local SQLite, independent complete snapshots,
+retained owner drafts and a non-overridable informed Exit anyway choice.
+Implementation does not substitute for fresh exact-candidate hosted normal and
+full rich-scale acceptance.
+
 ## Product and platform
 
 Build an org explorer with rich person profiles, not a relationship-reminder CRM.
@@ -24,9 +32,12 @@ Windows 10, native ARM64, or non-Windows support. Keep the stored data portable
 even though the initial UI is Windows-specific.
 
 Exercise a representative population of 10,000 people, with photos, notes, and
-history. This is a performance target, not a hard import cap. Measure load,
-navigation, search, and update behavior; do not silently invent an agreed latency
-guarantee or substitute a smaller dataset.
+history. This is not a hard import cap. The approved
+[reliable-save contract](reliable-nonblocking-saves.md#acceptance-evidence)
+records rich-population Team-editor/Person-navigation p95 as informational and
+requires one second for ordinary durable local saves, including queueing.
+Do not substitute a smaller population, idle-only timing or a quick API for an
+explicit profile Save.
 
 ## Opening a workspace
 
@@ -46,32 +57,43 @@ Missing or archived targets retain preferences and writing with visible recovery
 and a purposeful search/Favorites start, never automatic replacement or unarchival.
 This restores reading context, not unsaved edit buffers.
 
-## Local files and the sync boundary
+## Local authority and the sync boundary
 
-All canonical person data, notes, photos, and history belong in a user-chosen local
-workspace folder, separate from the installation directory. Use readable
-per-person records, separate Markdown note files, and ordinary image files, not
-one monolithic workspace data file or an app-only encrypted store.
+Person data, notes, photos and history commit transactionally to app-managed
+local SQLite outside the installation and synchronized folders. The normal
+Create/Open path has no activation flag, retired-file fallback or dual writer.
+Direct backing-file editing and all readable-file formats are unsupported;
+preserve old folders and recreate without conversion, overwrite or deletion.
+See the [local/interchange formats](workspace-format.md).
 
 Browsing and editing work without internet. Privacy relies on device and
 sync-account access controls: someone with access to the folder or its cloud copy
 can read it. There is no hosted user-data service, external AI processing, or
 upload of private notes by this app.
 
-Each client saves profile drafts on explicit Save, autosaves the quick edits
-described below, and notices external file changes.
-The external engine owns syncing and conflict resolution, whether it is OneDrive,
-SharePoint, Google Drive, or another folder provider. Do not add provider APIs,
-semantic merges, or an application conflict-resolution UI. Provider-created
-alternate copies or competing versions may need handling outside the app.
-The stale-profile warning below protects an unsaved draft; it does not introduce
-an in-app compare/merge workflow.
+Each client explicitly saves profile/Preferred-name drafts and autosaves notes
+on a bounded cadence while typing continues. An external provider carries
+complete self-contained logical snapshots through a separate configured folder.
+Publication and incoming checks run approximately every 60 seconds; Sync now
+and normal close request the same single-flight async lifecycle immediately.
+There are no provider-specific APIs or semantic merges.
 
-External changes must be validated before becoming current application state.
-Incomplete sync delivery, invalid files, or incompatible versions must be visible
-problems, not silently accepted data or invented manager records. Do not overwrite
-files to "repair" an external conflict. Pending local save errors must remain
-visible and must prevent an updater restart that would lose an edit.
+Complete validation and ancestry govern adoption. Clean continuations preserve
+selection where possible; retained drafts/unpublished work/unknown outcomes
+prevent replacement. Partial/corrupt delivery exposes a synchronization error
+without invalidating usable local state. Divergence retains both whole versions,
+pauses edits, permits browsing and requires a revision-bound whole-version choice.
+The unchosen version remains until explicit deletion. Routine rotation retains
+current and previous complete known-good snapshots and every required resource.
+Domain history is never routine garbage.
+
+Local I/O failure or an ordinary request stalled for three seconds (including
+queueing) retains writing and pauses edits, not browsing. Reconcile unknown
+outcomes before retry/adoption. Report locally saved only after durable Commit,
+distinct from publication and unknown provider delivery. Normal close requires
+latest local/published revision equality; Cancel withdraws the intent, while
+informed Exit anyway actually terminates without a secondary guard/worker wait.
+The updater retains its safe local-drain/restart/refusal contract.
 
 Derived views and indexes are rebuildable, not sources of truth. Detailed
 workspace filenames, metadata encoding, and recovery mechanics must be specified
@@ -133,7 +155,7 @@ Keep these quick actions independent of the main profile Save/Cancel:
 
 - Preferred name appears as ordinary text with a small one-click Edit action.
   If unset, show Add preferred name rather than hiding the quick action.
-  Opening the inline editor retains its autosave behavior.
+  Only explicit Save/Enter submits that entry; blur/navigation retain it.
 - Favorite remains a one-click toggle that saves immediately.
 - Person notes and team notes retain their own editing and autosave behavior,
   described below.
@@ -141,10 +163,11 @@ Keep these quick actions independent of the main profile Save/Cancel:
 Profile Save must preserve independently saved quick changes; Cancel must not
 undo them.
 
-When leaving an unsaved profile draft, offer Save / Discard / Stay. This includes
-selecting another person, opening Import, switching workspaces, closing the app,
-or taking another action that would abandon the draft. A failed or stale Save
-keeps the draft open instead of proceeding with navigation.
+Person browsing retains each owner's unsaved profile without submitting or
+discarding it. Actions that would abandon a draft, including Import, Workspace
+switching or archival, retain Save / Discard / Stay. A failed or stale Save keeps
+the draft. Close instead exposes the distinct nonmodal Exit anyway / Cancel
+decision without implicitly saving profiles.
 
 Use the selected profile's version when entering Edit profile as the stale-save
 baseline, not its version when the app started. If that profile changes externally
@@ -408,7 +431,8 @@ warnings or weaken OS protections.
 
 ### Workspace compatibility and future migrations
 
-Workspace version 3 deliberately rejects older versions without mutation; no
+Local SQLite format 3 is distinct from retired readable-file version 3.
+Incompatible formats are rejected without mutation; no
 migration or legacy cleanup ships. Preserve old folders and explicitly create a
 new empty Workspace. If a future change defines supported migrations, including
 breaking migrations, they may run automatically

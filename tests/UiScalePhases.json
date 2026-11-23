@@ -1,0 +1,35 @@
+{
+  "prefix": [
+    "UI-mutation-open",
+    "UI-ordinary-save-latency",
+    "UI-publish-before-held-export",
+    "UI-close-before-held-export",
+    "UI-background-export-independence",
+    "UI-profile-mutation",
+    "UI-handoff-capture"
+  ],
+  "tail": [
+    "UI-handoff-join",
+    "UI-ordinary-profile-latency",
+    "UI-favorite-mutation",
+    "UI-import-file",
+    "UI-import-navigation",
+    "UI-validated-refresh",
+    "UI-import-preview",
+    "UI-import-apply",
+    "UI-import-return",
+    "UI-external-delivery",
+    "UI-close-before-reopen",
+    "UI-reopen",
+    "UI-close",
+    "UI-load",
+    "UI-tree",
+    "UI-current-search",
+    "UI-photo-render",
+    "UI-history-search",
+    "UI-manager-navigation",
+    "UI-deep-profile",
+    "UI-final-person",
+    "UI-close"
+  ]
+}

@@ -5,6 +5,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
+    <ProjectReference Include="..\OrgExplorer.Storage.ProcessFixture\OrgExplorer.Storage.ProcessFixture.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
@@ -12,6 +13,13 @@
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\LocalReleaseServer.cs" Link="LocalReleaseServer.cs" />
     <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
+    <Compile Include="..\UiScaleHandoff.cs" Link="UiScaleHandoff.cs" />
+    <Compile Include="..\WorkspacePublicState.cs" Link="WorkspacePublicState.cs" />
+    <Compile Include="..\InstallerPreservationEvidence.cs" Link="InstallerPreservationEvidence.cs" />
+    <Compile Include="..\InstallerWorkspacePreservation.cs" Link="InstallerWorkspacePreservation.cs" />
+    <Compile Include="..\SnapshotClock.cs" Link="SnapshotClock.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\NoteCommitObservation.cs" Link="NoteCommitObservation.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\HeldSnapshotAdoption.cs" Link="HeldSnapshotAdoption.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

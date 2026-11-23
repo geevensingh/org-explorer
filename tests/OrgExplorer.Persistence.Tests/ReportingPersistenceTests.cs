@@ -41,12 +41,12 @@ public sealed class ReportingPersistenceTests : IDisposable
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(expected, Assert.Single(reopened.ReportingRoots).Person);
         Assert.True(reopened.GetRelationships("manager@example.com")!.Person.Archived);
-        var pointer = File.ReadAllText(Path.Combine(folder, "workspace.json"));
+        var revision = reopened.Synchronization.LocalRevision;
         var replay = reopened.PreviewImport(initial);
         Assert.True(replay.CanApply, reopened.Status);
         Assert.Contains("no-op", Assert.Single(replay.Changes));
         Assert.True(reopened.ApplyImport(replay.Id), reopened.Status);
-        Assert.Equal(pointer, File.ReadAllText(Path.Combine(folder, "workspace.json")));
+        Assert.Equal(revision, reopened.Synchronization.LocalRevision);
         Assert.True(app.OpenWorkspace(folder), app.Status);
         Assert.Equal(expected, Assert.Single(app.ReportingRoots).Person);
         Assert.True(app.ApplyImport(app.PreviewImport(Batch(

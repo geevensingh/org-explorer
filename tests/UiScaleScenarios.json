@@ -1,4 +1,5 @@
 [
-  "scale-navigation-rendering",
-  "scale-mutation-responsiveness"
+  "scale-mutation-save-prefix",
+  "scale-mutation-delivery-tail",
+  "scale-navigation-rendering"
 ]

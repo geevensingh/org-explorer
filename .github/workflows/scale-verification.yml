@@ -66,11 +66,10 @@ jobs:
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
 
-  ui-scale:
-    name: Genuine 10,000-Person WPF scale
+  ui-scale-prefix:
+    name: Rich combined normal and held-export saves
     runs-on: windows-latest
-    # 13 minutes normally, 17 only for explicitly non-verifying diagnostic observation.
-    timeout-minutes: ${{ inputs.extended_observation && 17 || 13 }}
+    timeout-minutes: 13
     env:
       CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
       EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
@@ -92,13 +91,92 @@ jobs:
           dotnet-version: 10.0.x
           cache: true
           cache-dependency-path: '**/packages.lock.json'
-      - name: Run fresh sequential genuine UI-scale scenarios
-        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+      - name: Run combined rich save proof and capture actual published logical handoff
+        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
-            .ci-results/ui-scale/**/*.json
-            .ci-results/ui-scale/**/*.log
+            .ci-results/ui-scale-prefix/**/*.json
+            .ci-results/ui-scale-prefix/**/*.log
+            .ci-results/ui-scale-prefix/**/*.oesnapshot
+
+  ui-scale-tail:
+    name: Rich logical Join, delivery, reopen and navigation
+    needs: ui-scale-prefix
+    runs-on: windows-latest
+    timeout-minutes: 13
+    env:
+      CANDIDATE_REVISION: ${{ inputs.revision || github.sha }}
+      EXTENDED_OBSERVATION: ${{ inputs.extended_observation || false }}
+    steps:
+      - name: Start shared execution budget before setup
+        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+      - name: Identify the exact checked-out candidate
+        run: |
+          $revision = git rev-parse HEAD
+          if ($env:CANDIDATE_REVISION -notmatch '^[0-9a-fA-F]{40}$' -or $revision -ne $env:CANDIDATE_REVISION) {
+            throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
+          }
+          "TESTED_REVISION=$revision" >> $env:GITHUB_ENV
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-results/ui-scale-prefix
+      - name: Resume actual validated logical snapshot in a fresh physical store
+        run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .ci-results/ui-scale-tail/**/*.json
+            .ci-results/ui-scale-tail/**/*.log
+
+  ui-scale:
+    name: Complete scale acceptance union
+    needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
+    if: ${{ always() }}
+    runs-on: windows-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ inputs.revision || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-results/ui-scale-prefix
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ inputs.revision || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-results/ui-scale-tail
+      - name: Require every original scenario and phase in both accepting workers
+        if: ${{ always() }}
+        env:
+          EXPECTED_REVISION: ${{ inputs.revision || github.sha }}
+          NON_UI_OUTCOME: ${{ needs.non-ui-performance.result }}
+          PREFIX_OUTCOME: ${{ needs.ui-scale-prefix.result }}
+          TAIL_OUTCOME: ${{ needs.ui-scale-tail.result }}
+        run: |
+          .\eng\Assert-UiScaleUnion.ps1 -PrefixDirectory .ci-results\ui-scale-prefix -TailDirectory .ci-results\ui-scale-tail -ExpectedRevision $env:EXPECTED_REVISION -RunId $env:GITHUB_RUN_ID -RunAttempt $env:GITHUB_RUN_ATTEMPT -RequiredJobOutcomes @($env:NON_UI_OUTCOME, $env:PREFIX_OUTCOME, $env:TAIL_OUTCOME)
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ inputs.revision || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            .ci-results/ui-scale-union/**/*.json
+            .ci-results/ui-scale-union/**/*.log
+            .ci-results/ui-scale-union/**/*.oesnapshot

@@ -15,6 +15,9 @@
   <ItemGroup>
     <Compile Remove="UpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <Compile Include="$(UpdateEffectsFile)" Link="ControlledUpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
+    <Compile Include="..\..\tests\WorkspacePublicState.cs" Link="WorkspacePublicState.cs" Condition="'$(UpdateEffectsFile)' != ''" />
+    <Compile Include="..\..\tests\InstallerPreservationEvidence.cs" Link="InstallerPreservationEvidence.cs" Condition="'$(UpdateEffectsFile)' != ''" />
+    <Compile Include="..\..\tests\InstallerWorkspacePreservation.cs" Link="InstallerWorkspacePreservation.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <ProjectReference Include="..\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <PackageReference Include="Markdig" Version="0.37.0" />

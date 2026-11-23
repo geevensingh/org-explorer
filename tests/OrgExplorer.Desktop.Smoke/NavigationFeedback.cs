@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -39,33 +40,37 @@ internal static partial class Program
             if (responsive) AssertResponsiveProfileForm(window);
             Set(window, "OfficeNumber", "0009P");
             Click(window, "NavigateManager");
-            Click(ProfileLeaveWindow(window), "StayOnProfile");
-            Await(() => Status(window).StartsWith("Navigation blocked:"));
+            Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+            SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
             AssertValue(window, "OfficeNumber", "0009P");
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Stay changed the profile owner.");
             process.CloseMainWindow();
-            Click(ProfileLeaveWindow(window), "StayOnProfile");
-            Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
+            Await(() => ExitDecisionVisible(window) &&
+                Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
             if (process.HasExited) throw new InvalidOperationException("Stay did not protect the draft on close.");
             AssertValue(window, "OfficeNumber", "0009P");
-            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Click(window, "CancelExit");
+            Await(() => !ExitDecisionVisible(window));
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
-                Click(window, "NavigateManager");
-                Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Status(window).StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) &&
+                Click(window, "SaveProfile");
+                Await(() =>
                     Status(window).Contains("NOT saved") &&
-                    Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
-                    Find(window, "SaveProfile").Current.IsEnabled &&
+                    Activity(window).Contains("browsing remains available", StringComparison.Ordinal) &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
+                Click(window, "NavigateManager");
+                Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+                SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
                 AssertValue(window, "OfficeNumber", "0009P");
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed leave-save changed the profile owner.");
                 CaptureVisualEvidence(window, "profile-inline-failed-leave-save-retained");
             }
+            ReconcileSmokeLocalSaves(window);
+            SaveProfileEditing(window);
             Click(window, "NavigateManager");
-            Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
             Await(() => Find(window, "Email").Current.Name == "casey@example.com");
             OpenPerson(window, "casey@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009P");
@@ -79,15 +84,13 @@ internal static partial class Program
             AssertValue(window, "OfficeNumber", "Discard me");
             if (Find(window, "Email").Current.Name != "avery@example.com")
                 throw new InvalidOperationException("Staying on the profile opened Import or changed its owner.");
-            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
-                Await(() => Status(window).StartsWith("Navigation blocked: Save failed;", StringComparison.Ordinal) &&
-                    Status(window).Contains("NOT saved") &&
-                    Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
-                    Find(window, "SaveProfile").Current.IsEnabled &&
+                Await(() => IsSmokeRejectedSave(Status(window), Find(window, "OperationalNotice").Current.ItemStatus) &&
+                    Activity(window).Contains("browsing remains available", StringComparison.Ordinal) &&
                     window.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
                 AssertImportHidden(window);
@@ -95,6 +98,7 @@ internal static partial class Program
                 if (Find(window, "Email").Current.Name != "avery@example.com")
                     throw new InvalidOperationException("Failed Import leave-save changed the profile owner.");
             }
+            ReconcileSmokeLocalSaves(window);
             SetSettingsVisible(window, true);
             Click(window, "OpenImport");
             Click(ProfileLeaveWindow(window), "SaveProfileBeforeLeaving");
@@ -111,16 +115,27 @@ internal static partial class Program
             AssertProfileValue(window, "OfficeNumber", "Discard me");
             BeginProfileEditing(window);
             Set(window, "OfficeNumber", "Discard for Manager");
+            CancelProfileEditing(window);
             Click(window, "NavigateManager");
-            Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
             Await(() => Find(window, "Email").Current.Name == "casey@example.com" &&
-                Activity(window) == "Ready" &&
-                Status(window).Contains("Profile draft discarded", StringComparison.Ordinal));
+                Activity(window) == "Ready");
             OpenPerson(window, "casey@example.com");
             AssertProfileValue(window, "OfficeNumber", "Discard me");
             foreach (var kind in new[] { "Person", "Team" })
             {
                 Click(window, $"New{kind}Note");
+                var noteId = Guid.Parse(Find(window, $"{kind}NoteHeading").Current.HelpText);
+                AwaitLocalWorkIdle(window);
+                var savedNote = kind == "Person" ? (object)ReadSmokePersonNote(workspace, noteId) :
+                    ReadSmokeTeamNote(workspace, noteId);
+                using (var reading = OpenSmokeWorkspace(workspace))
+                {
+                    var saved = reading.BeginNoteDraft(kind == "Person" ? OrgExplorer.Workflow.NoteScope.Person :
+                        OrgExplorer.Workflow.NoteScope.Team, "avery@example.com", noteId);
+                    if (saved?.OwnerEmail != "avery@example.com" || saved.Id != noteId ||
+                        saved.Title != $"New {kind} note" || saved.Markdown != "")
+                        throw new InvalidOperationException($"The initial {kind} note was not committed before invalid editing.");
+                }
                 Set(window, $"{kind}NoteTitle", "");
                 Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
                 if (responsive && kind == "Person") AssertProtectedPeopleOverlay(window);
@@ -129,31 +144,37 @@ internal static partial class Program
                 SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");
-                Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("before leaving or closing"));
+                Await(() => Status(window).Contains("NOT saved"));
                 if (!Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal))
                     throw new InvalidOperationException($"Discarding the profile hid the retained failed {kind} note.");
                 AssertImportHidden(window);
                 var status = Status(window);
-                if (!status.StartsWith("Navigation blocked:") || !status.Contains($"{kind} note") ||
+                if (!status.Contains("navigation blocked:", StringComparison.OrdinalIgnoreCase) ||
                     !status.Contains("Retry or discard"))
                     throw new InvalidOperationException($"Failed {kind} note navigation lacks a visible, actionable main status: {status}");
                 if (Find(window, "Email").Current.Name != "avery@example.com" ||
                     Value(window, $"{kind}NoteTitle") != "" || Find(window, "DirectoryName").Current.Name != "Avery")
                     throw new InvalidOperationException($"Rejected navigation changed the owner or discarded the failed {kind} note draft.");
                 Click(window, $"Discard{kind}NoteDraft");
-                Await(() => Find(window, $"{kind}NoteHeading").Current.Name == $"New {kind} note");
+                Await(() => Find(window, $"{kind}NoteHeading").Current.Name == $"New {kind} note" &&
+                    Find(window, $"{kind}NoteHeading").Current.HelpText == noteId.ToString());
+                if (!Equals(savedNote, kind == "Person" ? (object)ReadSmokePersonNote(workspace, noteId) :
+                    ReadSmokeTeamNote(workspace, noteId)))
+                    throw new InvalidOperationException($"Discard changed the saved exact {kind} note.");
+                SelectTab(window, $"{kind}NoteReadTab");
                 AssertNoteView(window, kind, editing: false);
                 SelectTab(window, $"{kind}NoteEditTab");
                 AssertNoteView(window, kind, editing: true);
                 AssertValue(window, $"{kind}NoteTitle", $"New {kind} note");
                 AwaitLocalWorkIdle(window);
             }
-            Close(process);
-            Console.WriteLine("PASS: failed Person/Team note navigation explains retry/discard in the main status and retains the owner and draft.");
+            ClosePublishedWorkspace(process, workspace);
+            Console.WriteLine("PASS: SQLite failures pause editing, retain exact profile/Person/Team writing through browsing, and explain protected Import/Workspace transitions.");
         }
         finally
         {
             if (process is not null) StopApplication(process);
         }
     }
+
 }

@@ -43,9 +43,10 @@ public partial class MainWindow
     private async Task<bool> SaveProfileSessionAsync()
     {
         if (workPending) return false;
-        var saved = await RunWorkflowAsync(workflow.SaveProfileEdit, "Saving complete profile…");
+        if (workflow.ProfileEdit is not { } submitted) return false;
+        var saved = await RunWorkflowAsync(() => workflow.SaveProfileEdit(submitted), "Saving complete profile…", ordinarySave: true);
         RefreshExternalWorkspace();
-        if (saved) FocusProfileControl(editing: false);
+        if (saved && selectedEmail == submitted.Basis.Email) FocusProfileControl(editing: workflow.ProfileEdit is not null);
         return saved;
     }
 
@@ -78,8 +79,8 @@ public partial class MainWindow
 
     private void UpdateProfileMode()
     {
-        var editing = workflow.ProfileEdit is not null;
-        var writable = workflow.IsWorkspaceCurrent && selectedEmail is not null && !workPending;
+        var editing = workflow.ProfileEdit is { } selectedEdit && selectedEdit.Basis.Email == selectedEmail;
+        var writable = CanEditCurrentWorkspace && selectedEmail is not null && !workPending;
         PersonIdentity.Margin = new Thickness(0, 8, 12, editing ? 8 : 16);
         EditProfileButton.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
         EditProfileButton.IsEnabled = writable;

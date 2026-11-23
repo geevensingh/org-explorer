@@ -16,6 +16,92 @@ public class PersonAttributeTests
           "managerEmail":null}]}
         """;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Restoring_the_original_Preferred_name_retires_only_clean_retained_writing(bool useViewModel)
+    {
+        using IApplicationWorkflow app = useViewModel
+            ? new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory())
+            : ApplicationWorkflow.CreateInMemory();
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Unsubmitted");
+        Assert.False(app.CanSafelyClose);
+
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+
+        Assert.True(app.CanSafelyClose, app.Status);
+        Assert.True(app.CanEnterImport, app.Status);
+        if (app is WorkspaceViewModel model)
+        {
+            Assert.True(model.NavigatePerson(basis.Email), model.Status);
+            Assert.Null(model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        }
+        Assert.Equal(basis, Assert.Single(app.People));
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly saved");
+        var accepted = Assert.IsType<PersonProfile>(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly saved"));
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        basis = accepted;
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, " ");
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, " "));
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+        Assert.False(app.CanSafelyClose);
+        Assert.NotNull(app.LocalSaveError);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Original_Preferred_name_typing_during_admitted_work_retires_only_without_a_newer_saved_base(bool saveName)
+    {
+        var inner = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(inner);
+        Assert.True(app.OpenWorkspace("fictitious"));
+        Assert.True(app.ApplyImport(app.PreviewImport(CompleteBatch).Id));
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly submitted");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var saving = app.RunLocalSaveAsync(() =>
+        {
+            entered.SetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("The owning test did not release its admitted operation.");
+            return saveName
+                ? app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Explicitly submitted") is not null
+                : app.EditFavorite(basis.Email, true);
+        });
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+            if (saveName) Assert.NotNull(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            Assert.False(app.CanSafelyClose);
+        }
+        finally
+        {
+            release.Set();
+            Assert.True(await saving.WaitAsync(TimeSpan.FromSeconds(5)), app.Status);
+        }
+        if (saveName)
+        {
+            var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+            Assert.Equal(basis.PreferredName, retained.Value);
+            Assert.Equal("Explicitly submitted", retained.Basis.PreferredName);
+            Assert.False(app.CanSafelyClose);
+            Assert.False(inner.CanSafelyClose);
+            app.DiscardPersonTextDraft(retained.Basis, PersonTextField.PreferredName);
+        }
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(app.CanSafelyClose, app.Status);
+        Assert.True(app.CanEnterImport, app.Status);
+    }
+
     [Fact]
     public void Cancelling_a_Preferred_name_draft_clears_only_that_field_failure()
     {

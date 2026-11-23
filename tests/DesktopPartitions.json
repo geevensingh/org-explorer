@@ -1,0 +1,15 @@
+{
+  "people": [
+    "profile-journey",
+    "draft-navigation",
+    "person-note-rendering",
+    "team-context-history",
+    "search-favorites"
+  ],
+  "workspace": [
+    "archival-navigation",
+    "compatibility-settings",
+    "update-settings",
+    "external-refresh"
+  ]
+}

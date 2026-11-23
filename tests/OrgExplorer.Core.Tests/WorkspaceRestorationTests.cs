@@ -1,4 +1,5 @@
 using OrgExplorer.Desktop.Smoke;
+using OrgExplorer.Workflow;
 using Xunit;
 
 namespace OrgExplorer.Core.Tests;
@@ -6,6 +7,45 @@ namespace OrgExplorer.Core.Tests;
 public sealed class WorkspaceRestorationTests
 {
     private const string Workspace = @"C:\fixtures\workspace";
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Remembered_reopen_accepts_the_independently_persisted_Person_instead_of_waiting_for_a_blank_view()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "OrgExplorer-Restoration-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = Path.Combine(root, "workspace-settings.json");
+            var saved = new WorkspaceSettings(file);
+            Assert.True(saved.SetLastView(Workspace, new("avery@example.com")), saved.PreferenceError);
+            var expected = new WorkspaceSettings(file);
+
+            WorkspaceRestoration.AssertRemembered(
+                () => new(Workspace, "Ready", "Current validated local Workspace.", "avery@example.com", null),
+                Workspace, expected, AwaitReady);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "Runner")]
+    public void Missing_or_unreadable_remembered_preferences_cannot_be_treated_as_an_expected_blank_view(bool unreadable)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "OrgExplorer-Restoration-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = Path.Combine(root, "workspace-settings.json");
+            if (unreadable) Directory.CreateDirectory(file);
+            var expected = new WorkspaceSettings(file);
+
+            Assert.Throws<InvalidOperationException>(() => WorkspaceRestoration.AssertRemembered(
+                () => new(Workspace, "Ready", "Current validated local Workspace.", "", null),
+                Workspace, expected, AwaitReady));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
 
     [Theory]
     [InlineData(null)]

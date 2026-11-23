@@ -142,24 +142,6 @@ public sealed partial class ApplicationWorkflow
                     "Review before Apply; this does not establish an exact effective date.");
     }
 
-    private static Dictionary<string, PersonHistory> ReadProfileHistory(
-        Dictionary<string, PersonProfile> people, IEnumerable<string> files)
-    {
-        var history = new Dictionary<string, PersonHistory>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in files)
-        {
-            using var document = JsonDocument.Parse(ReadWorkspaceText(file));
-            CheckRecordVersion(document.RootElement, "Profile history", 2);
-            CheckProperties(document.RootElement, ["schemaVersion", "email", "changes", "observations"], "Profile history");
-            var person = DeserializeVersionedRecord<PersonHistory>(document.RootElement)
-                ?? throw new FormatException("Invalid Profile history.");
-            if (person.Email is null || !people.ContainsKey(person.Email) || !history.TryAdd(person.Email, person))
-                throw new FormatException("Profile history has an unknown or duplicate Person.");
-            ValidateProfileHistory(person, people[person.Email]);
-        }
-        return history;
-    }
-
     private static void ValidateProfileHistory(PersonHistory history, PersonProfile person)
     {
         if (history.Changes is null || history.Observations is null)

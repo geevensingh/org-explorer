@@ -1,5 +1,11 @@
 # Incremental readable-file workspace storage
 
+**Status:** Superseded by [ADR 0008](0008-local-transactions-independent-sync.md).
+The normal path uses local SQLite, independent complete snapshots and an informed
+Exit anyway option. The canonical-file engine, selector/index/recovery protocol,
+direct-edit assumptions and non-overridable close veto have been removed.
+The decision and amendment below record historical trade-offs, not supported behavior.
+
 Full-copy generations make even a Preferred-name autosave duplicate unrelated
 People, photos, accepted Imports, and history. Use copy-on-write documents with an
 incremental snapshot index, reusing unchanged documents and atomically publishing
@@ -7,9 +13,9 @@ the new state rather than copying the population on every edit. Preserve the
 readable-file and provider-owned synchronization contract of
 [ADR 0001](0001-readable-files-external-sync.md).
 
-**Status:** Implemented in Workspace version 3 (#41-#47). The normal shipping
-workflow creates and opens this format; no opt-in factory or old-generation
-writer remains. See the [Workspace format](../workspace-format.md).
+**Historical implementation:** Readable-file Workspace version 3 (#41-#47),
+retired by #100. These folders are unsupported and remain untouched; recreate
+instead of converting them. See the current [Workspace format](../workspace-format.md).
 
 The combined [storage safety protocol](../incremental-workspace-storage-protocol.md)
 defines incremental roots, current/recovery publication, interruption states and

@@ -1,50 +1,45 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace OrgExplorer.Persistence.Tests;
 
-public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : IDisposable
+public sealed class IncrementalProfileStorageTests : IDisposable
 {
-    private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+    private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private string folder => Path.Combine(root, "workspace");
+    private const string Import = """
+        {"schemaVersion":1,"batchId":"42000000-0000-4000-8000-000000000001",
+         "observedAt":"2026-11-01T17:00:00Z","people":[
+         {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
+         {"email":"avery@example.com","displayName":"Avery","jobTitle":"Engineer","managerEmail":"morgan@example.com"}]}
+        """;
 
     [Fact]
     public void New_workspace_saves_profile_text_and_favorite_and_reopens_evidence_and_relationships()
     {
-        var observer = new RecordingObserver();
-        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer))
+        using (var app = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(app.OpenWorkspace(folder), app.Status);
             Assert.Empty(app.People);
-            Assert.True(File.Exists(Path.Combine(folder, "workspace.json")));
-            using var pointer = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "workspace.json")));
-            Assert.Equal(3, pointer.RootElement.GetProperty("schemaVersion").GetInt32());
-            Seed(app);
-            var acceptedPath = WorkspaceFixtures.IndexedDocuments(folder)
-                ["acceptedBatches:42000000-0000-4000-8000-000000000001"];
-            using (var accepted = JsonDocument.Parse(File.ReadAllBytes(acceptedPath)))
-            using (var original = JsonDocument.Parse(Import))
-            {
-                var batch = accepted.RootElement.GetProperty("42000000-0000-4000-8000-000000000001");
-                Assert.True(JsonElement.DeepEquals(original.RootElement, batch.GetProperty("source")));
-                Assert.Equal(app.GetProfileTimeline("avery@example.com")!.Confirmations[0].RecordedAt,
-                    batch.GetProperty("appliedAt").GetDateTimeOffset());
-            }
-            observer.Effects.Clear();
+            Assert.True(app.Synchronization.Supported);
+            Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
             Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
             Assert.True(app.EditPersonText("avery@example.com", PersonTextField.JobTitle, "Principal Engineer"), app.Status);
             Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
-            Assert.Equal(acceptedPath, WorkspaceFixtures.IndexedDocuments(folder)
-                ["acceptedBatches:42000000-0000-4000-8000-000000000001"]);
-            Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write &&
-                e.Path.StartsWith(Path.Combine(folder, "documents", "acceptedBatches")));
             Assert.True(app.CanSafelyClose);
-            Assert.All(observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write),
-                write => Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
+            Assert.True(app.ConfigureSynchronizationFolder(Path.Combine(root, "transport")), app.Synchronization.Error);
+            Assert.True(app.SyncNow(), app.Synchronization.Error);
+            using var envelope = JsonDocument.Parse(File.ReadAllBytes(WorkspaceFixtures.LatestSnapshot(app)));
+            using var content = JsonDocument.Parse(Convert.FromBase64String(envelope.RootElement.GetProperty("content").GetString()!));
+            var row = Assert.Single(content.RootElement.GetProperty("acceptedImports").EnumerateArray());
+            using var accepted = JsonDocument.Parse(row.GetProperty("value").GetString()!);
+            using var original = JsonDocument.Parse(Import);
+            Assert.True(JsonElement.DeepEquals(original.RootElement, accepted.RootElement.GetProperty("source")));
+            Assert.Equal(app.GetProfileTimeline("avery@example.com")!.Confirmations[0].RecordedAt,
+                accepted.RootElement.GetProperty("appliedAt").GetDateTimeOffset());
         }
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
@@ -66,24 +61,12 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(Import).Changes));
     }
 
-    private const string Import = """
-        {"schemaVersion":1,"batchId":"42000000-0000-4000-8000-000000000001",
-         "observedAt":"2026-11-01T17:00:00Z","people":[
-         {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
-         {"email":"avery@example.com","displayName":"Avery","jobTitle":"Engineer","managerEmail":"morgan@example.com"}]}
-        """;
-
-    private static void Seed(IApplicationWorkflow app) =>
-        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
-
     [Fact]
-    public void Reviewed_population_import_publishes_once_without_repeatedly_serializing_shared_index_paths()
+    public void Reviewed_population_import_and_update_reopen_the_whole_graph_and_accepted_evidence()
     {
-        var observer = new RecordingObserver();
-        var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
-        Seed(app);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var import = JsonSerializer.Serialize(new
         {
             schemaVersion = 1, batchId = "43000000-0000-4000-8000-000000000001",
@@ -96,24 +79,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         });
         var preview = app.PreviewImport(import);
         Assert.True(preview.CanApply, string.Join("\n", preview.Errors));
-        observer.Effects.Clear();
-        var publications = 0;
-        publisher.BeforePublish = (_, destination) =>
-        {
-            if (destination != Path.Combine(folder, "workspace.json")) return;
-            publications++;
-            using var before = ApplicationWorkflow.CreateFileBacked();
-            Assert.True(before.OpenWorkspace(folder), before.Status);
-            Assert.Equal(2, before.People.Count);
-            Assert.DoesNotContain(before.GetRelationships("morgan@example.com")!.ImportedReports, p => p.Email.StartsWith("report"));
-        };
         Assert.True(app.ApplyImport(preview.Id), app.Status);
-        publisher.BeforePublish = null;
-        Assert.Equal(1, publications);
-        var indexBytes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write &&
-            e.Path.StartsWith(Path.Combine(folder, "index") + Path.DirectorySeparatorChar)).Sum(e => e.Bytes);
-        output.WriteLine($"128-Person Import index writes: {indexBytes} bytes.");
-        Assert.True(indexBytes < 128 * 700, $"Import repeatedly rewrote shared index paths: {indexBytes} bytes.");
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal(130, reopened.People.Count);
@@ -127,11 +93,7 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             observedAt = "2026-11-04T17:00:00Z",
             people = Enumerable.Range(0, 128).Select(i => new { email = $"report{i:D3}@example.com", officeNumber = "007B" })
         });
-        observer.Effects.Clear();
         Assert.True(app.ApplyImport(app.PreviewImport(update).Id), app.Status);
-        var updateBytes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write &&
-            e.Path.StartsWith(Path.Combine(folder, "index") + Path.DirectorySeparatorChar)).Sum(e => e.Bytes);
-        Assert.True(updateBytes < 128 * 700, $"Updating indexed People rewrote shared paths: {updateBytes} bytes.");
         using var updated = ApplicationWorkflow.CreateFileBacked();
         Assert.True(updated.OpenWorkspace(folder), updated.Status);
         Assert.Equal(127, updated.GetRelationships("report000@example.com")!.ImportedReports.Count);
@@ -145,12 +107,11 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     [InlineData("archive")]
     [InlineData("reactivate")]
     [InlineData("favorite")]
-    public void Relationship_archival_and_favorite_writes_reuse_unaffected_documents_and_reopen_expected_context(string mutation)
+    public void Relationship_archival_and_favorite_changes_reopen_expected_context_without_touching_unrelated_people(string mutation)
     {
-        var observer = new RecordingObserver();
-        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer);
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
-        Seed(app);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         const string extra = """
             {"schemaVersion":1,"batchId":"43000000-0000-4000-8000-000000000002",
              "observedAt":"2026-11-02T17:00:00Z","people":[
@@ -158,12 +119,10 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
              {"email":"unrelated@example.com","displayName":"Unrelated","managerEmail":null}]}
             """;
         Assert.True(app.ApplyImport(app.PreviewImport(extra).Id), app.Status);
+        var unrelated = app.GetRelationships("unrelated@example.com")!.Person;
         var note = app.CreatePersonNote("avery@example.com", "Private", "Private writing")!;
         app.CreateTeamNote("morgan@example.com", "Former team", "Original context");
         if (mutation == "reactivate") Assert.True(app.EditPersonArchived("avery@example.com", true), app.Status);
-        var before = WorkspaceFixtures.IndexedDocuments(folder);
-        var bytes = before.ToDictionary(e => e.Key, e => File.ReadAllBytes(e.Value));
-        observer.Effects.Clear();
         Assert.True(mutation switch
         {
             "manager" => app.EditPersonManager("avery@example.com", "alex@example.com"),
@@ -171,93 +130,43 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
             "reactivate" => app.EditPersonArchived("avery@example.com", false),
             _ => app.EditFavorite("avery@example.com", true)
         }, app.Status);
-        var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-        Assert.NotEmpty(writes);
-        Assert.True(writes.Sum(e => e.Bytes) < 32768, $"Small {mutation} wrote {writes.Sum(e => e.Bytes)} bytes.");
-        var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
-            .ToDictionary(e => e.Path, e => e.Destination!);
-        var current = WorkspaceFixtures.IndexedDocuments(folder);
-        foreach (var (key, path) in before.Where(e => !e.Key.EndsWith(":avery@example.com")))
-        {
-            Assert.Equal(path, current[key]);
-            Assert.Equal(bytes[key], File.ReadAllBytes(path));
-            Assert.DoesNotContain(writes, e => e.Path == path ||
-                File.Exists(publications.GetValueOrDefault(e.Path, e.Path)) &&
-                File.ReadAllBytes(publications.GetValueOrDefault(e.Path, e.Path)).AsSpan().SequenceEqual(bytes[key]));
-        }
-        Assert.DoesNotContain(writes, e => e.Path.EndsWith(".md"));
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = reopened.GetRelationships("avery@example.com")!.Person;
         Assert.Equal(mutation == "manager" ? "alex@example.com" : "morgan@example.com", person.ManagerEmail);
         Assert.Equal(mutation == "archive", person.Archived);
         Assert.Equal(mutation == "favorite", person.IsFavorite);
+        Assert.Equal(unrelated, reopened.GetRelationships(unrelated.Email)!.Person);
         Assert.Equal(note, Assert.Single(reopened.GetPersonNotes("avery@example.com")));
-        if (mutation == "favorite")
-            Assert.Empty(reopened.GetHistoricalTeamContexts("avery@example.com"));
-        else
-            Assert.Equal("Original context", Assert.Single(Assert.Single(
-                reopened.GetHistoricalTeamContexts("avery@example.com")).TeamNotes).Markdown);
+        if (mutation == "favorite") Assert.Empty(reopened.GetHistoricalTeamContexts("avery@example.com"));
+        else Assert.Equal("Original context", Assert.Single(Assert.Single(
+            reopened.GetHistoricalTeamContexts("avery@example.com")).TeamNotes).Markdown);
         Assert.Equal(mutation == "reactivate" ? 2 : 1, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
         Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(extra).Changes));
-    }
-
-    [Fact]
-    public void Profile_save_reuses_rich_unrelated_data_and_write_cost_does_not_follow_population_size()
-    {
-        var large = MeasureEdit(Path.Combine(folder, "large"), 256);
-        var small = MeasureEdit(Path.Combine(folder, "small"), 4);
-        output.WriteLine($"Same Preferred-name edit: 6 People = {small.Total} bytes ({small.Provenance} provenance); " +
-            $"258 People = {large.Total} bytes ({large.Provenance} provenance), including all transient writes.");
-        // #46 adds staging-path inventories and retirement evidence for affected
-        // index paths, not population snapshots. Cap that provenance delta too.
-        Assert.True(large.Provenance <= small.Provenance + 4096,
-            $"Affected-path provenance grew from {small.Provenance} to {large.Provenance} bytes.");
-        Assert.True(large.Total - large.Provenance <= small.Total - small.Provenance + 8192,
-            "Non-provenance writes exceeded the original incremental allowance.");
-        Assert.True(large.Total <= small.Total + 8192 + 4096,
-            $"Same edit wrote {small.Total} bytes with 6 People and {large.Total} bytes with 258 People.");
-        Assert.True(large.Total < 32768, $"A single profile edit wrote {large.Total} bytes, including all transient metadata.");
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Actual_publication_failure_retains_profile_draft_and_prior_commit_until_retry_or_discard(bool discard)
+    public void Actual_transaction_failure_retains_profile_draft_and_prior_commit_until_recovery_then_retry_or_discard(bool discard)
     {
-        var observer = new RecordingObserver();
-        var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher);
+        using var app = ApplicationWorkflow.CreateFileBacked();
         Assert.True(app.OpenWorkspace(folder), app.Status);
-        Seed(app);
-        var pointer = File.ReadAllBytes(Path.Combine(folder, "workspace.json"));
-        var documents = WorkspaceFixtures.IndexedDocuments(folder).ToDictionary(e => e.Value, e => File.ReadAllBytes(e.Value));
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained draft"), app.Status);
-        FileStream? held = null;
-        publisher.BeforePublish = (_, destination) =>
-        {
-            if (destination == Path.Combine(folder, "workspace.json"))
-                held = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read);
-        };
-        observer.Effects.Clear();
-        try { Assert.False(app.SaveProfileEdit()); }
-        finally { held?.Dispose(); }
-        publisher.BeforePublish = null;
+        using (WorkspaceFixtures.LockLocalStore(folder))
+            Assert.False(app.SaveProfileEdit());
         Assert.Equal("Retained draft", app.ProfileEdit!.Draft.JobTitle);
         Assert.False(app.CanSafelyClose);
         Assert.NotNull(app.LocalSaveError);
-        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(folder, "workspace.json")));
-        foreach (var (path, bytes) in documents) Assert.Equal(bytes, File.ReadAllBytes(path));
-        Assert.Contains(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Write);
-        Assert.DoesNotContain(observer.Effects, e => e.Kind == WorkspaceFileEffectKind.Publish &&
-            e.Destination == Path.Combine(folder, "workspace.json"));
         using (var prior = ApplicationWorkflow.CreateFileBacked())
         {
             Assert.True(prior.OpenWorkspace(folder), prior.Status);
             Assert.Equal("Engineer", prior.GetRelationships("avery@example.com")!.Person.JobTitle);
             Assert.Empty(prior.GetProfileTimeline("avery@example.com")!.Changes);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         if (discard) app.CancelProfileEdit();
         else Assert.True(app.SaveProfileEdit(), app.Status);
         Assert.Null(app.ProfileEdit);
@@ -273,14 +182,14 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
     {
         using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(app.OpenWorkspace(folder), app.Status);
-        Seed(app);
+        Assert.True(app.ApplyImport(app.PreviewImport(Import).Id), app.Status);
         var basis = app.GetRelationships("avery@example.com")!.Person;
-        using (File.Open(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
             Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Ave"));
         Assert.False(app.CanSafelyClose);
         Assert.False(app.RestartWhenSafe(_ => Assert.Fail("Unsaved writing must block restart.")));
-        var saved = app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Ave");
-        Assert.NotNull(saved);
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.NotNull(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, "Ave"));
         Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
         var edits = new Dictionary<PersonTextField, string>
         {
@@ -297,7 +206,6 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         foreach (var (field, value) in edits) Assert.True(app.StageProfileText(field, value), app.Status);
         Assert.True(app.SaveProfileEdit(), app.Status);
         Assert.True(app.CanSafelyClose);
-        app.Dispose();
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         var person = reopened.GetRelationships("avery@example.com")!.Person;
@@ -314,173 +222,8 @@ public sealed class IncrementalProfileStorageTests(ITestOutputHelper output) : I
         Assert.Equal(10, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
     }
 
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(99)]
-    public void Unsupported_Workspace_versions_are_rejected_without_creating_or_changing_any_files_or_directories(int version)
-    {
-        WorkspaceFixtures.CopyVersion(version, folder);
-        var before = WorkspaceFixtures.Bytes(folder);
-        var directories = Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).Order().ToArray();
-        using var ordinary = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(ordinary.OpenWorkspace(folder));
-        Assert.Equal(WorkspaceCompatibilityState.Unsupported, ordinary.Compatibility.State);
-        Assert.Equal(version, ordinary.Compatibility.DataVersion);
-        Assert.Equal(3, ordinary.Compatibility.SupportedWorkspaceVersion);
-        Assert.Contains(version < 3 ? "does not migrate" : "Upgrade", ordinary.Compatibility.Guidance);
-        Assert.False(ordinary.RefreshWorkspace());
-        Assert.False(ordinary.EditPreferredName("avery@example.com", "Never saved"));
-        Assert.False(ordinary.RetryStorageMaintenance());
-        Assert.False(File.Exists(Path.Combine(folder, ".workspace.lock")));
-        var after = WorkspaceFixtures.Bytes(folder);
-        Assert.Equal(before.Keys.Order(), after.Keys.Order());
-        foreach (var (path, bytes) in before) Assert.Equal(bytes, after[path]);
-        Assert.Equal(directories, Directory.GetDirectories(folder, "*", SearchOption.AllDirectories).Order());
-    }
-
-    [Fact]
-    public void Receipt_failure_reports_committed_profile_separately_and_blocks_safe_close()
-    {
-        var publisher = new InspectingPublisher();
-        using var app = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
-        Assert.True(app.OpenWorkspace(folder), app.Status);
-        Seed(app);
-        publisher.BeforePublish = (staged, destination) =>
-        {
-            if (destination == Path.Combine(folder, "workspace.json"))
-                Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(staged)!, "committed.json"));
-        };
-        Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
-        Assert.Contains("Saved locally", app.Status);
-        Assert.Contains("maintenance incomplete", app.LocalSaveError);
-        Assert.DoesNotContain("NOT saved", app.Status);
-        Assert.False(app.CanSafelyClose);
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
-        Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);
-        Assert.Single(reopened.GetProfileTimeline("avery@example.com")!.Changes);
-    }
-
-    private (long Total, long Provenance) MeasureEdit(string root, int unrelatedCount)
-    {
-        var observer = new RecordingObserver();
-        var publisher = new InspectingPublisher();
-        using (var app = ApplicationWorkflow.CreateFileBacked(fileObserver: observer, filePublisher: publisher))
-        {
-            Assert.True(app.OpenWorkspace(root), app.Status);
-            Seed(app);
-            var records = Enumerable.Range(0, unrelatedCount).Select(i => new
-            {
-                email = $"person{i:D4}@example.com", displayName = $"Unrelated Person {i:D4}",
-                managerEmail = "morgan@example.com", department = new string('d', 128)
-            }).ToArray();
-            var import = JsonSerializer.Serialize(new
-            {
-                schemaVersion = 1, batchId = "42000000-0000-4000-8000-000000000002",
-                observedAt = "2026-11-02T17:00:00Z", people = records
-            });
-            Assert.True(app.ApplyImport(app.PreviewImport(import).Id), app.Status);
-            Assert.True(app.EditPersonText("morgan@example.com", PersonTextField.Department, "Research"), app.Status);
-            var note = app.CreatePersonNote("morgan@example.com", "Private", "Unrelated personal writing")!;
-            var team = app.CreateTeamNote("morgan@example.com", "Team", "Unrelated team writing")!;
-            var image = Convert.FromBase64String(
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
-            var sourcePhoto = Path.Combine(root, "source.png");
-            File.WriteAllBytes(sourcePhoto, image);
-            Assert.True(app.RefreshWorkspace(), app.Status);
-            Assert.True(app.EditPhoto("morgan@example.com", sourcePhoto), app.Status);
-            var before = WorkspaceFixtures.Bytes(root);
-            var recoveryBefore = WorkspaceFixtures.RecoveryDocuments(root);
-            observer.Effects.Clear();
-            publisher.BeforePublish = (staged, destination) =>
-            {
-                var writes = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-                Assert.NotEmpty(writes);
-                // This is a byte bound on real writes, including transient stages, not surviving size.
-                Assert.True(writes.Sum(e => e.Bytes) < 32768, $"Profile publication staged {writes.Sum(e => e.Bytes)} bytes.");
-                Assert.Contains(writes, write => write.Path == staged);
-                Assert.Contains(observer.Effects,
-                    e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == staged);
-                if (destination == Path.Combine(root, "workspace.json") ||
-                    destination == Path.Combine(root, "recovery", "current.json"))
-                    Assert.All(writes, write => Assert.Contains(observer.Effects,
-                        e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
-            };
-            Assert.True(app.EditPreferredName("avery@example.com", "Ave"), app.Status);
-            publisher.BeforePublish = null;
-            var written = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Write).ToArray();
-            Assert.True(written.Sum(e => e.Bytes) < 32768, $"Profile save wrote {written.Sum(e => e.Bytes)} bytes.");
-            Assert.All(written, write => Assert.Contains(observer.Effects,
-                e => e.Kind == WorkspaceFileEffectKind.Flush && e.Path == write.Path));
-            foreach (var group in written.GroupBy(e => Path.GetRelativePath(root, e.Path).Split(Path.DirectorySeparatorChar)[0]))
-                output.WriteLine($"{unrelatedCount + 2} People: {group.Key} = {group.Sum(e => e.Bytes)} bytes.");
-            var publications = observer.Effects.Where(e => e.Kind == WorkspaceFileEffectKind.Publish)
-                .ToDictionary(e => e.Path, e => e.Destination!);
-            var writtenBytes = written.Select(e => e.Path).Distinct().ToDictionary(path => path, path =>
-            {
-                var location = File.Exists(path) ? path : publications.GetValueOrDefault(path);
-                return location is not null && File.Exists(location) ? File.ReadAllBytes(location) : null;
-            });
-            bool Copied(WorkspaceFileEffect write, string path) => write.Path == path ||
-                writtenBytes[write.Path] is { } bytes && bytes.AsSpan().SequenceEqual(before[Path.GetRelativePath(root, path)]);
-            var current = WorkspaceFixtures.IndexedDocuments(root);
-            foreach (var (identity, path) in current.Where(e => e.Key is not "people:avery@example.com" and not "profileHistory:avery@example.com"))
-            {
-                Assert.Equal(before[Path.GetRelativePath(root, path)], File.ReadAllBytes(path));
-                Assert.DoesNotContain(written, e => Copied(e, path));
-            }
-            var recoveryAfter = WorkspaceFixtures.RecoveryDocuments(root);
-            foreach (var (identity, path) in recoveryBefore.Where(e =>
-                e.Key is not "people:avery@example.com" and not "profileHistory:avery@example.com"))
-            {
-                Assert.Equal(path, recoveryAfter[identity]);
-                Assert.Equal(before[Path.GetRelativePath(root, path)], File.ReadAllBytes(path));
-                Assert.DoesNotContain(written, e => Copied(e, path));
-            }
-            app.Dispose();
-            using var reopened = ApplicationWorkflow.CreateFileBacked();
-            Assert.True(reopened.OpenWorkspace(root), reopened.Status);
-            Assert.Equal(unrelatedCount + 2, reopened.People.Count);
-            Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.Heading);
-            Assert.Equal("morgan@example.com", reopened.GetRelationships("avery@example.com")!.Manager!.Email);
-            Assert.Equal("Research", reopened.GetRelationships("morgan@example.com")!.Person.Department);
-            Assert.Equal("Unrelated personal writing", reopened.GetPersonNotes("morgan@example.com").Single(n => n.Id == note.Id).Markdown);
-            Assert.Equal("Unrelated team writing", reopened.GetTeamNotes("morgan@example.com").Single(n => n.Id == team.Id).Markdown);
-            Assert.Equal(image, reopened.GetPhoto("morgan@example.com")!.Bytes.ToArray());
-            Assert.Equal("Research", Assert.Single(reopened.GetProfileTimeline("morgan@example.com")!.Changes, c => c.Field == "department").NewValue.GetString());
-            Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(import).Changes));
-            Assert.True(reopened.RecoverWorkspace(root + "-restored"), reopened.Status);
-            Assert.Equal(unrelatedCount + 2, reopened.People.Count);
-            Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.Heading);
-            Assert.Equal("Unrelated personal writing", reopened.GetPersonNotes("morgan@example.com").Single(n => n.Id == note.Id).Markdown);
-            Assert.Equal("Unrelated team writing", reopened.GetTeamNotes("morgan@example.com").Single(n => n.Id == team.Id).Markdown);
-            Assert.Equal(image, reopened.GetPhoto("morgan@example.com")!.Bytes.ToArray());
-            Assert.Contains("no-op", Assert.Single(reopened.PreviewImport(import).Changes));
-            return (written.Sum(e => e.Bytes), written.Where(e =>
-                Path.GetFileName(e.Path).StartsWith("created-", StringComparison.Ordinal) ||
-                e.Path.EndsWith(".retirement", StringComparison.Ordinal)).Sum(e => e.Bytes));
-        }
-    }
-
-    private sealed class InspectingPublisher : IWorkspaceFilePublisher
-    {
-        public Action<string, string>? BeforePublish { get; set; }
-        public void Publish(string staged, string destination, string? backup, WorkspaceFilePublicationMode mode = WorkspaceFilePublicationMode.Automatic)
-        {
-            BeforePublish?.Invoke(staged, destination);
-            new WorkspaceFilePublisher().Publish(staged, destination, backup, mode);
-        }
-    }
-
-    private sealed class RecordingObserver : IWorkspaceFileObserver
-    {
-        public ConcurrentQueue<WorkspaceFileEffect> Effects { get; } = new();
-        public void Observe(WorkspaceFileEffect effect) => Effects.Enqueue(effect);
-    }
-
     public void Dispose()
     {
-        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 }

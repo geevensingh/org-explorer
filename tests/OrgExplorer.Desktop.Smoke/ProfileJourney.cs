@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -114,16 +115,18 @@ internal static partial class Program
             Set(window, "ImportPath", import);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Click(window, "ApplyImport");
                 Await(() => Status(window).Contains("NOT saved") &&
                     Find(window, "DiscardImport").Current.IsEnabled);
                 ReturnToPeople(window);
                 Click(window, "DiscardImport");
-                Await(() => Status(window).Contains("Import discarded") &&
-                    Activity(window) == "Ready");
+                Await(() => SmokeImportDiscardComplete(window));
+                if (Find(window, "OperationalNotice").Current.ItemStatus != "Local save: Failed; outcome: NotCommitted")
+                    throw new InvalidOperationException("Import discard cleared the independent confirmed local-storage fault before explicit recovery.");
             }
+            ReconcileSmokeLocalSaves(window);
             OpenImportView(window);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -143,7 +146,7 @@ internal static partial class Program
             AssertKeyboardCopy(window, "Email", "avery@example.com");
             AssertKeyboardCopy(window, "DirectoryName", "Avery Example");
             AssertKeyboardCopy(window, "OfficeNumberValue", "007B");
-            AssertProfileCopyGestures(window, workspace, link);
+            HarnessRuntime.Run("native-copy", () => AssertProfileCopyGestures(window, workspace, link));
             BeginProfileEditing(window);
             if (IsVisible(window, "TeamNameEditor"))
                 throw new InvalidOperationException("A Person without current direct reports can edit a Team name.");
@@ -247,7 +250,10 @@ internal static partial class Program
             }
             BeginProfileEditing(window);
             Set(window, "LinkedInProfileUrl", link);
-            SaveProfileEditing(window);
+            PersonProfile submittedLinkProfile;
+            using (var saved = OpenSmokeWorkspace(workspace))
+                submittedLinkProfile = saved.GetRelationships("avery@example.com")!.Person with { LinkedInProfileUrl = link };
+            SaveProfileEditing(window, submittedLinkProfile);
             Await(() => Find(window, "OpenLinkedIn").Current.IsEnabled);
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
@@ -274,6 +280,9 @@ internal static partial class Program
                 Find(window, "ProfileTimeline").Current.Name.Contains("Imported") &&
                 Find(window, "ProfileTimeline").Current.Name.Contains("Local edit"));
             OpenImportView(window);
+            PrepareSmokeNormalClose(workspace, () => PublishSmokeWorkspace(window, workspace));
+            Await(() => !Find(window, "BackToPeople").Current.IsOffscreen &&
+                !Find(window, "PreviewImport").Current.IsOffscreen);
             process.CloseMainWindow();
             if (!process.WaitForExit(10000))
                 throw new TimeoutException("App did not close normally from Import.");
@@ -303,7 +312,7 @@ internal static partial class Program
             Click(entry, "CancelPreferredName");
             AssertPreferredNameReading(window, "Ave", "Edit");
             if (listener.Pending()) throw new InvalidOperationException("Profile presentation fetched a remote link.");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
         }
         finally { if (process is not null) StopApplication(process); }
     }
@@ -330,10 +339,10 @@ internal static partial class Program
         AssertTeamNameOwnerAttribution(window, "Morgan Example", "morgan@example.com");
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Renamed platform");
-        using (File.Open(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(workspace))
         {
             Click(window, "SaveProfile");
-            Await(() => Status(window).Contains("NOT saved") && Find(window, "SaveProfile").Current.IsEnabled);
+            Await(() => Status(window).Contains("NOT saved"));
             AssertValue(window, "TeamNameEditor", "Renamed platform");
             using var saved = ApplicationWorkflow.CreateFileBacked();
             if (!saved.OpenWorkspace(workspace) ||
@@ -341,6 +350,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Rejected Team-name Save changed the committed owned label.");
             CaptureVisualEvidence(window, "team-name-rejected-save-retained");
         }
+        ReconcileSmokeLocalSaves(window);
         SaveProfileEditing(window);
         AssertTeamNameReading(window, "Renamed platform");
         BeginProfileEditing(window);
@@ -427,16 +437,27 @@ internal static partial class Program
 
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
-        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
-            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
-            control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
-        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
-            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
-        Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
-        var label = Find(window, "TeamNameLabel");
+        AutomationElement? viewportControl = null;
+        var scrollRequested = false;
+        var scroll = ControlReadiness.AwaitPattern(() => viewportControl = Find(window, "ProfileScroll"),
+            control => !control.Current.IsOffscreen && control.Current.BoundingRectangle is { Width: > 0, Height: > 0 },
+            control =>
+            {
+                if (!control.TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)) return null;
+                var current = (ScrollPattern)pattern;
+                if (!scrollRequested)
+                {
+                    scrollRequested = true;
+                    ControlReadiness.ScrollToTopIfScrollable(() => current.Current.VerticallyScrollable,
+                        () => current.SetScrollPercent(ScrollPattern.NoScroll, 0));
+                }
+                return !current.Current.VerticallyScrollable || current.Current.VerticalScrollPercent == 0 ? current : null;
+            }, Await);
+        AutomationElement? label = null;
         AutomationElement[] values = [];
         Await(() =>
         {
+            label = Find(window, "TeamNameLabel");
             var names = Find(window, "TeamNames");
             var segments = names.FindAll(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
@@ -466,9 +487,9 @@ internal static partial class Program
         if (renderedPath != string.Join(" > ", expected))
             throw new InvalidOperationException($"The actual rendered Team-name path is out of order: '{renderedPath}'.");
         var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
-        var row = label.Current.BoundingRectangle;
+        var row = label!.Current.BoundingRectangle;
         var scale = DpiScale(window);
-        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var viewport = viewportControl!.Current.BoundingRectangle;
         if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
             throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
                 $"label={row}, Manager={manager}, viewport={viewport}.");
@@ -552,18 +573,13 @@ internal static partial class Program
 
     private static void PressCopyKey(byte key)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
         keybd_event(key, 0, 0, 0);
         keybd_event(key, 0, 2, 0);
     }
 
-    private static void AwaitCopiedText(string expected)
-    {
-        try { PumpUntil(() => System.Windows.Clipboard.GetText() == expected); }
-        catch (TimeoutException error)
-        {
-            throw new TimeoutException("The actual clipboard did not receive the expected text within 20 seconds.", error);
-        }
-    }
+    private static void AwaitCopiedText(string expected) =>
+        ClipboardObservation.AwaitText(expected, System.Windows.Clipboard.GetText, PumpUntil);
 
     private static void AssertKeyboardCopy(AutomationElement window, string name, string expected, string copyAction = "Copy value")
         => AssertKeyboardCopy(window, Find(window, name), expected, copyAction);
@@ -673,6 +689,7 @@ internal static partial class Program
     {
         AutomationElement? value = null;
         var point = AwaitClickablePoint(() => value = find(), requireEnabled);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
         if (!SetCursorPos((int)point.X, (int)point.Y))
             throw new InvalidOperationException("The hosted desktop could not primary-click " + value!.Current.AutomationId);
         mouse_event(2, 0, 0, 0, 0);
@@ -762,6 +779,7 @@ internal static partial class Program
 
     private static void AwaitCopyFeedbackGone(AutomationElement window)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.FeedbackExpiry);
         var lifetime = Stopwatch.StartNew();
         Await(() => !IsVisible(window, "ProfileCopyFeedback"));
         if (lifetime.Elapsed > TimeSpan.FromSeconds(3))
@@ -926,11 +944,42 @@ internal static partial class Program
         AssertMissingCopy(window, Find(window, "LinkedInProfileUrlValue"));
     }
 
-    private static void SaveProfileEditing(AutomationElement window)
+    private static readonly (string Control, Func<PersonProfile, string?> Read)[] SmokeProfileTextFields =
+    [
+        ("DirectoryNameEditor", person => person.DirectoryName),
+        ("Alias", person => person.Alias),
+        ("JobTitle", person => person.JobTitle),
+        ("Department", person => person.Department),
+        ("OfficeBuilding", person => person.OfficeBuilding),
+        ("OfficeNumber", person => person.OfficeNumber),
+        ("OfficeState", person => person.OfficeState),
+        ("OfficeCountry", person => person.OfficeCountry),
+        ("LinkedInProfileUrl", person => person.LinkedInProfileUrl)
+    ];
+
+    private static bool IsSmokeExplicitProfileSaveComplete(string submittedOwner, string displayedOwner,
+        bool editing, bool canEdit) =>
+        submittedOwner == displayedOwner && !editing && canEdit;
+
+    private static void SaveProfileEditing(AutomationElement window, PersonProfile? submittedProfile = null)
     {
+        var owner = Find(window, "Email").Current.Name;
+        var workspace = Find(window, "WorkspaceName").Current.HelpText;
+        var submittedText = SmokeProfileTextFields.Select(field =>
+            (field.Control, Value: Value(window, field.Control) is { Length: > 0 } value ? value : null)).ToArray();
+        var hasTeamName = IsVisible(window, "TeamNameEditor");
+        var submittedTeamName = hasTeamName && Value(window, "TeamNameEditor") is { Length: > 0 } name ? name : null;
+        if (submittedProfile is not null && submittedProfile.Email != owner)
+            throw new InvalidOperationException("The explicit profile Save expectation belongs to a different owner.");
         Click(window, "SaveProfile");
-        Await(() => Find(window, "EditProfile").Current.IsEnabled &&
-            Status(window).StartsWith("Profile saved locally.", StringComparison.Ordinal));
+        Await(() => IsSmokeExplicitProfileSaveComplete(owner, Find(window, "Email").Current.Name,
+            IsVisible(window, "ProfileEditingState"), Find(window, "EditProfile").Current.IsEnabled));
+        using var saved = OpenSmokeWorkspace(workspace);
+        var committed = saved.GetRelationships(owner)?.Person;
+        if (committed is null || submittedProfile is not null && committed != submittedProfile ||
+            hasTeamName && committed.TeamName != submittedTeamName ||
+            SmokeProfileTextFields.Where((field, index) => field.Read(committed) != submittedText[index].Value).Any())
+            throw new InvalidOperationException("The accepted explicit profile Save did not independently reopen its exact submitted owner/text/profile.");
     }
 
     private static void CancelProfileEditing(AutomationElement window)

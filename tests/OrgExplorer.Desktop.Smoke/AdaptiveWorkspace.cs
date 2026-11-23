@@ -351,6 +351,7 @@ internal static partial class Program
 
     private static double ScreenContrast(Rect bounds)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Pixels);
         if (bounds.Width <= 0 || bounds.Height <= 0)
             throw new InvalidOperationException("The rendered backdrop sample is empty.");
         var left = (int)Math.Floor(bounds.Left);
@@ -815,50 +816,76 @@ internal static partial class Program
         var initialMetrics = Metrics("immediately-after-resize");
         var note = Find(window, "PersonNoteHeading").Current.HelpText;
         var draft = Value(window, "PersonNoteMarkdown");
+        void AssertRestored(string phase)
+        {
+            Await(() => Find(window, "Email").Current.Name == "avery@example.com" &&
+                Find(window, "PersonNoteHeading").Current.HelpText == note &&
+                Value(window, "PersonNoteTitle") == "" && Value(window, "PersonNoteMarkdown") == draft);
+            AssertNoteView(window, "Person", editing: true);
+            AssertSelectionMatchesProfile(window);
+            if (before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
+                !Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved", StringComparison.Ordinal))
+            {
+                CaptureFailureEvidence(window, phase + "-retained-overlay-failure");
+                throw new InvalidOperationException("People browsing changed the viewport or lost the exact failed editor/owner. " +
+                    $"{initialMetrics}; {Metrics(phase)}");
+            }
+        }
+        if (Find(window, "Email").Current.Name != "avery@example.com" ||
+            Value(window, "PersonNoteTitle") != "" ||
+            !Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved", StringComparison.Ordinal))
+            throw new InvalidOperationException("Retained overlay coverage requires Avery's exact failed Person-note editor.");
         EnsurePeopleBrowsing(window);
         var openedMetrics = Metrics("overlay-open");
-        SelectTreePerson(window, "casey@example.com", expectNavigation: false);
-        Await(() => Status(window).Contains("Person note") &&
-            Status(window).Contains("Retry or discard"));
-        if (!IsVisible(window, "PeopleNavigation") ||
-            before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
-            Find(window, "Email").Current.Name != "avery@example.com" || Value(window, "PersonNoteTitle") != "" ||
-            Find(window, "PersonNoteHeading").Current.HelpText != note || Value(window, "PersonNoteMarkdown") != draft)
-        {
-            var rejectedMetrics = Metrics("rejected-selection");
-            CaptureFailureEvidence(window, "reading-rejected-overlay-failure");
-            throw new InvalidOperationException("Rejected overlay navigation lost the original owner, exact failed editor, geometry or navigation panel. " +
-                $"{initialMetrics}; {openedMetrics}; {rejectedMetrics}");
-        }
-        Console.WriteLine($"OVERLAY-OBSERVATION {initialMetrics}; {openedMetrics}; {Metrics("rejected-selection")}");
+        AssertRestored("overlay-open");
+        SelectTreePerson(window, "casey@example.com", PersonSelection.Mode.Recovery);
         AssertSelectionMatchesProfile(window);
-        CaptureVisualEvidence(window, "reading-rejected-overlay-exact-draft-retained");
-        QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", expectNavigation: false);
-        Await(() => Status(window).Contains("Person note") &&
-            Status(window).Contains("Retry or discard"));
-        if (!IsVisible(window, "PeopleNavigation") || Value(window, "SearchQuery") != "casey@example" ||
-            before != Find(window, "ProfileScroll").Current.BoundingRectangle ||
-            Find(window, "Email").Current.Name != "avery@example.com" ||
-            Find(window, "PersonNoteHeading").Current.HelpText != note || Value(window, "PersonNoteTitle") != "" ||
-            Value(window, "PersonNoteMarkdown") != draft)
+        if (IsVisible(window, "PeopleNavigation") || Find(window, "ProfileHeading").Current.IsOffscreen)
+            throw new InvalidOperationException("Successful tree browsing did not dismiss the overlay and expose Casey's actual profile.");
+        SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
+        AssertRestored("tree-owner-restored");
+        EnsurePeopleBrowsing(window);
+        if (!IsVisible(window, "PeopleNavigation"))
         {
-            var rejectedMetrics = Metrics("rejected-search");
-            CaptureFailureEvidence(window, "search-rejected-overlay-failure");
-            throw new InvalidOperationException("Rejected search activation lost overlay/query, exact failed editor, owner or unchanged viewport. " +
-                $"{initialMetrics}; {openedMetrics}; {rejectedMetrics}");
+            CaptureFailureEvidence(window, "reading-retained-overlay-failure");
+            throw new InvalidOperationException("The retained Person-note editor lost its usable People overlay after returning to its owner. " +
+                $"{initialMetrics}; {openedMetrics}; {Metrics("tree-owner-restored")}");
         }
-        AssertNoteView(window, "Person", editing: true);
-        CaptureVisualEvidence(window, "search-rejected-overlay-exact-draft-retained");
+        AssertRestored("tree-owner-overlay-restored");
+        Console.WriteLine($"OVERLAY-OBSERVATION retained-tree: {initialMetrics}; {openedMetrics}; {Metrics("tree-owner-restored")}");
+        CaptureVisualEvidence(window, "reading-overlay-exact-draft-retained");
+        QueryAndSelect(window, "casey@example", "casey@example.com", "Current", "Profile:", allowPendingLocalWork: true);
+        AssertSelectionMatchesProfile(window);
+        if (Value(window, "SearchQuery") != "" || IsVisible(window, "PeopleNavigation") ||
+            Find(window, "ProfileHeading").Current.IsOffscreen)
+            throw new InvalidOperationException("Accepted grouped search did not clear the query and expose Casey's profile.");
+        QueryAndSelect(window, "avery@example", "avery@example.com", "Current", "Profile:", allowPendingLocalWork: true,
+            retainedScope: OrgExplorer.Workflow.NoteScope.Person);
+        AssertRestored("search-owner-restored");
+        Click(window, "OpenPeople");
+        TypeSearchQuery(window, "avery@example");
+        Await(() => IsVisible(window, "PeopleNavigation") && IsVisible(window, "SearchResults"));
+        if (Value(window, "SearchQuery") != "avery@example")
+        {
+            CaptureFailureEvidence(window, "search-retained-overlay-failure");
+            throw new InvalidOperationException("The unaccepted grouped query changed while retaining its owner editor. " +
+                $"{initialMetrics}; {openedMetrics}; {Metrics("search-owner-restored")}");
+        }
+        AssertRestored("search-owner-overlay-restored");
+        Console.WriteLine($"OVERLAY-OBSERVATION retained-search: {Metrics("search-owner-overlay-restored")}");
+        CaptureVisualEvidence(window, "search-overlay-exact-draft-retained");
         Click(window, "ClearSearch");
-        Await(() => IsVisible(window, "People"));
+        Await(() => IsVisible(window, "People") && Value(window, "SearchQuery") == "");
+        AssertRestored("query-cleared");
         Click(window, "ClosePeople");
         Await(() => !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus);
+        AssertRestored("overlay-dismissed");
         var state = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
         state.SetWindowVisualState(WindowVisualState.Maximized);
         try { Await(() => !IsVisible(window, "OpenPeople")); }
         catch (TimeoutException error)
         {
-            throw new TimeoutException("Returning to wide reading after the completed single rejected People navigation " +
+            throw new TimeoutException("Returning to wide reading after retained-draft tree/search browsing " +
                 "did not hide the compact People entry within 20 seconds. " +
                 $"requestedState=Maximized; actualState={state.Current.WindowVisualState}; canMaximize={state.Current.CanMaximize}; " +
                 $"windowPx={window.Current.BoundingRectangle}; hostPx={Find(window, "AdaptiveWorkspace").Current.BoundingRectangle}; " +
@@ -866,5 +893,11 @@ internal static partial class Program
                 $"owner={Find(window, "Email").Current.Name}; title={Value(window, "PersonNoteTitle")}; " +
                 $"status={Status(window)}; {NativeResizeBounds((IntPtr)window.Current.NativeWindowHandle)}", error);
         }
+        AssertNoteView(window, "Person", editing: true);
+        AssertSelectionMatchesProfile(window);
+        if (Find(window, "Email").Current.Name != "avery@example.com" ||
+            Find(window, "PersonNoteHeading").Current.HelpText != note ||
+            Value(window, "PersonNoteTitle") != "" || Value(window, "PersonNoteMarkdown") != draft)
+            throw new InvalidOperationException("Maximizing after retained-draft browsing lost the exact owner/editor/writing.");
     }
 }

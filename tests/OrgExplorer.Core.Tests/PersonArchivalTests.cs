@@ -62,6 +62,31 @@ public sealed class PersonArchivalTests
     }
 
     [Fact]
+    public void Confirmed_archival_preserves_another_Persons_clean_profile_session()
+    {
+        using var app = Open();
+        Assert.True(app.BeginProfileEdit("alex@example.com"));
+        var other = app.ProfileEdit;
+        Assert.True(app.EditPersonArchived("avery@example.com", true), app.Status);
+        Assert.True(app.GetRelationships("avery@example.com")!.Person.Archived);
+        Assert.Same(other, app.ProfileEdit);
+    }
+
+    [Fact]
+    public void Confirmed_archival_preserves_another_Persons_unsubmitted_profile_writing()
+    {
+        using var app = Open();
+        Assert.True(app.BeginProfileEdit("alex@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Unsubmitted other owner"));
+        var other = app.ProfileEdit;
+        Assert.True(app.EditPersonArchived("avery@example.com", true), app.Status);
+        Assert.True(app.GetRelationships("avery@example.com")!.Person.Archived);
+        Assert.Same(other, app.ProfileEdit);
+        Assert.Null(app.GetRelationships("alex@example.com")!.Person.JobTitle);
+        Assert.False(app.CanSafelyClose);
+    }
+
+    [Fact]
     public void Confirmed_archival_cannot_bypass_a_dirty_profile_without_a_leave_decision()
     {
         using var app = Open();
