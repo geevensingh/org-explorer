@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
 using OrgExplorer.Workflow.Updates;
+using OrgExplorer.TestFixtures;
 using Velopack.Locators;
 
 namespace OrgExplorer.Desktop;
@@ -33,6 +34,10 @@ internal static class UpdateEffects
     {
         public void ApplyAndRestart(AuthorizedRelease release, string packagePath, string? workspace)
         {
+            var installed = VelopackLocator.Current.CurrentlyInstalledVersion is not null;
+            var preservation = installed && workspace is not null
+                ? InstallerWorkspacePreservation.Capture(workspace, Path.Combine(Fixture, "installer-handoff-replays"))
+                : null;
             var files = workspace is null ? null : Directory.GetFiles(workspace, "*", SearchOption.AllDirectories)
                 .ToDictionary(file => Path.GetRelativePath(workspace, file), file =>
                 {
@@ -41,9 +46,10 @@ internal static class UpdateEffects
                 });
             File.WriteAllText(Path.Combine(Fixture, "handoff.json"), JsonSerializer.Serialize(new
             {
-                version = release.Version.ToString(), workspace, packagePath, release.Sha256, workspaceFiles = files
+                version = release.Version.ToString(), workspace, packagePath, release.Sha256, workspaceFiles = files,
+                workspacePreservation = preservation
             }));
-            if (VelopackLocator.Current.CurrentlyInstalledVersion is null)
+            if (!installed)
                 throw new IOException("Controlled installer process boundary: unpackaged smoke deliberately does not install or restart.");
             new VelopackUpdateRestart(journal).ApplyAndRestart(release, packagePath, workspace);
         }

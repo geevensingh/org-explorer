@@ -201,22 +201,7 @@ internal static class UiScaleHandoff
         return hash;
     }
 
-    internal static string PublicStateHash(IApplicationWorkflow app)
-    {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var person in app.People.OrderBy(person => person.Email, StringComparer.Ordinal))
-        {
-            var photo = app.GetPhoto(person.Email);
-            hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(new
-            {
-                person, personNotes = app.GetPersonNotes(person.Email, true), teamNotes = app.GetTeamNotes(person.Email, true),
-                inherited = app.GetInheritedTeamNotes(person.Email), history = app.GetProfileTimeline(person.Email),
-                frozen = app.GetHistoricalTeamContexts(person.Email),
-                photo = photo is null ? null : new { photo.Width, photo.Height, sha256 = Hash(photo.Bytes.Span) }
-            }, Json));
-        }
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
+    internal static string PublicStateHash(IApplicationWorkflow app) => WorkspacePublicState.Hash(app);
 
     private static void ValidateSelection(IApplicationWorkflow app, RememberedView view)
     {

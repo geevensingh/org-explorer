@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -23,16 +24,7 @@ internal static partial class Program
                 Directory.CreateDirectory(producer);
                 CreatePhotoFixture(Path.Combine(producer, "avery.png"));
                 var import = Path.Combine(producer, "import.json");
-                File.WriteAllText(import, """
-                    {"schemaVersion":1,"batchId":"16000000-0000-4000-8000-000000000001",
-                    "observedAt":"2026-11-01T17:00:00Z","people":[
-                    {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null},
-                    {"email":"avery@example.com","displayName":"Avery Example","alias":"avery",
-                     "jobTitle":"Engineer","department":"Research","officeNumber":"007B",
-                     "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-                    {"email":"alex@example.com","displayName":"Alex Example","managerEmail":"casey@example.com"},
-                    {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"casey@example.com"}]}
-                    """);
+                File.WriteAllText(import, InstallerWorkspacePreservation.InitialImport);
                 OpenImportView(window);
                 Set(window, "ImportPath", import);
                 ApplyReviewedHistoryImport(window);
@@ -53,12 +45,7 @@ internal static partial class Program
                 Set(window, "TeamNoteTitle", "Installer Team context");
                 Set(window, "TeamNoteMarkdown", "# Frozen fixture\nRetain former Manager writing.");
                 AwaitLocalWorkIdle(window);
-                File.WriteAllText(import, """
-                    {"schemaVersion":1,"batchId":"16000000-0000-4000-8000-000000000002",
-                    "observedAt":"2026-11-03T17:00:00Z","people":[
-                    {"email":"morgan@example.com","archived":true},
-                    {"email":"avery@example.com","managerEmail":"alex@example.com","officeNumber":"0002B","department":null}]}
-                    """);
+                File.WriteAllText(import, InstallerWorkspacePreservation.TransferImport);
                 ApplyReviewedHistoryImport(window);
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 AssertInstallerWorkspace(window);

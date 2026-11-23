@@ -59,6 +59,8 @@ internal static partial class Program
                     throw new InvalidOperationException("Same installed version re-entered automatic download/restart.");
                 SetSettingsVisible(window, false);
                 Close(restarted);
+                var afterClose = InstallerWorkspacePreservation.Capture(args[1], Path.Combine(root, "installer-close-replays"));
+                afterClose.Write(Path.Combine(fixtureDirectory, "after-close-preservation.json"));
             }
             finally { StopApplication(restarted); }
             Console.WriteLine("PASS: genuine installed full package authenticated, automatically applied, restarted at the same Workspace, and retained final WPF writing with no same-version loop.");

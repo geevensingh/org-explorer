@@ -2289,6 +2289,19 @@ fixture or automatic-update evidence fails the hosted lifecycle. The final
 production build rejects test trust/effects; always-run cleanup removes private
 fixture material. This is not production-update/public-key provisioning evidence.
 
+The installed authenticated-update boundary also captures versioned preservation
+evidence before handoff and after the restarted app closes normally. Exact
+Workspace identity/local head/folder, complete public Person/Archived/profile/
+note/history/frozen-context/photo state and no-op previews of both known fixture
+Imports must match. Replay inputs are reconstructed outside the private Workspace;
+capture never calls Sync or publishes. Normal close must publish that exact head.
+Only the exact SQLite database/WAL/SHM filenames may differ physically across
+this application lifecycle; every other private file remains byte-identical.
+Original unpackaged safe-point byte checks and nonmutating installer/uninstall
+all-file checks remain strict. Both receipts and changed filenames are retained
+for diagnosis. This is a controlled two-import fixture oracle, not arbitrary
+accepted-import enumeration. Normal production builds exclude these oracle types.
+
 Both required desktop suites use ordinary fixtures. They do not construct the
 complete scale population; all genuine UI-scale work has explicit execution below.
 Every scenario opts out of startup update checks before launching the app,

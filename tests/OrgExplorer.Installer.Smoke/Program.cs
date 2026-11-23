@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Win32;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Installer.Smoke;
 
@@ -105,14 +106,41 @@ internal static partial class Program
 
             if (Environment.GetEnvironmentVariable("ORG_EXPLORER_UPDATE_FIXTURE") is { } updateFixture)
             {
-                Run(SmokeRunner, "desktop-authenticated-automatic-update", exe, workspace, "update", version, upgradedVersion);
+                Exception? updateFailure = null;
+                try
+                {
+                    Run(SmokeRunner, "desktop-authenticated-automatic-update", exe, workspace, "update", version, upgradedVersion);
+                }
+                catch (Exception error) { updateFailure = error; throw; }
+                finally
+                {
+                    foreach (var name in new[] { "handoff.json", "after-close-preservation.json" })
+                        try
+                        {
+                            if (File.Exists(Path.Combine(updateFixture, name)))
+                                File.Copy(Path.Combine(updateFixture, name), Path.Combine(Results, "automatic-update-" + name), true);
+                        }
+                        catch (Exception capture) when (updateFailure is not null)
+                        {
+                            updateFailure.Data["InstallerEvidenceCapture:" + name] = capture;
+                            try { Console.Error.WriteLine("INSTALLER-EVIDENCE-SECONDARY " + capture); }
+                            catch (Exception reporting) { updateFailure.Data["InstallerEvidenceReporting:" + name] = reporting; }
+                        }
+                }
                 using var handoff = JsonDocument.Parse(File.ReadAllText(Path.Combine(updateFixture, "handoff.json")));
                 if (handoff.RootElement.GetProperty("version").GetString() != upgradedVersion ||
                     handoff.RootElement.GetProperty("workspace").GetString() != workspace)
                     throw new InvalidOperationException("Authenticated automatic handoff did not retain the exact version and Workspace.");
                 var beforeRestart = handoff.RootElement.GetProperty("workspaceFiles").EnumerateObject()
                     .ToDictionary(file => file.Name, file => file.Value.GetString()!, StringComparer.OrdinalIgnoreCase);
-                RequireUnchanged(workspace, beforeRestart, "authenticated apply and automatic Workspace reopen");
+                var beforeState = handoff.RootElement.GetProperty("workspacePreservation")
+                    .Deserialize<InstallerPreservationEvidence>() ??
+                    throw new FormatException("Installed automatic update omitted complete controlled-fixture preservation evidence.");
+                var afterState = InstallerPreservationEvidence.Read(Path.Combine(updateFixture, "after-close-preservation.json"));
+                RequireUnchanged(workspace, afterState.Files, "post-close preservation observation");
+                evidence["automaticUpdateChangedFiles"] = InstallerPreservationEvidence.ChangedFiles(beforeRestart, afterState.Files);
+                (beforeState with { Files = beforeRestart }).RequirePreserved(afterState,
+                    "authenticated apply, automatic Workspace reopen and normal close");
                 savedWorkspace = Snapshot(workspace);
                 evidence["authenticatedAutomaticUpdateAndRestart"] = true;
                 evidence["safeLocalHandoffWorkspaceFiles"] = beforeRestart.Count;
