@@ -10,6 +10,11 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class PersonNoteTests(ITestOutputHelper output)
 {
+    private sealed class DiscardContractClock : TimeProvider
+    {
+        public override long GetTimestamp() => 0;
+    }
+
     public class NoteSaveBoundary : DispatchProxy
     {
         internal IApplicationWorkflow Inner = null!;
@@ -145,12 +150,22 @@ public sealed class PersonNoteTests(ITestOutputHelper output)
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
-    public async Task In_flight_discard_preserves_exact_writing_and_idle_discard_clears_only_its_scope(NoteScope scope)
+    public Task In_flight_discard_preserves_exact_writing_and_idle_discard_clears_only_its_scope(NoteScope scope) =>
+        VerifyInFlightDiscard(scope, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public Task In_flight_discard_contract_is_independent_of_delayed_test_continuations(NoteScope scope) =>
+        VerifyInFlightDiscard(scope, TimeSpan.FromMilliseconds(3200));
+
+    private async Task VerifyInFlightDiscard(NoteScope scope, TimeSpan continuationDelay)
     {
         var proxy = DispatchProxy.Create<IApplicationWorkflow, NoteSaveBoundary>();
         var boundary = (NoteSaveBoundary)(object)proxy;
         boundary.Inner = ApplicationWorkflow.CreateInMemory();
-        using var app = new WorkspaceViewModel(proxy);
+        // This contract owns a held writer; real stall-deadline behavior is verified separately.
+        using var app = new WorkspaceViewModel(proxy, timeProvider: new DiscardContractClock());
         Assert.True(app.OpenWorkspace("fictitious"), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(WorkflowTests.Batch).Id), app.Status);
         var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -185,6 +200,7 @@ public sealed class PersonNoteTests(ITestOutputHelper output)
                 }), output.WriteLine);
                 throw;
             }
+            if (continuationDelay > TimeSpan.Zero) await Task.Delay(continuationDelay);
             app.DiscardUnsavedChanges(basis.Id);
             var retained = Assert.IsType<RetainedNoteDraft>(app.GetRetainedNoteDraft(scope, basis.Id));
             Assert.True(retained.IsSaving);

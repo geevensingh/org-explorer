@@ -112,6 +112,12 @@ cannot identify a missed timer or scheduling cause. Reporting faults remain
 separate on the original timeout; its type, stack, deadline and assertions stay
 unchanged. This is capture instrumentation, not a fix or exoneration of the
 historical hosted admission refusal.
+This busy-discard contract controls only its view-model request clock so a
+delayed test continuation cannot turn the deliberately held writer into an
+unrelated real-time stall. Both scopes also run with a continuation delayed past
+three wall-clock seconds; the five-second admission wait and all discard
+assertions stay intact. Production clocks and separate exact three-second
+queue/stall/unknown-outcome regressions remain unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
