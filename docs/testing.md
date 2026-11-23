@@ -198,6 +198,9 @@ Both profile and notice recovery actions permit actual query/Enter Person
 browsing while the same real reconciliation read remains held. Their separate
 browse-safe recovery mode keeps editing and Workspace replacement guarded and
 never routes reconciliation through the ordinary local-save admission queue.
+Both note containers also remain enabled for exact owned-note selection/Read
+and inherited-context expansion; their mutation controls stay disabled while
+the same reconciliation is held.
 Control only genuine external effects (clock, browser/release/installer boundary);
 do not mock away the business behavior being asserted.
 

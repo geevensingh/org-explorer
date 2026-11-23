@@ -29,7 +29,7 @@ public partial class MainWindow
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
         var localSave = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
-        PersonNotes.IsEnabled = TeamNotes.IsEnabled = localImportPending || localSave;
+        PersonNotes.IsEnabled = TeamNotes.IsEnabled = localImportPending || localSave || recoveryWorkPending;
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;

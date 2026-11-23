@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Input;
 using OrgExplorer.TestFixtures;
@@ -36,6 +37,17 @@ internal static partial class Program
     private static void VerifyProfileRetryOwner(Type windowType, string settings, string retry)
     {
         using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "profile-retry-owner-" + retry));
+        var secondary = new Dictionary<NoteScope, Guid>();
+        foreach (var scope in Enum.GetValues<NoteScope>())
+        {
+            for (var index = 0; index < 2; index++)
+            {
+                var id = scope == NoteScope.Person
+                    ? fixture.Model.CreatePersonNote("casey@example.com", $"Recovery Person {index}", $"Recovery Person body {index}")?.Id
+                    : fixture.Model.CreateTeamNote("casey@example.com", $"Recovery Team {index}", $"Recovery Team body {index}")?.Id;
+                secondary[scope] = id ?? throw new InvalidOperationException(fixture.Model.Status);
+            }
+        }
         fixture.Select("casey@example.com");
         fixture.Click("EditProfileButton");
         fixture.Control<TextBox>("OfficeNumber").Text = "B never submitted";
@@ -59,6 +71,15 @@ internal static partial class Program
             content.Measure(new Size(1100, 900));
             content.Arrange(new Rect(0, 0, 1100, 900));
             content.UpdateLayout();
+            var inheritedSurface = fixture.Control<UserControl>("TeamNotes");
+            var inherited = (Expander)inheritedSurface.FindName("CurrentTeamContext");
+            if (!inheritedSurface.IsEnabled || !inherited.IsEnabled)
+                throw new InvalidOperationException("Recovery disabled inherited Team-note browsing.");
+            inherited.IsExpanded = true;
+            var inheritedDocument = ((FlowDocumentScrollViewer)inheritedSurface.FindName("InheritedReading")).Document;
+            if (fixture.Model.GetInheritedTeamNotes("avery@example.com").Count != 2 || inheritedDocument is null ||
+                !new TextRange(inheritedDocument.ContentStart, inheritedDocument.ContentEnd).Text.Contains("Recovery Team body 1", StringComparison.Ordinal))
+                throw new InvalidOperationException("Recovery lost exact inherited Team-note reading.");
             var query = fixture.Control<TextBox>("SearchQuery");
             query.Text = "casey@example.com";
             query.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
@@ -71,6 +92,28 @@ internal static partial class Program
                     throw new InvalidOperationException("Person search stayed blocked during the same held reconciliation.");
                 return fixture.Control<TextBlock>("Email").Text == "casey@example.com" && query.Text == "";
             });
+            foreach (var scope in Enum.GetValues<NoteScope>())
+            {
+                var surface = fixture.Control<UserControl>(scope == NoteScope.Person ? "PersonNotes" : "TeamNotes");
+                T Note<T>(string name) where T : FrameworkElement => (T)surface.FindName(name);
+                if (!surface.IsEnabled || !Note<Expander>("OtherNotes").IsEnabled ||
+                    !Note<ListBox>("NotesList").IsEnabled || !Note<TabItem>("ReadTab").IsEnabled)
+                    throw new InvalidOperationException("Recovery disabled owned " + scope + "-note browsing.");
+                Note<Expander>("OtherNotes").IsExpanded = true;
+                Note<ListBox>("NotesList").SelectedItem = Note<ListBox>("NotesList").Items.Cast<OwnedNote>()
+                    .Single(note => note.Id == secondary[scope]);
+                Note<TabControl>("Views").SelectedItem = Note<TabItem>("ReadTab");
+                var document = Note<FlowDocumentScrollViewer>("Reading").Document;
+                if (fixture.Model.GetOwnedNotesView(scope).SelectedNote?.Id != secondary[scope] ||
+                    document is null || !new TextRange(document.ContentStart, document.ContentEnd).Text
+                        .Contains($"Recovery {scope} body 1", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Recovery did not present the exact selected " + scope + " note.");
+                Note<TabControl>("Views").SelectedItem = Note<TabItem>("EditTab");
+                if (Note<Button>("NewButton").IsEnabled || Note<Button>("ArchiveButton").IsEnabled ||
+                    Note<TextBox>("NoteTitle").IsEnabled || Note<TextBox>("MarkdownEditor").IsEnabled)
+                    throw new InvalidOperationException("Recovery enabled note mutation while its actual reconciliation remained held.");
+                Note<TabControl>("Views").SelectedItem = Note<TabItem>("ReadTab");
+            }
             if (!fixture.Observer.Active || fixture.Observer.Release.IsSet ||
                 fixture.Control<Button>("OpenWorkspaceButton").IsEnabled ||
                 fixture.Control<Button>("SaveProfileButton").IsEnabled)
