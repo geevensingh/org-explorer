@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -94,45 +95,59 @@ internal static partial class Program
             SelectTab(window, "PersonNoteEditTab");
             AssertValue(window, "PersonNoteTitle", "Private meeting");
             AssertValue(window, "PersonNoteMarkdown", markdown);
-            var noteFile = Directory.GetFiles(Path.Combine(workspace, "notes"), "*.md")
-                .Single(file => File.ReadAllText(file).Contains("# Private context", StringComparison.Ordinal));
-            using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+            var noteId = SmokeNoteId(workspace, "avery@example.com", "Private meeting");
+            var savedBeforeFailure = ReadSmokePersonNote(workspace, noteId);
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Set(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
                 Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
-                Click(window, "UseAsOngoingPersonNote");
+                if (Find(window, "UseAsOngoingPersonNote").Current.IsEnabled)
+                    throw new InvalidOperationException("A real local failure did not pause ongoing-note mutation.");
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                AssertNoteView(window, "Person", editing: true);
+                AssertNoteView(window, "Person", editing: true, writable: false);
+                if (Find(window, "PersonNoteHeading").Current.HelpText != noteId.ToString() ||
+                    !Find(window, "PersonNoteKind").Current.Name.Contains("Ongoing Person note") ||
+                    ReadSmokePersonNote(workspace, noteId) != savedBeforeFailure)
+                    throw new InvalidOperationException("Paused mutation changed the exact saved note, ongoing choice or retained owner.");
                 Click(window, "NavigateManager");
-                AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
-                SelectTreePerson(window, "casey@example.com", expectNavigation: false);
-                AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
+                Await(() => Find(window, "Email").Current.Name == "casey@example.com");
+                SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
+                SelectTab(window, "PersonNoteEditTab");
+                AssertValue(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
+                SelectTreePerson(window, "casey@example.com", PersonSelection.Mode.Recovery);
+                SelectTreePerson(window, "avery@example.com", PersonSelection.Mode.Recovery);
+                SelectTab(window, "PersonNoteEditTab");
+                AssertValue(window, "PersonNoteMarkdown", markdown + "\nRecovered draft.");
                 var otherWorkspace = Path.Combine(root, "other-workspace");
                 Directory.CreateDirectory(otherWorkspace);
                 SetSettingsVisible(window, true);
                 var preferencesBeforePicker = File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json"));
-                var savedNote = File.ReadAllBytes(noteFile);
+                var savedNote = ReadSmokePersonNote(workspace, noteId);
                 PickWorkspaceFolder(window, null);
                 if (!IsVisible(window, "SettingsTitle") ||
                     !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
-                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote))
+                    ReadSmokePersonNote(workspace, noteId) != savedNote)
                     throw new InvalidOperationException("Picker cancellation changed failed writing or its successful startup preference.");
                 PickWorkspaceFolder(window, otherWorkspace);
                 AssertBlockedNoteNavigation(window, markdown + "\nRecovered draft.");
                 if (Directory.GetFileSystemEntries(otherWorkspace).Length != 0 ||
                     !File.ReadAllBytes(Path.Combine(root, "app-settings", "workspace-settings.json")).SequenceEqual(preferencesBeforePicker) ||
-                    !File.ReadAllBytes(noteFile).SequenceEqual(savedNote) || IsVisible(window, "SettingsTitle") ||
+                    ReadSmokePersonNote(workspace, noteId) != savedNote || IsVisible(window, "SettingsTitle") ||
                     !IsVisible(window, "OperationalNotice"))
                     throw new InvalidOperationException("Unsaved Person note did not reject Workspace opening with unchanged bytes/preference and visible retained writing.");
                 CaptureVisualEvidence(window, "settings-open-rejected-retained-note");
                 SetSettingsVisible(window, true);
                 process.CloseMainWindow();
-                Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+                Await(() => ExitDecisionVisible(window) &&
+                    Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
                 Await(() => !IsVisible(window, "SettingsTitle"));
-                AssertNoteView(window, "Person", editing: true);
+                AssertNoteView(window, "Person", editing: true, writable: false);
                 if (process.HasExited) throw new InvalidOperationException("App closed despite an unsaved Person note.");
                 CaptureVisualEvidence(window, "person-note-retained-failure-after-rejected-close");
+                Click(window, "CancelExit");
+                Await(() => !ExitDecisionVisible(window));
             }
+            ReconcileSmokeLocalSaves(window);
             Click(window, "RetryPersonNoteSave");
             Await(() => NoteFeedback(window, "Person").Contains("saved locally"));
             markdown += "\nRecovered draft.";
@@ -180,7 +195,7 @@ internal static partial class Program
             AssertValue(window, "PersonNoteMarkdown", markdown);
             SelectNote(window, "Secondary empty note");
             var secondaryId = Find(window, "PersonNoteHeading").Current.HelpText;
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
@@ -201,13 +216,16 @@ internal static partial class Program
             ExpandOtherPersonNotes(window);
             ((TogglePattern)Find(window, "ShowArchivedPersonNotes").GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             SelectNote(window, "Private meeting");
-            SelectTab(window, "PersonNoteEditTab");
-            if (Value(window, "PersonNoteMarkdown") != markdown)
-                throw new InvalidOperationException("Archival discarded the writing.");
-            SelectTab(window, "PersonNoteReadTab");
+            AssertNoteView(window, "Person", editing: false);
+            var archivedNote = ReadSmokePersonNote(workspace, noteId);
+            if (Find(window, "Email").Current.Name != "avery@example.com" ||
+                Find(window, "PersonNoteHeading").Current.HelpText != noteId.ToString() ||
+                archivedNote.OwnerEmail != "avery@example.com" || archivedNote.Title != "Private meeting" ||
+                !archivedNote.Archived || archivedNote.Markdown != markdown)
+                throw new InvalidOperationException("Archived Read changed the exact saved Person-note identity, owner or Markdown.");
             Await(() => ReadingText(window).Contains("Private context"));
             if (listener.Pending()) throw new InvalidOperationException("Markdown rendering fetched remote content.");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: exact secondary Person-note GUID restored in Read mode before deliberate ongoing navigation.");
         }
         finally
@@ -216,9 +234,9 @@ internal static partial class Program
         }
     }
 
-    private static void SelectNote(AutomationElement window, string title)
+    private static void SelectNote(AutomationElement window, string title, bool allowPendingLocalWork = false)
     {
-        AwaitLocalWorkIdle(window);
+        if (!allowPendingLocalWork) AwaitLocalWorkIdle(window);
         ExpandOtherPersonNotes(window);
         AutomationElement? item = null;
         Await(() =>
@@ -249,19 +267,21 @@ internal static partial class Program
     }
 
     private static void SelectTreePerson(AutomationElement window, string email, bool expectNavigation = true)
+        => SelectTreePerson(window, email, expectNavigation ? PersonSelection.Mode.Ordinary : PersonSelection.Mode.ExpectedRejection);
+
+    private static void SelectTreePerson(AutomationElement window, string email, PersonSelection.Mode mode) =>
+        PersonSelection.Request(mode, () => AwaitLocalWorkIdle(window), () =>
     {
-        if (expectNavigation) AwaitLocalWorkIdle(window);
         EnsurePeopleBrowsing(window);
         AutomationElement? item = null;
         Await(() => (item = Find(window, "People").FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
         ((SelectionItemPattern)item!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
-        if (expectNavigation) Await(() => Find(window, "Email").Current.Name == email);
-    }
+    }, () => Await(() => Find(window, "Email").Current.Name == email));
 
     private static void AssertBlockedNoteNavigation(AutomationElement window, string draft)
     {
-        Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("before leaving or closing"));
+        Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
         Await(() => ((SelectionItemPattern)Find(window, "avery@example.com")
             .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
         if (Find(window, "Email").Current.Name != "avery@example.com" ||
@@ -276,7 +296,7 @@ internal static partial class Program
     private static void SelectTab(AutomationElement window, string id) =>
         ((SelectionItemPattern)Find(window, id).GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
 
-    private static void AssertNoteView(AutomationElement window, string kind, bool editing)
+    private static void AssertNoteView(AutomationElement window, string kind, bool editing, bool writable = true)
     {
         Await(() =>
         {
@@ -286,7 +306,8 @@ internal static partial class Program
             {
                 var editor = window.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.AutomationIdProperty, $"{kind}Note{suffix}"));
-                if (editing ? editor is null || !editor.Current.IsEnabled : editor is not null && !editor.Current.IsOffscreen)
+                if (editing ? editor is null || editor.Current.IsEnabled != writable :
+                    editor is not null && !editor.Current.IsOffscreen)
                     return false;
             }
             return true;

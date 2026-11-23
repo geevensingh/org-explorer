@@ -1,4 +1,7 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
+using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -9,17 +12,16 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
     private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
     private readonly List<IApplicationWorkflow> workflows = [];
-
     private static string Batch(string records, int id, string observed = "2026-11-01T17:00:00Z") => $$"""
         {"schemaVersion":1,"batchId":"10000000-0011-4000-8000-{{id:000000000000}}",
          "observedAt":"{{observed}}","people":[{{records}}]}
         """;
 
-    private IApplicationWorkflow Open()
+    private IApplicationWorkflow Open(string name = "workspace")
     {
         var app = ApplicationWorkflow.CreateFileBacked();
         workflows.Add(app);
-        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.True(app.OpenWorkspace(Path.Combine(folder, name)), app.Status);
         return app;
     }
 
@@ -43,7 +45,7 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Frozen_context_reopens_after_ancestor_move_later_note_edits_and_replay()
+    public void Frozen_context_reopens_and_transfers_with_exact_identity_version_and_provenance_after_later_edits_and_replay()
     {
         var app = Seed();
         var note = app.CreateTeamNote("casey@example.com", "Former root", "# Original")!;
@@ -55,26 +57,20 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
         Assert.True(app.ArchiveTeamNote(note.Id), app.Status);
         Assert.True(app.EditPreferredName("casey@example.com", "Later name"), app.Status);
         Apply(app, move);
-        foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
-            File.SetLastWriteTimeUtc(file, new DateTime(2000, 1, 1));
-
-        var reopened = Open();
-        var capture = Assert.Single(reopened.GetHistoricalTeamContexts("avery@example.com"));
-        Assert.Equal(before.Id, capture.Id);
-        Assert.Equal(before.CapturedAt, capture.CapturedAt);
-        Assert.Equal("# Original", Assert.Single(capture.TeamNotes).Markdown);
-        Assert.Equal(before.TeamNotes[0].Version, capture.TeamNotes[0].Version);
-        Assert.Equal("Casey", capture.ReportingChain[1].Heading);
-        Assert.Empty(reopened.GetInheritedTeamNotes("avery@example.com"));
-        Assert.Equal(direct, Assert.Single(reopened.GetPersonNotes("avery@example.com")));
-        Assert.Equal("# Changed later", Assert.Single(reopened.GetTeamNotes("casey@example.com", true)).Markdown);
-        Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"), capture.Transitions[0].Change.ReportingInterval!.After);
-        Assert.Equal(DateTimeOffset.Parse("2026-11-06T17:00:00Z"), capture.Transitions[0].Change.ReportingInterval!.By);
-    }
-
-    private string CaptureFile()
-    {
-        return OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["historicalTeamContext:avery@example.com"];
+        var receiver = Open("receiver");
+        WorkspaceFixtures.JoinSnapshot(app, receiver, Path.Combine(folder, "transport"));
+        foreach (var reopened in new[] { Open(), receiver })
+        {
+            var capture = Assert.Single(reopened.GetHistoricalTeamContexts("avery@example.com"));
+            Assert.Equal(JsonSerializer.Serialize(before), JsonSerializer.Serialize(capture));
+            Assert.Equal("# Original", Assert.Single(capture.TeamNotes).Markdown);
+            Assert.Equal("Casey", capture.ReportingChain[1].Heading);
+            Assert.Empty(reopened.GetInheritedTeamNotes("avery@example.com"));
+            Assert.Equal(direct, Assert.Single(reopened.GetPersonNotes("avery@example.com")));
+            Assert.Equal("# Changed later", Assert.Single(reopened.GetTeamNotes("casey@example.com", true)).Markdown);
+            Assert.Equal(DateTimeOffset.Parse("2026-11-01T17:00:00Z"), capture.Transitions[0].Change.ReportingInterval!.After);
+            Assert.Equal(DateTimeOffset.Parse("2026-11-06T17:00:00Z"), capture.Transitions[0].Change.ReportingInterval!.By);
+        }
     }
 
     [Theory]
@@ -86,45 +82,113 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
     [InlineData("teamNotes", "null")]
     [InlineData("teamNotes.0.markdown", "\"Silently rewritten\"")]
     [InlineData("teamNotes.0.ownerEmail", "\"alex@example.com\"")]
+    [InlineData("teamNotes.0.needsReview", null)]
     [InlineData("reportingChain.0.managerEmail", "\"alex@example.com\"")]
     [InlineData("transitions.0.change.evidence.source", "42")]
-    public void Invalid_external_capture_retains_last_valid_history_and_blocks_writes(string path, string json)
+    public void Invalid_snapshot_capture_retains_last_valid_history_without_repairing_delivered_bytes(string path, string? json)
     {
-        var app = Seed();
-        app.CreateTeamNote("casey@example.com", "Original", "Frozen writing");
-        Apply(app, Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2));
-        var before = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        var file = CaptureFile();
-        var original = File.ReadAllText(file);
-        var document = JsonNode.Parse(original)!;
-        var segments = path.Split('.');
-        JsonNode target = document["contexts"]![0]!;
-        foreach (var segment in segments.SkipLast(1))
-            target = int.TryParse(segment, out var index) ? target[index]! : target[segment]!;
-        target[segments.Last()] = JsonNode.Parse(json);
-        File.WriteAllText(file, document.ToJsonString());
-        Assert.False(app.RefreshWorkspace(), app.Status);
-        Assert.False(app.IsWorkspaceCurrent);
-        Assert.Contains("STALE", app.Status);
-        Assert.Equal(before.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
-        Assert.Equal("Frozen writing", Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).TeamNotes[0].Markdown);
-        Assert.False(app.EditPreferredName("avery@example.com", "Unsaved"));
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(reopened.OpenWorkspace(folder));
-        File.WriteAllText(file, original);
-        Assert.True(app.RefreshWorkspace(), app.Status);
-        Assert.Equal(before.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
-        app.DiscardUnsavedChanges();
+        var source = Seed();
+        source.CreateTeamNote("casey@example.com", "Original", "Frozen writing");
+        Apply(source, Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2));
+        var app = Open("receiver");
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(folder, "transport"));
+        var before = JsonSerializer.Serialize(Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")));
+        Assert.True(source.EditPreferredName("avery@example.com", "New revision"));
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        var file = WorkspaceFixtures.LatestSnapshot(source);
+        var original = File.ReadAllBytes(file);
+        WorkspaceFixtures.RewriteSnapshot(file, content => WorkspaceFixtures.EditSnapshotRow(content,
+            "historicalContexts", "avery@example.com", document =>
+            {
+                var segments = path.Split('.');
+                JsonNode target = document[0]!;
+                foreach (var segment in segments.SkipLast(1))
+                    target = int.TryParse(segment, out var index) ? target[index]! : target[segment]!;
+                if (json is null) target.AsObject().Remove(segments.Last());
+                else target[segments.Last()] = JsonNode.Parse(json);
+            }));
+        var rejected = File.ReadAllBytes(file);
+        Assert.False(app.SyncNow());
+        Assert.Equal(before, JsonSerializer.Serialize(Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"))));
+        Assert.Equal(rejected, File.ReadAllBytes(file));
+        File.WriteAllBytes(file, original);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        Assert.Equal(before, JsonSerializer.Serialize(Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"))));
     }
 
     [Fact]
-    public void Failed_atomic_transfer_publishes_neither_capture_nor_new_context_revision_and_retry_captures_once()
+    public void Missing_frozen_review_status_rejects_local_Open_without_rewriting_history_or_publication()
+    {
+        var source = Seed();
+        source.CreateTeamNote("casey@example.com", "Frozen review", "Exact frozen writing");
+        Assert.True(source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Director"), source.Status);
+        Apply(source, Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2));
+        var capture = Assert.Single(source.GetHistoricalTeamContexts("avery@example.com"));
+        Assert.True(Assert.Single(capture.TeamNotes).NeedsReview);
+        var expected = JsonSerializer.Serialize(capture);
+        Assert.True(source.ConfigureSynchronizationFolder(Path.Combine(folder, "transport")), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        source.Dispose();
+
+        var workspace = Path.Combine(folder, "workspace");
+        string original;
+        using (var connection = Connect())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT contexts FROM historical_team_context WHERE email='avery@example.com';";
+            original = (string)command.ExecuteScalar()!;
+            var contexts = JsonNode.Parse(original)!;
+            Assert.True(contexts[0]!["teamNotes"]![0]!.AsObject().Remove("needsReview"));
+            command.CommandText = "UPDATE historical_team_context SET contexts=$contexts WHERE email='avery@example.com';";
+            command.Parameters.AddWithValue("$contexts", contexts.ToJsonString());
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        var rejected = WorkspaceFixtures.Bytes(folder);
+        using (var app = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.False(app.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly), app.Status);
+            Assert.Equal(WorkspaceCompatibilityState.Unavailable, app.Compatibility.State);
+            Assert.False(app.IsWorkspaceCurrent);
+            Assert.False(app.Compatibility.SupportsNoteEdits);
+            Assert.False(app.SyncNow());
+        }
+        var after = WorkspaceFixtures.Bytes(folder);
+        Assert.Equal(rejected.Keys.Order(), after.Keys.Order());
+        foreach (var (path, bytes) in rejected) Assert.Equal(bytes, after[path]);
+
+        using (var connection = Connect())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE historical_team_context SET contexts=$contexts WHERE email='avery@example.com';";
+            command.Parameters.AddWithValue("$contexts", original);
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+        var restored = Open();
+        Assert.Equal(expected, JsonSerializer.Serialize(Assert.Single(restored.GetHistoricalTeamContexts("avery@example.com"))));
+        var receiver = Open("receiver");
+        WorkspaceFixtures.JoinSnapshot(restored, receiver, Path.Combine(folder, "transport"));
+        Assert.Equal(expected, JsonSerializer.Serialize(Assert.Single(receiver.GetHistoricalTeamContexts("avery@example.com"))));
+
+        SqliteConnection Connect()
+        {
+            var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(workspace, "workspace.sqlite"),
+                Mode = SqliteOpenMode.ReadWrite, Pooling = false
+            }.ToString());
+            connection.Open();
+            return connection;
+        }
+    }
+
+    [Fact]
+    public void Failed_atomic_transfer_creates_neither_capture_nor_context_revision_and_recovery_then_retry_captures_once()
     {
         var app = Seed();
         app.CreateTeamNote("morgan@example.com", "Context", "Original");
         var move = Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2);
         var preview = app.PreviewImport(move);
-        using (new FileStream(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(Path.Combine(folder, "workspace")))
         {
             Assert.False(app.ApplyImport(preview.Id));
             Assert.Empty(app.GetHistoricalTeamContexts("avery@example.com"));
@@ -133,70 +197,11 @@ public sealed class HistoricalTeamContextPersistenceTests : IDisposable
             Assert.Equal("casey@example.com", reopened.GetRelationships("morgan@example.com")!.Person.ManagerEmail);
             Assert.Empty(reopened.GetHistoricalTeamContexts("avery@example.com"));
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Apply(app, move);
         Assert.Single(Open().GetHistoricalTeamContexts("avery@example.com"));
         Assert.True(Assert.Single(app.GetTeamNotes("morgan@example.com")).NeedsReview);
         Assert.True(app.CanSafelyClose);
-    }
-
-    [Fact]
-    public void Valid_watcher_delivery_loads_the_same_capture_without_synthesizing_another_transition()
-    {
-        var writer = Seed();
-        var note = writer.CreateTeamNote("casey@example.com", "Context", "Original")!;
-        var reader = Open();
-        Apply(writer, Batch("""{"email":"morgan@example.com","managerEmail":"alex@example.com"}""", 2));
-        Assert.True(SpinWait.SpinUntil(() => reader.GetHistoricalTeamContexts("avery@example.com").Count == 1,
-            TimeSpan.FromSeconds(10)), reader.Status);
-        var capture = Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com"));
-        Assert.Equal(Assert.Single(writer.GetHistoricalTeamContexts("avery@example.com")).Id, capture.Id);
-        Assert.True(writer.EditTeamNote(note.Id, "Context", "Later"));
-        Assert.True(SpinWait.SpinUntil(() => reader.GetTeamNotes("casey@example.com")[0].Markdown == "Later",
-            TimeSpan.FromSeconds(10)), reader.Status);
-        Assert.Equal("Original", Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com")).TeamNotes[0].Markdown);
-        Assert.Empty(reader.GetInheritedTeamNotes("avery@example.com"));
-        Assert.True(reader.RefreshWorkspace());
-        Assert.Single(reader.GetHistoricalTeamContexts("avery@example.com"));
-    }
-
-    [Fact]
-    public void Unknown_confirmation_does_not_fabricate_observed_transfer_bounds()
-    {
-        var app = Seed();
-        app.Dispose();
-        foreach (var file in OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)
-            .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value))
-        {
-            var history = JsonNode.Parse(File.ReadAllText(file))!;
-            history["observations"] = new JsonArray();
-            File.WriteAllText(file, history.ToJsonString());
-        }
-        var legacy = Open();
-        Assert.Empty(legacy.GetHistoricalTeamContexts("avery@example.com"));
-        Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 2));
-        var capture = Assert.Single(Open().GetHistoricalTeamContexts("avery@example.com"));
-        Assert.Null(capture.Transitions[0].Change.PreviousEvidence);
-        Assert.Null(capture.Transitions[0].Change.ReportingInterval);
-    }
-
-    [Fact]
-    public void A_declared_but_missing_historical_document_is_incomplete_delivery_not_a_history_free_Workspace()
-    {
-        var app = Seed();
-        Apply(app, Batch("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 2));
-        var capture = Assert.Single(app.GetHistoricalTeamContexts("avery@example.com"));
-        var file = CaptureFile();
-        var original = File.ReadAllText(file);
-        File.Delete(file);
-        Assert.False(app.RefreshWorkspace());
-        Assert.False(app.IsWorkspaceCurrent);
-        Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(reopened.OpenWorkspace(folder));
-        Assert.Equal(WorkspaceCompatibilityState.Unavailable, reopened.Compatibility.State);
-        File.WriteAllText(file, original);
-        Assert.True(app.RefreshWorkspace(), app.Status);
-        Assert.Equal(capture.Id, Assert.Single(app.GetHistoricalTeamContexts("avery@example.com")).Id);
     }
 
     public void Dispose()

@@ -3,15 +3,12 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.TestFixtures;
 
-// Fixture construction uses the workflow; export uses the documented readable Workspace contract.
 // This source is linked only into test projects, never the desktop product.
 internal sealed class ScaleFixture : IDisposable
 {
@@ -27,11 +24,11 @@ internal sealed class ScaleFixture : IDisposable
             ".test-workspaces", "scale-" + Guid.NewGuid().ToString("N")));
     }
     internal string Workspace => Path.Combine(Root, "workspace");
+    internal string SynchronizationFolder => Path.Combine(Root, "snapshots");
     internal string Producer => Path.Combine(Root, "producer");
     internal static string Email(int index) => $"person{index:00000}@example.com";
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly List<IApplicationWorkflow> clients = [];
-    private readonly List<string> acceptedSources = [];
     private readonly ConcurrentQueue<Exception> diagnosticFailures = new();
     private Action<string> writeLog = Console.WriteLine;
     internal Action<string> Log { get => WriteLog; init => writeLog = value; }
@@ -50,7 +47,8 @@ internal sealed class ScaleFixture : IDisposable
         IWorkspaceFilePublisher? filePublisher = null)
     {
         var app = new WorkspaceViewModel(memory ? ApplicationWorkflow.CreateInMemory() :
-            ApplicationWorkflow.CreateFileBacked(filePublisher: filePublisher, fileObserver: new PhaseObserver(Log, fileObserver)));
+            ApplicationWorkflow.CreateFileBacked(filePublisher: filePublisher, fileObserver: new PhaseObserver(Log, fileObserver)),
+            synchronizationTimeProvider: new SnapshotClock());
         clients.Add(app);
         Check(app.OpenWorkspace(Workspace), app.Status);
         return app;
@@ -62,7 +60,7 @@ internal sealed class ScaleFixture : IDisposable
         {
             Directory.CreateDirectory(Producer);
             for (var i = 0; i < 16; i++) File.WriteAllBytes(Path.Combine(Producer, $"photo{i}.png"), Png(i));
-            using var app = ApplicationWorkflow.CreateInMemory();
+            using var app = ApplicationWorkflow.CreateFileBacked(fileObserver: new PhaseObserver(Log));
             Check(app.OpenWorkspace(Workspace), app.Status);
             var import = Path.Combine(Producer, "initial.json");
             File.WriteAllText(import, Batch(Enumerable.Range(0, Population).Select(i => new
@@ -83,7 +81,6 @@ internal sealed class ScaleFixture : IDisposable
                 photoPath = i % 4 == 0 ? $"photo{i % 16}.png" : null,
                 isFavorite = i % 1000 == 0
             }), 1));
-            acceptedSources.Add(File.ReadAllText(import));
             ApplyFile(app, import);
             for (var i = 1000; i < 2000; i++)
                 Check(app.CreatePersonNote(Email(i), $"Individual {i}", $"# Individual {i}\nOrchid private writing {i}.") is not null, app.Status);
@@ -96,12 +93,15 @@ internal sealed class ScaleFixture : IDisposable
                 officeNumber = $"new-{i:0000}B"
             }), 2);
             Apply(app, transfer);
-            acceptedSources.Add(transfer);
             var archival = Batch(Enumerable.Range(9900, 100).Select(i => new { email = Email(i), archived = true }), 3);
             Apply(app, archival);
-            acceptedSources.Add(archival);
             Check(app.EditTeamNote(app.GetTeamNotes(Email(100))[0].Id, "Current Team 100", "# Pine current context 100."), app.Status);
-            Measure("fixture-export", () => Export(app), Log);
+            RequireRichPopulation(app);
+            Measure("fixture-export", () =>
+            {
+                Check(app.ConfigureSynchronizationFolder(SynchronizationFolder), app.Status);
+                Check(app.SyncNow(), app.Status);
+            }, Log);
         }, Log);
     }
 
@@ -151,76 +151,26 @@ internal sealed class ScaleFixture : IDisposable
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    private void Export(IApplicationWorkflow app)
+    internal static object RequireRichPopulation(IApplicationWorkflow app, int additionalPersonNotes = 0,
+        int additionalTeamNotes = 0, int historicalContexts = 200)
     {
-        var documents = new Dictionary<string, Dictionary<string, byte[]>>
-        {
-            ["people"] = [],
-            ["profileHistory"] = [],
-            ["historicalTeamContext"] = [],
-            ["photos"] = [],
-            ["acceptedBatches"] = []
-        };
-        var gate = new object();
-        var observer = new PhaseObserver(Log);
-        observer.Measure("fixture-document-generation", () =>
-        {
-            Directory.CreateDirectory(Path.Combine(Workspace, "notes"));
-            Directory.CreateDirectory(Path.Combine(Workspace, "team-notes"));
-            foreach (var person in app.People.Where(p => p.PhotoPath is not null).DistinctBy(p => p.PhotoPath))
-                documents["photos"][person.PhotoPath!] = app.GetPhoto(person.Email)!.Bytes.ToArray();
-            Parallel.ForEach(app.People, new ParallelOptions { MaxDegreeOfParallelism = 8 }, person =>
-            {
-                var record = JsonSerializer.SerializeToNode(person, Json)!.AsObject();
-                record["schemaVersion"] = 2;
-                var timeline = app.GetProfileTimeline(person.Email)!;
-                var history = JsonSerializer.SerializeToUtf8Bytes(new
-                {
-                    schemaVersion = 2,
-                    person.Email,
-                    changes = timeline.Changes,
-                    observations = timeline.Observations
-                }, Json);
-                var captures = app.GetHistoricalTeamContexts(person.Email);
-                lock (gate)
-                {
-                    documents["people"][person.Email] = JsonSerializer.SerializeToUtf8Bytes(record, Json);
-                    documents["profileHistory"][person.Email] = history;
-                    if (captures.Count > 0) documents["historicalTeamContext"][person.Email] =
-                        JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, person.Email, contexts = captures }, Json);
-                }
-                foreach (var note in app.GetPersonNotes(person.Email, true))
-                    WriteNote("notes", note.Id, new
-                    {
-                        schemaVersion = 1,
-                        kind = "person",
-                        note.Id,
-                        note.OwnerEmail,
-                        note.Title,
-                        note.Archived,
-                        note.CreatedAt,
-                        note.UpdatedAt
-                    }, note.Markdown, observer);
-                foreach (var note in app.GetTeamNotes(person.Email, true))
-                    WriteNote("team-notes", note.Id, new
-                    {
-                        schemaVersion = 1,
-                        kind = "team",
-                        note.Id,
-                        note.OwnerEmail,
-                        note.Title,
-                        note.Archived,
-                        note.CreatedAt,
-                        note.UpdatedAt,
-                        confirmedContextRevision = Guid.Empty
-                    }, note.Markdown, observer);
-            });
-            foreach (var batch in AcceptedLedger(app))
-                documents["acceptedBatches"][batch.Key] =
-                    JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object> { [batch.Key] = batch.Value }, Json);
-        });
-        WorkspaceFixtures.WriteCurrent(Workspace, documents, observer, observer.Measure);
-        observer.Report("fixture-export-total");
+        var people = app.People;
+        var archived = app.ArchivedPeople.Count;
+        var photoReferences = people.Count(person => person.PhotoPath is not null);
+        var personNotes = people.Sum(person => app.GetPersonNotes(person.Email, true).Count);
+        var teamNotes = people.Sum(person => app.GetTeamNotes(person.Email, true).Count);
+        var captures = people.Sum(person => app.GetHistoricalTeamContexts(person.Email).Count);
+        var observations = people.Sum(person => app.GetProfileTimeline(person.Email)!.Observations.Count);
+        var changes = people.Sum(person => app.GetProfileTimeline(person.Email)!.Changes.Count);
+        var chain = 0;
+        for (var current = DeepTarget; app.GetRelationships(current)!.Manager is { } manager; current = manager.Email) chain++;
+        Check(people.Count == 10000 && archived == 100 && photoReferences == 2500 &&
+            personNotes == 1000 + additionalPersonNotes && teamNotes == 111 + additionalTeamNotes &&
+            captures == historicalContexts && chain == 42 && observations >= 130300 && changes >= 300,
+            "The complete rich population, retained notes, photos, 42-edge chain or Profile evidence was truncated.");
+        return new { people = people.Count, active = people.Count - archived, archived, chainEdges = chain,
+            photoReferences, personNotes, teamNotes, historicalContexts = captures,
+            profileObservations = observations, profileChanges = changes };
     }
 
     private sealed class PhaseObserver(Action<string> log, IWorkspaceFileObserver? next = null) : IWorkspaceFileObserver
@@ -278,52 +228,6 @@ internal sealed class ScaleFixture : IDisposable
         }
     }
 
-    private Dictionary<string, object> AcceptedLedger(IApplicationWorkflow app)
-    {
-        var ledger = new Dictionary<string, object>();
-        var imageHashes = new Dictionary<string, string>();
-        foreach (var json in acceptedSources)
-        {
-            using var document = JsonDocument.Parse(json);
-            var source = document.RootElement;
-            var id = source.GetProperty("batchId").GetGuid();
-            var records = new List<string>();
-            foreach (var person in source.GetProperty("people").EnumerateArray())
-            {
-                var record = string.Join("|", person.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)
-                    .Select(p => JsonSerializer.Serialize(p.Name) + ":" +
-                        (p.Value.ValueKind == JsonValueKind.String
-                            ? JsonSerializer.Serialize(p.Name is "email" or "managerEmail" ? p.Value.GetString()!.ToLowerInvariant() : p.Value.GetString())
-                            : p.Value.GetRawText())));
-                if (person.TryGetProperty("photoPath", out var photo) && photo.ValueKind == JsonValueKind.String)
-                {
-                    var path = photo.GetString()!;
-                    if (!imageHashes.TryGetValue(path, out var hash))
-                        imageHashes[path] = hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(Producer, path))));
-                    record += "|photoBytes:" + hash;
-                }
-                records.Add(record);
-            }
-            var logical = source.GetProperty("observedAt").GetString() + "|" + source.GetProperty("producer").GetString() +
-                "|" + string.Join("\n", records.Order(StringComparer.Ordinal));
-            var owner = source.GetProperty("people")[0].GetProperty("email").GetString()!;
-            ledger[id.ToString()] = new
-            {
-                fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(logical))),
-                source = source.Clone(),
-                appliedAt = app.GetProfileTimeline(owner)!.Observations.First(e => e.BatchId == id).RecordedAt
-            };
-        }
-        return ledger;
-    }
-    private void WriteNote<T>(string folder, Guid id, T metadata, string markdown, IWorkspaceFileObserver observer)
-    {
-        var path = Path.Combine(Workspace, folder, id + ".md");
-        var bytes = Encoding.UTF8.GetBytes("---\n" + JsonSerializer.Serialize(metadata, Json) + "\n---\n" + markdown);
-        File.WriteAllBytes(path, bytes);
-        observer.Observe(new(WorkspaceFileEffectKind.Write, path, bytes.LongLength));
-    }
-
     private static byte[] Png(int seed)
     {
         using var image = new MemoryStream();
@@ -363,7 +267,12 @@ internal sealed class ScaleFixture : IDisposable
     public void Dispose()
     {
         if (clients.Count != 0)
-            Measure("fixture-close-clients", () => { foreach (var app in clients) app.Dispose(); }, Log);
+            Measure("fixture-close-clients", () =>
+            {
+                foreach (var app in clients) app.Dispose();
+                foreach (var viewModel in clients.OfType<WorkspaceViewModel>())
+                    while (viewModel.IsSynchronizing) Thread.Sleep(10);
+            }, Log);
         if (ownsRoot && Directory.Exists(Root))
         {
             Measure("fixture-cleanup", () =>

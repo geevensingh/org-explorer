@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
+using OrgExplorer.TestFixtures;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -86,19 +88,23 @@ internal static partial class Program
             Set(window, "TeamNoteMarkdown", "# Pine\nNew current Team writing");
 
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
-            using (new FileStream(Path.Combine(workspace, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (WorkspaceFixtures.LockLocalStore(workspace))
             {
                 Click(window, "ToggleFavorite");
                 Await(() => Status(window).Contains("NOT saved"));
                 if (Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
                     throw new InvalidOperationException("Failed favorite save falsely showed a saved star.");
-                QueryAndSelect(window, "alex@example", "alex@example.com", "Current", "Profile:", expectNavigation: false);
-                if (Find(window, "Email").Current.Name != "avery@example.com")
-                    throw new InvalidOperationException("Search discarded an unsaved favorite action.");
+                QueryAndSelect(window, "alex@example", "alex@example.com", "Current", "Profile:", allowPendingLocalWork: true);
+                QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:", allowPendingLocalWork: true);
+                if (Find(window, "FavoriteStatus").Current.Name.StartsWith("Marked"))
+                    throw new InvalidOperationException("Browsing fabricated a committed favorite action.");
                 CaptureVisualEvidence(window, "search-rejected-favorite-writing-retained");
                 process.CloseMainWindow();
-                Await(() => Status(window).Contains("Unsaved local changes prevent safe closing"));
+                Await(() => ExitDecisionVisible(window) && Find(window, "ExitRisk").Current.Name.Contains("may be lost"));
+                Click(window, "CancelExit");
+                Await(() => !ExitDecisionVisible(window));
             }
+            ReconcileSmokeLocalSaves(window);
             Click(window, "RetryProfileSave");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Unmark favorite");
             AssertPreferredNameReading(window, "Ave Preferred", "Edit");
@@ -141,7 +147,8 @@ internal static partial class Program
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             CaptureVisualEvidence(window, "search-archived-person-frozen-note");
             if (listener.Pending()) throw new InvalidOperationException("Search or selected current/frozen Markdown fetched remote content.");
-            var beforeReopen = OrgExplorer.TestFixtures.WorkspaceFixtures.Bytes(workspace);
+            PublishSmokeWorkspace(window, workspace);
+            var beforeReopen = WorkspaceFixtures.Bytes(workspace);
             Close(process);
 
             process = Launch(executable);
@@ -158,7 +165,7 @@ internal static partial class Program
             AssertSearchReading(window, "Former Team writing", readingId: "HistoricalTeamReading");
             Click(window, "ToggleFavorite");
             Await(() => Find(window, "ToggleFavorite").Current.Name == "Mark favorite");
-            Close(process);
+            ClosePublishedWorkspace(process, workspace);
             Console.WriteLine("PASS: actual WPF grouped Person search, ordinary profile/note/history access, retained writing, archived access and reopen proportions.");
         }
         finally
@@ -192,9 +199,10 @@ internal static partial class Program
         """;
 
     private static void QueryAndSelect(AutomationElement window, string query, string email, string context,
-        string source, string? owner = null, bool expectNavigation = true)
+        string source, string? owner = null, bool expectNavigation = true, bool allowPendingLocalWork = false,
+        NoteScope? retainedScope = null)
     {
-        if (expectNavigation) AwaitLocalWorkIdle(window);
+        if (expectNavigation && !allowPendingLocalWork) AwaitLocalWorkIdle(window);
         var beforeEmail = CurrentPersonEmail(window);
         string? PersonNoteIdentity() => window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "PersonNoteHeading"))?.Current.HelpText;
@@ -227,8 +235,8 @@ internal static partial class Program
         PressCopyKey(0x0D);
         if (expectNavigation)
         {
-            Await(() => OrdinarySearchProfileReady(window, email));
-            AssertAcceptedSearchBrowsing(window, email, archived);
+            Await(() => OrdinarySearchProfileReady(window, email, retainedScope));
+            AssertAcceptedSearchBrowsing(window, email, archived, retainedScope);
         }
         else
             Await(() => Status(window).Contains("Navigation blocked", StringComparison.OrdinalIgnoreCase) ||
@@ -251,17 +259,19 @@ internal static partial class Program
     private static readonly string[] OrdinaryProfileControls =
         ["Email", "ProfileHeading", "SaveProfile", "PersonNoteEditTab", "PersonNoteReadTab", "TeamNoteEditTab", "TeamNoteReadTab"];
 
-    private static bool OrdinarySearchProfileReady(AutomationElement window, string email) =>
-        OrdinarySearchProfileReady(ControlObservation.Capture(window, OrdinaryProfileControls), email);
+    private static bool OrdinarySearchProfileReady(AutomationElement window, string email, NoteScope? retainedScope = null) =>
+        OrdinarySearchProfileReady(ControlObservation.Capture(window, OrdinaryProfileControls), email, retainedScope);
 
-    private static bool OrdinarySearchProfileReady(ControlObservation controls, string email)
+    private static bool OrdinarySearchProfileReady(ControlObservation controls, string email, NoteScope? retainedScope = null)
     {
         return controls["Email"].Cached.Name == email && controls.IsVisible("ProfileHeading") &&
             !controls.IsVisible("SaveProfile") &&
             (!controls.IsVisible("PersonNoteEditTab") ||
-                ((SelectionItemPattern)controls["PersonNoteReadTab"].GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
+                ((SelectionItemPattern)controls[retainedScope == NoteScope.Person ? "PersonNoteEditTab" : "PersonNoteReadTab"]
+                    .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
             (!controls.IsVisible("TeamNoteEditTab") ||
-                ((SelectionItemPattern)controls["TeamNoteReadTab"].GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
+                ((SelectionItemPattern)controls[retainedScope == NoteScope.Team ? "TeamNoteEditTab" : "TeamNoteReadTab"]
+                    .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
     }
 
     private static void AssertOrdinarySearchProfile(AutomationElement window, string email)
@@ -363,7 +373,8 @@ internal static partial class Program
         });
     }
 
-    private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false)
+    private static void AssertAcceptedSearchBrowsing(AutomationElement window, string email, bool archived = false,
+        NoteScope? retainedScope = null)
     {
         var compact = false;
         try
@@ -374,7 +385,7 @@ internal static partial class Program
                     var controls = ControlObservation.Capture(window,
                         [.. OrdinaryProfileControls, "SearchQuery", "PeopleNavigation", "OpenPeople", "People", "Favorites"]);
                     return ((ValuePattern)controls["SearchQuery"].GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "" &&
-                        OrdinarySearchProfileReady(controls, email) &&
+                        OrdinarySearchProfileReady(controls, email, retainedScope) &&
                         (isCompact ? !controls.IsVisible("PeopleNavigation") && controls["OpenPeople"].Cached.HasKeyboardFocus
                             : controls.IsVisible("People") && controls.IsVisible("Favorites"));
                 }, Await);
@@ -387,7 +398,7 @@ internal static partial class Program
             CaptureFailureEvidence(window, "search-accepted-browsing-failure");
             throw new TimeoutException("Accepted search did not clear the query and restore browsing/focus within 20 seconds. " +
                 $"compact={compact}; archived={archived}; expectedEmail='{email}'; owner='{Find(window, "Email").Current.Name}'; " +
-                $"query='{Value(window, "SearchQuery")}'; ordinaryProfileReady={OrdinarySearchProfileReady(window, email)}; " +
+                $"query='{Value(window, "SearchQuery")}'; ordinaryProfileReady={OrdinarySearchProfileReady(window, email, retainedScope)}; " +
                 $"peopleNavigationVisible={IsVisible(window, "PeopleNavigation")}; peopleVisible={IsVisible(window, "People")}; " +
                 $"favoritesVisible={IsVisible(window, "Favorites")}; entryVisible={IsVisible(window, "OpenPeople")}; " +
                 $"entryEnabled={entry?.IsEnabled}; entryFocused={entry?.HasKeyboardFocus}; " +

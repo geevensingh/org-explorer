@@ -15,6 +15,14 @@ internal static partial class Program
     {
         try
         {
+            if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
+                return RunLocalSaveRecoveryFixture(args);
+            if (args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--rich-scale-snapshot-fixture")
+                return RunAutomaticSnapshotFixture(args);
+            if (args.Length > 0 && args[0] == "--workspace-exit-fixture")
+                return RunWorkspaceExitFixture(args);
+            if (args.Length > 0 && args[0] == "--held-snapshot-fixture")
+                return RunHeldSnapshotFixture(args);
             if (args.Length == 1 && args[0] is "--prepare-high-resolution" or "--verify-high-resolution" or "--verify-standard-display")
                 return ConfigureDisplay(args[0]);
             var installer = args.Length == 4 && args[2] is "create" or "reopen" ||
@@ -22,11 +30,78 @@ internal static partial class Program
             if ((!installer && args.Length is < 1 or > 2) || !File.Exists(args[0]))
                 throw new ArgumentException("Supply the normal built WPF executable path, optionally one named scenario.");
             var executable = Path.GetFullPath(args[0]);
+            if (args.Length == 2 && args[1] == "--verify-ui-scale-handoff")
+                return VerifyUiScaleLogicalHandoff(executable);
+            if (args.Length == 2 && args[1] == "--verify-cutover-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedPublicationContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-note-modes")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedNoteModeContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-acknowledgment")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedAcknowledgmentContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-failure-feedback")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedMutationFeedbackContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-incoming")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedIncomingContract);
+            if (args.Length == 2 && args[1] == "--verify-cutover-close-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedClosePublicationContracts);
+            if (args.Length == 2 && args[1] == "--verify-cutover-recovery-copy")
+                return VerifyHostedCutoverContracts(executable, VerifyRecoveredCopyContract);
+            if (args.Length == 2 && args[1] == "--verify-local-recovery-cleanup")
+                return VerifyHostedCutoverContracts(executable, VerifyLocalRecoveryCleanup);
+            if (args.Length == 2 && args[1] == "--verify-independent-note-leave")
+                return VerifyHostedCutoverContracts(executable, VerifyIndependentNoteLeaveContract);
+            if (args.Length == 2 && args[1] == "--verify-import-recovery-admission")
+                return VerifyHostedCutoverContracts(executable, VerifyImportRecoveryAdmission);
+            if (args.Length == 2 && args[1] == "--diagnose-rich-navigation")
+                return VerifyHostedCutoverContracts(executable, DiagnoseCompiledRichNavigation);
+            if (args.Length == 2 && args[1] == "--verify-manager-choice-demand")
+                return VerifyHostedCutoverContracts(executable, VerifyManagerChoiceDemand);
+            if (args.Length == 2 && args[1] == "--verify-current-search-storage")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrentSearchStorage);
+            if (args.Length == 2 && args[1] == "--verify-actual39-functional")
+                return VerifyHostedCutoverContracts(executable, VerifyActual39FunctionalContracts);
+            if (args.Length == 2 && args[1] == "--verify-note-read-demand")
+                return VerifyHostedCutoverContracts(executable, VerifyNoteReadDemand);
+            if (args.Length == 2 && args[1] == "--verify-normal-close-publication-preparation")
+                return VerifyHostedCutoverContracts(executable, VerifyNormalClosePublicationPreparation);
+            if (args.Length == 2 && args[1] == "--verify-rich-host-restoration")
+                return VerifyHostedCutoverContracts(executable, VerifyRichHostRestoration);
+            if (args.Length == 2 && args[1] == "--verify-compact-identity")
+                return VerifyHostedCutoverContracts(executable, VerifyCompactIdentityReplay);
+            if (args.Length == 2 && args[1] == "--verify-incoming-smoke-publication")
+                return VerifyHostedCutoverContracts(executable, VerifyIncomingSmokePublication);
+            if (args.Length == 2 && args[1] == "--verify-actualc38-note-readiness")
+                return VerifyHostedCutoverContracts(executable, VerifyActualC38NoteReadinessContracts);
+            if (args.Length == 2 && args[1] == "--verify-current1eee-note-contexts")
+                return VerifyHostedCutoverContracts(executable, VerifyCurrent1eeeNoteContracts);
+            if (args.Length == 2 && args[1] == "--verify-person-search-integration")
+                return VerifyHostedCutoverContracts(executable, VerifyPersonSearchIntegration);
+            if (args.Length == 2 && args[1] == "--verify-retained-search-overlay")
+                return VerifyHostedCutoverContracts(executable,
+                    (type, root) => VerifyPersonSearchIntegration(type, root, retainedOnly: true));
+            if (args.Length == 2 && args[1] == "--verify-cutover-ordinary-fixture-state")
+                return VerifyHostedCutoverContracts(executable, VerifyHostedOrdinaryFixtureStateContracts);
             if (args.Length == 2 && args[1] == "--verify-xaml") return VerifyCompiledXaml(executable);
+            if (args.Length == 2 && args[1] == "--verify-exit") return VerifyCompiledXaml(executable, verifyExit: true);
+            if (args.Length == 2 && args[1] == "--verify-exit-host-startup")
+                return VerifyCompiledXaml(executable, verifyExitStartup: true);
+            if (args.Length == 2 && args[1] == "--verify-snapshot-adoption")
+                return VerifyCompiledXaml(executable, verifySnapshotAdoption: true);
+            if (args.Length == 2 && args[1] == "--verify-legacy-save-feedback")
+                return VerifyCompiledXaml(executable, verifyLegacySaveFeedback: true);
+            if (args.Length == 2 && args[1] == "--verify-preferred-name-retention")
+                return VerifyCompiledXaml(executable, verifyPreferredNameRetention: true);
+            if (args.Length == 2 && args[1] == "--verify-preferred-name-snapshot-deferral")
+                return VerifyCompiledXaml(executable, verifyPreferredSnapshotDeferral: true);
+            if (args.Length == 2 && args[1] == "--verify-profile-note-refresh")
+                return HarnessRuntime.Run("compiled-profile-note-refresh",
+                    () => VerifyCompiledXaml(executable, verifyProfileNoteRefresh: true));
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
-                return VerifyCompiledXaml(executable, verifyProfileRefresh: true);
+                return HarnessRuntime.Run("compiled-profile-refresh",
+                    () => VerifyCompiledXaml(executable, verifyProfileRefresh: true));
             if (args.Length == 2 && args[1] == "--verify-update-yield")
-                return VerifyCompiledXaml(executable, verifyUpdateYield: true);
+                return HarnessRuntime.Run("compiled-update-yield",
+                    () => VerifyCompiledXaml(executable, verifyUpdateYield: true));
             var selection = new DesktopScenarioSelection(AppContext.BaseDirectory);
             var actions = new Dictionary<string, Action<string>>
             {
@@ -43,7 +118,8 @@ internal static partial class Program
                 ["responsive-draft-navigation"] = root => RunNavigationFeedbackFlow(executable, root, responsive: true),
                 ["responsive-team-history"] = root => RunTeamContextFlow(executable, root, responsive: true),
                 ["scale-navigation-rendering"] = root => RunScaleNavigationFlow(executable, root),
-                ["scale-mutation-responsiveness"] = root => RunScaleMutationFlow(executable, root)
+                ["scale-mutation-save-prefix"] = root => RunScaleMutationPrefix(executable, root),
+                ["scale-mutation-delivery-tail"] = root => RunScaleMutationTail(executable, root)
             };
             if (!selection.All.Order().SequenceEqual(actions.Keys.Order()))
                 throw new InvalidOperationException("The desktop manifests and real scenario implementations differ.");
@@ -128,6 +204,7 @@ internal static partial class Program
     }
     internal static AutomationElement Find(AutomationElement window, string id, ControlType? controlType = null)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
         Condition condition = new PropertyCondition(AutomationElement.AutomationIdProperty, id);
         if (controlType is not null)
             condition = new AndCondition(condition, new PropertyCondition(AutomationElement.ControlTypeProperty, controlType));
@@ -136,13 +213,17 @@ internal static partial class Program
     }
     internal static void Set(AutomationElement window, string id, string value)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
-            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await).SetValue(value);
+        var pattern = ControlReadiness.AwaitPattern(() => Find(window, id), control => control.Current.IsEnabled,
+            control => (ValuePattern)control.GetCurrentPattern(ValuePattern.Pattern), Await);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeSetValue);
+        pattern.SetValue(value);
     }
     internal static void Click(AutomationElement window, string id, ControlType? controlType = null)
     {
-        ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
-            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
+        var pattern = ControlReadiness.AwaitPattern(() => Find(window, id, controlType), control => control.Current.IsEnabled,
+            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NativeInvoke);
+        pattern.Invoke();
     }
     private static string Status(AutomationElement window) => window.Current.HelpText;
     private static string Activity(AutomationElement window) => window.Current.ItemStatus;
@@ -153,8 +234,7 @@ internal static partial class Program
     private static void PickWorkspaceFolder(AutomationElement window, string? folder,
         string action = "OpenWorkspace", Action? observePicker = null)
     {
-        if (folder is not null && !Directory.Exists(folder))
-            throw new InvalidOperationException("The scenario must explicitly prepare a selectable folder before opening the native picker: " + folder);
+        RequireSmokeSelectableFolder(folder);
         ControlReadiness.AwaitPattern(() => Find(window, action),
             control => control.Current.IsEnabled && !control.Current.IsOffscreen,
             control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await).Invoke();
@@ -183,6 +263,12 @@ internal static partial class Program
         Await(() => FindPicker() is null);
     }
 
+    private static void RequireSmokeSelectableFolder(string? folder)
+    {
+        if (folder is not null && !Directory.Exists(folder))
+            throw new InvalidOperationException("The scenario must explicitly prepare a selectable folder before opening the native picker: " + folder);
+    }
+
     private static void ShowTechnicalSettings(AutomationElement window)
     {
         SetSettingsVisible(window, true);
@@ -205,12 +291,26 @@ internal static partial class Program
     }
     private static void AwaitLocalWorkIdle(AutomationElement window)
     {
-        Await(() =>
-            Activity(window) == "Ready" &&
-            !Status(window).StartsWith("Pending", StringComparison.Ordinal) &&
-            (CurrentPersonEmail(window).Length == 0 ||
-                !NoteFeedback(window, "Person").StartsWith("Pending", StringComparison.Ordinal) &&
-                !NoteFeedback(window, "Team").StartsWith("Pending", StringComparison.Ordinal)));
+        Await(() => IsLocalWorkIdle(window));
+    }
+    private static bool IsLocalWorkIdle(AutomationElement window) =>
+        LocalWorkObservation.Observe(() => Activity(window), () => Status(window), () => ReadIdleControls(window));
+
+    private static IReadOnlyList<LocalWorkObservation.Control> ReadIdleControls(AutomationElement window)
+    {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+        var cache = new CacheRequest { TreeScope = TreeScope.Element };
+        cache.Add(AutomationElement.AutomationIdProperty);
+        cache.Add(AutomationElement.NameProperty);
+        cache.Add(AutomationElement.ItemStatusProperty);
+        cache.Add(AutomationElement.IsOffscreenProperty);
+        AutomationElementCollection controls;
+        using (cache.Activate())
+            controls = window.FindAll(TreeScope.Descendants, new OrCondition(
+                new[] { "Email", "WorkspaceStart", "PersonNotesSurface", "TeamNotesSurface" }
+                    .Select(id => new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+        return controls.Cast<AutomationElement>().Select(control => new LocalWorkObservation.Control(
+            control.Cached.AutomationId, control.Cached.Name, control.Cached.ItemStatus, control.Cached.IsOffscreen)).ToArray();
     }
     private static void AssertValue(AutomationElement window, string id, string expected)
     {
@@ -250,10 +350,15 @@ internal static partial class Program
     }
     internal static void Await(Func<bool> condition)
     {
+        using var waiting = HarnessRuntime.Measure(HarnessRuntime.Work.NativeWait);
         var timer = Stopwatch.StartNew();
         while (timer.Elapsed < TimeSpan.FromSeconds(20))
         {
-            try { if (condition()) return; }
+            try
+            {
+                using var observation = HarnessRuntime.Measure(HarnessRuntime.Work.Observation);
+                if (condition()) return;
+            }
             catch (ElementNotAvailableException) { }
             catch (InvalidOperationException error) when (error.Message.StartsWith("Missing actual UI control:", StringComparison.Ordinal)) { }
             Thread.Sleep(100);

@@ -29,6 +29,7 @@ internal static partial class Program
 
     private static void ValidateVisualEvidenceState(string state)
     {
+        using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Capture);
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
     }

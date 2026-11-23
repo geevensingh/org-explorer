@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\NativeIconResource.cs" Link="NativeIconResource.cs" />
+    <Compile Include="..\InstallerPreservationEvidence.cs" Link="InstallerPreservationEvidence.cs" />
   </ItemGroup>
 </Project>

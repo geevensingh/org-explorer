@@ -16,16 +16,16 @@ data in these requests. Discovery downloads only the small signed envelope.
 An authorized newer result automatically starts the full-package workflow below;
 there is no second confirmation button or unsigned package-selection feed.
 
-Unresolved publication conflicts and indeterminate publication outcomes also
-block safe close and updater restart. A positively published conflict is not an
-unsaved edit; an unconfirmed outcome is not a clean rejection. Generic draft
-discard, Workspace refresh and storage maintenance cannot resolve either.
-Use Settings to review retained local writing/external evidence, resolve complete
-current files externally and explicitly acknowledge the exact reviewed conflict
-IDs/current revision. Newer observed delivery or changed evidence blocks that
-acknowledgment. The update path never replays an uncertain mutation or restores a
-backup over newer delivery. See the [storage protocol](incremental-workspace-storage-protocol.md)
-for the approved capture and durability limits.
+Unresolved local transaction outcomes and retained divergence block safe updater
+restart. Generic draft discard or unrelated successful work cannot reconcile
+another save's unknown outcome. Reconcile actual local storage, or review the
+complete retained versions and make a fresh revision-bound whole-version choice.
+The update path never replays an uncertain mutation, applies unsubmitted
+profile/Preferred-name drafts or restores old bytes over newer data.
+Normal close separately requires latest local publication; informed Exit anyway
+actually terminates, even while the signed updater is waiting at its safe point.
+It does not turn that termination into a successful safe update. See the
+[storage protocol](incremental-workspace-storage-protocol.md).
 
 ## Owner-controlled trust
 

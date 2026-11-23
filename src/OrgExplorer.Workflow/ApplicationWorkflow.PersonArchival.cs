@@ -18,12 +18,15 @@ public sealed partial class ApplicationWorkflow
 
     public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
         ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonArchivedCore(email, archived, confirmed, profileDecision));
+
+    private bool EditPersonArchivedCore(string email, bool archived, bool confirmed, ProfileLeaveDecision profileDecision)
     {
         lock (workspaceGate)
         {
             if (!confirmed) return Fail("Person archival action canceled. Saved data and profile draft are unchanged.");
             if (workspace is null || !people.ContainsKey(email)) return Fail("Open a Person first.");
-            if (!TryLeaveProfileEdit(profileDecision)) return false;
+            if (!TryLeaveProfileEdit(email, profileDecision)) return false;
             if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
             return SavePersonRelationship(person, person with { Archived = archived }, "archived",
                 archived ? "Person archived locally; profile, photos, notes and history retained." :
@@ -32,6 +35,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPersonManager(string email, string? managerEmail)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonManagerCore(email, managerEmail));
+
+    private bool EditPersonManagerCore(string email, string? managerEmail)
     {
         lock (workspaceGate)
         {

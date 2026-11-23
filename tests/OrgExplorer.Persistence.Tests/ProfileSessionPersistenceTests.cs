@@ -56,51 +56,63 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     [Fact]
     public void External_reporting_delivery_refreshes_the_selected_profile_and_ancestors_without_losing_note_writing()
     {
-        using var app = Open();
-        SeedReporting(app);
+        using var source = Open();
+        SeedReporting(source);
         const string owner = "morgan@example.com";
         const string ancestor = "riley@example.com";
-        SetTeamName(app, ancestor, "Saved ancestor");
+        SetTeamName(source, ancestor, "Saved ancestor");
+        var note = source.CreatePersonNote(owner, "Private", "# Saved context")!;
+        var destination = Path.Combine(root, "reporting-receiver");
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(destination), app.Status);
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(root, "reporting-transport"));
         Assert.True(app.NavigatePerson(owner));
-        var note = app.CreatePersonNote(owner, "Private", "# Saved context")!;
         var draft = app.BeginNoteDraft(NoteScope.Person, owner, note.Id)!;
         app.RetainNoteDraft(draft);
         var notifications = 0;
         app.WorkspaceChanged += (_, _) => notifications++;
         AssertReporting(app, owner, 3, 2, 1);
-        using (var provider = Reopen())
-        {
-            var review = provider.PreviewImport($$"""
-                {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-03T17:00:00Z","people":[
-                 {"email":"v-middle@example.com","managerEmail":"riley@example.com"},
-                 {"email":"avery@example.com","archived":true}]}
-                """);
-            Assert.True(review.CanApply, provider.Status);
-            Assert.True(provider.ApplyImport(review.Id), provider.Status);
-        }
-        Assert.True(app.RefreshWorkspace(), app.Status);
+        var review = source.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"v-middle@example.com","managerEmail":"riley@example.com"},
+             {"email":"avery@example.com","archived":true}]}
+            """);
+        Assert.True(review.CanApply, source.Status);
+        Assert.True(source.ApplyImport(review.Id), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        Assert.False(app.SyncNow());
+        AssertReporting(app, owner, 3, 2, 1);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        Assert.True(app.NavigatePerson(ancestor), app.Status);
+        Assert.True(app.NavigatePerson(owner), app.Status);
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
         Assert.Equal(owner, app.PeopleNavigation.SelectedEmail);
         Assert.Null(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.ReportingSummary);
         AssertReporting(app, ancestor, 3, 2, 1);
         Assert.Equal("Saved ancestor", Assert.Single(app.GetTeamNames(owner)).Name);
-        Assert.False(app.CanSafelyClose);
-        using (var provider = Reopen())
-        {
-            Assert.True(provider.EditPersonArchived(Email, false), provider.Status);
-            Assert.True(provider.EditPersonManager("v-middle@example.com", owner), provider.Status);
-        }
-        Assert.True(app.RefreshWorkspace(), app.Status);
+        Assert.Equal("# Saved context", Assert.Single(app.GetPersonNotes(owner)).Markdown);
+        Assert.True(source.EditPersonArchived(Email, false), source.Status);
+        Assert.True(source.EditPersonManager("v-middle@example.com", owner), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        var artifact = WorkspaceFixtures.LatestSnapshot(source);
+        var valid = File.ReadAllBytes(artifact);
+        WorkspaceFixtures.RewriteSnapshot(artifact, content =>
+            WorkspaceFixtures.EditSnapshotRow(content, "people", "v-middle@example.com",
+                person => person["managerEmail"] = "missing@example.com"));
+        Assert.False(app.SyncNow());
+        Assert.Null(app.GetRelationships(owner)!.ReportingSummary);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        File.WriteAllBytes(artifact, valid);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
         AssertReporting(app, app.PeopleNavigation.SelectedEmail!, 3, 2, 1);
         AssertReporting(app, ancestor, 4, 3, 1);
-        Deliver("v-middle@example.com", "managerEmail", "missing@example.com");
-        Assert.False(app.RefreshWorkspace());
-        AssertReporting(app, owner, 3, 2, 1);
-        AssertReporting(app, ancestor, 4, 3, 1);
-        Deliver("v-middle@example.com", "managerEmail", owner);
-        Assert.True(app.RefreshWorkspace(), app.Status);
+        draft = app.BeginNoteDraft(NoteScope.Person, owner, note.Id)!;
+        app.RetainNoteDraft(draft);
         Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
         Assert.True(notifications > 0);
-        using var reopened = Reopen();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(destination, WorkspaceOpenMode.ExistingOnly), reopened.Status);
         AssertReporting(reopened, owner, 3, 2, 1);
         AssertReporting(reopened, ancestor, 4, 3, 1);
         Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(owner)).Markdown);
@@ -166,31 +178,38 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     [Fact]
     public void Accepted_external_refresh_keeps_the_selected_category_and_retained_writing_then_navigates_to_delivered_people()
     {
-        using var app = Open();
+        using var source = Open();
+        var note = source.CreatePersonNote(Email, "Private", "# Saved context")!;
+        var destination = Path.Combine(root, "category-receiver");
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(destination), app.Status);
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(root, "category-transport"));
         Assert.True(app.NavigatePerson(Email), app.Status);
-        var note = app.CreatePersonNote(Email, "Private", "# Saved context")!;
         var draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
         app.RetainNoteDraft(draft);
         var notifications = 0;
         app.WorkspaceChanged += (_, _) => notifications++;
-        using (var provider = Reopen())
-        {
-            var preview = provider.PreviewImport("""
-                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000092",
-                 "observedAt":"2026-11-03T17:00:00Z","people":[
-                 {"email":"V-delivered@example.com","displayName":"Delivered employee","managerEmail":null},
-                 {"email":"avery@example.com","displayName":"v-Delivered name","managerEmail":"V-delivered@example.com"},
-                 {"email":"t-delivered@example.com","displayName":"Delivered fallback","managerEmail":null,"archived":true}]}
-                """);
-            Assert.True(preview.CanApply, provider.Status);
-            Assert.True(provider.ApplyImport(preview.Id), provider.Status);
-        }
-        Assert.True(app.RefreshWorkspace(), app.Status);
+        var preview = source.PreviewImport("""
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000092",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"V-delivered@example.com","displayName":"Delivered employee","managerEmail":null},
+             {"email":"avery@example.com","displayName":"v-Delivered name","managerEmail":"V-delivered@example.com"},
+             {"email":"t-delivered@example.com","displayName":"Delivered fallback","managerEmail":null,"archived":true}]}
+            """);
+        Assert.True(preview.CanApply, source.Status);
+        Assert.True(source.ApplyImport(preview.Id), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        Assert.False(app.SyncNow());
+        Assert.Equal("Avery", app.GetRelationships(Email)!.Person.DirectoryName);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
         var selected = app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!;
         Assert.Equal("employee", selected.Category.Id);
         Assert.Equal("v-Delivered name", selected.Person.DirectoryName);
         Assert.Equal("V-delivered@example.com", selected.Manager!.Email);
-        Assert.False(app.CanSafelyClose);
+        draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
+        app.RetainNoteDraft(draft);
         Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
         Assert.True(app.NavigatePerson("V-delivered@example.com"), app.Status);
         Assert.Equal("Vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
@@ -198,9 +217,45 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Person.Archived);
         Assert.Equal("Employee", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
         Assert.True(notifications > 0);
-        using var reopened = Reopen();
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(destination, WorkspaceOpenMode.ExistingOnly), reopened.Status);
         Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
         Assert.Equal("vendor", reopened.GetRelationships("V-delivered@example.com")!.Category.Id);
+    }
+
+    [Fact]
+    public void Rejected_local_profile_save_reports_feedback_and_retains_browsing_without_inventing_a_Workspace_change()
+    {
+        using var app = Open();
+        Assert.True(app.Compatibility.SupportsNonblockingNoteAutosave);
+        Assert.True(app.NavigatePerson(Email), app.Status);
+        Assert.True(app.BeginProfileEdit(Email), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Retained legacy room"), app.Status);
+        var caller = Environment.CurrentManagedThreadId;
+        var revision = app.Synchronization.LocalRevision;
+        var observedRevisions = new List<Guid?>();
+        var statusNotifications = 0;
+        app.WorkspaceChanged += (_, _) =>
+        {
+            if (Environment.CurrentManagedThreadId == caller) observedRevisions.Add(app.Synchronization.LocalRevision);
+        };
+        app.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(app.Status)) statusNotifications++;
+        };
+        using (WorkspaceFixtures.LockLocalStore(Folder))
+            Assert.False(app.SaveProfileEdit());
+        Assert.Contains("NOT saved", app.Status);
+        Assert.Equal(Email, app.ProfileEdit!.Basis.Email);
+        Assert.Equal("Retained legacy room", app.ProfileEdit.Draft.OfficeNumber);
+        Assert.False(app.CanEditLocalWorkspace);
+        Assert.Equal(LocalSavePhase.Failed, app.LocalSave.Phase);
+        Assert.True(app.CanNavigatePeople);
+        Assert.False(app.CanSafelyClose);
+        Assert.True(statusNotifications > 0);
+        Assert.All(observedRevisions, observed => Assert.Equal(revision, observed));
+        using var durable = Reopen();
+        Assert.Null(durable.GetRelationships(Email)!.Person.OfficeNumber);
     }
 
     [Fact]
@@ -301,11 +356,11 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Equal("Retained local label", app.ProfileEdit!.Draft.TeamName);
         Deliver(owner, "teamName", "Delivered owner");
         Assert.True(app.RefreshWorkspace(), app.Status);
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        var pointer = app.Synchronization.LocalRevision;
         Assert.False(app.SaveProfileEdit());
         Assert.Contains("changed externally", app.LocalSaveError);
         Assert.Equal("Retained local label", app.ProfileEdit!.Draft.TeamName);
-        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        Assert.Equal(pointer, app.Synchronization.LocalRevision);
         app.CancelProfileEdit();
         Assert.False(app.CanSafelyClose);
         Assert.NotNull(app.SaveNoteDraft(draft, "Private", "Independent retained writing"));
@@ -371,7 +426,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Independent_recovery_retains_visible_and_dormant_owned_Team_names(bool dormant)
+    public void Snapshot_transfer_retains_visible_and_dormant_owned_Team_names(bool dormant)
     {
         using var app = Open();
         const string owner = "morgan@example.com";
@@ -379,24 +434,20 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.StageProfileTeamName("Protected platform"));
         Assert.True(app.SaveProfileEdit(), app.Status);
         if (dormant) Assert.True(app.EditPersonManager(Email, "riley@example.com"), app.Status);
-        File.WriteAllText(CurrentPersonFile(owner), "Damaged current Person");
-        Assert.False(app.RefreshWorkspace());
         var destination = Path.Combine(root, "restored");
-        Assert.True(app.RecoverWorkspace(destination), app.Status);
-        Assert.Equal("Protected platform", app.GetRelationships(owner)!.Person.TeamName);
-        Assert.Equal(!dormant, app.CanEditTeamName(owner));
-        Assert.Equal(dormant ? [] : new[] { "Protected platform" }, app.GetTeamNames(owner).Select(s => s.Name));
-        Assert.Empty(app.GetProfileTimeline(owner)!.Changes);
-        if (dormant) Assert.True(app.EditPersonManager(Email, owner), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(destination), reopened.Status);
+        WorkspaceFixtures.JoinSnapshot(app, reopened, Path.Combine(root, "transport"));
+        Assert.Equal("Protected platform", reopened.GetRelationships(owner)!.Person.TeamName);
+        Assert.Equal(!dormant, reopened.CanEditTeamName(owner));
+        Assert.Equal(dormant ? [] : new[] { "Protected platform" }, reopened.GetTeamNames(owner).Select(s => s.Name));
+        Assert.Empty(reopened.GetProfileTimeline(owner)!.Changes);
+        if (dormant) Assert.True(reopened.EditPersonManager(Email, owner), reopened.Status);
         Assert.Equal("Protected platform", Assert.Single(reopened.GetTeamNames(owner)).Name);
     }
 
-    [Theory]
-    [InlineData(".workspace.lock")]
-    [InlineData("workspace.json")]
-    public void Rejected_Team_name_publication_retains_complete_profile_and_independent_note_drafts(string lockedFile)
+    [Fact]
+    public void Rejected_Team_name_transaction_retains_complete_profile_and_independent_note_drafts()
     {
         using var app = Open();
         const string owner = "morgan@example.com";
@@ -409,19 +460,20 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.BeginProfileEdit(owner));
         Assert.True(app.StageProfileTeamName("Renamed platform"));
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "008"));
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
-        using (File.Open(Path.Combine(Folder, lockedFile), FileMode.Open, FileAccess.Read, FileShare.Read))
+        var pointer = app.Synchronization.LocalRevision;
+        using (WorkspaceFixtures.LockLocalStore(Folder))
         {
             Assert.False(app.SaveProfileEdit());
             Assert.Contains("NOT saved", app.LocalSaveError);
             Assert.Equal("Renamed platform", app.ProfileEdit!.Draft.TeamName);
             Assert.Equal("008", app.ProfileEdit.Draft.OfficeNumber);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
             using var unchanged = Reopen();
             Assert.Equal("Saved platform", Assert.Single(unchanged.GetTeamNames(owner)).Name);
             Assert.Null(unchanged.GetRelationships(owner)!.Person.OfficeNumber);
             Assert.Equal("Saved writing", Assert.Single(unchanged.GetPersonNotes(owner)).Markdown);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.SaveProfileEdit(), app.Status);
         Assert.False(app.CanSafelyClose);
         Assert.NotNull(app.SaveNoteDraft(noteDraft, "Context", "Independent retained writing"));
@@ -457,7 +509,8 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
                 Assert.True(provider.SaveProfileEdit(), provider.Status);
             }
         }
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        using var durableBefore = Reopen();
+        var pointer = durableBefore.Synchronization.LocalRevision;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             Assert.False(app.SaveProfileEdit());
@@ -465,7 +518,8 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             Assert.Equal("Retained local label", app.ProfileEdit!.Draft.TeamName);
             Assert.Equal("009", app.ProfileEdit.Draft.OfficeNumber);
             Assert.False(app.CanSafelyClose);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            using var durableAfter = Reopen();
+            Assert.Equal(pointer, durableAfter.Synchronization.LocalRevision);
         }
         app.CancelProfileEdit();
         using var reopened = Reopen();
@@ -476,7 +530,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Private_Team_name_delivery_refreshes_without_history_and_invalid_delivery_retains_last_valid_state()
+    public void Private_Team_name_delivery_refreshes_without_history_and_invalid_local_edit_retains_last_valid_state()
     {
         using var app = Open();
         const string owner = "morgan@example.com";
@@ -487,11 +541,12 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.Empty(app.GetProfileTimeline(owner)!.Changes);
         using (var reopened = Reopen())
             Assert.Equal("Delivered private context", Assert.Single(reopened.GetTeamNames(owner)).Name);
-        Deliver(owner, "teamName", " ");
-        Assert.False(app.RefreshWorkspace());
-        Assert.False(app.IsWorkspaceCurrent);
+        Assert.True(app.BeginProfileEdit(owner));
+        Assert.True(app.StageProfileTeamName(" "));
+        Assert.False(app.SaveProfileEdit());
         Assert.Contains("teamName", app.Status);
         Assert.Equal("Delivered private context", Assert.Single(app.GetTeamNames(owner)).Name);
+        app.CancelProfileEdit();
         Deliver(owner, "teamName", "Corrected delivery");
         Assert.True(app.RefreshWorkspace(), app.Status);
         Assert.Equal("Corrected delivery", Assert.Single(app.GetTeamNames(owner)).Name);
@@ -512,7 +567,7 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
         Assert.True(app.StageProfileManager("riley@example.com"));
         Assert.True(app.StageProfilePhoto(image));
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        var pointer = app.Synchronization.LocalRevision;
         using (var before = Reopen())
         {
             Assert.Equal("Engineer", before.GetRelationships(Email)!.Person.JobTitle);
@@ -520,18 +575,19 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             Assert.Empty(before.GetHistoricalTeamContexts(Email));
         }
         app.CancelProfileEdit();
-        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        Assert.Equal(pointer, app.Synchronization.LocalRevision);
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
         Assert.True(app.StageProfileManager("riley@example.com"));
         Assert.True(app.StageProfilePhoto(image));
-        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(Folder))
         {
             Assert.False(app.SaveProfileEdit());
             Assert.Equal("Principal", app.ProfileEdit!.Draft.JobTitle);
             Assert.Equal(Email, app.ProfileEdit.Basis.Email);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.EditPreferredName(Email, "My Avery"), app.Status);
         Assert.True(app.EditFavorite(Email, true), app.Status);
         Assert.NotNull(app.CreatePersonNote(Email, "Private context", "# Retained"));
@@ -565,8 +621,8 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         Assert.True(app.BeginProfileEdit(Email));
         Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Principal"));
         Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "009"));
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
-        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        var pointer = app.Synchronization.LocalRevision;
+        using (WorkspaceFixtures.LockLocalStore(Folder))
         {
             Assert.False(app.TryLeaveProfileEdit(ProfileLeaveDecision.Save));
             Assert.Contains("NOT saved", app.Status);
@@ -574,8 +630,9 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             Assert.False(app.IsImportOpen);
             Assert.Equal(Email, app.ProfileEdit!.Basis.Email);
             Assert.Equal("Principal", app.ProfileEdit.Draft.JobTitle);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.TryLeaveProfileEdit(ProfileLeaveDecision.Save), app.Status);
         Assert.True(app.TryOpenImport(), app.Status);
         var import = Path.Combine(root, "review.json");
@@ -614,23 +671,24 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
             """);
         var review = app.PreviewImportFile(import);
         Assert.True(review.CanApply, app.Status);
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
-        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        var pointer = app.Synchronization.LocalRevision;
+        using (WorkspaceFixtures.LockLocalStore(Folder))
         {
             Assert.False(app.ApplyImport(review.Id));
             Assert.Contains("NOT saved", app.LocalSaveError);
             Assert.False(app.CanSafelyClose);
             Assert.Equal("Engineer", app.GetRelationships(Email)!.Person.JobTitle);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
             app.ShowPeople();
             Assert.False(app.IsImportOpen);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         var failure = app.LocalSaveError;
         Assert.True(app.TryOpenImport(), app.Status);
         Assert.True(app.IsImportOpen);
         Assert.Equal(failure, app.LocalSaveError);
         Assert.False(app.CanSafelyClose);
-        Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+        Assert.Equal(pointer, app.Synchronization.LocalRevision);
         review = app.PreviewImportFile(import);
         Assert.True(review.CanApply, app.Status);
         using (var beforeApply = Reopen())
@@ -665,40 +723,39 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
              {"email":"avery@example.com","jobTitle":"Abandoned import"}]}
             """);
         Assert.True(review.CanApply, app.Status);
-        var pointer = File.ReadAllBytes(Path.Combine(Folder, "workspace.json"));
+        var pointer = app.Synchronization.LocalRevision;
         NoteDraft? noteDraft = null;
-        using (File.Open(Path.Combine(Folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        if (independent is "Person" or "Team")
+        {
+            var scope = independent == "Person" ? NoteScope.Person : NoteScope.Team;
+            noteDraft = app.BeginNoteDraft(scope, Email, scope == NoteScope.Person ? personNote.Id : teamNote.Id)!;
+            Assert.Null(app.SaveNoteDraft(noteDraft, "", "# Retained writing"));
+        }
+        else if (independent == "preferred")
+            Assert.False(app.EditPreferredName(Email, " "));
+        else if (independent == "profile")
+        {
+            Assert.True(app.BeginProfileEdit(Email));
+            Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained profile"));
+        }
+        using (WorkspaceFixtures.LockLocalStore(Folder))
         {
             Assert.False(app.ApplyImport(review.Id));
             Assert.True(app.HasFailedImport);
             Assert.False(app.CanSafelyClose);
             app.ShowPeople();
-            if (independent is "Person" or "Team")
-            {
-                var scope = independent == "Person" ? NoteScope.Person : NoteScope.Team;
-                noteDraft = app.BeginNoteDraft(scope, Email, scope == NoteScope.Person ? personNote.Id : teamNote.Id)!;
-                Assert.Null(app.SaveNoteDraft(noteDraft, "", "# Retained writing"));
-            }
-            else if (independent == "preferred")
-                Assert.False(app.EditPreferredName(Email, " "));
-            else if (independent == "profile")
-            {
-                Assert.True(app.BeginProfileEdit(Email));
-                Assert.True(app.StageProfileText(PersonTextField.JobTitle, "Retained profile"));
-            }
             app.DiscardImportChanges();
             Assert.False(app.HasFailedImport);
-            Assert.Contains("Import discarded", app.Status);
-            Assert.Equal(independent == "none", app.CanSafelyClose);
+            Assert.True(app.LocalSave.EditsPaused);
+            Assert.False(app.CanSafelyClose);
             var restarted = false;
-            Assert.Equal(independent == "none", app.RestartWhenSafe(_ => restarted = true));
-            Assert.Equal(independent == "none", restarted);
-            Assert.Equal(pointer, File.ReadAllBytes(Path.Combine(Folder, "workspace.json")));
+            Assert.False(app.RestartWhenSafe(_ => restarted = true));
+            Assert.False(restarted);
+            Assert.Equal(pointer, app.Synchronization.LocalRevision);
             if (independent == "profile")
                 Assert.Equal("Retained profile", app.ProfileEdit!.Draft.JobTitle);
-            if (independent == "preferred") Assert.Contains("preferredName", app.LocalSaveError);
-            if (noteDraft is not null) Assert.Contains(independent + " note", app.LocalSaveError);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.False(app.ApplyImport(review.Id));
         Assert.Contains("missing or stale", app.Status);
         if (noteDraft is not null)
@@ -735,15 +792,16 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
                 "department" => PersonTextField.Department,
                 _ => PersonTextField.PreferredName
             }, "Delivered"), provider.Status);
-        var personFile = CurrentPersonFile(Email);
-        var delivered = File.ReadAllBytes(personFile);
+        using var deliveredReader = Reopen();
+        var delivered = deliveredReader.GetRelationships(Email)!.Person;
         if (refresh) Assert.True(app.RefreshWorkspace(), app.Status);
         for (var attempt = 0; attempt < 2; attempt++)
         {
             Assert.False(app.SaveProfileEdit());
             Assert.Contains("changed externally", app.Status);
             Assert.Equal("Local draft", app.ProfileEdit!.Draft.JobTitle);
-            Assert.Equal(delivered, File.ReadAllBytes(personFile));
+            using var unchanged = Reopen();
+            Assert.Equal(delivered, unchanged.GetRelationships(Email)!.Person);
             Assert.False(app.CanSafelyClose);
             Assert.False(app.TryOpenImport());
             Assert.False(app.IsImportOpen);
@@ -835,17 +893,21 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         return app;
     }
 
-    private string CurrentPersonFile(string email)
-    {
-        return WorkspaceFixtures.IndexedDocuments(Folder)["people:" + email];
-    }
-
     private void Deliver(string email, string field, string? value)
     {
-        var path = CurrentPersonFile(email);
-        var json = JsonNode.Parse(File.ReadAllText(path))!;
-        json[field] = value;
-        File.WriteAllText(path, json.ToJsonString());
+        using var provider = Reopen();
+        if (field == "teamName")
+        {
+            Assert.True(provider.BeginProfileEdit(email));
+            Assert.True(provider.StageProfileTeamName(value));
+            Assert.True(provider.SaveProfileEdit(), provider.Status);
+        }
+        else Assert.True(provider.EditPersonText(email, field switch
+        {
+            "department" => PersonTextField.Department,
+            "officeNumber" => PersonTextField.OfficeNumber,
+            _ => throw new ArgumentOutOfRangeException(nameof(field))
+        }, value), provider.Status);
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }

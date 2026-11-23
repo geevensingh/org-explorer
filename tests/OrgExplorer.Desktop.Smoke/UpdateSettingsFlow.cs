@@ -54,7 +54,7 @@ internal static partial class Program
                 startup.Toggle();
                 AwaitStartupPreference(window, ToggleState.Off);
                 SetSettingsVisible(window, false);
-                Close(process);
+                ClosePublishedWorkspace(process, workspace);
             }
             finally { held.TrySetResult(); StopApplication(process); }
         }
@@ -106,8 +106,7 @@ internal static partial class Program
             Set(entry, "PreferredName", "Editable after update failure");
             Click(entry, "SavePreferredName");
             Await(() => Activity(window) == "Ready" &&
-                Status(window) ==
-                    "Saved locally.\nStorage reclamation deferred for preserved unretired transactions.");
+                Status(window) == "Saved locally.");
             AssertPreferredNameReading(window, "Editable after update failure", "Edit");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
@@ -121,7 +120,7 @@ internal static partial class Program
             startup.Toggle();
             AwaitStartupPreference(window, ToggleState.On);
             SetSettingsVisible(window, false);
-            Close(reopened);
+            ClosePublishedWorkspace(reopened, workspace);
         }
         finally { StopApplication(reopened); }
 
@@ -138,7 +137,7 @@ internal static partial class Program
             if (((TogglePattern)Find(window, "StartupUpdateChecks").GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState != ToggleState.On)
                 throw new InvalidOperationException("Re-enabled startup checks did not survive reopen.");
             SetSettingsVisible(window, false);
-            Close(rejectedStartup);
+            ClosePublishedWorkspace(rejectedStartup, workspace);
         }
         finally { StopApplication(rejectedStartup); }
     }
@@ -170,13 +169,13 @@ internal static partial class Program
         Set(window, "PersonNoteTitle", "Automatic update writing");
         Set(window, "PersonNoteMarkdown", "Durable draft before update");
         AwaitLocalWorkIdle(window);
-        var noteFile = Directory.GetFiles(Path.Combine(workspace, "notes"), "*.md")
-            .Single(path => File.ReadAllText(path).Contains("Durable draft before update"));
+        var noteId = SmokeNoteId(workspace, "avery@example.com", "Automatic update writing");
+        var noteFile = Path.Combine(workspace, "workspace.sqlite");
         var handoff = Path.Combine(fixtureDirectory, "handoff.json");
         File.Delete(handoff);
         fixture.Package = ControlledFullPackage("9999.0.0");
         File.WriteAllBytes(Path.Combine(fixtureDirectory, "package.nupkg"), fixture.Package);
-        using (File.Open(noteFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (OrgExplorer.TestFixtures.WorkspaceFixtures.LockLocalStore(workspace))
         {
             Set(window, "PersonNoteMarkdown", "Retained failing update draft");
             Await(() => Find(window, "PersonNoteStatus").Current.Name.Contains("NOT saved"));
@@ -188,6 +187,7 @@ internal static partial class Program
             if (File.Exists(handoff))
                 throw new InvalidOperationException("An unsaved real WPF draft reached the installer boundary.");
         }
+        ReconcileSmokeLocalSaves(window);
         Click(window, "RetryPersonNoteSave");
         AwaitLocalWorkIdle(window);
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -208,7 +208,7 @@ internal static partial class Program
             string durable;
             try
             {
-                durable = File.ReadAllText(noteFile).Contains("Final private writing flushed before update", StringComparison.Ordinal)
+                durable = ReadSmokePersonNote(workspace, noteId).Markdown == "Final private writing flushed before update"
                     ? "final writing saved" : "final writing absent";
             }
             catch (Exception readError) when (readError is IOException or UnauthorizedAccessException)
@@ -228,7 +228,7 @@ internal static partial class Program
             throw new InvalidOperationException("The update handoff lost the active Workspace or exact authorized version.");
         var expectedHash = request.RootElement.GetProperty("workspaceFiles")
             .GetProperty(Path.GetRelativePath(workspace, noteFile)).GetString();
-        if (!File.ReadAllText(noteFile).Contains("Final private writing flushed before update") ||
+        if (ReadSmokePersonNote(workspace, noteId).Markdown != "Final private writing flushed before update" ||
             Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(noteFile))) != expectedHash)
             throw new InvalidOperationException("The actual installer handoff preceded durable WPF draft publication.");
     }

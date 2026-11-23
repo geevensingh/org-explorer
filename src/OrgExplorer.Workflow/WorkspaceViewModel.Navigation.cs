@@ -250,7 +250,17 @@ public sealed partial class WorkspaceViewModel
         }
         changingDestination = true;
         bool accepted;
-        try { accepted = NavigatePeopleCore(context.Owner.Email, null) && OpenOwnedNote(NoteScope.Team, noteId); }
+        try
+        {
+            accepted = NavigatePeopleCore(context.Owner.Email, null);
+            if (accepted)
+            {
+                var view = TeamNotesView;
+                var editing = view.SelectedNote?.Id == noteId && view.IsEditing &&
+                    HasUnsavedNoteDraft(NoteScope.Team, noteId);
+                accepted = OpenOwnedNote(NoteScope.Team, noteId, editing);
+            }
+        }
         finally { changingDestination = false; }
         if (accepted) RememberCurrentView(NoteScope.Team);
         return accepted;
@@ -308,13 +318,14 @@ public sealed partial class WorkspaceViewModel
         if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
         if (requireNavigation)
         {
-            OpenOngoingNote(NoteScope.Person);
-            OpenOngoingNote(NoteScope.Team);
+            foreach (var scope in Enum.GetValues<NoteScope>())
+                if (!GetOwnedNotesView(scope).HasUnsavedChanges) OpenOngoingNote(scope);
         }
         if (result?.Source == SearchSource.PersonNote && result.NoteId is { } personNote &&
             !OpenOwnedNote(NoteScope.Person, personNote)) return false;
         if (result?.Source == SearchSource.OwnedTeamNote && result.NoteId is { } teamNote &&
             !OpenOwnedNote(NoteScope.Team, teamNote)) return false;
+        workflow.SelectProfilePerson(person.Email);
         PeopleNavigation = PeopleNavigation with { SelectedEmail = person.Email, SelectedResult = result, OverlayOpen = false };
         return true;
     }

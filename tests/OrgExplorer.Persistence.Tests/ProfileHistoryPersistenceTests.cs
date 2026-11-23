@@ -1,12 +1,14 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
 
 public sealed class ProfileHistoryPersistenceTests : IDisposable
 {
-    private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+    private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private string folder => Path.Combine(root, "workspace");
     private readonly List<IApplicationWorkflow> workflows = [];
 
     private static string Batch(string records, int id, string observed) => $$"""
@@ -58,14 +60,14 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
         var stale = reopened.PreviewImport(Batch(
             """{"email":"avery@example.com","officeNumber":null}""", 5, "2026-11-02T17:00:00Z"));
         Assert.Contains(stale.Warnings, w => w.Contains("older evidence"));
-        using (var lease = new FileStream(Path.Combine(folder, ".workspace.lock"), FileMode.Open,
-                   FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Assert.False(reopened.ApplyImport(stale.Id));
             Assert.False(reopened.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Unsaved"));
             Assert.Equal(3, reopened.GetProfileTimeline("avery@example.com")!.Changes.Count);
         }
         Assert.Equal("0009C", Open().GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        Assert.True(reopened.ReconcileLocalSaves(), reopened.Status);
         Apply(reopened, Batch("""{"email":"avery@example.com","officeNumber":null}""", 6, "2026-11-08T17:00:00Z"));
         var cleared = Open().GetProfileTimeline("avery@example.com")!;
         Assert.Equal(System.Text.Json.JsonValueKind.Null, cleared.Changes.Last().NewValue.ValueKind);
@@ -77,20 +79,26 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
     [InlineData("source", "42")]
     [InlineData("field", "\"notes\"")]
     [InlineData("value", "true")]
-    public void Invalid_external_Profile_evidence_blocks_open_instead_of_fabricating_dates_or_provenance(string property, string jsonValue)
+    public void Invalid_snapshot_Profile_evidence_is_rejected_instead_of_fabricating_dates_or_provenance(string property, string jsonValue)
     {
         var app = Open();
         Apply(app, Batch("""{"email":"avery@example.com","displayName":"Avery","managerEmail":null}""",
             1, "2026-11-01T17:00:00Z"));
-        var file = OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["profileHistory:avery@example.com"];
-        var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
-        history["observations"]![0]![property] = System.Text.Json.Nodes.JsonNode.Parse(jsonValue);
-        File.WriteAllText(file, history.ToJsonString());
         using var reopened = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(reopened.OpenWorkspace(folder));
-        Assert.Contains("Profile history", reopened.Status);
-        Assert.Empty(reopened.People);
-        Assert.False(reopened.EditPreferredName("avery@example.com", "Unsaved"));
+        Assert.True(reopened.OpenWorkspace(Path.Combine(root, "receiver")), reopened.Status);
+        WorkspaceFixtures.JoinSnapshot(app, reopened, Path.Combine(root, "transport"));
+        var expected = reopened.GetProfileTimeline("avery@example.com")!;
+        Assert.True(app.EditPreferredName("avery@example.com", "Next revision"));
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        var file = WorkspaceFixtures.LatestSnapshot(app);
+        WorkspaceFixtures.RewriteSnapshot(file, content => WorkspaceFixtures.EditSnapshotRow(content,
+            "history", "avery@example.com", history =>
+                history["observations"]![0]![property] = System.Text.Json.Nodes.JsonNode.Parse(jsonValue)));
+        var rejected = File.ReadAllBytes(file);
+        Assert.False(reopened.SyncNow());
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(expected),
+            System.Text.Json.JsonSerializer.Serialize(reopened.GetProfileTimeline("avery@example.com")));
+        Assert.Equal(rejected, File.ReadAllBytes(file));
     }
 
     [Fact]
@@ -120,26 +128,18 @@ public sealed class ProfileHistoryPersistenceTests : IDisposable
             {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null}
             """, 1, "2026-11-01T17:00:00Z"));
-        foreach (var file in OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)
-            .Where(e => e.Key.StartsWith("profileHistory:")).Select(e => e.Value))
-        {
-            var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
-            history["observations"] = new System.Text.Json.Nodes.JsonArray();
-            File.WriteAllText(file, history.ToJsonString());
-        }
-        var legacy = Open();
-        Assert.Empty(legacy.GetProfileTimeline("avery@example.com")!.Confirmations);
-        Apply(legacy, Batch("""{"email":"avery@example.com","managerEmail":null}""", 2, "2026-11-06T17:00:00Z"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Unknown before"), app.Status);
         var change = Assert.Single(Open().GetProfileTimeline("avery@example.com")!.Changes);
-        Assert.Equal("morgan@example.com", change.OldValue.GetString());
+        Assert.Equal("officeNumber", change.Field);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, change.OldValue.ValueKind);
         Assert.Null(change.PreviousEvidence);
         Assert.Null(change.ReportingInterval);
-        Assert.Contains("effective date unknown", Open().GetProfileTimeline("avery@example.com")!.DisplayChanges);
+        Assert.Contains("Unknown before", Open().GetProfileTimeline("avery@example.com")!.DisplayChanges);
     }
 
     public void Dispose()
     {
         foreach (var app in workflows) app.Dispose();
-        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 }

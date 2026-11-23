@@ -4,8 +4,16 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $compiled = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Assembly).Path))
-if ($compiled.GetType('OrgExplorer.Desktop.ControlledUpdateEffectsMarker')) {
-    throw 'Controlled external update effects leaked into the product publish.'
+foreach ($testType in @(
+    'OrgExplorer.Desktop.ControlledUpdateEffectsMarker',
+    'OrgExplorer.TestFixtures.WorkspacePublicState',
+    'OrgExplorer.TestFixtures.InstallerPreservationEvidence',
+    'OrgExplorer.TestFixtures.InstallerImportReplay',
+    'OrgExplorer.TestFixtures.InstallerWorkspacePreservation'
+)) {
+    if ($compiled.GetType($testType)) {
+        throw "Controlled external update effects or preservation oracle leaked into the product publish: $testType"
+    }
 }
 $stream = $compiled.GetManifestResourceStream('OrgExplorer.UpdateTrust.json')
 if (!$stream) { throw 'The published app has no embedded update trust configuration.' }

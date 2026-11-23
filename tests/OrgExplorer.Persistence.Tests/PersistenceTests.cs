@@ -1,4 +1,5 @@
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
@@ -11,6 +12,26 @@ public sealed class PersistenceTests : IDisposable
         "observedAt":"2026-11-01T17:00:00Z","people":[
         {"email":"avery@example.com","displayName":"Avery Example","managerEmail":null}]}
         """;
+
+    [Fact]
+    public void Current_fixture_opens_normally_with_complete_private_context_and_frozen_history()
+    {
+        WorkspaceFixtures.CopyCurrent(folder);
+        using var app = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(app.OpenWorkspace(folder), app.Status);
+        Assert.Equal(5, app.People.Count);
+        var avery = app.GetRelationships("avery@example.com")!.Person;
+        Assert.Equal(("Ave", "0009C", "alex@example.com"), (avery.Heading, avery.OfficeNumber, avery.ManagerEmail));
+        Assert.Equal("# Person writing\n**Preserved** café.", Assert.Single(app.GetPersonNotes(avery.Email)).Markdown);
+        Assert.Equal("Retained, not deleted.", Assert.Single(app.GetPersonNotes("former@example.com", true)).Markdown);
+        Assert.NotNull(app.GetPhoto(avery.Email));
+        var capture = Assert.Single(app.GetHistoricalTeamContexts(avery.Email));
+        Assert.Equal(new[] { "morgan@example.com", "casey@example.com" }, capture.ReportingChain.Select(p => p.Email));
+        Assert.Equal("# Frozen team\nOld team writing.", capture.TeamNotes[0].Markdown);
+        Assert.Equal("Later writing must not rewrite frozen history.",
+            Assert.Single(app.GetTeamNotes("morgan@example.com")).Markdown);
+        Assert.Equal("Fictitious transfer", capture.Transitions[0].Change.Evidence.Producer);
+    }
 
     [Fact]
     public void Applied_Person_and_local_preferred_name_survive_reopening()
@@ -61,20 +82,14 @@ public sealed class PersistenceTests : IDisposable
         Assert.True(app.OpenWorkspace(folder));
         Assert.True(app.ApplyImport(app.PreviewImport(Batch).Id));
         Assert.True(app.EditPreferredName("avery@example.com", "Ave"));
-        var recovery = folder + ".recovery";
-        Directory.Move(folder, recovery);
-        File.WriteAllText(folder, "Simulated unavailable Workspace path");
-        try
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Assert.False(app.EditPreferredName("avery@example.com", "Unsaved"));
-            Assert.Contains("NOT saved", app.Status);
+            Assert.Equal(LocalSaveOutcome.NotCommitted, app.LocalSave.Outcome);
+            Assert.True(app.LocalSave.EditsPaused);
             Assert.Equal("Ave", Assert.Single(app.People).PreferredName);
         }
-        finally
-        {
-            File.Delete(folder);
-            Directory.Move(recovery, folder);
-        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         using var reopened = ApplicationWorkflow.CreateFileBacked();
         Assert.True(reopened.OpenWorkspace(folder), reopened.Status);
         Assert.Equal("Ave", Assert.Single(reopened.People).PreferredName);

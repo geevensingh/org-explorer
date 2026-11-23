@@ -173,8 +173,9 @@ public sealed class WorkspaceSettings
     public bool RestoreWorkspace(IApplicationWorkflow workflow, string? restartWorkspace = null) =>
         (restartWorkspace ?? LastWorkspacePath) is { } path && OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.ExistingOnly);
 
-    public bool OpenWorkspace(IApplicationWorkflow workflow, string path) =>
-        OpenWorkspaceCore(workflow, path, WorkspaceOpenMode.OpenOrCreate);
+    public bool OpenWorkspace(IApplicationWorkflow workflow, string path,
+        WorkspaceOpenMode mode = WorkspaceOpenMode.OpenOrCreate) =>
+        OpenWorkspaceCore(workflow, path, mode);
 
     private bool OpenWorkspaceCore(IApplicationWorkflow workflow, string path, WorkspaceOpenMode mode)
     {

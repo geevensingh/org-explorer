@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -11,19 +10,191 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static IApplicationWorkflow OpenSmokeWorkspace(string folder)
+    {
+        var workflow = ApplicationWorkflow.CreateFileBacked();
+        if (workflow.OpenWorkspace(folder, WorkspaceOpenMode.ExistingOnly)) return workflow;
+        var status = workflow.Status;
+        workflow.Dispose();
+        throw new InvalidOperationException(status);
+    }
+
+    private static PersonNote ReadSmokePersonNote(string folder, Guid id)
+    {
+        using var workflow = OpenSmokeWorkspace(folder);
+        return workflow.People.SelectMany(person => workflow.GetPersonNotes(person.Email, includeArchived: true))
+            .Single(note => note.Id == id);
+    }
+
+    private static TeamNote ReadSmokeTeamNote(string folder, Guid id)
+    {
+        using var workflow = OpenSmokeWorkspace(folder);
+        return workflow.People.SelectMany(person => workflow.GetTeamNotes(person.Email, includeArchived: true))
+            .Single(note => note.Id == id);
+    }
+
+    private static Guid SmokeNoteId(string folder, string owner, string title, bool team = false)
+    {
+        using var workflow = OpenSmokeWorkspace(folder);
+        return team ? workflow.GetTeamNotes(owner, includeArchived: true).Single(note => note.Title == title).Id :
+            workflow.GetPersonNotes(owner, includeArchived: true).Single(note => note.Title == title).Id;
+    }
+
+    private static string SmokeSnapshotFolder(string workspace) =>
+        Path.Combine(Path.GetDirectoryName(workspace)!, Path.GetFileName(workspace) + "-snapshots");
+
+    private static string SmokePublicationFolder(string workspace, string? requested = null)
+    {
+        if (requested is not null) return requested;
+        using var current = OpenSmokeWorkspace(workspace);
+        return current.Synchronization.Folder ?? SmokeSnapshotFolder(workspace);
+    }
+
+    private static void ConfigureSmokeSnapshotFolder(string workspace, Action<string> chooseFolder)
+    {
+        var folder = SmokePublicationFolder(workspace);
+        Directory.CreateDirectory(folder);
+        chooseFolder(folder);
+    }
+
+    private static void ClosePublishedWorkspace(Process process, string workspace)
+    {
+        var window = Window(process);
+        PrepareSmokeNormalClose(workspace, () => PublishSmokeWorkspace(window, workspace));
+        Close(process);
+    }
+
+    private static void PublishSmokeWorkspace(AutomationElement window, string workspace, string? synchronizationFolder = null)
+    {
+        PublishSmokeWorkspace(workspace, () =>
+        {
+            SetSettingsVisible(window, true);
+            var transport = SmokePublicationFolder(workspace, synchronizationFolder);
+            if (Find(window, "SynchronizationFolder").Current.Name != transport)
+            {
+                Directory.CreateDirectory(transport);
+                PickWorkspaceFolder(window, transport, "ConfigureSynchronizationFolder");
+            }
+            Await(() => Find(window, "SynchronizationFolder").Current.Name == transport);
+            Click(window, "SyncNow");
+            Await(() => Find(window, "SyncNow").Current.IsEnabled &&
+                Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published.", StringComparison.Ordinal));
+        });
+        SetSettingsVisible(window, false);
+    }
+
+    private static void PublishSmokeWorkspace(string workspace, Action synchronize)
+    {
+        Guid? identity;
+        using (var before = OpenSmokeWorkspace(workspace))
+            identity = before.Synchronization.WorkspaceId;
+        synchronize();
+        using var published = OpenSmokeWorkspace(workspace);
+        if (published.Synchronization.WorkspaceId != identity ||
+            published.Synchronization.PublishedRevision != published.Synchronization.LocalRevision ||
+            published.Synchronization.HasUnpublishedChanges)
+            throw new InvalidOperationException("Synchronization did not publish the exact independently reopened current revision.");
+    }
+
+    private static void PrepareSmokeNormalClose(string workspace, Action publish)
+    {
+        Guid? identity, revision;
+        string? configuredFolder;
+        using (var before = OpenSmokeWorkspace(workspace))
+        {
+            identity = before.Synchronization.WorkspaceId;
+            revision = before.Synchronization.LocalRevision;
+            configuredFolder = before.Synchronization.Folder;
+        }
+        publish();
+        using (var published = OpenSmokeWorkspace(workspace))
+            if (published.Synchronization.WorkspaceId != identity || published.Synchronization.LocalRevision != revision ||
+                published.Synchronization.PublishedRevision != revision || published.Synchronization.HasUnpublishedChanges ||
+                configuredFolder is not null && published.Synchronization.Folder != configuredFolder)
+                throw new InvalidOperationException("Normal-close preparation changed or failed to publish the exact independently reopened local revision.");
+    }
+
+    private static void PublishSmokeWorkspaceForClose(string workspace, string folder, Action publish)
+    {
+        using (var current = OpenSmokeWorkspace(workspace))
+            if (current.Synchronization.Folder == folder &&
+                current.Synchronization.LocalRevision is { } revision &&
+                current.Synchronization.PublishedRevision == revision &&
+                !current.Synchronization.HasUnpublishedChanges && current.CanSafelyClose)
+                return;
+        PublishSmokeWorkspace(workspace, publish);
+    }
+
+    private static void ReconcileSmokeLocalSaves(AutomationElement window)
+    {
+        Click(window, "NoticeRetry");
+        Await(() => !Activity(window).Contains("Editing is paused", StringComparison.Ordinal) &&
+            !Activity(window).Contains("Reconciling", StringComparison.Ordinal));
+    }
+
+    private static bool IsSmokeRejectedSave(string feedback, string localState) =>
+        localState == "Local save: Failed; outcome: NotCommitted" &&
+        feedback.Contains("NOT saved", StringComparison.Ordinal);
+
+    private static bool IsSmokeImportDiscardComplete(bool discardVisible, bool applyEnabled) =>
+        !discardVisible && !applyEnabled;
+
+    private static bool SmokeImportDiscardComplete(AutomationElement window)
+    {
+        var discard = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "DiscardImport"));
+        var apply = window.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "ApplyImport"));
+        return IsSmokeImportDiscardComplete(discard is not null && !discard.Current.IsOffscreen,
+            apply is not null && apply.Current.IsEnabled && !apply.Current.IsOffscreen);
+    }
+
+    private sealed class SmokeSnapshotPeer : IDisposable
+    {
+        internal IApplicationWorkflow Workflow { get; }
+        internal string Transport { get; }
+
+        internal SmokeSnapshotPeer(string workspace)
+        {
+            Transport = SmokeSnapshotFolder(workspace);
+            using var source = OpenSmokeWorkspace(workspace);
+            Workflow = ApplicationWorkflow.CreateFileBacked();
+            // Leave room for SQLite's nested snapshot-validation and journal paths.
+            var peer = Path.Combine(Path.GetDirectoryName(workspace)!, "peer-" + Guid.NewGuid().ToString("N"));
+            if (!Workflow.OpenWorkspace(peer))
+                throw new InvalidOperationException(Workflow.Status);
+            WorkspaceFixtures.JoinSnapshot(source, Workflow, Transport);
+        }
+
+        internal void Publish(Func<IApplicationWorkflow, bool> change)
+        {
+            if (!change(Workflow) || !Workflow.SyncNow())
+                throw new InvalidOperationException(Workflow.Status + "\n" + Workflow.Synchronization.Summary);
+        }
+
+        public void Dispose() => Workflow.Dispose();
+    }
+
     private static void RunExternalRefreshFlow(string executable, string root)
     {
         var folder = Path.Combine(root, "external-workspace");
-        Directory.CreateDirectory(folder);
-        var import = Path.Combine(root, "external-import.json");
         var photo = Path.Combine(root, "external.png");
         CreatePhotoFixture(photo);
-        File.WriteAllText(import, """
-            {"schemaVersion":1,"batchId":"80000000-0000-4000-8000-000000000001",
-            "observedAt":"2026-11-01T17:00:00Z","people":[
-            {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"casey@example.com","photoPath":"external.png"},
-            {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null}]}
-            """);
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"80000000-0000-4000-8000-000000000001",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"casey@example.com"},
+                 {"email":"casey@example.com","displayName":"Casey Example","managerEmail":null}]}
+                """).Id) || !seed.EditPhoto("avery@example.com", photo) ||
+                seed.CreatePersonNote("avery@example.com", "Private context", "# Saved context") is null ||
+                seed.CreateTeamNote("avery@example.com", "Owned context", "# Saved owned Team context") is null ||
+                seed.CreateTeamNote("casey@example.com", "Manager context", "# Saved inherited Team context") is null)
+                throw new InvalidOperationException(seed.Status);
+        using var peer = new SmokeSnapshotPeer(folder);
+        var personId = SmokeNoteId(folder, "avery@example.com", "Private context");
+        var ownedId = SmokeNoteId(folder, "avery@example.com", "Owned context", team: true);
+        var inheritedId = SmokeNoteId(folder, "casey@example.com", "Manager context", team: true);
         using var process = Launch(executable);
         try
         {
@@ -31,62 +202,34 @@ internal static partial class Program
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, folder);
             AwaitRestoredWorkspace(window, folder);
-            OpenImportView(window);
-            Set(window, "ImportPath", import);
-            Click(window, "PreviewImport");
-            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
-            Click(window, "ApplyImport");
-            Await(() => Status(window).Contains("Import applied"));
-            ReturnToPeople(window);
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
-            Click(window, "NewPersonNote");
-            Await(() => Find(window, "PersonNoteMarkdown").Current.IsEnabled);
-            Set(window, "PersonNoteMarkdown", "# Saved context");
-            AwaitLocalWorkIdle(window);
-            Click(window, "NewTeamNote");
-            Set(window, "TeamNoteMarkdown", "# Saved owned Team context");
-            NavigateToManager(window, "casey@example.com");
-            BeginProfileEditing(window);
-            Set(window, "JobTitle", "Original manager role");
-            SaveProfileEditing(window);
-            Click(window, "NewTeamNote");
-            Set(window, "TeamNoteTitle", "Manager context");
-            Set(window, "TeamNoteMarkdown", "# Saved inherited Team context");
-            OpenPerson(window, "casey@example.com");
-            SelectNote(window, "New Person note");
-            var noteFile = Directory.GetFiles(Path.Combine(folder, "notes"), "*.md").Single();
-            var teamFiles = Directory.GetFiles(Path.Combine(folder, "team-notes"), "*.md");
-            var ownedTeamFile = teamFiles.Single(p => File.ReadAllText(p).Contains("avery@example.com"));
-            var inheritedTeamFile = teamFiles.Single(p => File.ReadAllText(p).Contains("casey@example.com"));
-            var documents = WorkspaceFixtures.IndexedDocuments(folder);
-            var teamMetadataFile = documents["teamContext:casey@example.com"];
-            var personFile = documents["people:avery@example.com"];
-            var person = JsonNode.Parse(File.ReadAllText(personFile))!;
-            person["preferredName"] = "External Avery";
-            File.WriteAllText(personFile, person.ToJsonString());
-            File.WriteAllText(noteFile, File.ReadAllText(noteFile).Replace("# Saved context", "# External context"));
-            File.WriteAllText(ownedTeamFile, File.ReadAllText(ownedTeamFile).Replace("# Saved owned Team context", "# External owned Team context"));
-            File.WriteAllText(inheritedTeamFile, File.ReadAllText(inheritedTeamFile).Replace("# Saved inherited Team context", "# External inherited Team context"));
-            File.WriteAllText(teamMetadataFile, new JsonObject { ["casey@example.com"] = Guid.NewGuid() }.ToJsonString());
+            SelectNote(window, "Private context");
+            peer.Publish(source => source.EditPreferredName("avery@example.com", "External Avery") &&
+                source.EditPersonNote(personId, "Private context", "# External context") &&
+                source.EditTeamNote(ownedId, "Owned context", "# External owned Team context") &&
+                source.EditTeamNote(inheritedId, "Manager context", "# External inherited Team context") &&
+                source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Changed manager role"));
+            PublishSmokeWorkspace(window, folder);
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
             AssertPersonCategory(window, "Employee");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
-            SelectTeamNote(window, "New Team note");
+            SelectTeamNote(window, "Owned context");
             AssertNoteView(window, "Team", editing: false);
             Await(() => TeamReadingText(window).Contains("External owned Team context"));
             ExpandCurrentTeamContext(window);
             Await(() => Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"));
-            Await(() => ((TextPattern)Find(window, "InheritedTeamReading")
-                .GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1).Contains("External inherited Team context"));
-            var image = documents["photos:" + person["photoPath"]!.GetValue<string>()];
-            var timestamp = File.GetLastWriteTimeUtc(image);
+            Await(() => CurrentReadingText(window).Contains("External inherited Team context"));
+
+            var timestamp = File.GetLastWriteTimeUtc(photo);
             byte[] greenPixels = [0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255];
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(2, 2, 96, 96, PixelFormats.Bgra32, null, greenPixels, 8)));
-            using (var file = File.Create(image)) encoder.Save(file);
-            File.SetLastWriteTimeUtc(image, timestamp);
+            using (var file = File.Create(photo)) encoder.Save(file);
+            File.SetLastWriteTimeUtc(photo, timestamp);
+            peer.Publish(source => source.EditPhoto("avery@example.com", photo));
+            PublishSmokeWorkspace(window, folder);
             var scroll = (ScrollPattern)Find(window, "ProfileScroll").GetCurrentPattern(ScrollPattern.Pattern);
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
             Await(() =>
@@ -101,202 +244,75 @@ internal static partial class Program
                 }
                 finally { ReleaseDC(IntPtr.Zero, dc); }
             });
-            var valid = File.ReadAllText(personFile);
-            person["managerEmail"] = "missing@example.com";
-            File.WriteAllText(personFile, person.ToJsonString());
-            File.WriteAllText(noteFile, File.ReadAllText(noteFile).Replace("# External context", "# Pending context"));
-            Await(() => Freshness(window).Contains("STALE"));
+
+            var invalid = Path.Combine(peer.Transport, "invalid.oesnapshot");
+            File.WriteAllText(invalid, "{invalid");
+            SetSettingsVisible(window, true);
+            Click(window, "SyncNow");
+            Await(() => Find(window, "SynchronizationStatus").Current.Name.Contains("failed", StringComparison.OrdinalIgnoreCase));
+            SetSettingsVisible(window, false);
             if (Find(window, "ProfileHeading").Current.Name != "External Avery" ||
-                !Find(window, "NavigateManager").Current.Name.Contains("Casey Example"))
-                throw new InvalidOperationException("Invalid Workspace fabricated a new Person or reporting root.");
-            if (!ReadingText(window).Contains("External context") || ReadingText(window).Contains("Pending context"))
-                throw new InvalidOperationException("Invalid delivery changed the retained Person-note reading.");
-            if (Find(window, "EditPreferredName").Current.IsEnabled)
-                throw new InvalidOperationException("Stale Workspace still claims writable current Person state.");
-            File.WriteAllText(personFile, valid);
-            Await(() => Freshness(window).Contains("Current validated"));
-            Await(() => ReadingText(window).Contains("Pending context"));
+                !Find(window, "NavigateManager").Current.Name.Contains("Casey Example") ||
+                !ReadingText(window).Contains("External context") || !Find(window, "EditPreferredName").Current.IsEnabled ||
+                ReadSmokePersonNote(folder, personId).Markdown != "# External context")
+                throw new InvalidOperationException("Rejected snapshot delivery changed validated local reading or paused local editing.");
+            File.Delete(invalid);
+            SetSettingsVisible(window, true);
+            Click(window, "SyncNow");
+            Await(() => Find(window, "SynchronizationStatus").Current.Name.Contains("Locally saved and published."));
+            SetSettingsVisible(window, false);
             if (!Find(window, "InheritedTeamSummary").Current.Name.Contains("Needs review"))
-                throw new InvalidOperationException("Recovery silently confirmed externally changed Team context.");
-            AssertFirstAutosaveDeliveryConflict(window, "Person", noteFile, personFile);
-            AssertFirstAutosaveDeliveryConflict(window, "Team", ownedTeamFile, personFile);
-            AssertExplicitProfileDeliveryConflict(window, personFile);
-            using (var provider = ApplicationWorkflow.CreateFileBacked())
+                throw new InvalidOperationException("Snapshot retry silently confirmed externally changed Team context.");
+            foreach (var kind in new[] { "Person", "Team" })
             {
-                var review = provider.OpenWorkspace(folder) ? provider.PreviewImport("""
+                SelectTab(window, $"{kind}NoteEditTab");
+                Set(window, $"{kind}NoteTitle", "");
+                Set(window, $"{kind}NoteMarkdown", $"Retained {kind} draft during snapshot delivery");
+                Await(() => Find(window, $"{kind}NoteStatus").Current.Name.Contains("NOT saved"));
+                var marker = "Delivered while retaining " + kind;
+                peer.Publish(source => source.EditPreferredName("avery@example.com", marker));
+                SetSettingsVisible(window, true);
+                Click(window, "SyncNow");
+                Await(() => Find(window, "SyncNow").Current.IsEnabled);
+                SetSettingsVisible(window, false);
+                AssertValue(window, $"{kind}NoteMarkdown", $"Retained {kind} draft during snapshot delivery");
+                if (Find(window, "ProfileHeading").Current.Name == marker)
+                    throw new InvalidOperationException("Incoming snapshot replaced a retained draft's base.");
+                Click(window, $"Discard{kind}NoteDraft");
+                SetSettingsVisible(window, true);
+                Click(window, "SyncNow");
+                Await(() => Find(window, "SyncNow").Current.IsEnabled);
+                SetSettingsVisible(window, false);
+                Await(() => Find(window, "ProfileHeading").Current.Name == marker);
+            }
+            if (ReadSmokePersonNote(folder, personId).Markdown != "# External context" ||
+                ReadSmokeTeamNote(folder, ownedId).Markdown != "# External owned Team context" ||
+                ReadSmokeTeamNote(folder, inheritedId).Markdown != "# External inherited Team context")
+                throw new InvalidOperationException("Snapshot refresh/discard changed stable note identities or writing.");
+            peer.Publish(source =>
+            {
+                var review = source.PreviewImport("""
                     {"schemaVersion":1,"batchId":"80000000-0000-4000-8000-000000000002",
                      "observedAt":"2026-11-02T17:00:00Z","people":[
                      {"email":"v-report@example.com","displayName":"Vendor report","managerEmail":"avery@example.com"},
                      {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-report@example.com"}]}
-                    """) : null;
-                if (review is null || !review.CanApply || !provider.ApplyImport(review.Id))
-                    throw new InvalidOperationException("Hosted reporting delivery fixture failed: " + provider.Status);
-            }
+                    """);
+                return review.CanApply && source.ApplyImport(review.Id);
+            });
+            PublishSmokeWorkspace(window, folder);
             AssertReportingStructure(window, 2, 1, 1);
             NavigateToManager(window, "casey@example.com");
             AssertReportingStructure(window, 3, 2, 1);
             OpenPerson(window, "casey@example.com");
             AssertReportingStructure(window, 2, 1, 1);
-            using (var provider = ApplicationWorkflow.CreateFileBacked())
-            {
-                if (!provider.OpenWorkspace(folder) || !provider.EditPersonArchived("leaf@example.com", true) ||
-                    !provider.EditPersonArchived("v-report@example.com", true))
-                    throw new InvalidOperationException("Hosted reporting archival delivery failed: " + provider.Status);
-            }
+            peer.Publish(source => source.EditPersonArchived("leaf@example.com", true) &&
+                source.EditPersonArchived("v-report@example.com", true));
+            PublishSmokeWorkspace(window, folder);
             Await(() => !IsVisible(window, "ReportingStructureValue"));
             AssertReportingStructure(window, null);
-            Close(process);
-            Console.WriteLine("PASS: real folder events update profile/notes/context/photo pixels, reject first Person/Team autosave conflicts without losing either writing, and recover through explicit discard.");
+            ClosePublishedWorkspace(process, folder);
+            Console.WriteLine("PASS: complete snapshot delivery updates profile/notes/review/photo pixels, rejects invalid transport without losing local reading, and defers adoption until retained writing is deliberately discarded.");
         }
-        finally
-        {
-            StopApplication(process);
-        }
-    }
-
-    private static void AssertExplicitProfileDeliveryConflict(AutomationElement window, string personFile)
-    {
-        AwaitLocalWorkIdle(window);
-        BeginProfileEditing(window);
-        var editor = (ValuePattern)Find(window, "OfficeNumber").GetCurrentPattern(ValuePattern.Pattern);
-        var local = "Local profile draft";
-        editor.SetValue(local);
-        var profile = JsonNode.Parse(File.ReadAllText(personFile))!;
-        profile["officeNumber"] = "Delivered office";
-        profile["preferredName"] = "Delivered while typing profile";
-        File.WriteAllText(personFile, profile.ToJsonString());
-        var delivered = File.ReadAllBytes(personFile);
-        var timer = Stopwatch.StartNew();
-        var edits = 0;
-        while (Find(window, "ProfileHeading").Current.Name != "Delivered while typing profile")
-        {
-            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
-                throw new TimeoutException("Profile delivery was not accepted while typing within 20 seconds.");
-            local = $"Local profile draft {++edits}";
-            editor.SetValue(local);
-            Thread.Sleep(10);
-        }
-        AssertValue(window, "OfficeNumber", local);
-        Click(window, "SaveProfile");
-        Await(() => Status(window).Contains("changed externally", StringComparison.Ordinal));
-        AssertRejectedRetry(window, "RetryProfileSave", "Saving complete profile…",
-            () => Status(window).Contains("changed externally", StringComparison.Ordinal) &&
-            Status(window).Contains("NOT saved", StringComparison.Ordinal) &&
-            Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
-            Find(window, "SaveProfile").Current.IsEnabled && Find(window, "RetryProfileSave").Current.IsEnabled &&
-            window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
-        AssertValue(window, "OfficeNumber", local);
-        if (Find(window, "Email").Current.Name != "avery@example.com")
-            throw new InvalidOperationException("Rejected profile retry changed its owner.");
-        if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
-            throw new InvalidOperationException("Explicit profile save or retry overwrote the delivered field.");
-        Click(window, "DiscardProfileDraft");
-        AssertProfileValue(window, "OfficeNumber", "Delivered office");
-        AwaitLocalWorkIdle(window);
-        if (!File.ReadAllBytes(personFile).SequenceEqual(delivered))
-            throw new InvalidOperationException("Profile discard rewrote delivered bytes.");
-        BeginProfileEditing(window);
-        Set(window, "OfficeNumber", "Intentional delivered-version edit");
-        SaveProfileEditing(window);
-    }
-
-    private static void AssertFirstAutosaveDeliveryConflict(
-        AutomationElement window, string kind, string noteFile, string personFile)
-    {
-        AwaitLocalWorkIdle(window);
-        SelectTab(window, $"{kind}NoteEditTab");
-        var editor = (ValuePattern)Find(window, $"{kind}NoteMarkdown").GetCurrentPattern(ValuePattern.Pattern);
-        var noteSurface = Find(window, $"{kind}NotesSurface");
-        var original = File.ReadAllText(noteFile);
-        var local = $"# Local {kind} draft";
-        editor.SetValue(local);
-        if (!noteSurface.Current.ItemStatus.StartsWith("Pending", StringComparison.Ordinal) || File.ReadAllText(noteFile) != original)
-            throw new InvalidOperationException($"The first {kind} autosave was not still pending before delivery.");
-        var delivered = original + $"\r\n# Delivered {kind} writing\r\n";
-        File.WriteAllText(noteFile, delivered);
-        var bytes = File.ReadAllBytes(noteFile);
-        var marker = $"Delivered while typing {kind}";
-        var profile = JsonNode.Parse(File.ReadAllText(personFile))!;
-        profile["preferredName"] = marker;
-        File.WriteAllText(personFile, profile.ToJsonString());
-
-        var timer = Stopwatch.StartNew();
-        var edits = 0;
-        while (Find(window, "ProfileHeading").Current.Name != marker)
-        {
-            if (timer.Elapsed >= TimeSpan.FromSeconds(20))
-                throw new TimeoutException($"External {kind} delivery was not accepted while typing within 20 seconds.");
-            if (noteSurface.Current.ItemStatus.Contains("NOT saved", StringComparison.Ordinal) ||
-                !File.ReadAllBytes(noteFile).SequenceEqual(bytes))
-                throw new InvalidOperationException($"The first {kind} save ran before delivery acceptance was observed.");
-            local = $"# Local {kind} draft {++edits}";
-            editor.SetValue(local);
-            Thread.Sleep(10);
-        }
-        Await(() => noteSurface.Current.ItemStatus.Contains("changed externally", StringComparison.Ordinal));
-        AssertValue(window, $"{kind}NoteMarkdown", local);
-        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
-            throw new InvalidOperationException($"The first {kind} autosave overwrote delivered writing.");
-        Click(window, "NavigateManager");
-        Await(() => noteSurface.Current.ItemStatus.Contains("before leaving or closing", StringComparison.Ordinal));
-        if (Find(window, "Email").Current.Name != "avery@example.com")
-            throw new InvalidOperationException($"The rejected {kind} conflict navigation changed its owner.");
-        AssertRejectedRetry(window, $"Retry{kind}NoteSave", $"Saving private {kind} note…",
-            () => noteSurface.Current.ItemStatus.Contains("changed externally", StringComparison.Ordinal) &&
-            noteSurface.Current.ItemStatus.Contains("NOT saved", StringComparison.Ordinal) &&
-            Activity(window).StartsWith("Pending local edits", StringComparison.Ordinal) &&
-            Find(window, "EditProfile").Current.IsEnabled && Find(window, $"Retry{kind}NoteSave").Current.IsEnabled &&
-            window.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.AutomationIdProperty, "ProfileLeaveDecision")) is null);
-        AssertValue(window, $"{kind}NoteMarkdown", local);
-        if (Find(window, "Email").Current.Name != "avery@example.com")
-            throw new InvalidOperationException($"Rejected {kind} retry changed its owner.");
-        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
-            throw new InvalidOperationException($"{kind} retry overwrote delivered writing.");
-        Click(window, $"Discard{kind}NoteDraft");
-        var deliveredMarkdown = delivered[(delivered.IndexOf("\n---\n", StringComparison.Ordinal) + 5)..];
-        Await(() => Find(window, $"{kind}NoteHeading").Current.Name.Length > 0 &&
-            Activity(window) == "Ready");
-        AssertNoteView(window, kind, editing: false);
-        SelectTab(window, $"{kind}NoteEditTab");
-        Await(() => Value(window, $"{kind}NoteMarkdown") == deliveredMarkdown);
-        AwaitLocalWorkIdle(window);
-        if (!File.ReadAllBytes(noteFile).SequenceEqual(bytes))
-            throw new InvalidOperationException($"{kind} discard rewrote the delivered document.");
-        Set(window, $"{kind}NoteMarkdown", $"# Intentional {kind} edit after discard");
-        Await(() => noteSurface.Current.ItemStatus.Contains("saved locally", StringComparison.Ordinal));
-        if (!File.ReadAllText(noteFile).EndsWith($"# Intentional {kind} edit after discard", StringComparison.Ordinal))
-            throw new InvalidOperationException($"An intentional {kind} edit after accepting delivery did not save.");
-    }
-
-
-    private static void AssertRejectedRetry(AutomationElement window, string button, string savingActivity,
-        Func<bool> isRejected)
-    {
-        var retry = ControlReadiness.AwaitPattern(() => Find(window, button), control => control.Current.IsEnabled,
-            control => (InvokePattern)control.GetCurrentPattern(InvokePattern.Pattern), Await);
-        RetryRejection.AssertCompleted(
-            changed => new ActivitySubscription(window, changed),
-            retry.Invoke, savingActivity, isRejected, Await);
-    }
-
-    private sealed class ActivitySubscription : IDisposable
-    {
-        private readonly AutomationElement activity;
-        private readonly AutomationPropertyChangedEventHandler handler;
-
-        internal ActivitySubscription(AutomationElement activity, Action<string> changed)
-        {
-            this.activity = activity;
-            handler = (_, e) =>
-            {
-                if (e.NewValue is string name) changed(name);
-            };
-            Automation.AddAutomationPropertyChangedEventHandler(activity, TreeScope.Element, handler,
-                AutomationElement.ItemStatusProperty);
-        }
-
-        public void Dispose() => Automation.RemoveAutomationPropertyChangedEventHandler(activity, handler);
+        finally { StopApplication(process); }
     }
 }

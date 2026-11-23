@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace OrgExplorer.Workflow;
 
 public sealed record PersonNote(Guid Id, string OwnerEmail, string Title, string Markdown,
@@ -24,6 +22,9 @@ public sealed partial class ApplicationWorkflow
         Array.AsReadOnly(PersonNotesOf(email).Where(n => includeArchived || !n.Archived).ToArray()); }
 
     public PersonNote? CreatePersonNote(string email, string title, string markdown)
+        => CanBeginLocalSave() ? TrackLocalSave(() => CreatePersonNoteLocked(email, title, markdown)) : null;
+
+    private PersonNote? CreatePersonNoteLocked(string email, string title, string markdown)
     { lock (workspaceGate) return CreatePersonNoteCore(email, title, markdown); }
 
     private PersonNote? CreatePersonNoteCore(string email, string title, string markdown)
@@ -38,11 +39,14 @@ public sealed partial class ApplicationWorkflow
             Fail("Person note title must be nonblank.");
             return null;
         }
-        var draft = BeginNoteDraft(NoteScope.Person, person.Email)!;
-        return SaveNoteDraft(draft, title, markdown) is { } saved ? personNotes[saved.Id] : null;
+        var draft = BeginNoteDraft(NoteScope.Person, person.Email);
+        return draft is not null && SaveNoteDraft(draft, title, markdown) is { } saved ? personNotes[saved.Id] : null;
     }
 
     public bool EditPersonNote(Guid noteId, string title, string markdown)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPersonNoteLocked(noteId, title, markdown));
+
+    private bool EditPersonNoteLocked(Guid noteId, string title, string markdown)
     { lock (workspaceGate) return EditPersonNoteCore(noteId, title, markdown); }
 
     private bool EditPersonNoteCore(Guid noteId, string title, string markdown)
@@ -64,6 +68,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool ArchivePersonNote(Guid noteId, bool archived = true)
+        => CanBeginLocalSave() && TrackLocalSave(() => ArchivePersonNoteLocked(noteId, archived));
+
+    private bool ArchivePersonNoteLocked(Guid noteId, bool archived)
     { lock (workspaceGate) return ArchivePersonNoteCore(noteId, archived); }
 
     private bool ArchivePersonNoteCore(Guid noteId, bool archived)
@@ -81,26 +88,6 @@ public sealed partial class ApplicationWorkflow
 
     public bool RefreshPersonNotes() => RefreshWorkspace();
 
-    private static Dictionary<Guid, PersonNote> LoadPersonNotes(string path, Dictionary<string, PersonProfile> owners)
-    {
-        var result = new Dictionary<Guid, PersonNote>();
-        var directory = Path.Combine(path, "notes");
-        if (workspaceReadSnapshot.Value is { } snapshot ? snapshot.ContainsKey(directory) : File.Exists(directory))
-            throw new IOException("Person notes folder is not a directory.");
-        if (workspaceReadSnapshot.Value is null && !Directory.Exists(directory)) return result;
-        RejectNoteLink(directory);
-        foreach (var file in NoteDocumentPaths(directory))
-        {
-            RejectNoteLink(file);
-            var (metadata, markdown) = ReadNoteDocument<NoteMetadata>(file, NoteScope.Person, owners);
-            var note = new PersonNote(metadata.Id, metadata.OwnerEmail, metadata.Title, markdown,
-                metadata.Archived, metadata.CreatedAt, metadata.UpdatedAt);
-            if (!result.TryAdd(note.Id, note))
-                throw new FormatException($"Person note {Path.GetFileName(file)}: duplicate note identity {note.Id}.");
-        }
-        return result;
-    }
-
     private bool SavePersonNote(PersonNote note)
     {
         try
@@ -113,24 +100,16 @@ public sealed partial class ApplicationWorkflow
             }
             var metadata = new NoteMetadata(1, "person", note.Id, note.OwnerEmail, note.Title,
                 note.Archived, note.CreatedAt, note.UpdatedAt);
-            var content = "---\n" + JsonSerializer.Serialize(metadata, JsonOptions) + "\n---\n" + note.Markdown;
-            WriteMarkdownAtomically("notes", note.Id, content, () => ValidateNoteDraft(NoteScope.Person, note.Id));
+            SaveLocalSqliteNote(NoteScope.Person, metadata, note.Markdown);
             AcceptNoteSave(NoteScope.Person, note.Id);
             return true;
         }
         catch (Exception ex) when (StorageError(ex))
         {
             RetainNoteBase(NoteScope.Person, note.Id);
-            if (ex is IndeterminatePublicationException)
-                return SaveFailed("publication-conflict", ex.Message);
-            return SaveFailed($"note:{note.Id}", "Person note save failed; changes are NOT saved locally: " + ex.Message);
+            var outcome = localSaveFault?.Outcome == LocalSaveOutcome.Unknown ? "NOT confirmed saved locally" : "NOT saved locally";
+            return SaveFailed($"note:{note.Id}", $"Person note save failed; changes are {outcome}: " + ex.Message);
         }
     }
 
-    private static void RejectNoteLink(string path)
-    {
-        FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
-        if (entry.LinkTarget is not null)
-            throw new IOException("Person note documents must be ordinary local files, not links: " + Path.GetFileName(path));
-    }
 }

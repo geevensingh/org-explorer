@@ -34,8 +34,8 @@ public sealed class WorkspaceCompatibilityTests
             app.PropertyChanged += (_, e) => notifications.Add(e.PropertyName);
             Assert.False(app.OpenWorkspace(folder));
             Assert.Equal(WorkspaceCompatibilityState.Unsupported, app.Compatibility.State);
-            Assert.Equal(99, app.Compatibility.DataVersion);
-            Assert.Contains("Upgrade", app.Compatibility.Guidance);
+            Assert.Contains("does not migrate", app.Compatibility.Guidance);
+            Assert.Contains("empty folder", app.Compatibility.Guidance);
             Assert.Contains("Settings", app.Compatibility.Guidance);
             Assert.Contains(nameof(app.Compatibility), notifications);
             Assert.Empty(app.People);

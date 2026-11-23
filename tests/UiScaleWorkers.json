@@ -1,0 +1,4 @@
+{
+  "prefix": ["scale-mutation-save-prefix"],
+  "tail": ["scale-mutation-delivery-tail", "scale-navigation-rendering"]
+}

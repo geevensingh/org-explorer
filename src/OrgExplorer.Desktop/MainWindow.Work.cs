@@ -5,47 +5,59 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private bool workPending;
+    private bool ordinaryLocalWorkPending;
+    private bool localImportPending;
+    private bool recoveryWorkPending;
     private bool externalRefreshPending;
     private TaskCompletionSource? workCompleted;
 
-    internal bool HasPendingWork => workPending;
     internal void MarkDraftPending()
     {
         if (!workPending) WorkflowActivity.Text = "Pending local edits — not yet saved";
     }
     internal async Task<T> RunWorkflowAsync<T>(Func<T> operation, string activity,
-        System.Windows.Controls.UserControl? noteDraft = null)
+        bool isImport = false, bool ordinarySave = false, bool browseSafeRecovery = false)
     {
+        ordinaryLocalWorkPending = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
         workPending = true;
+        localImportPending = isImport && RetainsPersonDrafts;
+        recoveryWorkPending = browseSafeRecovery;
         var completion = workCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         WorkflowActivity.Text = activity;
         OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = false;
+        CreateLocalSqliteWorkspaceButton.IsEnabled = false;
         AttributeEditors.IsEnabled = ManagerEditor.IsEnabled = PersonNotes.IsEnabled = TeamNotes.IsEnabled = false;
         UpdateProfileMode();
-        PersonNotes.IsEnabled = ReferenceEquals(noteDraft, PersonNotes);
-        TeamNotes.IsEnabled = ReferenceEquals(noteDraft, TeamNotes);
+        var localSave = ordinarySave && workflow.Compatibility.SupportsNonblockingNoteAutosave;
+        PersonNotes.IsEnabled = TeamNotes.IsEnabled = localImportPending || localSave || recoveryWorkPending;
         FavoriteButton.IsEnabled = PersonMoreMenu.IsEnabled = false;
         Photo.CanEdit = false;
         ApplyButton.IsEnabled = false;
         DiscardImportButton.IsEnabled = false;
-        try { return await Task.Run(operation); }
+        try { return localSave ? await workflow.RunLocalSaveAsync(operation) : await Task.Run(operation); }
         finally
         {
             workPending = false;
-            if (pendingPreferredNameCancellation is { } cancelledName)
+            ordinaryLocalWorkPending = false;
+            localImportPending = false;
+            recoveryWorkPending = false;
+            if (pendingPreferredNameCancellations.Count != 0)
             {
-                pendingPreferredNameCancellation = null;
-                workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
+                var cancellations = pendingPreferredNameCancellations.Values.ToArray();
+                pendingPreferredNameCancellations.Clear();
+                foreach (var cancelledName in cancellations)
+                    workflow.DiscardPersonTextDraft(cancelledName, OrgExplorer.Workflow.PersonTextField.PreferredName);
                 externalRefreshPending = true;
             }
             completion.TrySetResult();
             WorkflowActivity.Text = "Ready";
             OpenWorkspaceButton.IsEnabled = PreviewButton.IsEnabled = ImportPath.IsEnabled = true;
+            CreateLocalSqliteWorkspaceButton.IsEnabled = true;
             PersonNotes.IsEnabled = TeamNotes.IsEnabled = true;
             UpdateProfileMode();
             var person = selectedEmail is null ? null : workflow.GetRelationships(selectedEmail)?.Person;
-            FavoriteButton.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
-            PersonMoreMenu.IsEnabled = workflow.IsWorkspaceCurrent && person is not null;
+            FavoriteButton.IsEnabled = CanEditCurrentWorkspace && person is not null;
+            PersonMoreMenu.IsEnabled = CanEditCurrentWorkspace && person is not null;
             queryDirty = true;
             if (externalRefreshPending)
             {

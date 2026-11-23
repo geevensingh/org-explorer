@@ -9,6 +9,11 @@ hosted or visual acceptance; no such acceptance is claimed.
 
 ## Purpose and precedence
 
+The later [reliable-save design](reliable-nonblocking-saves.md) supersedes
+canonical-file/direct-edit and pending-navigation/non-overridable-close
+assumptions, not the reading hierarchy, owner-attributed Team names or complete
+Historical capture disclosure/copy and responsive size matrices here.
+
 The existing functionality and improved navigation are valuable, but the
 rendered application remains substantially unlike the chosen calm, modern
 Windows mockups. This pass must improve the actual appearance throughout the

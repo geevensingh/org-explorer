@@ -7,13 +7,21 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="..\DesktopScenarios.json" Link="DesktopScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\DesktopPartitions.json" Link="DesktopPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\HighResolutionScenarios.json" Link="HighResolutionScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\HighResolutionPartitions.json" Link="HighResolutionPartitions.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\UiScaleScenarios.json" Link="UiScaleScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\UiScaleWorkers.json" Link="UiScaleWorkers.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\UiScaleHandoff.cs" Link="UiScaleHandoff.cs" />
+    <Compile Include="..\WorkspacePublicState.cs" Link="WorkspacePublicState.cs" />
+    <Compile Include="..\InstallerPreservationEvidence.cs" Link="InstallerPreservationEvidence.cs" />
+    <Compile Include="..\InstallerWorkspacePreservation.cs" Link="InstallerWorkspacePreservation.cs" />
     <Compile Include="..\WorkspaceFixtures.cs" Link="WorkspaceFixtures.cs" />
     <Compile Include="..\HeldNotePublisher.cs" Link="HeldNotePublisher.cs" />
     <Compile Include="..\SignedReleaseFixture.cs" Link="SignedReleaseFixture.cs" />
     <Compile Include="..\LocalReleaseServer.cs" Link="LocalReleaseServer.cs" />
     <Compile Include="..\ScaleFixture.cs" Link="ScaleFixture.cs" />
+    <Compile Include="..\SnapshotClock.cs" Link="SnapshotClock.cs" />
     <Compile Include="..\NativeIconResource.cs" Link="NativeIconResource.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\src\OrgExplorer.Workflow\OrgExplorer.Workflow.csproj"/>

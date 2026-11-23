@@ -13,6 +13,9 @@ public sealed partial class ApplicationWorkflow
         lock (workspaceGate) return People.Where(p => p.IsFavorite).ToArray(); } }
 
     public bool EditFavorite(string email, bool isFavorite)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditFavoriteCore(email, isFavorite));
+
+    private bool EditFavoriteCore(string email, bool isFavorite)
     {
         lock (workspaceGate)
         {

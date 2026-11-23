@@ -1,11 +1,22 @@
 param(
-    [Parameter(Mandatory)][ValidateSet('core', 'filesystem', 'desktop', 'high-resolution')][string] $Lane
+    [Parameter(Mandatory)][ValidateSet('core', 'filesystem', 'desktop', 'high-resolution')][string] $Lane,
+    [ValidateSet('people', 'workspace')][string] $DesktopPartition,
+    [ValidateSet('reading', 'context')][string] $HighResolutionPartition
 )
 $ErrorActionPreference = 'Stop'
 $started = if ($env:LANE_STARTED_AT) { [DateTimeOffset]::Parse($env:LANE_STARTED_AT) } else { [DateTimeOffset]::UtcNow }
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
-$results = Join-Path $root ".ci-results\$Lane"
+if ($DesktopPartition -and $Lane -ne 'desktop') { throw 'Only ordinary desktop execution supports partitions.' }
+if ($HighResolutionPartition -and $Lane -ne 'high-resolution') {
+    throw 'Only high-resolution desktop execution supports high-resolution partitions.'
+}
+. "$root\eng\DesktopResults.ps1"
+$partition = if ($HighResolutionPartition) { $HighResolutionPartition } else { $DesktopPartition }
+$partitions = Get-DesktopPartitions -HighResolution:([bool]$HighResolutionPartition)
+$runDesktopContracts = $Lane -eq 'desktop' -and $DesktopPartition -ne 'people'
+$resultsName = if ($partition) { "$Lane-$partition" } else { $Lane }
+$results = Join-Path $root ".ci-results\$resultsName"
 New-Item -ItemType Directory -Path $results -Force | Out-Null
 $steps = [System.Collections.Generic.List[object]]::new()
 $index = 0
@@ -15,6 +26,13 @@ $ceilingSeconds = if ($Lane -eq 'core') { 300 } `
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
 $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
+$complete = $false
+if ($partition) {
+    $executionRevision = git rev-parse HEAD
+    if ($LASTEXITCODE -ne 0 -or ($env:GITHUB_SHA -and $executionRevision -cne $env:GITHUB_SHA)) {
+        throw 'Desktop execution does not match the dispatched candidate.'
+    }
+}
 
 function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
     $Arguments = @($Arguments[0], '--artifacts-path', $artifactBuild) + $Arguments[1..($Arguments.Length - 1)]
@@ -33,6 +51,7 @@ function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
     $process = [Diagnostics.Process]::Start($start)
     $output = $process.StandardOutput.ReadToEndAsync()
     $errorOutput = $process.StandardError.ReadToEndAsync()
+    $succeeded = $false
     try {
         if (!$process.WaitForExit([int]$remaining.TotalMilliseconds)) {
             $process.Kill($true)
@@ -40,6 +59,7 @@ function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
             throw "$Name exceeded the remaining execution budget."
         }
         if ($process.ExitCode -ne 0) { throw "$Name failed with exit code $($process.ExitCode)." }
+        $succeeded = $true
     } finally {
         try {
             if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
@@ -48,7 +68,8 @@ function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
             Get-Content -LiteralPath $log
             Get-Content -LiteralPath $errors
         } finally {
-            $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds })
+            $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
+                status = if ($succeeded) { 'Passed' } else { 'Failed' } })
             $process.Dispose()
         }
     }
@@ -64,7 +85,7 @@ try {
             & "$root\tests\CiRunner.Tests.ps1"
             & "$root\tests\ImplementationBaseline.Tests.ps1"
             & "$root\tests\DocumentationHandoff.Tests.ps1"
-            & "$root\tests\DraftDiscard.Tests.ps1"
+            & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll')
             & "$root\tests\Performance.Tests.ps1"
             & "$root\tests\DesktopResults.Tests.ps1"
             & "$root\tests\UiScale.Tests.ps1"
@@ -104,9 +125,11 @@ try {
                 '--no-restore', '--', $displayCommand)
             $flowArguments = @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release', '--no-build',
                 '--no-restore', '--', (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'))
-            if ($highResolution) { $flowArguments += '--high-resolution' }
+            if ($HighResolutionPartition) { $flowArguments += "--high-resolution-$HighResolutionPartition" }
+            elseif ($highResolution) { $flowArguments += '--high-resolution' }
+            elseif ($DesktopPartition) { $flowArguments += "--desktop-$DesktopPartition" }
             Invoke-BudgetedDotnet desktop-flows $flowArguments
-            if (!$highResolution) {
+            if ($runDesktopContracts) {
                 Invoke-BudgetedDotnet profile-note-refresh @('run', '--project', 'tests\OrgExplorer.Desktop.Smoke', '-c', 'Release',
                     '--no-build', '--no-restore', '--',
                     (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-profile-refresh')
@@ -114,12 +137,13 @@ try {
                     '--no-build', '--no-restore', '--',
                     (Join-Path $artifactBuild 'bin\OrgExplorer.Desktop\release\OrgExplorer.Desktop.exe'), '--verify-update-yield')
             }
-            . "$root\eng\DesktopResults.ps1"
             $manifest = if ($highResolution) { 'HighResolutionScenarios.json' } else { 'DesktopScenarios.json' }
-            Assert-DesktopResults (Join-Path $results 'scenarios.json') @(Get-Content "$root\tests\$manifest" -Raw | ConvertFrom-Json)
-            if (!$highResolution) {
+            $expected = if ($partition) { @($partitions[$partition]) } `
+                else { @(Get-Content "$root\tests\$manifest" -Raw | ConvertFrom-Json) }
+            Assert-DesktopResults (Join-Path $results 'scenarios.json') @($expected)
+            if ($runDesktopContracts) {
                 Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
-                    '-o', '.ci-results\desktop\product-check')
+                    '-o', (Join-Path $results 'product-check'))
                 & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
                     -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
                 & "$root\tests\ApplicationIcon.Tests.ps1" -Executable (Join-Path $results 'product-check\OrgExplorer.Desktop.exe')
@@ -130,6 +154,7 @@ try {
             }
         }
     }
+    $complete = $true
 } finally {
     $env:ORG_EXPLORER_UPDATE_FIXTURE = $previousUpdateFixture
     if ($updateFixture -and (Test-Path -LiteralPath $updateFixture)) { Remove-Item -LiteralPath $updateFixture -Recurse -Force }
@@ -137,6 +162,14 @@ try {
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
         ceilingSeconds = $ceilingSeconds; steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $results 'timing.json')
+    if ($partition) {
+        @{ schemaVersion = 1; lane = $Lane; partition = $partition; revision = $executionRevision
+            runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { 'local' }
+            runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { 'local' }
+            complete = $complete; ceilingSeconds = $ceilingSeconds; executionSeconds = $elapsed
+            steps = @($steps.ToArray())
+        } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $results 'execution.json')
+    }
     Write-Host "Lane $Lane execution (setup/restore/build/tests/fixtures): $([Math]::Round($elapsed, 2)) seconds; target 300; ceiling $ceilingSeconds."
     if ($env:GITHUB_STEP_SUMMARY) {
         "### $Lane execution`n$([Math]::Round($elapsed, 2)) seconds including setup, restore, build, tests and fixtures; target 300 s; ceiling $ceilingSeconds s. Queues and later CD excluded." |

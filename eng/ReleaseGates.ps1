@@ -3,12 +3,33 @@ function Assert-ReleaseVerification(
 ) {
     . "$PSScriptRoot\PerformanceSuite.ps1"
     . "$PSScriptRoot\DesktopResults.ps1"
-    $requiredScenarios = @(Get-Content "$PSScriptRoot\..\tests\UiScaleScenarios.json" -Raw | ConvertFrom-Json)
+    . "$PSScriptRoot\UiScaleResults.ps1"
     foreach ($suite in @('non-ui-performance', 'ui-scale')) {
         $directory = if ($suite -eq 'non-ui-performance') { $PerformanceDirectory } else { $UiScaleDirectory }
         $rootReport = Join-Path $directory 'result.json'
         $reportText = Get-Content -LiteralPath $rootReport -Raw
         $report = $reportText | ConvertFrom-Json
+        if ($suite -eq 'ui-scale') {
+            if ($report.suite -cne 'ui-scale' -or $report.outcome -cne 'success' -or
+                $report.verificationMode -cne 'isolated-workers' -or $report.revision -cne $Candidate -or
+                $report.expectedRevision -cne $Candidate -or $report.runDirectory -cnotmatch '^run-[0-9a-f]{32}$') {
+                throw 'Release requires the fresh complete isolated UI-scale union, not a legacy single-worker result.'
+            }
+            $run = Join-Path $directory $report.runDirectory
+            if ((Get-Content (Join-Path $run 'result.json') -Raw) -cne $reportText) {
+                throw 'UI-scale union root and unique-run evidence disagree.'
+            }
+            Assert-UiScaleUnion (Join-Path $run 'prefix') (Join-Path $run 'tail') $Candidate $report.runId $report.runAttempt
+            foreach ($worker in @('prefix', 'tail')) {
+                $execution = (Get-UiScaleWorkerResult (Join-Path $run $worker) $worker $Candidate $report.runId $report.runAttempt).report
+                if ([DateTimeOffset]$execution.startedAt -lt $StartedAt -or
+                    [DateTimeOffset]$execution.completedAt -gt [DateTimeOffset]::UtcNow -or
+                    ([DateTimeOffset]$execution.completedAt - [DateTimeOffset]$execution.startedAt).TotalSeconds -gt 660) {
+                    throw 'Release requires both fresh current-execution rich workers within their own unchanged 660-second budgets.'
+                }
+            }
+            continue
+        }
         if ($report.suite -cne $suite -or $report.outcome -cne 'success' -or
             $report.revision -cne $Candidate -or $report.expectedRevision -cne $Candidate -or
             $report.trackedChanges -ne $false -or $report.untrackedChanges -ne $false -or
@@ -26,9 +47,6 @@ function Assert-ReleaseVerification(
             if ($report.filter -cne $PerformanceFilter -or
                 (Compare-Object @($PerformanceTests) @($report.requiredTests))) { throw 'Incomplete release performance selection.' }
             Assert-PerformanceResults $run
-        } else {
-            if (Compare-Object $requiredScenarios @($report.requiredScenarios)) { throw 'Incomplete release UI-scale selection.' }
-            Assert-DesktopResults (Join-Path $run 'scenarios.json') $requiredScenarios
         }
     }
 }

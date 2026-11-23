@@ -218,6 +218,34 @@ public sealed class ControlReadinessTests
 
     [Fact]
     [Trait("Category", "Runner")]
+    public void Team_name_viewport_discovery_retains_the_ready_provider_and_scrolls_once_after_a_missing_transition()
+    {
+        var observations = 0;
+        var actions = 0;
+        var topReads = 0;
+        Control? viewport = null;
+        var current = new Control(true, (Action)(() => actions++));
+        var scroll = ControlReadiness.AwaitPattern(
+            () => viewport = ++observations switch
+            {
+                1 => throw new InvalidOperationException("Missing actual UI control: ProfileScroll"),
+                2 => new Control(false, new object()),
+                _ => current
+            },
+            control => control.Enabled,
+            control =>
+            {
+                if (actions == 0) ControlReadiness.ScrollToTopIfScrollable(() => true, () => actions++);
+                return ++topReads == 1 ? null : control.Pattern as Action;
+            }, AwaitReady);
+        Assert.Same(current, viewport);
+        Assert.Equal(1, actions);
+        Assert.Equal(4, observations);
+        Assert.Same(current.Pattern, scroll);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void A_permanently_unavailable_pattern_fails_the_existing_bounded_preparation()
     {
         Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitPattern<Control, object>(

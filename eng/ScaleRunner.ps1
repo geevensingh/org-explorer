@@ -59,6 +59,35 @@ function Invoke-ScaleSuite(
         return $remaining
     }
 
+    function Write-ScaleCleanupFailure([Management.Automation.ErrorRecord] $Failure) {
+        $target = if ($Failure.TargetObject -is [IO.FileSystemInfo]) {
+            $Failure.TargetObject.FullName
+        } else { [string] $Failure.TargetObject }
+        $path = if ([string]::IsNullOrWhiteSpace($target)) { $null } else { [IO.Path]::GetFullPath($target) }
+        $ownerQuery = @{ operation = 'unavailable'; reason = 'No verified owned Windows file path.' }
+        if ($IsWindows -and $path -and
+            $path.StartsWith($build + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            try {
+                if (!('OrgExplorer.Storage.ProcessFixture.LeaseOwners' -as [type])) {
+                    $source = [IO.File]::ReadAllText((Join-Path $root 'tests\OrgExplorer.Storage.ProcessFixture\LeaseOwners.cs'))
+                    Add-Type -TypeDefinition ("#nullable enable`nusing System;`nusing System.Linq;`n" + $source)
+                }
+                $ownerQuery = [OrgExplorer.Storage.ProcessFixture.LeaseOwners]::Read(@($path))
+            } catch {
+                $ownerQuery = @{ operation = 'unavailable'; errorType = $_.Exception.GetType().FullName
+                    hresult = $_.Exception.HResult }
+            }
+        }
+        $observation = @{
+            outcome = 'failure'; revision = $state.revision; path = $path
+            observedAt = [DateTimeOffset]::UtcNow.ToString('O')
+            errorType = $Failure.Exception.GetType().FullName; hresult = $Failure.Exception.HResult
+            ownerQuery = $ownerQuery
+            interpretation = 'Read-only, non-atomic exact-owned-file observation after cleanup failed. Missing owners do not identify an earlier holder. No deletion retry or process shutdown.'
+        }
+        [IO.File]::WriteAllText((Join-Path $run 'cleanup-failure.json'), ($observation | ConvertTo-Json -Depth 8))
+    }
+
     function Read-ScaleProgress([string] $Log) {
         $timingLog = Join-Path $run 'scale-measurements.log'
         $progressLog = if (Test-Path -LiteralPath $timingLog -PathType Leaf) {
@@ -90,7 +119,17 @@ function Invoke-ScaleSuite(
         $state.activeCommand = $Name
         Write-ScaleReport
         try {
-            $process = Start-Process $FilePath -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
+            $previousDeadline = [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT')
+            try {
+                [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $state.started.AddSeconds($ceilingSeconds).ToString('O'))
+                $process = Start-Process $FilePath -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
+            } finally {
+                if ($null -eq $previousDeadline) {
+                    [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', [NullString]::Value)
+                } else {
+                    [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $previousDeadline)
+                }
+            }
             $heartbeat = [Diagnostics.Stopwatch]::StartNew()
             while (!$process.WaitForExit([int][Math]::Max(1, [Math]::Min(1000, $remaining * 1000)))) {
                 $remaining = $ObservationSeconds - ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds
@@ -176,8 +215,11 @@ function Invoke-ScaleSuite(
             if (Test-Path $build) { Remove-Item $build -Recurse -Force }
             $null = Assert-ScaleRemainingBudget
         } catch {
+            $cleanupFailure = $_
             $state.outcome = if (([DateTimeOffset]::UtcNow - $state.started).TotalSeconds -ge $ceilingSeconds) { 'timed_out' } else { 'failure' }
-            $state.failure = if ($state.failure) { $state.failure + "`n" + $_.Exception.Message } else { $_.Exception.Message }
+            $state.failure = if ($state.failure) { $state.failure + "`n" + $cleanupFailure.Exception.Message } else { $cleanupFailure.Exception.Message }
+            try { Write-ScaleCleanupFailure $cleanupFailure }
+            catch { [Console]::Error.WriteLine("Cleanup observation failed ({0}); original failure retained.", $_.Exception.GetType().FullName) }
             Write-Error -Message $state.failure -ErrorAction Continue
         }
         $elapsed = ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds

@@ -9,13 +9,14 @@ public partial class MainWindow
     private string? preferredNameOwner;
     private PersonProfile? displayedPreferredNameBase;
     private PersonProfile? preferredNameBasis;
-    private PersonProfile? pendingPreferredNameCancellation;
+    private readonly Dictionary<string, PersonProfile> pendingPreferredNameCancellations = new(StringComparer.OrdinalIgnoreCase);
     private bool preferredNameEditing;
     private bool preferredNameDirty;
     private bool preferredNameSavePending;
     private long preferredNameEntryVersion;
     private string? preferredNameSaveError;
     private bool HasPreferredNameDraft => preferredNameEditing && (preferredNameDirty || preferredNameSaveError is not null);
+    private bool RetainsPersonDrafts => workflow.Compatibility.SupportsNonblockingNoteAutosave;
 
     private void LoadPreferredName(PersonProfile person)
     {
@@ -23,6 +24,14 @@ public partial class MainWindow
         {
             preferredNameOwner = person.Email;
             FinishPreferredNameEntry();
+            if (RetainsPersonDrafts && workflow.GetPersonTextDraft(person.Email, PersonTextField.PreferredName) is { } retained)
+            {
+                preferredNameBasis = retained.Basis;
+                PreferredName.Text = retained.Value ?? "";
+                preferredNameDirty = retained.Value != retained.Basis.PreferredName;
+                preferredNameSaveError = retained.Error;
+                SetPreferredNameEditing(true);
+            }
         }
         var action = person.PreferredName is null ? "Add preferred name" : "Edit preferred name";
         System.Windows.Automation.AutomationProperties.SetName(EditPreferredNameButton, action);
@@ -32,12 +41,15 @@ public partial class MainWindow
             displayedPreferredNameBase = person;
             PreferredName.Text = person.PreferredName ?? "";
         }
-        PreferredNameContext.IsEnabled = workflow.IsWorkspaceCurrent;
+        PreferredNameContext.IsEnabled = CanEditCurrentWorkspace;
         UpdatePreferredNameActions();
     }
 
     private void SetPreferredNameEditing(bool editing)
     {
+        // A restored entry is a new generation, not the entry an earlier Cancel dismissed.
+        if (editing && preferredNameOwner is { } owner)
+            pendingPreferredNameCancellations.Remove(owner);
         preferredNameEditing = editing;
         PreferredNameEditorPanel.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
         // Invisible compiled-control checks must not create the Popup's native window.
@@ -47,15 +59,17 @@ public partial class MainWindow
 
     private void EditPreferredName(object sender, RoutedEventArgs e)
     {
-        if (selectedEmail is null || !workflow.IsWorkspaceCurrent || workPending) return;
+        if (selectedEmail is null || !CanEditCurrentWorkspace || workPending) return;
         if (preferredNameEditing) return;
-        preferredNameBasis = displayedPreferredNameBase;
+        var retained = RetainsPersonDrafts
+            ? workflow.GetPersonTextDraft(selectedEmail, PersonTextField.PreferredName) : null;
+        preferredNameBasis = retained?.Basis ?? displayedPreferredNameBase;
         if (preferredNameBasis is null) return;
         preferredNameEntryVersion++;
-        preferredNameDirty = false;
-        preferredNameSaveError = null;
+        preferredNameDirty = retained is not null && retained.Value != retained.Basis.PreferredName;
+        preferredNameSaveError = retained?.Error;
         loading = true;
-        PreferredName.Text = preferredNameBasis.PreferredName ?? "";
+        PreferredName.Text = retained is null ? preferredNameBasis.PreferredName ?? "" : retained.Value ?? "";
         loading = false;
         SetPreferredNameEditing(true);
         if (IsVisible)
@@ -80,21 +94,30 @@ public partial class MainWindow
         {
             accepted = await RunWorkflowAsync(
                 () => workflow.SavePersonTextDraft(basis, PersonTextField.PreferredName, text.Length == 0 ? null : text),
-                "Saving Preferred name…");
+                "Saving Preferred name…", ordinarySave: true);
         }
         finally { preferredNameSavePending = false; }
         var returnFocus = entry == preferredNameEntryVersion && accepted is not null && PreferredName.Text == text;
-        if (entry != preferredNameEntryVersion)
-        {
-            // Dismissal cannot revoke an admitted write or acknowledge its durable conflict.
-            workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
-        }
-        else if (accepted is not null)
+        var currentEntry = entry == preferredNameEntryVersion;
+        var restoredOwner = RetainsPersonDrafts && preferredNameEditing &&
+            string.Equals(preferredNameOwner, basis.Email, StringComparison.OrdinalIgnoreCase);
+        if (accepted is not null && (currentEntry || restoredOwner))
         {
             preferredNameBasis = accepted;
             preferredNameSaveError = null;
-            if (PreferredName.Text == text) FinishPreferredNameEntry();
-            else preferredNameDirty = true;
+            if (currentEntry && PreferredName.Text == text) FinishPreferredNameEntry();
+            else
+            {
+                preferredNameDirty = PreferredName.Text != (accepted.PreferredName ?? "");
+                if (RetainsPersonDrafts && preferredNameDirty)
+                    workflow.RetainPersonTextDraft(accepted, PersonTextField.PreferredName,
+                        PreferredName.Text.Length == 0 ? null : PreferredName.Text);
+            }
+        }
+        else if (!currentEntry)
+        {
+            // Dismissal cannot revoke an admitted write or acknowledge its durable conflict.
+            if (!RetainsPersonDrafts) workflow.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
         }
         else preferredNameSaveError = workflow.Status;
         RefreshPeople();
@@ -118,7 +141,8 @@ public partial class MainWindow
         FinishPreferredNameEntry();
         if (workPending)
         {
-            if (!preferredNameSavePending) pendingPreferredNameCancellation = basis;
+            if (basis is not null && (!preferredNameSavePending || RetainsPersonDrafts))
+                pendingPreferredNameCancellations[basis.Email] = basis;
             StatusText.Text = "Preferred-name entry closed. Admitted local work is still in progress; wait for its outcome.";
             return;
         }
@@ -135,7 +159,8 @@ public partial class MainWindow
 
     private void PreferredNameDismissed(object sender, EventArgs e)
     {
-        if (!PreferredNamePopup.IsOpen) CancelPreferredNameEntry();
+        if (!PreferredNamePopup.IsOpen && preferredNameEditing)
+            CancelPreferredNameEntry();
     }
 
     private async void PreferredNameKeyDown(object sender, KeyEventArgs e)
@@ -156,21 +181,15 @@ public partial class MainWindow
     {
         var ownerUnavailable = preferredNameEditing && preferredNameOwner is { } owner &&
             workflow.GetRelationships(owner) is null;
-        PreferredName.IsEnabled = preferredNameEditing && workflow.IsWorkspaceCurrent &&
+        PreferredName.IsEnabled = preferredNameEditing && CanEditCurrentWorkspace &&
             (!workPending || preferredNameSavePending);
-        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && workflow.IsWorkspaceCurrent &&
+        SavePreferredNameButton.IsEnabled = preferredNameEditing && !workPending && CanEditCurrentWorkspace &&
             !ownerUnavailable;
         CancelPreferredNameButton.IsEnabled = preferredNameEditing;
         PreferredNameError.Text = ownerUnavailable
             ? "This Person is unavailable. Your entry is retained. Cancel to leave this entry."
-            : preferredNameSaveError is null ? "" : workflow.PublicationOutcome switch
-        {
-            WorkspacePublicationOutcome.PublishedConflict =>
-                "A saved change has a conflict. Your entry is retained. See Details.",
-            WorkspacePublicationOutcome.Indeterminate =>
-                "A save outcome is unknown. Your entry is retained. Preserve the evidence in Details.",
-            _ => "Could not save. Your entry is retained. See Details before retrying."
-        };
+            : preferredNameSaveError is null ? "" :
+                "Could not save. Your entry is retained. See Details before retrying.";
         PreferredNameError.Visibility = PreferredNameError.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         System.Windows.Automation.AutomationProperties.SetHelpText(PreferredNameError, preferredNameSaveError ?? PreferredNameError.Text);
         PreferredNameErrorDetails.Text = preferredNameSaveError ?? "";

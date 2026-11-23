@@ -65,6 +65,8 @@ try {
     }
     Write-Host 'PASS: candidate mismatch fails before execution with identifiable revision and fresh failure results.'
     $lifecycle = Join-Path $results 'lifecycle'
+    $callerDeadline = [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT')
+    $callerDeadlinePresent = [Environment]::GetEnvironmentVariables().Contains('SCALE_DEADLINE_AT')
     Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $lifecycle -Selection @{} -Verify {
         param($run, $build)
         $running = Get-Content (Join-Path $run 'result.json') -Raw | ConvertFrom-Json
@@ -76,6 +78,10 @@ try {
         Invoke-ScaleProcess success pwsh @('-NoProfile', '-Command', 'Write-Output owned-success; exit 0')
     }
     $status = Get-Content (Join-Path $lifecycle 'result.json') -Raw | ConvertFrom-Json
+    if ([Environment]::GetEnvironmentVariables().Contains('SCALE_DEADLINE_AT') -ne $callerDeadlinePresent -or
+        [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT') -ne $callerDeadline) {
+        throw 'Owned-command launch did not restore the caller deadline value and exact presence.'
+    }
     if ($status.outcome -ne 'success' -or $status.steps.Count -ne 1 -or $status.steps[0].exitCode -ne 0 -or
         (Test-Path (Join-Path $lifecycle "$($status.runDirectory)\build"))) {
         throw 'Successful shared execution lost command evidence or fixture/build cleanup.'
@@ -94,6 +100,35 @@ try {
         throw 'Failed shared execution lost the failing exit code or skipped cleanup.'
     }
     Write-Host 'PASS: shared scale execution records fresh running/success/failure evidence and cleans owned build trees.'
+    if ($IsWindows) {
+        $cleanupProbe = Join-Path $results 'held-cleanup-file'
+        $lease = @{ file = $null; path = $null }
+        try {
+            Assert-Rejected {
+                Invoke-ScaleSuite -Suite contract -Label 'Owned cleanup refusal' -ResultsDirectory $cleanupProbe -Selection @{} -Verify {
+                    param($run, $build)
+                    New-Item -ItemType Directory -Path $build | Out-Null
+                    $lease.path = Join-Path $build 'e_sqlite3.dll'
+                    [IO.File]::WriteAllText($lease.path, 'Fictitious owned cleanup resource, not a native binary.')
+                    $lease.file = [IO.FileStream]::new($lease.path, [IO.FileMode]::Open,
+                        [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                    Invoke-ScaleProcess success pwsh @('-NoProfile', '-Command', 'exit 0')
+                }
+            } 'a genuinely held cleanup file'
+            $status = Get-Content -LiteralPath (Join-Path $cleanupProbe 'result.json') -Raw | ConvertFrom-Json
+            $run = Join-Path $cleanupProbe $status.runDirectory
+            $observation = Get-Content -LiteralPath (Join-Path $run 'cleanup-failure.json') -Raw | ConvertFrom-Json
+            if ($status.outcome -ne 'failure' -or !$status.failure.Contains('e_sqlite3.dll') -or
+                $observation.path -ne $lease.path -or $observation.outcome -ne 'failure' -or
+                $observation.ownerQuery.operation -ne 'inventory' -or
+                $observation.ownerQuery.error -ne 0 -or $observation.ownerQuery.count -gt 32) {
+                throw 'Cleanup refusal lost its original failure or bounded exact-resource owner observation.'
+            }
+        } finally {
+            if ($null -ne $lease.file) { $lease.file.Dispose() }
+        }
+        Write-Host 'PASS: real cleanup refusal remains failed and retains a read-only bounded exact-resource ownership observation.'
+    }
     $reportFailureProbe = Join-Path $results 'report-failure-probe.ps1'
     $reportFailurePid = Join-Path $results 'report-failure.pid'
     @'
@@ -136,6 +171,11 @@ function Write-Progress([string] $Message) {
 }
 Write-Progress 'SCALE BEGIN heartbeat-probe'
 $first = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+$deadline = [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT')
+if (!$deadline -or [DateTimeOffset]::Parse($deadline) -ne
+    ([DateTimeOffset] $first.startedAt).AddSeconds($first.ceilingSeconds)) {
+    throw 'The owned process did not inherit the original whole-suite deadline.'
+}
 Start-Sleep -Seconds 6
 $current = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
 if ($current.activeCommand -ne 'heartbeat-probe' -or $current.activePhase -ne 'heartbeat-probe' -or
@@ -209,7 +249,8 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
         if ($status.outcome -ne 'timed_out' -or $status.steps.Count -ne 0 -or $status.executionSeconds -le 660) {
             throw 'Performance setup did not consume the shared execution budget.'
         }
-        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-657).ToString('O')
+        # Leave setup room to admit the held child; its original 660-second ceiling still expires.
+        $env:SCALE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-650).ToString('O')
         $held = Join-Path $results 'held-command'
         Assert-Rejected {
             Invoke-ScaleSuite -Suite contract -Label 'Scale contract' -ResultsDirectory $held -Selection @{} -Verify {

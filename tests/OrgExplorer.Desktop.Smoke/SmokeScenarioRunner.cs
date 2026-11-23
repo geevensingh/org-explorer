@@ -37,7 +37,7 @@ internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios
                     File.WriteAllText(Path.Combine(settings, "update-settings.json"),
                         JsonSerializer.Serialize(new { schemaVersion = 1, checkOnStartup = false }));
                 }
-                scenarios[index].Execute(result.Fixture);
+                HarnessRuntime.Run("native-" + result.Name, () => scenarios[index].Execute(result.Fixture));
                 Console.WriteLine("SCALE BEGIN fixture-cleanup");
                 var cleanup = Stopwatch.StartNew();
                 var cleaned = false;

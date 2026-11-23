@@ -1,13 +1,15 @@
 using System.Text.Json.Nodes;
 using OrgExplorer.Workflow;
+using OrgExplorer.TestFixtures;
 using Xunit;
 
 namespace OrgExplorer.Persistence.Tests;
 
 public sealed class SearchFavoritePersistenceTests : IDisposable
 {
-    private readonly string folder = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
+    private readonly string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
         ".test-workspaces", Guid.NewGuid().ToString("N")));
+    private string folder => Path.Combine(root, "workspace");
     private readonly List<IApplicationWorkflow> workflows = [];
 
     private IApplicationWorkflow Open()
@@ -101,17 +103,17 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
         Assert.True(writer.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "0009C"), writer.Status);
         Assert.True(writer.EditPersonNote(personNote.Id, "Revised", "Revised orchid"), writer.Status);
         Assert.True(writer.EditTeamNote(teamNote.Id, "Revised Team", "Revised cedar"), writer.Status);
-        Assert.True(SpinWait.SpinUntil(() => reader.FavoritePeople.Count == 1 && reader.FavoritePeople[0].Email == "avery@example.com" &&
+        Assert.True(SpinWait.SpinUntil(() => reader.RefreshWorkspace() && reader.FavoritePeople.Count == 1 && reader.FavoritePeople[0].Email == "avery@example.com" &&
             reader.Search("0009C").Count > 0 && reader.Search("revised orchid").Count == 1 &&
             reader.Search("revised cedar").Count == 2, TimeSpan.FromSeconds(10)), reader.Status);
         Assert.Empty(reader.Search("original orchid"));
         Assert.DoesNotContain(reader.Search("007B"), r => r.Context == SearchContext.Current);
         Assert.Contains(reader.Search("007B"), r => r.Source == SearchSource.ProfileHistory);
         Assert.True(writer.EditPersonManager("avery@example.com", "alex@example.com"));
-        Assert.True(SpinWait.SpinUntil(() => reader.Search("revised cedar").Any(r => r.Source == SearchSource.HistoricalTeamNote),
+        Assert.True(SpinWait.SpinUntil(() => reader.RefreshWorkspace() && reader.Search("revised cedar").Any(r => r.Source == SearchSource.HistoricalTeamNote),
             TimeSpan.FromSeconds(10)), reader.Status);
         Assert.DoesNotContain(reader.Search("cedar"), r => r.Source == SearchSource.InheritedTeamNote);
-        var bytes = Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Where(p => !p.EndsWith(".workspace.lock"))
+        var bytes = Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
             .ToDictionary(p => p, File.ReadAllBytes);
         Assert.True(reader.RefreshWorkspace());
         for (var i = 0; i < 3; i++) Assert.Contains(reader.Search("cedar"), r => r.Source == SearchSource.HistoricalTeamNote);
@@ -120,10 +122,10 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     }
 
     [Fact]
-    public void Failed_favorite_save_retains_saved_queries_and_safe_close_until_retry_and_legacy_omission_defaults_to_false()
+    public void Failed_favorite_save_retains_saved_queries_until_recovery_and_retry_and_import_omission_defaults_to_false()
     {
         var app = Seed();
-        using (new FileStream(Path.Combine(folder, ".workspace.lock"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (WorkspaceFixtures.LockLocalStore(folder))
         {
             Assert.False(app.EditFavorite("avery@example.com", true));
             Assert.False(app.CanSafelyClose);
@@ -132,15 +134,12 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
             Assert.Equal("alex@example.com", Assert.Single(Open().FavoritePeople).Email);
             Assert.Empty(app.GetProfileTimeline("avery@example.com")!.Changes);
         }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
         Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
         Assert.True(app.CanSafelyClose, app.Status);
         Assert.Equal(2, Open().FavoritePeople.Count);
         Assert.True(app.EditFavorite("avery@example.com", false), app.Status);
         app.Dispose();
-        var personFile = CurrentPersonFile("morgan@example.com");
-        var legacy = JsonNode.Parse(File.ReadAllText(personFile))!;
-        legacy.AsObject().Remove("isFavorite");
-        File.WriteAllText(personFile, legacy.ToJsonString());
         Assert.False(Open().GetRelationships("morgan@example.com")!.Person.IsFavorite);
     }
 
@@ -148,38 +147,31 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
     [InlineData("null")]
     [InlineData("\"false\"")]
     [InlineData("false")]
-    public void Invalid_external_favorite_or_inconsistent_evidence_retains_last_valid_search_and_favorites(string invalid)
+    public void Invalid_snapshot_favorite_or_inconsistent_evidence_retains_last_valid_search_and_favorites(string invalid)
     {
         var app = Seed();
-        var file = CurrentPersonFile("alex@example.com");
-        var original = File.ReadAllText(file);
-        var document = JsonNode.Parse(original)!;
-        document["isFavorite"] = JsonNode.Parse(invalid);
-        File.WriteAllText(file, document.ToJsonString());
-        Assert.False(app.RefreshWorkspace());
-        Assert.False(app.IsWorkspaceCurrent);
-        Assert.Contains("STALE", app.Status);
-        Assert.Equal("alex@example.com", Assert.Single(app.FavoritePeople).Email);
-        Assert.Contains(app.Search("alex"), r => r.Person.IsFavorite);
-        Assert.All(app.Search("alex"), r => Assert.StartsWith("STALE retained", r.Label));
-        Assert.False(app.EditFavorite("alex@example.com", false));
-        using var blocked = ApplicationWorkflow.CreateFileBacked();
-        Assert.False(blocked.OpenWorkspace(folder));
-        File.WriteAllText(file, original);
-        Assert.True(app.RefreshWorkspace(), app.Status);
-        app.DiscardUnsavedChanges();
-        Assert.True(app.CanSafelyClose);
-        Assert.Equal("alex@example.com", Assert.Single(Open().FavoritePeople).Email);
-    }
-
-    private string CurrentPersonFile(string email)
-    {
-        return OrgExplorer.TestFixtures.WorkspaceFixtures.IndexedDocuments(folder)["people:" + email];
+        using var receiver = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(receiver.OpenWorkspace(Path.Combine(root, "receiver")), receiver.Status);
+        WorkspaceFixtures.JoinSnapshot(app, receiver, Path.Combine(root, "transport"));
+        Assert.True(app.EditPersonText("avery@example.com", PersonTextField.OfficeNumber, "Next revision"));
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        var file = WorkspaceFixtures.LatestSnapshot(app);
+        var original = File.ReadAllBytes(file);
+        WorkspaceFixtures.RewriteSnapshot(file, content => WorkspaceFixtures.EditSnapshotRow(content,
+            "people", "alex@example.com", person => person["isFavorite"] = JsonNode.Parse(invalid)));
+        var rejected = File.ReadAllBytes(file);
+        Assert.False(receiver.SyncNow());
+        Assert.Equal("alex@example.com", Assert.Single(receiver.FavoritePeople).Email);
+        Assert.Contains(receiver.Search("alex"), r => r.Person.IsFavorite);
+        Assert.Equal(rejected, File.ReadAllBytes(file));
+        File.WriteAllBytes(file, original);
+        Assert.True(receiver.SyncNow(), receiver.Synchronization.Error);
+        Assert.Equal("alex@example.com", Assert.Single(receiver.FavoritePeople).Email);
     }
 
     public void Dispose()
     {
         foreach (var app in workflows) app.Dispose();
-        if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        if (Directory.Exists(root)) Directory.Delete(root, true);
     }
 }

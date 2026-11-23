@@ -10,6 +10,7 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceViewModel workflow;
+    private bool CanEditCurrentWorkspace => workflow.CanEditLocalWorkspace && workflow.Compatibility.SupportsOrdinaryEdits;
     private readonly Func<Window, string?> chooseWorkspaceFolder;
     private readonly Action<string> writeClipboard;
     private Guid? preview;
@@ -26,10 +27,14 @@ public partial class MainWindow : Window
         : this(application, chooseWorkspaceFolder, System.Windows.Clipboard.SetText) { }
 
     internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder, Action<string> writeClipboard)
+        : this(application, chooseWorkspaceFolder, writeClipboard, TimeProvider.System) { }
+
+    internal MainWindow(IApplicationWorkflow application, Func<Window, string?> chooseWorkspaceFolder,
+        Action<string> writeClipboard, TimeProvider synchronizationClock)
     {
         this.chooseWorkspaceFolder = chooseWorkspaceFolder;
         this.writeClipboard = writeClipboard;
-        workflow = new(application, workspaceSettings);
+        workflow = new(application, workspaceSettings, synchronizationTimeProvider: synchronizationClock);
         InitializeComponent();
         InitializeProfileCopyFeedback();
         InitializeOperationalNotices();
@@ -49,23 +54,19 @@ public partial class MainWindow : Window
         Photo.PhotoEdited += EditPersonPhoto;
         workflow.WorkspaceChanged += (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            if (workPending) externalRefreshPending = true;
+            if (workPending)
+            {
+                externalRefreshPending = true;
+                if (workflow.LocalSave.EditsPaused)
+                {
+                    PersonNotes.RefreshExternalWorkspace();
+                    TeamNotes.RefreshExternalWorkspace();
+                    ShowStatus();
+                }
+            }
             else RefreshExternalWorkspace();
         });
-        Closing += (_, e) =>
-        {
-            if (updateHandoffPending || !TryLeaveLocalEdits() || !workflow.CanSafelyClose)
-            {
-                e.Cancel = true;
-                SettingsPanel.Visibility = Visibility.Collapsed;
-                UpdateMainViews();
-                StatusText.Text = updateHandoffPending ? "Safe update handoff is in progress; wait for restart or a visible failure." :
-                    workPending ? "Local work is still pending; closing waits for it to finish." :
-                    "Unsaved local changes prevent safe closing.\n" + workflow.Status +
-                    "\nResolve unsaved drafts with retry or deliberate discard. For committed storage maintenance, use Settings → Retry Workspace validation / storage maintenance; do not replay the edit.";
-            }
-        };
-        Closed += (_, _) => workflow.Dispose();
+        InitializeExit();
     }
     private static string? ChooseWorkspaceFolder(Window owner)
     {
@@ -74,7 +75,7 @@ public partial class MainWindow : Window
     }
     private void ChooseImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(forImport: true)) return;
         var dialog = new OpenFileDialog { Filter = "Import JSON|*.json", Title = "Choose a version-1 Import batch" };
         if (dialog.ShowDialog(this) == true) ImportPath.Text = dialog.FileName;
     }
@@ -82,7 +83,7 @@ public partial class MainWindow : Window
     {
         SettingsPanel.Visibility = Visibility.Collapsed;
         UpdateMainViews();
-        if (workflow.IsImportOpen || !TryLeaveLocalEdits()) return;
+        if (workflow.IsImportOpen || !TryLeaveLocalEdits(forImport: true)) return;
         if (!workflow.TryOpenImport())
         {
             ShowNavigationBlocked("Navigation blocked: " + workflow.Status);
@@ -92,7 +93,7 @@ public partial class MainWindow : Window
     }
     private void ShowPeopleView(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(browsing: true)) return;
         workflow.ShowPeople();
         ClearImportPreview();
         RefreshPeople();
@@ -200,13 +201,13 @@ public partial class MainWindow : Window
     }
     private async void PreviewImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
+        if (!TryLeaveLocalEdits(forImport: true)) return;
         preview = null;
         ApplyButton.IsEnabled = false;
         try
         {
             var path = ImportPath.Text;
-            var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…");
+            var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…", isImport: true);
             var messages = result.Errors.Concat(result.Warnings).Concat(result.Changes).ToArray();
             PreviewText.ItemsSource = messages;
             System.Windows.Automation.AutomationProperties.SetName(PreviewText, string.Join("\n", messages));
@@ -221,8 +222,8 @@ public partial class MainWindow : Window
     }
     private async void ApplyImport(object sender, RoutedEventArgs e)
     {
-        if (!TryLeaveLocalEdits()) return;
-        if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…");
+        if (!TryLeaveLocalEdits(forImport: true)) return;
+        if (preview is { } id) await RunWorkflowAsync(() => workflow.ApplyImport(id), "Applying reviewed Import…", isImport: true);
         ApplyButton.IsEnabled = false;
         preview = null;
         RefreshPeople();
@@ -270,7 +271,8 @@ public partial class MainWindow : Window
     }
     private bool OpenPerson(PersonProfile person, bool navigation = true)
     {
-        if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) && !TryLeaveLocalEdits())
+        if ((workPending || !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase)) &&
+            !TryLeaveLocalEdits(browsing: true))
             return false;
         if (navigation && !workflow.NavigatePerson(person.Email))
         {
@@ -471,14 +473,13 @@ public partial class MainWindow : Window
         UpdateMainViews();
         RefreshSearchAndFavorites();
         StatusText.Text = workflow.Status;
-        if (!workPending)
-            WorkflowActivity.Text = workflow.GetWorkspaceConflicts().Count != 0
-                ? workflow.PublicationOutcome == Workflow.WorkspacePublicationOutcome.Indeterminate
-                    ? "Publication outcome unknown - external resolution required"
-                    : "Saved locally - external conflict resolution required"
-                : HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
+        System.Windows.Automation.AutomationProperties.SetItemStatus(OperationalNotice,
+            $"Local save: {workflow.LocalSave.Phase}; outcome: {workflow.LocalSave.Outcome}");
+        if (workflow.LocalSave.EditsPaused) WorkflowActivity.Text = workflow.LocalSave.Message;
+        else if (!workPending)
+            WorkflowActivity.Text = HasPreferredNameDraft || HasUnsavedRelationship || !workflow.CanSafelyClose
                 ? "Pending local edits — not yet saved" : "Ready";
-        ShowPublicationConflicts();
+        ShowSynchronizationStatus();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
         WorkspaceFreshness.Text = workflow.IsWorkspaceCurrent
             ? "Current validated local Workspace."
@@ -494,7 +495,7 @@ public partial class MainWindow : Window
         DiscardImportButton.Visibility = workflow.HasFailedImport ? Visibility.Visible : Visibility.Collapsed;
         DiscardImportButton.IsEnabled = !workPending && workflow.HasFailedImport;
         UpdateProfileMode();
-        if (!workflow.IsWorkspaceCurrent)
+        if (!CanEditCurrentWorkspace)
         {
             PersonMoreMenu.IsEnabled = ManagerEditor.IsEnabled = false;
             AttributeEditors.IsEnabled = false;
@@ -540,15 +541,21 @@ public partial class MainWindow : Window
         SearchQuery.Focus();
     }
 
-    private bool TryLeaveLocalEdits()
+    private bool TryLeaveLocalEdits(bool browsing = false, bool forImport = false)
     {
+        if (browsing) return true;
         if (workPending)
         {
             ShowNavigationBlocked("Navigation blocked: local work is in progress. Please wait for it to finish.");
             return false;
         }
         if (workflow.ProfileEdit is { IsDirty: true } && !DecideProfileLeave()) return false;
-        if (!TryLeaveNotes()) return false;
+        if (workflow.LocalSaveError is { } independentError && !(forImport && workflow.CanEnterImport))
+        {
+            ShowNavigationBlocked("Navigation blocked: " + independentError +
+                " Retry or discard the independent unsaved writing before leaving.", retainedFailure: true);
+            return false;
+        }
         if (!HasPreferredNameDraft && !HasUnsavedRelationship)
         {
             if (!DecideProfileLeave()) return false;

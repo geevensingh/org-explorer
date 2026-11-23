@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 
 namespace OrgExplorer.Workflow;
@@ -15,6 +16,32 @@ public sealed partial class ApplicationWorkflow
     private Dictionary<string, byte[]> photos = [];
     private sealed record PhotoResource(string Directory, string RelativePath, string Field, string Hash,
         byte[] Bytes, string Extension);
+
+    private static FileStream OpenWorkspaceRead(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    private static IEnumerable<string> RequiredPhotos(Dictionary<string, PersonProfile> population,
+        Dictionary<string, PersonHistory> history, Dictionary<string, List<HistoricalTeamContext>> contexts)
+    {
+        return population.Values.Select(person => person.PhotoPath)
+            .Concat(history.Values.SelectMany(person => person.Observations)
+                .Where(evidence => evidence.Field == "photoPath").Select(evidence => evidence.Value.GetString()))
+            .Concat(history.Values.SelectMany(person => person.Changes).SelectMany(ChangePhotos))
+            .Concat(contexts.Values.SelectMany(captures => captures).SelectMany(capture => capture.ReportingChain)
+                .Select(person => person.PhotoPath))
+            .OfType<string>().Distinct(StringComparer.Ordinal);
+
+        static IEnumerable<string?> ChangePhotos(ProfileChange change)
+        {
+            if (change.Field == "photoPath")
+            {
+                yield return change.OldValue.GetString();
+                yield return change.NewValue.GetString();
+            }
+            if (change.Evidence.Field == "photoPath") yield return change.Evidence.Value.GetString();
+            if (change.PreviousEvidence is { Field: "photoPath" } previous) yield return previous.Value.GetString();
+        }
+    }
 
     public PersonPhoto? GetPhoto(string email)
     { if (queryView is { } view) return view.GetPhoto(email);
@@ -28,6 +55,9 @@ public sealed partial class ApplicationWorkflow
     }
 
     public bool EditPhoto(string email, string? localPath)
+        => CanBeginLocalSave() && TrackLocalSave(() => EditPhotoLocked(email, localPath));
+
+    private bool EditPhotoLocked(string email, string? localPath)
     { lock (workspaceGate) return EditPhotoCore(email, localPath); }
 
     private bool EditPhotoCore(string email, string? localPath)
@@ -37,16 +67,18 @@ public sealed partial class ApplicationWorkflow
         {
             var proposedPhotos = new Dictionary<string, byte[]>(photos);
             string? name = null;
+            PhotoResource? resource = null;
             if (localPath is not null)
             {
-                var resource = ReadLocalPhoto(localPath, email);
+                resource = ReadLocalPhoto(localPath, email);
                 name = resource.Hash.ToLowerInvariant() + resource.Extension;
                 proposedPhotos[name] = resource.Bytes;
             }
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [email] = person with { PhotoPath = name } };
             var history = CaptureLocalHistory(person, proposed[email], "photoPath");
-            if (!Save(proposed, batches, proposedPhotos, history, $"photo:{email.ToLowerInvariant()}")) return false;
+            if (!Save(proposed, batches, proposedPhotos, history, $"photo:{email.ToLowerInvariant()}",
+                resource is null ? null : [resource])) return false;
             people = proposed;
             photos = proposedPhotos;
             profileHistory = history;
