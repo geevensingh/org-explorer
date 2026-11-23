@@ -24,6 +24,75 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
 
+    [Fact]
+    public void New_publication_reuses_complete_content_validation_for_retention_and_rechecks_later_delivery()
+    {
+        var observer = new ExitPublicationObserver();
+        using var first = Create("first", observer);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.True(first.EditPreferredName("report@example.com", "Previous complete version"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.Equal(2, Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Length);
+        var note = first.CreateTeamNote("manager@example.com", "Exact owner note", "Newest complete writing")!;
+        var latest = first.Synchronization.LocalRevision;
+        observer.ValidationWrites = 0;
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.Equal(3, observer.ValidationWrites);
+        Assert.Equal(latest, first.Synchronization.PublishedRevision);
+        Assert.False(first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(latest, receiver.Synchronization.LocalRevision);
+        Assert.Equal("Newest complete writing", receiver.GetTeamNotes("manager@example.com").Single(item => item.Id == note.Id).Markdown);
+        var delivered = Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Single(file =>
+            Path.GetFileName(file).Contains(latest!.Value.ToString("D")));
+        var original = File.ReadAllBytes(delivered);
+        RewriteSnapshot(delivered, data =>
+        {
+            var row = data["people"]![0]!;
+            var person = JsonNode.Parse(row["value"]!.GetValue<string>())!.AsObject();
+            person.Remove("managerEmail");
+            row["value"] = person.ToJsonString();
+        });
+        Assert.False(first.SyncNow());
+        Assert.NotNull(first.Synchronization.Error);
+        Assert.Equal(latest, first.Synchronization.LocalRevision);
+        File.WriteAllBytes(delivered, original);
+        Assert.True(first.SyncNow(), first.Status);
+    }
+
+    [Fact]
+    public void Changed_previously_validated_content_is_rejected_during_the_same_publication_pass()
+    {
+        var publisher = new SnapshotPublisher();
+        using var first = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var earlier = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        Assert.True(first.EditPreferredName("report@example.com", "Durable newest writing"), first.Status);
+        var latest = first.Synchronization.LocalRevision;
+        publisher.BeforeSnapshot = () => RewriteSnapshot(earlier, data =>
+        {
+            var row = data["people"]![0]!;
+            var person = JsonNode.Parse(row["value"]!.GetValue<string>())!.AsObject();
+            person.Remove("managerEmail");
+            row["value"] = person.ToJsonString();
+        });
+        Assert.False(first.SyncNow());
+        Assert.NotNull(first.Synchronization.Error);
+        Assert.True(File.Exists(earlier));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(latest, reopened.Synchronization.LocalRevision);
+        Assert.Equal("Durable newest writing", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

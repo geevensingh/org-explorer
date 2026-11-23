@@ -12,12 +12,17 @@ public sealed partial class ApplicationWorkflow
         return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     }
 
-    private void ReclaimRoutineSnapshots(string path, string folder, LogicalSnapshot published)
+    private void ReclaimRoutineSnapshots(string path, string folder, LogicalSnapshot published,
+        HashSet<string> validatedContent)
     {
         var inventory = Directory.GetFiles(folder, "*.oesnapshot").Select(file => (File: file, Item: ReadDeliveredSnapshot(file))).ToArray();
         foreach (var (_, item) in inventory)
         {
-            using var validated = ValidateSnapshot(path, item.Data);
+            // Reuse only full validation of these exact bytes in this synchronization pass.
+            if (validatedContent.Add(item.Hash))
+            {
+                using var validated = ValidateSnapshot(path, item.Data);
+            }
             if (item.Data.WorkspaceId != published.WorkspaceId)
                 throw new IOException("A different Workspace arrived during publication. Snapshot cleanup was refused.");
             if (!Continues(item.Data.Ancestry, published.Ancestry, published.ResolvedRevisions) &&
@@ -36,7 +41,10 @@ public sealed partial class ApplicationWorkflow
             foreach (var file in Directory.GetFiles(recovery, "*.oesnapshot"))
             {
                 var item = ReadDeliveredSnapshot(file);
-                using var validated = ValidateSnapshot(path, item.Data);
+                if (validatedContent.Add(item.Hash))
+                {
+                    using var validated = ValidateSnapshot(path, item.Data);
+                }
                 retained.Add(item.Data.Revision);
             }
         var keep = owned.Where(entry => entry.Item.Data.Revision == published.Revision).Select(entry => entry.Item.Data.Revision).ToHashSet();

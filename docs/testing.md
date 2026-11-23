@@ -380,6 +380,20 @@ same helper through actual compiled Sync controls and two real stores, verifies
 new incoming profile/note data and matching current/published revisions, and
 separately requires close-only preparation to reject an unexpectedly advanced
 head without losing the adopted version. It is also in the full compiled selection.
+The normal-close preparation replay observes the same enabled Sync now and
+locally-saved-and-published text predicate as native publication preparation,
+not only the underlying model's completion.
+Real-store synchronization coverage requires three full semantic validations
+when two retained incoming versions precede a genuinely newer outgoing version,
+not repeated reconstruction of the same content during retention.
+Retention still rereads and integrity-checks
+actual artifacts; changed bytes must receive fresh semantic validation, even
+during that same publication. No validation result survives into a later pass.
+The rich no-window diagnosis reproduced the original 20-second readiness
+predicate failure with two retained snapshots; reusing exact-content validation
+within that pass removes repeated SQLite reconstruction without changing the
+native observation, workload, close guard or scale budgets. This is not complete
+hosted rich-scale acceptance or attribution of the historical runner's exact phase.
 
 The Team/history journey preserves the exact reopened secondary note across owner
 navigation, then deliberately uses Open ongoing before inspecting that owner's
