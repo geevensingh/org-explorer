@@ -333,19 +333,21 @@ internal static partial class Program
 
     private static void AssertPersonCategory(AutomationElement window, string expected)
     {
-        var category = ControlReadiness.AwaitControl(() => Find(window, "PersonCategoryLabel"),
-            control => !control.Current.IsOffscreen && control.Current.Name == $"Person category: {expected}", Await);
-        var current = category.Current;
+        var controls = ControlReadiness.AwaitControl(
+            () => ControlObservation.Capture(window, "PersonCategoryLabel", "ProfileHeading", "Photo", "ProfileScroll"),
+            observed => observed.IsVisible("PersonCategoryLabel") &&
+                observed["PersonCategoryLabel"].Cached.Name == $"Person category: {expected}", Await);
+        var current = controls["PersonCategoryLabel"].Cached;
         var badge = current.BoundingRectangle;
-        var heading = Find(window, "ProfileHeading").Current.BoundingRectangle;
-        var photo = Find(window, "Photo").Current.BoundingRectangle;
+        var heading = controls.Bounds("ProfileHeading");
+        var photo = controls.Bounds("Photo");
         var scale = DpiScale(window);
         if (current.ControlType != ControlType.Text || !current.IsKeyboardFocusable ||
             !current.HelpText.Contains("classification", StringComparison.Ordinal) ||
             !current.HelpText.Contains("not verified", StringComparison.Ordinal) ||
             badge.IsEmpty || badge.Width <= 0 || badge.Left < heading.Right - scale ||
             badge.Top < heading.Top - scale || badge.Bottom > heading.Bottom + scale ||
-            badge.Right > Find(window, "ProfileScroll").Current.BoundingRectangle.Right + scale ||
+            badge.Right > controls.Bounds("ProfileScroll").Right + scale ||
             badge.Bottom > photo.Bottom + scale)
             throw new InvalidOperationException($"The read-only {expected} badge must be accessible and readable beside the name within anchored identity: badge={badge}, heading={heading}, photo={photo}.");
     }
@@ -462,8 +464,10 @@ internal static partial class Program
         Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
         if (total is null)
         {
-            if (IsVisible(window, "ReportingStructureLabel") || IsVisible(window, "ReportingStructureValue") ||
-                IsVisible(window, "ReportingStructureScope"))
+            var absent = ControlObservation.Capture(window,
+                "ReportingStructureLabel", "ReportingStructureValue", "ReportingStructureScope");
+            if (absent.IsVisible("ReportingStructureLabel") || absent.IsVisible("ReportingStructureValue") ||
+                absent.IsVisible("ReportingStructureScope"))
                 throw new InvalidOperationException("An ineligible Person retained a visible Reporting structure fact.");
             return;
         }
@@ -553,42 +557,48 @@ internal static partial class Program
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
-        var label = Find(window, "TeamNameLabel");
+        ControlObservation? reading = null;
         AutomationElement[] values = [];
         Await(() =>
         {
-            var names = Find(window, "TeamNames");
+            var observation = ControlObservation.Capture(window, "TeamNameLabel", "TeamNames",
+                "TeamNameEmpty", "TeamNameEditor", "NavigateManager", "ProfileScroll");
+            var names = observation["TeamNames"];
             var segments = names.FindAll(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
                 .Cast<AutomationElement>().ToArray();
-            if (label.Current.IsOffscreen || !segments.Select(segment => segment.Current.Name).SequenceEqual(expected) ||
+            if (observation["TeamNameLabel"].Cached.IsOffscreen || !segments.Select(segment => segment.Current.Name).SequenceEqual(expected) ||
                 segments.Any(segment => segment.Current.IsOffscreen))
                 return false;
-            values = expected.Length == 0 ? [Find(window, "TeamNameEmpty")] : segments;
-            return values.All(value => !value.Current.IsOffscreen) &&
+            values = expected.Length == 0 ? [observation["TeamNameEmpty"]] : segments;
+            var ready = values.All(value => !value.Current.IsOffscreen) &&
                 (expected.Length != 0 || values[0].Current.Name == "Not set");
+            if (ready) reading = observation;
+            return ready;
         });
+        var controls = reading!;
+        var label = controls["TeamNameLabel"];
         if (values.Any(value => value.Current.ControlType != ControlType.Text ||
             value.TryGetCurrentPattern(ValuePattern.Pattern, out _) ||
             (value.Current.AutomationId == "TeamNameSegment" &&
-                !value.TryGetCurrentPattern(InvokePattern.Pattern, out _))) || IsVisible(window, "TeamNameEditor"))
+                !value.TryGetCurrentPattern(InvokePattern.Pattern, out _))) || controls.IsVisible("TeamNameEditor"))
             throw new InvalidOperationException("Team-name reading became an editable field or lost its explicit empty state.");
-        var separators = Find(window, "TeamNames").FindAll(TreeScope.Descendants,
+        var separators = controls["TeamNames"].FindAll(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator"))
             .Cast<AutomationElement>().Where(separator => !separator.Current.IsOffscreen).ToArray();
         if (separators.Length != Math.Max(0, expected.Length - 1) ||
             separators.Any(separator => separator.Current.Name != " > " || separator.Current.IsKeyboardFocusable))
             throw new InvalidOperationException("The rendered Team-name path lost its exact read-only ' > ' separators.");
-        var renderedPath = string.Concat(Find(window, "TeamNames").FindAll(TreeScope.Descendants, new OrCondition(
+        var renderedPath = string.Concat(controls["TeamNames"].FindAll(TreeScope.Descendants, new OrCondition(
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"),
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator")))
             .Cast<AutomationElement>().Where(value => !value.Current.IsOffscreen).Select(value => value.Current.Name));
         if (renderedPath != string.Join(" > ", expected))
             throw new InvalidOperationException($"The actual rendered Team-name path is out of order: '{renderedPath}'.");
-        var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
-        var row = label.Current.BoundingRectangle;
+        var manager = controls.Bounds("NavigateManager");
+        var row = label.Cached.BoundingRectangle;
         var scale = DpiScale(window);
-        var viewport = Find(window, "ProfileScroll").Current.BoundingRectangle;
+        var viewport = controls.Bounds("ProfileScroll");
         if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
             throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
                 $"label={row}, Manager={manager}, viewport={viewport}.");

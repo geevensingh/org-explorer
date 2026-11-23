@@ -592,17 +592,19 @@ internal static partial class Program
         Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
         void AtSize(string state)
         {
-            var email = Find(window, "Email").Current.Name;
+            string? email = null;
+            var scroll = ControlReadiness.AwaitPattern(
+                () => ControlObservation.Capture(window, "ProfileScroll", "Email"),
+                observed =>
+                {
+                    var control = observed["ProfileScroll"].Cached;
+                    return control.IsEnabled && !control.IsOffscreen && !control.BoundingRectangle.IsEmpty &&
+                        control.BoundingRectangle.Width > 0 && control.BoundingRectangle.Height > 0 &&
+                        observed.IsVisible("Email") && !string.IsNullOrEmpty(email = observed["Email"].Cached.Name);
+                }, observed => observed["ProfileScroll"].TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)
+                    ? (ScrollPattern)pattern : null, Await);
             AssertPersonCategory(window, CompactIdentityStateCases.FirstOrDefault(identity =>
                 identity.Email == email).Category ?? "Employee");
-            var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
-                control =>
-                {
-                    var observed = control.Current;
-                    return observed.IsEnabled && !observed.IsOffscreen && !observed.BoundingRectangle.IsEmpty &&
-                        observed.BoundingRectangle.Width > 0 && observed.BoundingRectangle.Height > 0;
-                }, control => control.TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)
-                    ? (ScrollPattern)pattern : null, Await);
             if (scroll.Current.HorizontallyScrollable)
                 throw new InvalidOperationException("Inline profile editing requires horizontal page scrolling.");
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);

@@ -26,7 +26,7 @@ internal static partial class Program
             foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
                 AutomationElement.ControlTypeProperty, AutomationElement.IsEnabledProperty, AutomationElement.IsOffscreenProperty,
                 AutomationElement.IsKeyboardFocusableProperty, AutomationElement.HasKeyboardFocusProperty,
-                AutomationElement.BoundingRectangleProperty })
+                AutomationElement.BoundingRectangleProperty, AutomationElement.HelpTextProperty })
                 request.Add(property);
             using (request.Activate())
                 return new(window.FindAll(TreeScope.Descendants,
