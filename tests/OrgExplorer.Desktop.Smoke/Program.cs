@@ -8,11 +8,19 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly List<Process> Applications = [];
+    private static readonly Dictionary<int, string> DiagnosticProcessRoles = [];
     private static string diagnostics = "";
 
     [STAThread]
     private static int Main(string[] args)
     {
+        using var diagnostic = OrgExplorer.Workflow.PassiveSaveCapture.Install(
+            args.Length > 0 && args[0] == "--held-snapshot-fixture" ? "workspace-controlled-adoption-host" :
+            args.Length > 0 && args[0] == "--rich-scale-snapshot-fixture" ? "rich-controlled-wpf-host" :
+            args.Length > 0 && args[0] is "--automatic-snapshot-fixture" or "--local-save-recovery-fixture" or "--workspace-exit-fixture"
+                ? "workspace-controlled-wpf-host" :
+            args.Contains("--ui-scale-prefix") || args.Contains("--ui-scale-tail") ||
+            Environment.GetEnvironmentVariable("ORG_EXPLORER_DIAGNOSTIC_WORKER") == "prefix" ? "rich-harness" : "workspace-harness");
         try
         {
             if (args.Length > 0 && args[0] == "--local-save-recovery-fixture")
@@ -160,6 +168,8 @@ internal static partial class Program
             throw new InvalidOperationException("Desktop fixtures require an explicit isolated app-settings directory before launching.");
         var process = Process.Start(new ProcessStartInfo(Path.GetFullPath(path)) { UseShellExecute = false })
             ?? throw new InvalidOperationException("WPF application did not launch.");
+        DiagnosticProcessRoles[process.Id] = Environment.GetEnvironmentVariable("ORG_EXPLORER_DIAGNOSTIC_WORKER") == "prefix"
+            ? "rich-normal-entry-exe" : "workspace-controlled-entry-exe";
         Applications.Add(process);
         return process;
     }

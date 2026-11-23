@@ -3,6 +3,15 @@ name: Scale verification
 on:
   workflow_call:
     inputs:
+      passive_capture_only:
+        description: ISOLATED diagnostic source; only original rich prefix, no union or acceptance
+        required: false
+        default: false
+        type: boolean
+      reviewed_diagnostic_revision:
+        description: Exact reviewed full diagnostic SHA for the ci.yml passive bridge
+        required: false
+        type: string
       revision:
         description: Exact candidate commit supplied by the calling workflow
         required: true
@@ -31,6 +40,7 @@ permissions:
 
 jobs:
   non-ui-performance:
+    if: ${{ !inputs.passive_capture_only }}
     name: Thorough non-UI performance
     runs-on: windows-latest
     timeout-minutes: 13
@@ -79,6 +89,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.revision || github.sha }}
+          fetch-depth: ${{ inputs.passive_capture_only && 2 || 1 }}
       - name: Identify the exact checked-out candidate
         run: |
           $revision = git rev-parse HEAD
@@ -86,6 +97,11 @@ jobs:
             throw 'Scale verification requires the exact full candidate SHA, not a mutable ref.'
           }
           "TESTED_REVISION=$revision" >> $env:GITHUB_ENV
+      - name: Bind isolated diagnostic source before building
+        if: ${{ inputs.passive_capture_only }}
+        env:
+          REVIEWED_DIAGNOSTIC_REVISION: ${{ inputs.reviewed_diagnostic_revision }}
+        run: .\eng\Write-PassiveSaveBinding.ps1 -Worker prefix -ResultsDirectory .ci-results\ui-scale-prefix
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -96,14 +112,16 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ inputs.passive_capture_only && 'diagnostic-source-' || (inputs.extended_observation && 'diagnostic-' || '') }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-prefix/**/*.json
             .ci-results/ui-scale-prefix/**/*.log
             .ci-results/ui-scale-prefix/**/*.oesnapshot
+            .ci-results/ui-scale-prefix/**/*.jsonl
 
   ui-scale-tail:
+    if: ${{ !inputs.passive_capture_only }}
     name: Rich logical Join, delivery, reopen and navigation
     needs: ui-scale-prefix
     runs-on: windows-latest
@@ -147,7 +165,7 @@ jobs:
   ui-scale:
     name: Complete scale acceptance union
     needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.passive_capture_only }}
     runs-on: windows-latest
     timeout-minutes: 13
     steps:

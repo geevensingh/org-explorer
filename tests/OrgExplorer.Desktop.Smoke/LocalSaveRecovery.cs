@@ -224,6 +224,7 @@ internal static partial class Program
         try
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+            PassiveSaveCapture.Current?.IdentifyLoadedDesktop(assembly);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             var observer = new RecoveryCommitGate(() => hold.WaitOne(0), () => entered.Set(),
                 () => release.WaitOne(TimeSpan.FromSeconds(30)));
@@ -260,6 +261,7 @@ internal static partial class Program
         foreach (var argument in new[] { typeof(Program).Assembly.Location, "--local-save-recovery-fixture",
             Path.GetFullPath(executable), path }.Concat(names)) start.ArgumentList.Add(argument);
         using var process = Process.Start(start)!;
+        DiagnosticProcessRoles[process.Id] = "workspace-controlled-wpf-host";
         Applications.Add(process);
         try
         {

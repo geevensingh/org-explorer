@@ -93,7 +93,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         this.profileLinkOpener = profileLinkOpener;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.filePublisher = filePublisher ?? new WorkspaceFilePublisher();
-        this.fileObserver = fileObserver;
+        this.fileObserver = memory ? fileObserver : PassiveSaveCapture.Attach(fileObserver);
         localRequests = new(this.timeProvider, () => WorkspaceChanged?.Invoke(this, EventArgs.Empty));
     }
     public static IApplicationWorkflow CreateInMemory(IProfileLinkOpener? profileLinkOpener = null, TimeProvider? timeProvider = null) =>

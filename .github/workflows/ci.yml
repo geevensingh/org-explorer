@@ -6,6 +6,15 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      run_passive_save_diagnostics:
+        description: ISOLATED diagnostic source only; original workspace and rich prefix workers, never release or acceptance
+        required: false
+        default: false
+        type: boolean
+      diagnostic_revision:
+        description: Exact reviewed full diagnostic SHA; required for the isolated capture
+        required: false
+        type: string
       run_scale_verification:
         description: Run separate scale verification at this dispatch commit
         required: false
@@ -22,6 +31,7 @@ permissions:
 
 jobs:
   core:
+    if: ${{ !inputs.run_passive_save_diagnostics }}
     name: Core and view models
     runs-on: windows-latest
     timeout-minutes: 5
@@ -45,6 +55,7 @@ jobs:
             .ci-results/core/*.trx
 
   filesystem:
+    if: ${{ !inputs.run_passive_save_diagnostics }}
     name: Real filesystem persistence
     runs-on: windows-latest
     timeout-minutes: 11
@@ -75,10 +86,18 @@ jobs:
       fail-fast: false
       matrix:
         partition: [people, workspace]
+        exclude: ${{ fromJSON(inputs.run_passive_save_diagnostics && '[{"partition":"people"}]' || '[]') }}
     steps:
       - name: Start execution budget before setup
         run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.run_passive_save_diagnostics && 2 || 1 }}
+      - name: Bind isolated diagnostic source before building
+        if: ${{ inputs.run_passive_save_diagnostics }}
+        env:
+          REVIEWED_DIAGNOSTIC_REVISION: ${{ inputs.diagnostic_revision }}
+        run: .\eng\Write-PassiveSaveBinding.ps1 -Worker workspace -ResultsDirectory .ci-results\desktop-workspace
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -88,13 +107,16 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: desktop-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
+          name: ${{ inputs.run_passive_save_diagnostics && 'diagnostic-source-' || '' }}desktop-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
           path: |
             .ci-results/desktop-${{ matrix.partition }}/*.json
             .ci-results/desktop-${{ matrix.partition }}/*.log
             .ci-results/desktop-${{ matrix.partition }}/*.png
+            .ci-results/desktop-${{ matrix.partition }}/correlation/*.jsonl
+            .ci-results/desktop-${{ matrix.partition }}/correlation/*.json
 
   high-resolution:
+    if: ${{ !inputs.run_passive_save_diagnostics }}
     name: High-resolution Windows smoke (${{ matrix.partition }})
     runs-on: windows-latest
     timeout-minutes: 15
@@ -123,7 +145,7 @@ jobs:
 
   ci:
     name: CI
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.run_passive_save_diagnostics }}
     needs: [core, filesystem, desktop, high-resolution]
     runs-on: windows-latest
     timeout-minutes: 2
@@ -152,14 +174,16 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_scale_verification && !inputs.run_release_verification || inputs.run_passive_save_diagnostics && !inputs.run_release_verification) }}
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}
+      passive_capture_only: ${{ inputs.run_passive_save_diagnostics }}
+      reviewed_diagnostic_revision: ${{ inputs.diagnostic_revision }}
 
   release-verification:
     name: Optional product release rehearsal
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification && !inputs.run_passive_save_diagnostics }}
     permissions:
       contents: read
       actions: read

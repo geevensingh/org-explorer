@@ -6,5 +6,7 @@
     <PackageReference Include="SQLite" Version="3.54.1" />
     <PackageReference Include="Velopack" Version="1.2.161" />
     <InternalsVisibleTo Include="OrgExplorer.Persistence.Tests" />
+    <InternalsVisibleTo Include="OrgExplorer.Desktop" />
+    <InternalsVisibleTo Include="OrgExplorer.Desktop.Smoke" />
   </ItemGroup>
 </Project>

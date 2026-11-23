@@ -7,7 +7,10 @@ public sealed record WorkspaceFileEffect(WorkspaceFileEffectKind Kind, string Pa
 
 public enum WorkspaceStoragePhaseKind { Begin, End, Failed }
 public sealed record WorkspaceStoragePhase(Guid Id, string Name, WorkspaceStoragePhaseKind Kind,
-    double Milliseconds, double CpuMilliseconds = 0);
+    double Milliseconds, double CpuMilliseconds = 0)
+{
+    internal long DiagnosticTimestamp { get; init; }
+}
 
 /// <summary>
 /// Observes completed filesystem effects and aggregate phases without replacing them. Calls can arrive concurrently.
@@ -69,7 +72,8 @@ public sealed partial class ApplicationWorkflow
         var timer = System.Diagnostics.Stopwatch.StartNew();
         using var process = System.Diagnostics.Process.GetCurrentProcess();
         var cpu = process.TotalProcessorTime;
-        fileObserver.ObservePhase(new(id, name, WorkspaceStoragePhaseKind.Begin, 0));
+        fileObserver.ObservePhase(new(id, name, WorkspaceStoragePhaseKind.Begin, 0)
+        { DiagnosticTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() });
         var outcome = WorkspaceStoragePhaseKind.Failed;
         try
         {
@@ -79,8 +83,9 @@ public sealed partial class ApplicationWorkflow
         }
         finally
         {
+            var completedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             fileObserver.ObservePhase(new(id, name, outcome, timer.Elapsed.TotalMilliseconds,
-                (process.TotalProcessorTime - cpu).TotalMilliseconds));
+                (process.TotalProcessorTime - cpu).TotalMilliseconds) { DiagnosticTimestamp = completedAt });
         }
     }
 

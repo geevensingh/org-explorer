@@ -167,6 +167,15 @@ internal static partial class Program
 
     private static void RunScaleMutationPrefix(string executable, string root)
     {
+        var diagnosticBinding = ReadScaleBinding(executable);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(diagnostics)!, "diagnostic-scale-binding.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                diagnosticOnly = true, binding = diagnosticBinding, shippingRevision = PassiveSaveCapture.ShippingRevision,
+                shippingTree = PassiveSaveCapture.ShippingTree, productRole = "rich-normal-entry-exe",
+                workerInvocation = Environment.GetEnvironmentVariable("UI_SCALE_WORKER_RUN_DIRECTORY"),
+                controlledHostRole = "rich-controlled-wpf-host", nativeIdentityRole = "rich-harness-only-not-target-normal-exe"
+            }));
         using var fixture = new ScaleFixture(root);
         Console.WriteLine("Isolated 10,000-Person fixture: " + fixture.Root);
         fixture.Build();

@@ -61,6 +61,7 @@ internal static partial class Program
         try
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+            PassiveSaveCapture.Current?.IdentifyLoadedDesktop(assembly);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             var publisher = new AutomaticSnapshotPublicationGate(() => hold.WaitOne(0), () => entered.Set(),
                 () => WaitForAutomaticSnapshotRelease(release, args[0] == "--rich-scale-snapshot-fixture"),
@@ -143,6 +144,7 @@ internal static partial class Program
         var evidence = Path.Combine(Path.GetDirectoryName(diagnostics)!,
             Path.GetFileNameWithoutExtension(diagnostics) + "-sqlite-automatic-snapshots.json");
         using var process = Process.Start(start)!;
+        DiagnosticProcessRoles[process.Id] = "workspace-controlled-wpf-host";
         AutomaticSnapshotNativeObservation? native = null;
         string? hostExecutable = null, hostHash = null;
         AutomaticHostLifecycle.Run(process, () =>

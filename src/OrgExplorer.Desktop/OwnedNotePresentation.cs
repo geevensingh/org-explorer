@@ -17,12 +17,19 @@ internal sealed class OwnedNotePresentation(NoteScope scope)
     internal required TextBlock EmptyBody { get; init; }
     internal required TextBlock OperationStatus { get; init; }
     internal required FrameworkElement Surface { get; init; }
+    internal Func<(string? Owner, Guid? Selected, OwnedNote? Displayed)>? DiagnosticIdentity { get; init; }
 
     internal void ShowOperationStatus(string message, bool requiresAttention = true)
     {
         OperationStatus.Text = message;
         OperationStatus.Visibility = requiresAttention && message.Length != 0 ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetItemStatus(Surface, message);
+        if (DiagnosticIdentity?.Invoke() is { } identity)
+            PassiveSaveCapture.Emit(new(PassiveSaveStage.FeedbackWrite, scope, Note: identity.Selected,
+                OwnerDigest: identity.Owner is null ? null : PassiveSaveCapture.OwnerDigest(identity.Owner),
+                Feedback: PassiveSaveCapture.ClassifyFeedback(message), SelectedNote: identity.Selected,
+                DisplayedNote: identity.Displayed?.Id, DisplayedOwnerDigest: identity.Displayed is null ? null :
+                    PassiveSaveCapture.OwnerDigest(identity.Displayed.OwnerEmail)));
     }
 
     internal void ShowOperationStatus(WorkspaceViewModel workflow, bool retainedDraft) =>

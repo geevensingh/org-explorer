@@ -26,7 +26,8 @@ public partial class PersonNotesControl : UserControl
         {
             Status = OngoingStatus, Kind = NoteKind, Heading = NoteHeading,
             Designate = DesignateButton, Ongoing = OngoingButton,
-            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody, OperationStatus = NoteStatus, Surface = this
+            New = NewButton, Empty = EmptyNotes, EmptyBody = EmptyBody, OperationStatus = NoteStatus, Surface = this,
+            DiagnosticIdentity = () => (owner, selected, displayedNote)
         };
     }
     public void Attach(WorkspaceViewModel application, Action onChanged)

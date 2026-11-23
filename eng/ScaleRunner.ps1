@@ -38,7 +38,10 @@ function Invoke-ScaleSuite(
             executionSeconds = ([DateTimeOffset]::UtcNow - $state.started).TotalSeconds
             ceilingSeconds = $ceilingSeconds; steps = @($state.steps.ToArray())
             runDirectory = [IO.Path]::GetRelativePath($results, $run); queuesIncluded = $false; cdIncluded = $false
-            observationSeconds = $ObservationSeconds; diagnosticOnly = $ObservationSeconds -gt $ceilingSeconds
+            observationSeconds = $ObservationSeconds; diagnosticOnly = $true
+            shippingRevision = 'cae977166df7327b4a2d268a10a20578adf338e6'
+            sourcePurpose = 'ISOLATED passive diagnostic source; NEVER release or complete acceptance evidence'
+            diagnosisOutcome = 'IncompleteUntilEvidenceReviewed'
             observedOutcome = $state.observedOutcome; phase = $state.phase; activeCommand = $state.activeCommand
             lastProgress = $state.lastProgress; heartbeatAt = [DateTimeOffset]::UtcNow.ToString('O')
             activePhase = $state.activePhase; lastActivePhase = $state.lastActivePhase

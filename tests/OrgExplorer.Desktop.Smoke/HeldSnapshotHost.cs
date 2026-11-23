@@ -34,6 +34,7 @@ internal static partial class Program
         try
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+            PassiveSaveCapture.Current?.IdentifyLoadedDesktop(assembly);
             var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
             using var control = new SnapshotAdoptionCommitControl(args[3], args[4]);
             using var workflow = ApplicationWorkflow.CreateFileBacked(fileObserver: control);
@@ -86,6 +87,7 @@ internal static partial class Program
             start.ArgumentList.Add(argument);
         if (startupOnly) start.ArgumentList.Add("startup-only");
         var process = Process.Start(start)!;
+        DiagnosticProcessRoles[process.Id] = "workspace-controlled-adoption-host";
         Applications.Add(process);
         return process;
     }

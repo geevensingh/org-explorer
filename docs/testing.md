@@ -2539,6 +2539,49 @@ hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 
+The isolated passive-save diagnostic source is **not shipping output** and must
+never be merged or cherry-picked into shipping. Its original workspace worker
+retains the ephemeral trust/ControlledUpdateEffects build and all update
+assertions; the rich normal-entry executable uses production trust and ordinary
+effects. Owned adoption and rich controlled-WPF hosts are separately labelled.
+Every diagnostic result is nonaccepting, even when its original assertions pass.
+
+Only the existing `ci.yml` manual bridge may select the original workspace lane
+and original rich prefix together for this capture. `diagnostic_revision` must
+equal the reviewed full diagnostic SHA and the workflow/check-out SHA. The
+source binding checks its shipping parent and source/component pins before
+building. The 900-second workspace and 660-second rich setup-inclusive budgets,
+15/13-minute watchdogs, all 21/20/42 samples, six 250-ms continued inputs,
+one-second nearest-rank durability p95, one-second actual adoption hold and
+both same-held capture checks are unchanged. Tail, performance, acceptance
+union and release jobs are not selected. Push and the one dispatch require
+review of that exact pin; the source task itself does neither.
+
+The D-only observer/filtered Trace listener queues at most 4096 records per
+process without synchronous producer serialization or stream writes. Its owned
+drain records sequence/drop/overflow/output failures and writes a
+`.complete.json` marker only after stream Flush/Close; a footer alone is not
+complete transport evidence. Production exit never waits for diagnostic I/O,
+so termination without that marker remains incomplete. Startup component hashes
+and loaded-native identity have distinct process roles; the latter is requested
+only after that process's real SQLite initialization. A late or overlapping
+identity capture is explicitly incomplete, never a reason to warm up or wait.
+Only enum outcomes, GUIDs, incarnation/generation/call/phase identities and
+run-scoped digests are emitted; no private note/owner/path/error-message text.
+The private storage-phase diagnostic timestamp precedes CPU accounting at End,
+just after Commit returns; this is not engine-only duration. Compiled feedback
+writes and later native cached reads remain distinct. Offline joins reject
+missing, dropped, failed, cross-runner or ambiguous evidence and never infer
+generation identity from a saved-shaped status. An earlier Commit can cover
+the request prefix while accepted metadata truthfully retains newer writing.
+Capture sub-boundaries time the same geometry, GDI, copy, PNG, cleanup, identity
+and metadata operations. Post-capture expiry still fails regardless of when
+pixel copying finished. No timing overhead is subtracted or claimed absent.
+
+`PassiveSaveCaptureTests`, the held-adoption driver cases and
+`tests\PassiveSaveCapture.Tests.ps1` are non-UI support/refusal checks. They do
+not identify a hosted actor or prove release/complete native acceptance.
+
 The complete workloads are outside required PR smoke, not removed:
 
 | Command | Required selection | Evidence |

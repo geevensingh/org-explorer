@@ -164,6 +164,9 @@ try {
         ConvertTo-Json -Depth 5 | Set-Content (Join-Path $results 'timing.json')
     if ($partition) {
         @{ schemaVersion = 1; lane = $Lane; partition = $partition; revision = $executionRevision
+            diagnosticOnly = $true; sourcePurpose = 'ISOLATED passive diagnostic source; not shipping acceptance'
+            diagnosisOutcome = 'IncompleteUntilEvidenceReviewed'
+            shippingRevision = 'cae977166df7327b4a2d268a10a20578adf338e6'
             runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { 'local' }
             runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { 'local' }
             complete = $complete; ceilingSeconds = $ceilingSeconds; executionSeconds = $elapsed

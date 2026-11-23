@@ -133,10 +133,12 @@ internal sealed class SnapshotAdoptionCommitControl : IWorkspaceFileObserver, ID
 }
 
 internal sealed record SnapshotAdoptionMilestone(string Stage, long Timestamp, double ElapsedMs,
-    Guid? OperationId, bool CommitPhaseHeld, bool CommitCompleted);
+    Guid? OperationId, bool CommitPhaseHeld, bool CommitCompleted, SnapshotAdoptionCommitState? Snapshot = null);
 
 internal sealed class SnapshotAdoptionObservation
 {
+    public bool DiagnosticOnly { get; } = true;
+    public string RuntimeRole { get; } = "workspace-controlled-adoption-host";
     public List<SnapshotAdoptionMilestone> Milestones { get; } = [];
     public long TimestampFrequency { get; } = Stopwatch.Frequency;
     public string Mechanism { get; } = "Injected external-effect gate at the real admitted snapshot.adopt-commit phase, BEFORE SQLite Commit invocation. Not a SQLite engine waiting on an external reader.";
@@ -163,7 +165,7 @@ internal static class HeldSnapshotAdoption
             var timestamp = Stopwatch.GetTimestamp();
             var state = control.Read();
             observation.Milestones.Add(new(stage, timestamp, Stopwatch.GetElapsedTime(started, timestamp).TotalMilliseconds,
-                state?.OperationId, state?.Held == true, state?.Kind == WorkspaceStoragePhaseKind.End && state.CompletedAt != 0));
+                state?.OperationId, state?.Held == true, state?.Kind == WorkspaceStoragePhaseKind.End && state.CompletedAt != 0, state));
         }
         void Step(string name, Action action)
         {
@@ -171,10 +173,14 @@ internal static class HeldSnapshotAdoption
             try { action(); Record(name + "-completed"); }
             catch { Record(name + "-failed"); throw; }
         }
-        void RequireSameHeld()
+        void RequireSameHeld(string stage)
         {
             var state = control.Read();
-            if (state?.OperationId != operation || state?.Held != true)
+            var timestamp = Stopwatch.GetTimestamp();
+            var sameHeld = !(state?.OperationId != operation || state?.Held != true);
+            observation.Milestones.Add(new(stage, timestamp, Stopwatch.GetElapsedTime(started, timestamp).TotalMilliseconds,
+                state?.OperationId, sameHeld, state?.Kind == WorkspaceStoragePhaseKind.End && state.CompletedAt != 0, state));
+            if (!sameHeld)
                 throw new InvalidOperationException("Native browsing/draft admission outlasted the actual held adoption Commit phase.");
         }
         try
@@ -187,15 +193,15 @@ internal static class HeldSnapshotAdoption
             var state = control.Read();
             operation = state?.OperationId;
             if (operation is null) throw new InvalidOperationException("The actual adoption Commit operation was not observed.");
-            RequireSameHeld();
+            RequireSameHeld("admission-held-check");
             Step("show-editor", actions!.ShowEditor);
             Step("enter-draft", actions.EnterDraft);
             Step("select-person", actions.SelectPerson);
             Step("destination-observed", actions.ObservePerson);
             Record("held-verdict");
-            RequireSameHeld();
-            Step("capture", capture);
-            RequireSameHeld();
+            RequireSameHeld("pre-capture-held-check");
+            using (PassiveSaveCapture.DuringHeldCapture(operation)) Step("capture", capture);
+            RequireSameHeld("post-capture-held-check");
             Step("release-commit", control.Release);
             observation.Outcome = "Passed";
             return observation;

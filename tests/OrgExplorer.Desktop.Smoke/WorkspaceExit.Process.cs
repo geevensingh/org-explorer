@@ -125,6 +125,7 @@ internal static partial class Program
         AssemblyLoadContext.Default.Resolving += (context, name) =>
             resolver.ResolveAssemblyToPath(name) is { } resolved ? context.LoadFromAssemblyPath(resolved) : null;
         var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+        PassiveSaveCapture.Current?.IdentifyLoadedDesktop(assembly);
         var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         var effects = new ExitProcessBoundary(root, mode);
@@ -277,7 +278,9 @@ internal static partial class Program
         foreach (var argument in new[] { typeof(Program).Assembly.Location, "--workspace-exit-fixture",
             Path.GetFullPath(executable), root, mode, native ? "native" : replayStartup ? "startup-invisible" : "invisible" })
             start.ArgumentList.Add(argument);
-        return Process.Start(start) ?? throw new InvalidOperationException("Owned exit fixture did not launch.");
+        var process = Process.Start(start) ?? throw new InvalidOperationException("Owned exit fixture did not launch.");
+        DiagnosticProcessRoles[process.Id] = "workspace-controlled-wpf-host";
+        return process;
     }
 
     private static void VerifyOwnedExitProcesses(string executable, string settings)

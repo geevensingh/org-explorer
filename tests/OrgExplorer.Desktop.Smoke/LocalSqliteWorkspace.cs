@@ -23,19 +23,30 @@ internal static partial class Program
         internal long? AcknowledgmentObservedAt { get; private set; }
         internal bool Observe(NoteEditorFrame frame, string currentOwner, string feedback, bool inputReturned)
         {
-            if (!inputReturned || frame.Identity != id.ToString() || currentOwner != owner ||
-                frame.Title != title || frame.Markdown?.StartsWith(prefix, StringComparison.Ordinal) != true) return false;
+            var identityMatches = inputReturned && frame.Identity == id.ToString() && currentOwner == owner &&
+                frame.Title == title && frame.Markdown?.StartsWith(prefix, StringComparison.Ordinal) == true;
+            if (!identityMatches)
+            {
+                PassiveSaveCapture.EmitSample(PassiveSaveStage.NativePredicate, predicate: false, inputReturned: inputReturned);
+                return false;
+            }
             if (feedback.StartsWith("Pending private note edits", StringComparison.Ordinal))
             {
                 PendingObservedAt ??= Stopwatch.GetTimestamp();
+                PassiveSaveCapture.EmitSample(PassiveSaveStage.NativePredicate, predicate: false, inputReturned: inputReturned);
                 return false;
             }
             var accepted = feedback == $"{scope} note saved locally." ||
                 scope == NoteScope.Team && feedback == "Team note saved locally and confirmed for current context." ||
                 feedback is "Locally saved and published. Provider delivery elsewhere is unknown." or
                     "Locally saved; latest version is not confirmed published. Provider delivery elsewhere is unknown.";
-            if (!accepted) return false;
+            if (!accepted)
+            {
+                PassiveSaveCapture.EmitSample(PassiveSaveStage.NativePredicate, predicate: false, inputReturned: inputReturned);
+                return false;
+            }
             AcknowledgmentObservedAt ??= Stopwatch.GetTimestamp();
+            PassiveSaveCapture.EmitSample(PassiveSaveStage.NativePredicate, predicate: true, inputReturned: inputReturned);
             return true;
         }
     }
@@ -1101,6 +1112,8 @@ internal static partial class Program
                 var inputReturned = 0;
                 var acknowledgment = richFixture is null ? null :
                     new NoteCommitAcknowledgment(scope, id, ownerEmail, titleText, prefix);
+                using var diagnosticSample = PassiveSaveCapture.BeginSample(scope, id, ownerEmail,
+                    scope == NoteScope.Person ? 0 : sample + 1, prefix);
                 NoteCommitObservation.Run(() =>
                 {
                     bodyPattern.SetValue(prefix);
@@ -1111,7 +1124,11 @@ internal static partial class Program
                     {
                         if (Volatile.Read(ref inputReturned) == 0) return false;
                         var frame = ReadNoteEditor(surface, editorCache, family, includeAcknowledgment: true);
-                        return acknowledgment!.Observe(frame, email.GetUpdatedCache(personCache).Cached.Name,
+                        PassiveSaveCapture.EmitSample(PassiveSaveStage.NativeOwnerBegin);
+                        var currentOwner = email.GetUpdatedCache(personCache).Cached.Name;
+                        PassiveSaveCapture.Emit(new(PassiveSaveStage.NativeOwnerEnd, scope, id,
+                            PassiveSaveCapture.OwnerDigest(currentOwner), Sample: scope == NoteScope.Person ? 0 : sample + 1));
+                        return acknowledgment!.Observe(frame, currentOwner,
                             frame.OperationStatus ?? "", inputReturned: true);
                     }
                     using var reading = ApplicationWorkflow.CreateFileBacked();
@@ -1149,6 +1166,8 @@ internal static partial class Program
                     var continuedTyping = firstCommit.ContinueTyping(edit =>
                     {
                         text += richFixture is null ? $"\nContinuing entry {edit}" : $" {edit}";
+                        PassiveSaveCapture.EmitSample(PassiveSaveStage.ContinuedInputContent, edit,
+                            requestDigest: PassiveSaveCapture.Digest(text), predicate: true);
                         bodyPattern.SetValue(text);
                     }, continuedEdits, editSpacingMs);
                     var completedTyping = continuedTyping.RequestCompletedMs[^1];
@@ -1238,6 +1257,9 @@ internal static partial class Program
         if (File.Exists(resultPath)) throw new InvalidOperationException("Hosted note timing evidence already exists.");
         File.WriteAllText(resultPath, JsonSerializer.Serialize(new
         {
+            diagnosticOnly = true, shippingRevision = PassiveSaveCapture.ShippingRevision,
+            runtimeRole = richFixture is null ? "workspace-controlled-entry-exe" :
+                phase == "normal-executable" ? "rich-normal-entry-exe" : "rich-controlled-wpf-host",
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
@@ -1423,6 +1445,7 @@ internal static partial class Program
         bool includeAcknowledgment = false)
     {
         using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.NoteSnapshot);
+        PassiveSaveCapture.EmitSample(PassiveSaveStage.NativeEditorBegin);
         var nodes = new List<AutomationElement>();
         var pending = new Stack<AutomationElement>();
         pending.Push(surface.GetUpdatedCache(cache));
@@ -1437,7 +1460,7 @@ internal static partial class Program
             node?.GetCachedPropertyValue(property, ignoreDefaultValue: true);
         var title = FindCached("NoteTitle");
         var body = FindCached("NoteMarkdown");
-        return new(Property(FindCached("NoteHeading"), AutomationElement.HelpTextProperty) as string,
+        var frame = new NoteEditorFrame(Property(FindCached("NoteHeading"), AutomationElement.HelpTextProperty) as string,
             Property(title, ValuePattern.ValueProperty) as string, Property(body, ValuePattern.ValueProperty) as string,
             Equals(Property(title, AutomationElement.IsEnabledProperty), true) &&
                 Equals(Property(body, AutomationElement.IsEnabledProperty), true) &&
@@ -1447,5 +1470,11 @@ internal static partial class Program
             Equals(Property(title, AutomationElement.IsOffscreenProperty), false),
             Equals(Property(title, AutomationElement.HasKeyboardFocusProperty), true), nodes.Count,
             includeAcknowledgment ? Property(FindCached("NotesSurface"), AutomationElement.ItemStatusProperty) as string : null);
+        if (PassiveSaveCapture.Sample is { } sample)
+            PassiveSaveCapture.Emit(new(PassiveSaveStage.NativeEditorEnd, sample.Scope, sample.Note, sample.OwnerDigest,
+                Sample: sample.Sample, RequestDigest: sample.RequestDigest,
+                DisplayedNote: Guid.TryParse(frame.Identity, out var actualNote) ? actualNote : null,
+                Feedback: PassiveSaveCapture.ClassifyFeedback(frame.OperationStatus ?? "")));
+        return frame;
     }
 }

@@ -2712,9 +2712,10 @@ public sealed class WorkspaceSnapshotTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Held_adoption_driver_excludes_slow_preparation_but_still_rejects_late_actual_actions(bool lateAction)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Held_adoption_driver_excludes_slow_preparation_but_still_rejects_late_actual_actions(bool lateAction, bool lateCapture)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
@@ -2756,7 +2757,7 @@ public sealed class WorkspaceSnapshotTests : IDisposable
                 () => sync = Task.Run(second.SyncNow),
                 () => Assert.True(SpinWait.SpinUntil(() => second.Synchronization.Phase == WorkspaceSynchronizationPhase.Adopting &&
                     control.Read()?.Held == true, TimeSpan.FromSeconds(5))),
-                () => { },
+                () => { if (lateCapture) Thread.Sleep(1200); },
                 value => observed = value);
         }
         catch (InvalidOperationException error) { failure = error; }
@@ -2768,11 +2769,19 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(observed.DiagnosticsComplete, observed.DiagnosticErrorType);
         Assert.All(observed.Milestones.Where(value => value.Stage.StartsWith("prepare-controls", StringComparison.Ordinal)),
             value => Assert.False(value.CommitPhaseHeld));
-        if (lateAction)
+        if (lateAction || lateCapture)
         {
             Assert.Equal("Native browsing/draft admission outlasted the actual held adoption Commit phase.", failure?.Message);
             Assert.Equal("Failed", observed.Outcome);
-            Assert.Contains(observed.Milestones, value => value.Stage == "held-verdict" && !value.CommitPhaseHeld);
+            Assert.Contains(observed.Milestones, value => value.Stage == (lateCapture ? "post-capture-held-check" : "held-verdict") &&
+                !value.CommitPhaseHeld);
+            Assert.Contains(observed.Milestones, value => value.Snapshot is { KnownTransactionAt: > 0,
+                HoldEndedAt: > 0, HoldExpired: true } snapshot && snapshot.TimestampFrequency == Stopwatch.Frequency);
+            if (lateCapture)
+            {
+                Assert.Contains(observed.Milestones, value => value.Stage == "capture-started" && value.CommitPhaseHeld);
+                Assert.DoesNotContain(observed.Milestones, value => value.Stage == "release-commit-started");
+            }
             Assert.True(synchronized, second.Synchronization.Error);
             Assert.True(control.Read() is { Kind: WorkspaceStoragePhaseKind.End, CompletedAt: > 0, HoldExpired: true });
         }

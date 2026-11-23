@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace OrgExplorer.Workflow;
 
 public sealed record RetainedNoteDraft(NoteDraft Basis, string Title, string Markdown, bool IsSaving, string? Error);
@@ -10,6 +12,8 @@ public sealed partial class WorkspaceViewModel
         public string Title = title;
         public string Markdown = markdown;
         public long Generation = 1;
+        public readonly Guid DiagnosticIncarnation = Guid.NewGuid();
+        public readonly string DiagnosticOwnerDigest = PassiveSaveCapture.OwnerDigest(basis.OwnerEmail);
         public long Order = order;
         public bool Saving;
         public string? Error;
@@ -45,6 +49,7 @@ public sealed partial class WorkspaceViewModel
             draft.Requests.Add((draft.Generation, localSaveRequests.Begin()));
             localNoteDrafts.Add((scope, basis.Id), draft);
             workflow.RetainNoteDraft(basis);
+            RecordDraft(draft);
             ScheduleNoteAutosave();
         }
         noteViews[scope] = NoteViewFor(scope) with { Selected = basis.Id, Editing = true, Exact = true, Error = null };
@@ -78,6 +83,7 @@ public sealed partial class WorkspaceViewModel
             draft.Error = null;
             // The admitted writer owns retention until its accepted successor base is installed.
             if (!draft.Saving) workflow.RetainNoteDraft(draft.Basis);
+            RecordDraft(draft);
             ScheduleNoteAutosave();
         }
         Notify();
@@ -147,6 +153,7 @@ public sealed partial class WorkspaceViewModel
             NoteDraft basis;
             string title, markdown;
             long generation;
+            Guid saveCall;
             lock (noteDraftGate)
             {
                 if (epoch != noteAutosaveEpoch) return;
@@ -166,14 +173,28 @@ public sealed partial class WorkspaceViewModel
                 generation = draft.Generation;
                 draft.Submitted = (generation, title, markdown);
                 draft.Saving = true;
+                saveCall = Guid.NewGuid();
+                PassiveSaveCapture.Emit(new(PassiveSaveStage.SaveSubmitted, basis.Scope, basis.Id,
+                    draft.DiagnosticOwnerDigest, draft.DiagnosticIncarnation, generation, saveCall,
+                    SubmittedGeneration: generation, LatestGeneration: draft.Generation,
+                    RequestDigest: PassiveSaveCapture.Digest(markdown)));
             }
             NotifyLocalNoteDrafts();
             NoteDraft? accepted = null;
+            var previousCorrelation = Trace.CorrelationManager.ActivityId;
+            Trace.CorrelationManager.ActivityId = saveCall;
             try { accepted = workflow.SaveNoteDraft(basis, title, markdown); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
             {
                 UnknownLocalSave(error);
                 draft.UnknownOutcome = true;
+            }
+            finally
+            {
+                Trace.CorrelationManager.ActivityId = previousCorrelation;
+                PassiveSaveCapture.Emit(new(PassiveSaveStage.SaveReturned, basis.Scope, basis.Id,
+                    draft.DiagnosticOwnerDigest, draft.DiagnosticIncarnation, generation, saveCall,
+                    SubmittedGeneration: generation, Accepted: accepted is not null));
             }
             lock (noteDraftGate)
             {
@@ -187,22 +208,36 @@ public sealed partial class WorkspaceViewModel
                 {
                     draft.Error = viewSaveFault?.Message ?? workflow.Status;
                     draft.UnknownOutcome |= workflow.LocalSave.HasUnresolvedOutcome;
+                    RecordAccepted(false, retained: true, removed: false, successor: false);
                 }
                 else if (generation == draft.Generation)
                 {
                     localNoteDrafts.Remove((basis.Scope, basis.Id));
                     draft.AdoptionDeferral.Dispose();
+                    RecordAccepted(true, retained: false, removed: true, successor: false);
                 }
                 else
                 {
                     draft.Basis = accepted;
                     draft.Order = ++noteDraftOrder;
                     workflow.RetainNoteDraft(accepted);
+                    RecordAccepted(true, retained: true, removed: false, successor: true);
                 }
+                void RecordAccepted(bool success, bool retained, bool removed, bool successor) =>
+                    PassiveSaveCapture.Emit(new(PassiveSaveStage.SaveAccepted, basis.Scope, basis.Id,
+                        draft.DiagnosticOwnerDigest, draft.DiagnosticIncarnation, generation, saveCall,
+                        SubmittedGeneration: generation, LatestGeneration: draft.Generation, Accepted: success,
+                        Retained: retained, Removed: removed, SuccessorBasis: successor));
             }
+
             NotifyLocalNoteDrafts();
         }
     }
+
+    private static void RecordDraft(LocalNoteDraft draft) =>
+        PassiveSaveCapture.Emit(new(PassiveSaveStage.DraftUpdated, draft.Basis.Scope, draft.Basis.Id,
+            draft.DiagnosticOwnerDigest, draft.DiagnosticIncarnation, draft.Generation,
+            LatestGeneration: draft.Generation, Retained: true, RequestDigest: PassiveSaveCapture.Digest(draft.Markdown)));
 
     private void NotifyLocalNoteDrafts()
     {

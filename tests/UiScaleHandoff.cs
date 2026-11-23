@@ -14,7 +14,13 @@ internal static class UiScaleHandoff
 {
     internal sealed record Binding(string Revision, string RunId, string RunAttempt, string SourceTree,
         string TestTree, string EngTree, string WorkflowBlob, Dictionary<string, string> ProductFiles,
-        Dictionary<string, string> HarnessFiles, string NativeVersion, string NativeSourceId, string LoadedNativeSha256);
+        Dictionary<string, string> HarnessFiles, string NativeVersion, string NativeSourceId, string LoadedNativeSha256)
+    {
+        public bool DiagnosticOnly { get; init; } = true;
+        public string ProductRole { get; init; } = "rich-normal-entry-exe";
+        public string HarnessRole { get; init; } = "rich-harness";
+        public string NativeIdentityRole { get; init; } = "rich-harness-only-not-target-normal-exe";
+    }
     internal sealed record Manifest(int SchemaVersion, Binding Binding, string SourceRunDirectory, string SourceWorkspace,
         Guid WorkspaceId, Guid Head, string SnapshotFile, string SnapshotSha256, string PayloadSha256,
         string PreferencesSha256, RememberedView Selection, string PublicStateSha256);

@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -29,6 +30,10 @@ internal static partial class Program
         using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.Capture);
         if (!Regex.IsMatch(state, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
             throw new ArgumentException("Visual evidence requires a descriptive, path-safe state name.", nameof(state));
+        var captureId = Guid.NewGuid();
+        void Mark(PassiveSaveStage stage, uint? dpi = null) => PassiveSaveCapture.Emit(new(stage, Phase: captureId,
+            HeldOperation: PassiveSaveCapture.HeldOperation, Dpi: dpi));
+        Mark(PassiveSaveStage.CaptureGeometryBegin);
         var desktop = new Rect(GetSystemMetrics(76), GetSystemMetrics(77),
             GetSystemMetrics(78), GetSystemMetrics(79));
         var windowBounds = window.Current.BoundingRectangle;
@@ -58,7 +63,9 @@ internal static partial class Program
             Path.GetFileNameWithoutExtension(diagnostics) + "-" + state);
         if (File.Exists(path + ".png") || File.Exists(path + ".json"))
             throw new InvalidOperationException("Visual evidence must not overwrite an earlier observation: " + path);
+        Mark(PassiveSaveStage.CaptureGeometryEnd);
 
+        Mark(PassiveSaveStage.CaptureAllocationBegin);
         var screen = GetDC(IntPtr.Zero);
         if (screen == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot read actual desktop pixels.");
         var memory = IntPtr.Zero;
@@ -73,36 +80,55 @@ internal static partial class Program
             previous = SelectObject(memory, bitmap);
             if (previous == IntPtr.Zero || previous == new IntPtr(-1))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+            Mark(PassiveSaveStage.CaptureAllocationEnd);
+            Mark(PassiveSaveStage.CaptureBitBltBegin);
             if (!BitBlt(memory, 0, 0, width, height, screen, left, top, 0x40CC0020))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Actual desktop pixel capture failed.");
+            Mark(PassiveSaveStage.CaptureBitBltEnd);
+            Mark(PassiveSaveStage.CaptureCopyBegin);
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(Imaging.CreateBitmapSourceFromHBitmap(
                 bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions())));
+            Mark(PassiveSaveStage.CaptureCopyEnd);
+            Mark(PassiveSaveStage.CapturePngBegin);
             using (var output = File.Create(path + ".png")) encoder.Save(output);
+            Mark(PassiveSaveStage.CapturePngEnd);
         }
         finally
         {
+            Mark(PassiveSaveStage.CaptureCleanupBegin);
             if (previous != IntPtr.Zero && previous != new IntPtr(-1)) SelectObject(memory, previous);
             if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
             if (memory != IntPtr.Zero) DeleteDC(memory);
             ReleaseDC(IntPtr.Zero, screen);
+            Mark(PassiveSaveStage.CaptureCleanupEnd);
         }
 
+        Mark(PassiveSaveStage.CaptureIdentityBegin);
         using var process = Process.GetProcessById(window.Current.ProcessId);
         var executable = process.MainModule?.FileName
             ?? throw new InvalidOperationException("Cannot identify the application captured in visual evidence.");
         using var input = File.OpenRead(executable);
+        var capturedAt = DateTimeOffset.UtcNow;
+        var executableSha256 = Convert.ToHexString(SHA256.HashData(input));
+        Mark(PassiveSaveStage.CaptureIdentityEnd);
+        Mark(PassiveSaveStage.CaptureMetadataBegin);
+        var dpi = GetDpiForWindow((IntPtr)window.Current.NativeWindowHandle);
         File.WriteAllText(path + ".json", JsonSerializer.Serialize(new
         {
             state,
             scope = captureMonitor ? "application-monitor" : "application-window",
-            capturedAt = DateTimeOffset.UtcNow,
+            capturedAt,
+            diagnosticOnly = true,
+            shippingRevision = PassiveSaveCapture.ShippingRevision,
+            runtimeRole = DiagnosticProcessRoles.GetValueOrDefault(process.Id, "Unknown"),
+            capturedProcessId = process.Id,
             revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
             executable,
-            executableSha256 = Convert.ToHexString(SHA256.HashData(input)),
-            dpi = GetDpiForWindow((IntPtr)window.Current.NativeWindowHandle),
+            executableSha256,
+            dpi,
             windowBounds = new { windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height },
             capturedBounds = new { left, top, width, height },
             shellEvidenceLimit = captureMonitor
@@ -110,6 +136,7 @@ internal static partial class Program
                 : null,
             source = "Actual desktop pixels; not an offscreen control render or visual acceptance."
         }, new JsonSerializerOptions { WriteIndented = true }));
+        Mark(PassiveSaveStage.CaptureMetadataEnd, dpi);
     }
 
     [DllImport("gdi32.dll", SetLastError = true)]

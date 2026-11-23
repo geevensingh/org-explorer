@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop.Smoke;
 
@@ -56,8 +57,10 @@ internal sealed class NoteCommitObservation
         {
             if (index != 0) Thread.Sleep(spacingMs);
             started[index] = elapsed.Elapsed.TotalMilliseconds;
+            PassiveSaveCapture.EmitSample(PassiveSaveStage.ContinuedInputBegin, index);
             edit(index);
             completed[index] = elapsed.Elapsed.TotalMilliseconds;
+            PassiveSaveCapture.EmitSample(PassiveSaveStage.ContinuedInputEnd, index);
         }
         return (started, completed);
     }
@@ -91,8 +94,10 @@ internal sealed class NoteCommitObservation
     private void Request(Action request)
     {
         var native = Stopwatch.StartNew();
+        PassiveSaveCapture.EmitSample(PassiveSaveStage.RequestBegin);
         request();
         RequestMs = native.Elapsed.TotalMilliseconds;
+        PassiveSaveCapture.EmitSample(PassiveSaveStage.RequestEnd, inputReturned: true);
     }
 
     internal double Complete()

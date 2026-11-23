@@ -61,7 +61,7 @@ internal sealed class SmokeScenarioRunner(IReadOnlyList<SmokeScenario> scenarios
         void Save()
         {
             var staging = resultsPath + ".writing";
-            File.WriteAllText(staging, JsonSerializer.Serialize(new { schemaVersion = 1, scenarios = results }, Json));
+            File.WriteAllText(staging, JsonSerializer.Serialize(new { schemaVersion = 1, diagnosticOnly = true, scenarios = results }, Json));
             File.Move(staging, resultsPath, true);
         }
     }

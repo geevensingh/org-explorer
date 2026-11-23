@@ -64,6 +64,7 @@ internal static partial class Program
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.ChangeExtension(executable, ".dll"))));
         var remembered = ReadSmokeWorkspacePreferences();
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The owned rich export host did not start.");
+        DiagnosticProcessRoles[process.Id] = "rich-controlled-wpf-host";
         string? hostExecutable = null, hostHash = null;
         Guid? latestRevision = null;
         string? pendingArtifactHash = null;
@@ -195,6 +196,8 @@ internal static partial class Program
             if (File.Exists(evidence)) throw new IOException("Rich export evidence must not overwrite an earlier observation.");
             File.WriteAllText(evidence, JsonSerializer.Serialize(new
             {
+                diagnosticOnly = true, shippingRevision = PassiveSaveCapture.ShippingRevision,
+                runtimeRole = "rich-controlled-wpf-host", productRole = "rich-normal-entry-exe",
                 schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                 runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                 runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
@@ -281,6 +284,8 @@ internal static partial class Program
         if (File.Exists(evidence)) throw new IOException("Rich profile evidence must not overwrite an earlier observation.");
         File.WriteAllText(evidence, JsonSerializer.Serialize(new
         {
+            diagnosticOnly = true, shippingRevision = PassiveSaveCapture.ShippingRevision,
+            runtimeRole = phase == "normal-executable" ? "rich-normal-entry-exe" : "rich-controlled-wpf-host",
             schemaVersion = 1, revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
             runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
             runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
