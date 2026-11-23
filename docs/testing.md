@@ -101,6 +101,17 @@ A failed entry does not wait indefinitely or dispose an active writer: resource
 cleanup follows the existing save's completion, and late task/cancellation or
 cleanup faults remain visible under `NOTE-SAVE-TASK-OUTCOME` or
 `NOTE-SAVE-CLEANUP-FAULT`. Scheduling, assertions and storage behavior are unchanged.
+The separate in-memory two-scope busy-discard case retains its own five-second
+`SaveNoteDraft` admission wait. Only a timeout emits `NOTE-SAVE-CORE-ENTRY-REFUSAL`:
+request/create/update/observation monotonic timestamps, actual synchronization
+context/thread and worker snapshots, admission-signal state, and at most 32
+existing public-proxy entry/return/fault observations. Naturally returned local
+save statuses are recorded without additional workflow getters, note writing,
+file paths or private autosave-task inspection. These non-atomic observations
+cannot identify a missed timer or scheduling cause. Reporting faults remain
+separate on the original timeout; its type, stack, deadline and assertions stay
+unchanged. This is capture instrumentation, not a fix or exoneration of the
+historical hosted admission refusal.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
 through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
