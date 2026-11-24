@@ -2728,19 +2728,27 @@ selected report. Full-population reopen verification duration is reported
 separately: load/validation cost is not substituted for application Commit latency.
 Reopen proves data correctness; it is not used to retroactively date Commit.
 The two former after-typing reads (prefix backing and final exact-writing
-readiness) now share one genuinely fresh public ExistingOnly reopen at the
-original final UI-readiness point. No harness mutation intervenes; late saves
+readiness) now share one genuinely fresh public ExistingOnly reopen per check at
+the original final UI-readiness point. No harness mutation intervenes; late saves
 can settle, so an earlier/in-memory reader is never reused. That one coherent
 read checks the original request prefix, exact final title/body, exact owner and
 wrong-owner absence, inside the unchanged final observation. Original Ready and
-current-owner checks are also retained after the reopen; a changed final state
-refuses verification. Missing/corrupt
-storage or mismatched final data is an explicit refusal, not another save/retry.
-All 21 independent verification durations remain in
+current-owner checks are also retained after the reopen. An earlier durable
+prefix with a legitimately later final title/body still pending, or changed UI
+readiness, returns false to the same original20-second Await; each later check
+reopens freshly, never reuses the earlier reader or submits another save.
+Missing/corrupt storage, wrong owner or an uncovered original request prefix
+remains an explicit refusal. All 21 successful independent verification
+durations remain in
 `independentFullReopenVerificationMs`, with
 `independentVerificationScope: fresh-final-prefix-owner-and-exact-writing`.
-They measure complete final reopen/validation/disposal, never replace the ACK
-sample or deduct observed work. Separate cold pre-Commit negatives and
+They measure the successful final reopen/validation/disposal, never replace the
+ACK sample or deduct any pending-check work from the observation. The actual
+compiled regression enters this same final predicate when a completed real
+work operation exposes Ready/latest editable UI while a later real Commit is
+held. It stays pending without success/exception, then proves fresh final owner
+data after release with one success record and the original ACK timestamp.
+Separate cold pre-Commit negatives and
 post-Commit positives still require their distinct real states/readers.
 Focused two-Person
 20/42/21 samples keep their existing independent-reopen timer, original 20-second

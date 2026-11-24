@@ -53,11 +53,13 @@ public sealed class FinalNoteVerificationTests : IDisposable
         {
             Assert.True(gate.Entered.Wait(TimeSpan.FromSeconds(5)), "The actual final note Commit was not held.");
             Assert.Throws<InvalidOperationException>(() => FinalNoteVerification.Verify(root, expected));
+            Assert.Null(FinalNoteVerification.Observe(root, expected));
             Assert.False(saving.IsCompleted);
         }
         finally { gate.Release.Set(); await saving.WaitAsync(TimeSpan.FromSeconds(10)); }
         Assert.NotNull(await saving);
         FinalNoteVerification.Verify(root, expected);
+        Assert.NotNull(FinalNoteVerification.Observe(root, expected));
     }
 
     [Theory]
@@ -82,6 +84,8 @@ public sealed class FinalNoteVerificationTests : IDisposable
             _ => throw new ArgumentException(nameof(damage))
         };
         Assert.Throws<InvalidOperationException>(() => FinalNoteVerification.Verify(root, expected));
+        if (damage == "title") Assert.Null(FinalNoteVerification.Observe(root, expected));
+        else Assert.Throws<InvalidOperationException>(() => FinalNoteVerification.Observe(root, expected));
     }
 
     [Theory]
@@ -93,6 +97,8 @@ public sealed class FinalNoteVerificationTests : IDisposable
         store.Dispose();
         File.WriteAllText(Path.Combine(root, "workspace.sqlite"), "Not a valid SQLite database");
         Assert.Throws<InvalidOperationException>(() => FinalNoteVerification.Verify(root,
+            new(scope, note.Id, "owner@example.com", "other@example.com", note.Title, "# Original request", note.Markdown)));
+        Assert.Throws<InvalidOperationException>(() => FinalNoteVerification.Observe(root,
             new(scope, note.Id, "owner@example.com", "other@example.com", note.Title, "# Original request", note.Markdown)));
     }
 

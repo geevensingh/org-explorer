@@ -9,6 +9,11 @@ internal sealed record FinalNoteExpectation(NoteScope Scope, Guid Id, string Own
 internal static class FinalNoteVerification
 {
     internal static double Verify(string workspace, FinalNoteExpectation expected,
+        Func<IApplicationWorkflow>? createReader = null) =>
+        Observe(workspace, expected, createReader) ??
+            throw new InvalidOperationException("The final independent note verification did not retain exact title and writing.");
+
+    internal static double? Observe(string workspace, FinalNoteExpectation expected,
         Func<IApplicationWorkflow>? createReader = null)
     {
         var elapsed = Stopwatch.StartNew();
@@ -21,7 +26,8 @@ internal static class FinalNoteVerification
                 final.BeginNoteDraft(expected.Scope, expected.WrongOwner, expected.Id) is not null)
                 throw new InvalidOperationException("The actual WPF saved acknowledgment was not backed by exact committed owner writing.");
             if (note?.Title != expected.Title || note.Markdown != expected.Markdown)
-                throw new InvalidOperationException("The final independent note verification did not retain exact title and writing.");
+                // A truthful first ACK can precede the legitimately later final generation.
+                return null;
         }
         return elapsed.Elapsed.TotalMilliseconds;
     }
