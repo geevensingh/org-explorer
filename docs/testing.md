@@ -101,8 +101,13 @@ A failed entry does not wait indefinitely or dispose an active writer: resource
 cleanup follows the existing save's completion, and late task/cancellation or
 cleanup faults remain visible under `NOTE-SAVE-TASK-OUTCOME` or
 `NOTE-SAVE-CLEANUP-FAULT`. Scheduling, assertions and storage behavior are unchanged.
-The separate in-memory two-scope busy-discard case retains its own five-second
-`SaveNoteDraft` admission wait. Only a timeout emits `NOTE-SAVE-CORE-ENTRY-REFUSAL`:
+The separate in-memory two-scope busy-discard case uses its own six-second
+`SaveNoteDraft` admission wait. On 2026-11-24 the owner approved this temporary
+20% test-only increase from five seconds for both scopes and the shared delayed
+variants, deferring investigation. It does not claim a timing cause was fixed
+or relabel earlier failed runs as passing. Other tests' deadlines and production
+save, synchronization and latency policies are unchanged.
+Only a timeout emits `NOTE-SAVE-CORE-ENTRY-REFUSAL`:
 request/create/update/observation monotonic timestamps, actual synchronization
 context/thread and worker snapshots, admission-signal state, and at most 32
 existing public-proxy entry/return/fault observations. Naturally returned local
@@ -115,7 +120,7 @@ historical hosted admission refusal.
 This busy-discard contract controls only its view-model request clock so a
 delayed test continuation cannot turn the deliberately held writer into an
 unrelated real-time stall. Both scopes also run with a continuation delayed past
-three wall-clock seconds; the five-second admission wait and all discard
+three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
