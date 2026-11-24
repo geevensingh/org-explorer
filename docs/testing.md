@@ -731,6 +731,19 @@ It independently reopens the exact latest owner writing before release and
 requires the original publisher callback to remain active. Its elapsed local
 commit observations are diagnostic; the ordinary and rich background-export
 native percentile targets remain unchanged.
+Busy-periodic regressions hold the real snapshot publisher in both note scopes,
+commit newer owner writing independently, and require the original manual
+request to finish after one actual synchronization pass. Its older publication
+cannot acknowledge the newer head. The original next 60-second tick still
+publishes and independently delivers that writing without an inactivity reset.
+Separate explicit-during-active cases retain the needed second pass even when
+a later busy periodic tick arrives; real reopen/Join verifies the exact newer
+owner/note data. Only the timer callback coalesces busy ticks: explicit requests
+keep their existing follow-up flag and no concurrent worker is introduced.
+The full-rich compiled 20-second publication predicate reproduces the duplicate
+pass failure path when an ordinary periodic tick arrives during manual
+publication. Eliminating that demonstrated path is not attribution of the
+historical native E9 Publishing-text timeout or complete hosted acceptance.
 The combined #97/#98 case admits an exact-version choice while clean, then waits
 at the real isolated candidate's `snapshot.validate-commit` observer phase after
 its writes and **before** SQLite Commit invocation. Both note scopes

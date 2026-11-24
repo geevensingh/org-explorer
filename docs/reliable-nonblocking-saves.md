@@ -138,6 +138,15 @@ on the user becoming idle. Sync now and normal exit request publication
 immediately, without waiting for the periodic interval. Background synchronization
 must not starve ordinary local commits.
 
+Periodic ticks arriving while the synchronization worker is active coalesce into
+that work rather than forcing another complete pass before it can finish.
+They neither set nor clear an explicit follow-up request. Sync now during active
+work still requests a follow-up for the latest local writing/incoming check.
+New writing not included in an older publication remains unpublished and is
+picked up by explicit synchronization or the next scheduled tick after the
+worker completes. The fixed 60-second schedule is not restarted by typing,
+completion or activity; this does not require the user to become idle.
+
 The interval is an app scheduling target, not a provider-delivery SLA. If export
 cannot keep up or the folder is unavailable, show the actual state and retry
 safely rather than claim successful synchronization. Slow or failed
