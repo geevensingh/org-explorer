@@ -27,7 +27,8 @@ foreach ($phase in @('normal-executable', 'background-export')) {
         if ($rejected -ne $case.rejected) { throw "Rich $phase collector disagrees at p95=$($case.p95) ms." }
         $checks++
     }
-    foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'ceiling-type', 'temporary', 'enforced', 'informational', 'missing-goal')) {
+    foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'ceiling-type', 'temporary', 'enforced', 'informational',
+        'missing-goal', 'verification-count', 'verification-scope')) {
         $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
         $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
         $note = Get-Content $notePath -Raw | ConvertFrom-Json
@@ -41,6 +42,8 @@ foreach ($phase in @('normal-executable', 'background-export')) {
             'enforced' { $note.localDurability.budgetEnforced = $false }
             'informational' { $note.localDurability.timingUse = 'informational' }
             'missing-goal' { $note.localDurability.PSObject.Properties.Remove('goalMs') }
+            'verification-count' { $note.localDurability.independentFullReopenVerificationMs = @(1) * 20 }
+            'verification-scope' { $note.localDurability.independentVerificationScope = 'earlier-prefix-only' }
         }
         $note | ConvertTo-Json -Depth 8 | Set-Content $notePath
         $rejected = $false

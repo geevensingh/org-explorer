@@ -368,11 +368,8 @@ internal static partial class Program
         finally { barrier.Armed = false; barrier.Release.Set(); }
         PumpUntil(() => workflow.CanSafelyClose &&
             acknowledgment.Observe(Frame(), Owner(), Feedback(), inputReturned: true));
-        using var reopened = ApplicationWorkflow.CreateFileBacked();
-        if (!reopened.OpenWorkspace(workflow.Compatibility.WorkspacePath!, WorkspaceOpenMode.ExistingOnly) ||
-            reopened.BeginNoteDraft(NoteScope.Team, saved.OwnerEmail, saved.Id)?.Markdown != expected ||
-            reopened.BeginNoteDraft(NoteScope.Team, "avery@example.com", saved.Id) is not null)
-            throw new InvalidOperationException("The acknowledged exact owner/request was not durably committed.");
+        FinalNoteVerification.Verify(workflow.Compatibility.WorkspacePath!,
+            new(NoteScope.Team, saved.Id, saved.OwnerEmail, "avery@example.com", saved.Title, expected, expected));
         Console.WriteLine("NOTE-COMMIT-ACK-CAUSAL " + JsonSerializer.Serialize(new
         {
             scope = "Team",
@@ -1157,26 +1154,6 @@ internal static partial class Program
                     if (continuedTyping.RequestStartedMs[^1] - continuedTyping.RequestCompletedMs[0] < 1000)
                         throw new InvalidOperationException("The predetermined native typing workload did not span the one-second durability observation window.");
                     durability.Add(firstCommit.Complete());
-                    if (richFixture is not null)
-                    {
-                        var verification = Stopwatch.StartNew();
-                        using var reading = ApplicationWorkflow.CreateFileBacked();
-                        if (!reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) ||
-                            reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown.StartsWith(prefix, StringComparison.Ordinal) != true ||
-                            reading.BeginNoteDraft(scope, reportEmail, id) is not null)
-                            throw new InvalidOperationException("The actual WPF saved acknowledgment was not backed by exact committed owner writing.");
-                        independentVerificationMs.Add(verification.Elapsed.TotalMilliseconds);
-                        noteAcknowledgments.Add(new
-                        {
-                            scope = family,
-                            ownerEmail,
-                            noteId = id,
-                            requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix))),
-                            acknowledgment!.PendingObservedAt,
-                            acknowledgment.AcknowledgmentObservedAt,
-                            independentlyVerifiedOwnerAndRequest = true
-                        });
-                    }
                     commitRequests.Add(firstCommit.RequestMs);
                     commitReads.Add(firstCommit.ReadCount);
                     commitReadMs.Add(firstCommit.ReadMs);
@@ -1204,8 +1181,30 @@ internal static partial class Program
                     }
                     Await(() =>
                     {
-                        using var reading = ApplicationWorkflow.CreateFileBacked();
                         var frame = ReadNoteEditor(surface, editorCache, family);
+                        if (richFixture is not null)
+                        {
+                            if (Activity(window) != "Ready" || CurrentPersonEmail(window) != ownerEmail ||
+                                frame.Identity != id.ToString() || frame.Title != titleText || frame.Markdown != text ||
+                                !frame.Writable || !frame.Editing) return false;
+                            var verificationMs = FinalNoteVerification.Verify(local,
+                                new(scope, id, ownerEmail, reportEmail, titleText, prefix, text));
+                            if (Activity(window) != "Ready" || CurrentPersonEmail(window) != ownerEmail)
+                                throw new InvalidOperationException("The original final note readiness/owner changed during independent verification.");
+                            independentVerificationMs.Add(verificationMs);
+                            noteAcknowledgments.Add(new
+                            {
+                                scope = family,
+                                ownerEmail,
+                                noteId = id,
+                                requestSha256 = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix))),
+                                acknowledgment!.PendingObservedAt,
+                                acknowledgment.AcknowledgmentObservedAt,
+                                independentlyVerifiedOwnerAndRequest = true
+                            });
+                            return true;
+                        }
+                        using var reading = ApplicationWorkflow.CreateFileBacked();
                         return reading.OpenWorkspace(local, WorkspaceOpenMode.ExistingOnly) &&
                             reading.BeginNoteDraft(scope, ownerEmail, id)?.Markdown == text &&
                             Activity(window) == "Ready" && CurrentPersonEmail(window) == ownerEmail &&
@@ -1275,7 +1274,7 @@ internal static partial class Program
             observation = "All samples retain native-request-to-observed-state time, without subtracting instrumentation. Editor/navigation timings are informational; local durability and during-typing completion remain acceptance checks. Each post-action editor cache selects only the current scope's surface, exact note identity, title, Markdown and Edit tab; it does not request unrelated note reading/list controls. Identity properties come from freshly updated permanent native elements. " +
                 (richFixture is null
                     ? "An independent real-workflow reopen observer starts before the first Markdown request and timestamps its first coherent committed result while the native journey continues."
-                    : "An observer starts before the first Markdown request, waits for that actual native input to return, then requires actual WPF saved acknowledgment plus the exact note/title/current writing while typing continues. Every sample is independently reopened and owner/request-verified; full-rich reopen validation time is separately retained, not counted as application Commit latency."),
+                    : "An observer starts before the first Markdown request, waits for that actual native input to return, then requires actual WPF saved acknowledgment plus the exact note/title/current writing while typing continues. After all predetermined typing and final UI readiness, one fresh full-store reopen verifies the original prefix, exact final title/writing and owner/wrong-owner absence. That combined final verification time is separately retained, not counted as application Commit latency."),
             addTeamNote = new
             {
                 boundary = "Native Invoke request through new exact identity, enabled writable editor, visible title and actual keyboard focus.",
@@ -1305,7 +1304,7 @@ internal static partial class Program
             {
                 boundary = richFixture is null
                     ? "First native Markdown edit through independently reopened committed writing covering that request while typing continues; includes dispatch, scheduling and queueing."
-                    : "First native Markdown edit through the actual WPF post-Commit saved acknowledgment for the exact displayed note/title/writing, after native input returns and while typing continues. Every sample is independently reopened to verify committed writing covers that request and cannot belong to the report. Includes dispatch/scheduling/queueing. Full-population reopen verification is separately timed, not substituted for application commit latency.",
+                    : "First native Markdown edit through the actual WPF post-Commit saved acknowledgment for the exact displayed note/title/writing, after native input returns and while typing continues. Every sample subsequently receives one fresh final-point full-store reopen checking its prefix, exact final title/writing and owner/wrong-owner absence. Includes dispatch/scheduling/queueing. Combined final verification is separately timed, not substituted for application commit latency.",
                 samplesMs = durability,
                 p95Ms = P95(durability),
                 goalMs = durabilityGoalMs,
@@ -1317,6 +1316,7 @@ internal static partial class Program
                 independentVerificationMs,
                 requestToPostCommitAcknowledgmentMs = richFixture is null ? null : durability,
                 independentFullReopenVerificationMs = richFixture is null ? null : independentVerificationMs,
+                independentVerificationScope = richFixture is null ? null : "fresh-final-prefix-owner-and-exact-writing",
                 acknowledgment = richFixture is null ? null : new
                 {
                     source = "Actual scoped WPF ItemStatus snapshot, after exact pending owner/note/title/request writing is observed, then exact scope note saved locally. VM pending overrides all core status while retained generations exist; only accepted SaveNoteDraft removes a latest generation, after SQLite Commit.",

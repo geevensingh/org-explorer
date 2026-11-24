@@ -2727,10 +2727,38 @@ to verify its request is durably covered under the original owner, never the
 selected report. Full-population reopen verification duration is reported
 separately: load/validation cost is not substituted for application Commit latency.
 Reopen proves data correctness; it is not used to retroactively date Commit.
+The two former after-typing reads (prefix backing and final exact-writing
+readiness) now share one genuinely fresh public ExistingOnly reopen at the
+original final UI-readiness point. No harness mutation intervenes; late saves
+can settle, so an earlier/in-memory reader is never reused. That one coherent
+read checks the original request prefix, exact final title/body, exact owner and
+wrong-owner absence, inside the unchanged final observation. Original Ready and
+current-owner checks are also retained after the reopen; a changed final state
+refuses verification. Missing/corrupt
+storage or mismatched final data is an explicit refusal, not another save/retry.
+All 21 independent verification durations remain in
+`independentFullReopenVerificationMs`, with
+`independentVerificationScope: fresh-final-prefix-owner-and-exact-writing`.
+They measure complete final reopen/validation/disposal, never replace the ACK
+sample or deduct observed work. Separate cold pre-Commit negatives and
+post-Commit positives still require their distinct real states/readers.
 Focused two-Person
 20/42/21 samples keep their existing independent-reopen timer, original 20-second
 observation, 60-ms continued-input workload and p95 contracts unchanged.
 No per-worker budget, functional observation or sample-count change is permitted.
+
+The pending-observation cancellation fixture holds the actual admitted app
+transaction before Commit through cancellation; a competing SQLite writer
+would instead end the app attempt at the unchanged one-second busy limit and
+make a later IsSaving poll miss that transient state. Its original five-second
+admission and exact cancellation exception remain, including a delayed-body
+case. Exit cancellation is observed through the caller's cancellation-aware
+Task for the entire operation, including a completed-await/queued-continuation
+gap. An owned non-UI child constrains only its own managed workers and holds a
+real Commit plus the external completion-post effect; the unchanged one-second
+cancellation, three-second stall, retained draft/fault/browsing and original
+compatible exception assertions remain. The shared test host/desktop is never
+reconfigured by that child.
 
 For investigation on an authorized interactive desktop, use the worker selectors
 or one scale name with the explicit candidate/run/attempt handoff. Use both

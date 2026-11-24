@@ -157,6 +157,7 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
         $editorP95 = Assert-Samples $note.addTeamNote.samplesMs 20
         $navigationP95 = Assert-Samples $note.personNavigation.samplesMs 42
         $durabilityP95 = Assert-Samples $durability.samplesMs 21
+        $null = Assert-Samples $durability.independentFullReopenVerificationMs 21
         if ($note.richScale -isnot [bool] -or !$note.richScale -or $note.phase -cne $phase -or
             $note.heldExport -isnot [bool] -or $note.heldExport -ne ($phase -eq 'background-export') -or
             @($note.addTeamNote.samplesMs).Count -ne 20 -or @($note.personNavigation.samplesMs).Count -ne 42 -or
@@ -171,6 +172,7 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
             $durability.budgetEnforced -isnot [bool] -or !$durability.budgetEnforced -or
             $durability.temporaryCeiling -isnot [bool] -or !$durability.temporaryCeiling -or
             $durability.timingUse -cne 'acceptance' -or
+            $durability.independentVerificationScope -cne 'fresh-final-prefix-owner-and-exact-writing' -or
             $durability.continuedEditsPerNote -ne 6 -or $durability.nominalEditSpacingMs -ne 250) {
             throw 'Combined original normal/held-export 20/42/21 continuous-typing proof is incomplete or nonaccepting.'
         }

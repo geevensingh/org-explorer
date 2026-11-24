@@ -85,11 +85,8 @@ internal static partial class Program
         if (!afterPublication.Observe(Frame(), "owner@example.com", Feedback(), inputReturned: true) ||
             afterPublication.PendingObservedAt is not null)
             throw new InvalidOperationException("An exact durable request cannot lose its acknowledgment merely because legitimate publication feedback replaced the note-save phrase.");
-        using (var reopened = ApplicationWorkflow.CreateFileBacked())
-            if (!reopened.OpenWorkspace(workspace, WorkspaceOpenMode.ExistingOnly) ||
-                reopened.BeginNoteDraft(NoteScope.Team, note.OwnerEmail, note.Id)?.Markdown != writing ||
-                reopened.BeginNoteDraft(NoteScope.Team, "different@example.com", note.Id) is not null)
-                throw new InvalidOperationException("The fast acknowledgment is not backed by exact committed owner/request writing.");
+        FinalNoteVerification.Verify(workspace, new(NoteScope.Team, note.Id, note.OwnerEmail,
+            "different@example.com", note.Title, writing, writing));
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("The acknowledgment contract cannot create a native window.");
         var closed = false;
