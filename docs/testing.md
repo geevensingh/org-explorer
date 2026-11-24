@@ -1022,7 +1022,10 @@ Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
 21 raw totals. Queueing and read/validation are included, never deducted; these
 are observation boundaries, not a database-only commit timestamp or proof of
 a slow-write root cause. Neither delayed collection nor instrumentation can
-satisfy the unchanged native p95-at-most-1000-ms/during-typing assertions.
+satisfy the native durability/during-typing assertions. Small-fixture note p95
+remains enforced at 1,000 ms; only the rich normal/held-export note phases use
+the temporarily enforced 1,050-ms ceiling described below, retaining the
+1,000-ms goal.
 The invisible compiled selection also records twenty actual note Add handlers,
 layout, Person selection and independently reopened commits under a clearly
 labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they
@@ -2655,9 +2658,23 @@ informational editor/navigation timings so functional validation can finish
 without further performance work. Their historical 100-ms `budgetMs` references
 remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
 percentile and functional usable-state assertion is retained. Ordinary
-durable-save p95 remains at most 1 second, with `budgetEnforced: true`, and all
-commits must still be observed during continued typing. Missing/incorrect UI,
-owner, writing or durability remains a failure within the original observations.
+durable-save p95 retains its 1,000-ms goal. On 2026-11-24 the owner approved a
+temporary 1,050-ms **enforced** ceiling only for these rich ordinary note saves
+in both `normal-executable` and `background-export`. The note result contract
+records `localDurability.goalMs: 1000`, `budgetMs: 1050`,
+`budgetEnforced: true`, `temporaryCeiling: true` and `timingUse: acceptance`.
+`goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
+accepted p95 above the goal must report `goalMet: false`, not claim one-second
+success. The union recomputes p95 from all 21 raw samples and requires this exact
+policy metadata in both phases. At 1,050 ms it accepts; above it, it rejects.
+All commits must still be observed during continued typing. Profile saves,
+small-fixture note/first-commit one-second checks, queue-inclusive three-second
+stall, held-adoption capture proof and both 660-second worker budgets are
+unchanged. This is temporary acceptance pending later optimization/review, not
+informational-only durability or authority to increase another limit. Historical
+failed runs retain their original measurements and verdicts.
+Missing/incorrect UI, owner, writing or durability remains a failure within the
+original observations.
 
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.

@@ -86,6 +86,13 @@ snapshot; it does not reseed equivalent data. Each execution retains its own
 660-second budget. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
 one rich worker cannot establish complete verification.
 
+Rich ordinary note durability retains its 1,000-ms goal with the owner-approved
+temporary enforced 1,050-ms p95 ceiling in both normal and held-export phases.
+The collector requires honest goal/ceiling metadata and every original
+during-typing/functional assertion. Profile and small-fixture one-second gates,
+three-second stall and same-held capture proof remain unchanged; see
+[the exact result contract](testing.md#separate-scale-commands-and-results).
+
 All jobs must succeed now. Publication downloads only this run/attempt's named
 artifacts, verifies clean exact source and execution times, and revalidates the
 complete named TRX/scenario results. Missing, stale, partial, skipped, failed,
