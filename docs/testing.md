@@ -2761,6 +2761,10 @@ remains an explicit refusal. All 21 successful independent verification
 durations remain in
 `independentFullReopenVerificationMs`, with
 `independentVerificationScope: fresh-final-prefix-owner-and-exact-writing`.
+The shared numeric sample validator rejects JSON booleans, including these 21
+verification durations in both note phases. Finite nonnegative numeric values,
+including zero and fractions, remain valid; counts and p95/policy checks are
+unchanged.
 They measure the successful final reopen/validation/disposal, never replace the
 ACK sample or deduct any pending-check work from the observation. The actual
 compiled regression enters this same final predicate when a completed real

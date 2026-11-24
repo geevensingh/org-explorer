@@ -27,6 +27,27 @@ foreach ($phase in @('normal-executable', 'background-export')) {
         if ($rejected -ne $case.rejected) { throw "Rich $phase collector disagrees at p95=$($case.p95) ms." }
         $checks++
     }
+    foreach ($verificationCase in @(
+        @{ name = 'numeric-zero-and-fraction'; samples = @(0, 0.125, 1.5) + @(2) * 18; rejected = $false },
+        @{ name = 'all-true'; samples = @($true) * 21; rejected = $true },
+        @{ name = 'all-false'; samples = @($false) * 21; rejected = $true },
+        @{ name = 'mixed-booleans'; samples = @($true) * 11 + @($false) * 10; rejected = $true },
+        @{ name = 'numeric-and-boolean'; samples = @(0.5) * 20 + @($true); rejected = $true }
+    )) {
+        $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+        $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $notePath -Raw | ConvertFrom-Json
+        $note.localDurability.independentFullReopenVerificationMs = $verificationCase.samples
+        $note | ConvertTo-Json -Depth 8 | Set-Content $notePath
+        $failure = $null
+        try { Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2' }
+        catch { $failure = $_.Exception.Message }
+        if (($null -ne $failure) -ne $verificationCase.rejected -or
+            ($verificationCase.rejected -and $failure -cne 'Missing, nonnumeric or invalid original latency samples.')) {
+            throw "Rich $phase independent verification collector disagrees for $($verificationCase.name): $failure"
+        }
+        $checks++
+    }
     foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'ceiling-type', 'temporary', 'enforced', 'informational',
         'missing-goal', 'verification-count', 'verification-scope')) {
         $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate

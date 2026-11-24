@@ -146,7 +146,7 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
     }
     function Assert-Samples($Samples, [int] $Count) {
         if (@($Samples).Count -ne $Count -or @($Samples | Where-Object {
-            $_ -isnot [ValueType] -or ![double]::IsFinite([double]$_) -or [double]$_ -lt 0 }).Count) {
+            $_ -is [bool] -or $_ -isnot [ValueType] -or ![double]::IsFinite([double]$_) -or [double]$_ -lt 0 }).Count) {
             throw 'Missing, nonnumeric or invalid original latency samples.'
         }
         return @($Samples | Sort-Object)[[int][Math]::Ceiling($Count * .95) - 1]
