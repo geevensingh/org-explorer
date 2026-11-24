@@ -2207,6 +2207,25 @@ without changing its display. They cover:
   prove proportional enlargement, and pixel spans prove the matching 144-DIP
   circle. Choosing/clearing stays staged until explicit Save; Cancel and
   Person switching retain the correct saved photo/initials footprint.
+  An original initials timeout also writes failure-only
+  `photo-rejection-<scenario>-ui.png` / `.json` diagnostics. The PNG is the last
+  already-captured rejected `ReadPhotoPixels` buffer, retained before its GDI
+  disposal, never a later screenshot. JSON carries its original acquisition
+  interval, crop/viewport/text/previous-photo coordinates, DPI, the first false
+  guard or probe and observed RGB, computed glyph bounds and circle-edge offsets.
+  Unreached stages stay unobserved. Only one rejected buffer (up to 2 MiB) and
+  bounded probe records are retained; a later pre-pixel refusal is labelled
+  separately from that buffer. Native window/PID binding observations have
+  their own timestamp, distinct from pixel acquisition. Source/run/attempt,
+  app/workflow/harness and native hashes are bound after the original failure.
+  PNG/JSON are emitted only after the unchanged twenty-second failure; output
+  faults remain attached to the primary exception and separately reported.
+  No extra desktop acquisition, GetPixel, UIA or business query is made, no
+  predicate is replayed, and no capture/serialization time is deducted. All
+  geometry, colour tolerance, expected values, focus and cursor behavior remain.
+  Synthetic managed-raster recorder/PNG/refusal tests run in Core; they do not
+  claim actual desktop pixels or fix app rendering. These diagnostics do not
+  replace normal visual evidence or any required acceptance check.
   Clear is invoked once and its visible staged-clear notice must appear before
   asserting the unchanged saved photo or cancelling; pixels already present
   before the click do not establish that the handler ran.

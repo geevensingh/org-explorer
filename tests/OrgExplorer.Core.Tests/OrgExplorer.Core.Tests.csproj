@@ -27,6 +27,7 @@
     <Compile Include="..\OrgExplorer.Desktop.Smoke\WorkspaceRestoration.cs" Link="WorkspaceRestoration.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\SmokeScenarioRunner.cs" Link="SmokeScenarioRunner.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\HarnessRuntime.cs" Link="HarnessRuntime.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\InitialsRejectionEvidence.cs" Link="InitialsRejectionEvidence.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\ImportNavigationTiming.cs" Link="ImportNavigationTiming.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\NavigationRejection.cs" Link="NavigationRejection.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\RetryRejection.cs" Link="RetryRejection.cs" />
