@@ -84,7 +84,7 @@ try {
     function Job([string] $Workflow, [string] $Name) {
         return [regex]::Match($Workflow, "(?ms)^  $Name`:\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
     }
-    foreach ($name in @('core', 'filesystem', 'high-resolution', 'ci', 'release-verification')) {
+    foreach ($name in @('core', 'filesystem', 'high-resolution', 'ci', 'scale-verification', 'release-verification')) {
         if (!(Job $ci $name).Contains('!inputs.run_passive_save_diagnostics')) {
             throw "Unapproved $name job can run during the isolated capture."
         }
@@ -114,11 +114,11 @@ try {
         "'--verify-update-yield'")) {
         if (!$runner.Contains($original)) { throw 'An existing workspace effect/assertion was changed.' }
     }
-    if (!(Job $ci scale-verification).Contains('uses: ./.github/workflows/scale-verification.yml') -or
-        !(Job $ci scale-verification).Contains('reviewed_diagnostic_revision: ${{ inputs.diagnostic_revision }}')) {
-        throw 'Capture must use the registered ci.yml bridge at its exact reviewed diagnostic source.'
+    if (!(Job $ci scale-verification).Contains('if: ${{ github.event_name == ''workflow_dispatch'' && inputs.run_scale_verification && !inputs.run_release_verification && !inputs.run_passive_save_diagnostics }}') -or
+        !$workspace.Contains('Write-PassiveSaveBinding.ps1 -Worker workspace -ResultsDirectory .ci-results\desktop-workspace')) {
+        throw 'The registered ci.yml capture bridge must select only the exact-bound original full workspace, even when other manual flags are set.'
     }
-    Write-Host 'PASS: exact reviewed linear source/budgets/roles and six fail-closed binding cases; original two workers, no extra scale/union/release jobs.'
+    Write-Host 'PASS: exact reviewed linear source/budgets/roles and six fail-closed binding cases; original full workspace only, rich/performance/tail/union/release suppressed.'
 } finally {
     if (Test-Path Function:\git) { Remove-Item Function:\git }
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }

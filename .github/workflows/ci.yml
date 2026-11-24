@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       run_passive_save_diagnostics:
-        description: ISOLATED diagnostic source only; original workspace and rich prefix workers, never release or acceptance
+        description: ISOLATED diagnostic source only; original full workspace worker, never release or acceptance
         required: false
         default: false
         type: boolean
@@ -174,7 +174,7 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.run_scale_verification && !inputs.run_release_verification || inputs.run_passive_save_diagnostics && !inputs.run_release_verification) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification && !inputs.run_passive_save_diagnostics }}
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}

@@ -2546,16 +2546,20 @@ assertions; the rich normal-entry executable uses production trust and ordinary
 effects. Owned adoption and rich controlled-WPF hosts are separately labelled.
 Every diagnostic result is nonaccepting, even when its original assertions pass.
 
-Only the existing `ci.yml` manual bridge may select the original workspace lane
-and original rich prefix together for this capture. `diagnostic_revision` must
+Only the existing `ci.yml` manual bridge may select the original full workspace
+lane for this capture. Its diagnostic flag suppresses rich prefix, performance,
+tail, acceptance union and release even if other manual flags are set.
+`diagnostic_revision` must
 equal the reviewed full diagnostic SHA and the workflow/check-out SHA. The
 source binding checks immutable shipping, first diagnostic D1, every linear
 diagnostic parent/tree, and current source/component pins before
-building. The 900-second workspace and 660-second rich setup-inclusive budgets,
-15/13-minute watchdogs, all 21/20/42 samples, six 250-ms continued inputs,
-one-second nearest-rank durability p95, one-second actual adoption hold and
-both same-held capture checks are unchanged. Tail, performance, acceptance
-union and release jobs are not selected. Push and the one dispatch require
+building. The original `.\eng\Run-CiLane.ps1 desktop -DesktopPartition workspace`,
+900-second setup-inclusive budget, 15-minute watchdog, update-settings/yield
+assertions, transport/restart boundary, one-second actual adoption hold and
+both same-held capture checks are unchanged. Rich workloads and their diagnostic
+producers remain unchanged but are not selected. The diagnostic shipping anchor
+remains `cae977166df7327b4a2d268a10a20578adf338e6`, distinct from separately
+authored shipping latency-ceiling revisions. Push and the one dispatch require
 review of that exact pin; the source task itself does neither.
 
 The diagnostic-chain observer has a fixed 4096-record resident queue, not a
@@ -2586,6 +2590,12 @@ when an unrelated later packet is incomplete. `ObservationCovered` certifies onl
 native ACK plus the explicit harness closure, not the remaining process,
 native acceptance or release. No target fence, IPC, new queries, drain/exit
 waits, clock/assertion changes or relocated pixel checks are introduced.
+
+Held-capture analysis uses the existing raw held/pixel finite packets with exact
+source/run/process/native/operation/clock identities and contiguous closed-range
+checks. Missing coverage remains unknown. It never uses the note/ACK evaluator
+to certify a held capture or claims complete acceptance; no general held
+evaluator is added.
 
 Startup component hashes
 and loaded-native identity have distinct process roles; the latter is requested
