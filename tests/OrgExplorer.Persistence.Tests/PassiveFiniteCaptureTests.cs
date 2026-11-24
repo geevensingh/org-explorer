@@ -169,5 +169,51 @@ public sealed class PassiveFiniteCaptureTests : IDisposable
         Assert.True(!Directory.Exists(root) || Directory.GetFiles(root, "*.packet.jsonl").Length == 0);
     }
 
+    [Theory]
+    [InlineData("source")]
+    [InlineData("run")]
+    [InlineData("attempt")]
+    [InlineData("clock")]
+    [InlineData("native")]
+    [InlineData("owner")]
+    [InlineData("scope")]
+    public void Invalid_positive_provenance_plus_incomplete_later_packet_never_returns_a_commit(string invalid)
+    {
+        var packets = Build();
+        var request = invalid switch
+        {
+            "source" => Request with { SourceRevision = new string('e', 40) },
+            "run" => Request with { RunId = "another-run" },
+            "attempt" => Request with { RunAttempt = "2" },
+            "clock" => Request with { ClockDomain = "another-clock" },
+            "native" => Request with { SupportOnly = false },
+            "owner" => Request with { OwnerDigest = PassiveSaveCapture.OwnerDigest("wrong-owner@example.com") },
+            _ => Request with { Scope = NoteScope.Person }
+        };
+        var later = packets.Single(packet => packet.ScopeKey == "presentation") with
+        {
+            ScopeKey = "unrelated-later",
+            Complete = false,
+            Counts = new(1, 0, 0, 1, 1, 0),
+            Records = []
+        };
+        var result = PassiveFiniteCapture.Evaluate(packets.Append(later).ToArray(), request);
+        Assert.Equal(PassiveFiniteOutcome.Incomplete, result.Outcome);
+        Assert.Null(result.PrefixCommit);
+    }
+
+    [Fact]
+    public void Authenticated_earlier_prefix_remains_positive_when_only_later_packet_is_incomplete()
+    {
+        var packets = Build();
+        var later = packets.Single(packet => packet.ScopeKey == "presentation") with
+        {
+            ScopeKey = "unrelated-later", Complete = false, Counts = new(1, 0, 0, 1, 1, 0), Records = []
+        };
+        var result = PassiveFiniteCapture.Evaluate(packets.Append(later).ToArray(), Request);
+        Assert.Equal(PassiveFiniteOutcome.PrefixFactsKnown, result.Outcome);
+        Assert.Equal(phase, result.PrefixCommit?.Phase);
+    }
+
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

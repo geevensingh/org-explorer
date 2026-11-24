@@ -213,9 +213,6 @@ internal sealed class PassiveFiniteCapture(string directory, object identity, Pa
             packet.ProcessCounts.OutputFailures == 0 &&
             packet.ProcessCounts.Attempted == packet.ProcessCounts.Emitted + packet.ProcessCounts.Filtered + packet.ProcessCounts.Dropped).ToArray();
         var records = clean.SelectMany(packet => packet.Records).ToArray();
-        var positive = PassiveSaveCapture.FindPrefixCommitFacts(records, request.TargetRole, request.Note, request.RequestDigest);
-        if (clean.Length != packets.Count)
-            return Unknown("Later packet/output/drop/limit failure; only earlier certified facts may be known.", positive);
         foreach (var group in clean.Where(packet => packet.LastSequence != 0).GroupBy(packet =>
             (packet.ScopeKey, packet.Records.FirstOrDefault()?.Pid, packet.Records.FirstOrDefault()?.ProcessStartUtcTicks)))
         {
@@ -233,7 +230,7 @@ internal sealed class PassiveFiniteCapture(string directory, object identity, Pa
             record.QpcFrequency <= 0 || record.ClockDomain != request.ClockDomain) ||
             records.Select(record => record.QpcFrequency).Distinct().Count() != 1)
             return Unknown("Missing identity or cross-runner/invalid clock domain.");
-        var identities = packets.SelectMany(packet => packet.Identity).ToArray();
+        var identities = clean.SelectMany(packet => packet.Identity).ToArray();
         bool Text(JsonElement value, string property, string expected) =>
             value.TryGetProperty(property, out var field) && field.ValueKind == JsonValueKind.String && field.GetString() == expected;
         bool Number(JsonElement value, string property, long expected) =>
@@ -261,7 +258,16 @@ internal sealed class PassiveFiniteCapture(string directory, object identity, Pa
             value.TryGetProperty("matchesPin", out var matched) && matched.ValueKind == JsonValueKind.True &&
             value.TryGetProperty("outsideProtectedInterval", out var outside) && outside.ValueKind == JsonValueKind.True))
             return Unknown("Actual target native identity is missing/unverified.");
+        var requested = records.Where(record => record.Role == request.HarnessRole &&
+            record.Fact.Stage == PassiveSaveStage.RequestBegin && record.Fact.Note == request.Note &&
+            record.Fact.RequestDigest == request.RequestDigest).ToArray();
+        if (requested.Length != 1 || requested[0].Fact.Scope != request.Scope ||
+            requested[0].Fact.OwnerDigest != request.OwnerDigest)
+            return Unknown("Captured request does not authenticate the expected scope/owner.");
+        var positive = PassiveSaveCapture.FindPrefixCommitFacts(records, request.TargetRole, request.Note, request.RequestDigest);
         if (positive is null) return Unknown("Prefix Commit/submission/accepted lineage is missing or ambiguous.");
+        if (clean.Length != packets.Count)
+            return Unknown("Later packet/output/drop/limit failure; only authenticated earlier facts may be known.", positive);
         var sample = records.Where(record => record.Role == request.HarnessRole && record.Fact.Note == request.Note &&
             record.Fact.Scope == request.Scope && record.Fact.OwnerDigest == request.OwnerDigest).ToArray();
         var closure = sample.Where(record => record.Fact.Stage == PassiveSaveStage.HarnessSampleClosed).ToArray();

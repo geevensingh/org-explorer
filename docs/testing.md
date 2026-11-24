@@ -2580,7 +2580,9 @@ attempted/emitted/filtered/drop/overflow/output-failure accounting.
 Open/partial packets, absent identities/ranges, ambiguous lineage, missing
 original inputs or later target natural boundaries remain unknown. Verified
 earlier prefix Commit facts may be stated without claiming later target
-behavior. `ObservationCovered` certifies only these finite ranges through the
+behavior. Every positive return first authenticates the exact requested
+source/run/process/role/clock/native identity and expected owner/scope, including
+when an unrelated later packet is incomplete. `ObservationCovered` certifies only these finite ranges through the
 native ACK plus the explicit harness closure, not the remaining process,
 native acceptance or release. No target fence, IPC, new queries, drain/exit
 waits, clock/assertion changes or relocated pixel checks are introduced.
