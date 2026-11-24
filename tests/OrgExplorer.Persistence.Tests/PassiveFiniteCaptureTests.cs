@@ -175,6 +175,8 @@ public sealed class PassiveFiniteCaptureTests : IDisposable
     [InlineData("attempt")]
     [InlineData("clock")]
     [InlineData("native")]
+    [InlineData("native-hash")]
+    [InlineData("pid")]
     [InlineData("owner")]
     [InlineData("scope")]
     public void Invalid_positive_provenance_plus_incomplete_later_packet_never_returns_a_commit(string invalid)
@@ -186,10 +188,27 @@ public sealed class PassiveFiniteCaptureTests : IDisposable
             "run" => Request with { RunId = "another-run" },
             "attempt" => Request with { RunAttempt = "2" },
             "clock" => Request with { ClockDomain = "another-clock" },
-            "native" => Request with { SupportOnly = false },
+            "native" or "native-hash" => Request with { SupportOnly = false },
             "owner" => Request with { OwnerDigest = PassiveSaveCapture.OwnerDigest("wrong-owner@example.com") },
-            _ => Request with { Scope = NoteScope.Person }
+            "scope" => Request with { Scope = NoteScope.Person },
+            _ => Request
         };
+        if (invalid == "native-hash")
+        {
+            var native = JsonSerializer.SerializeToElement(new
+            {
+                stage = "diagnostic-loaded-sqlite", role = "support-test", pid = 1, processStartUtcTicks = 1,
+                clockDomain = "domain", nativeVersion = "3.54.1",
+                nativeSourceId = "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76",
+                moduleSha256 = new string('E', 64), matchesPin = true, outsideProtectedInterval = true
+            });
+            packets = packets.Select(packet => packet with { Identity = [.. packet.Identity, native] }).ToArray();
+        }
+        if (invalid == "pid")
+            packets = packets.Select(packet => packet with
+            {
+                Records = packet.Records.Select(record => record with { Pid = 2 }).ToArray()
+            }).ToArray();
         var later = packets.Single(packet => packet.ScopeKey == "presentation") with
         {
             ScopeKey = "unrelated-later",
