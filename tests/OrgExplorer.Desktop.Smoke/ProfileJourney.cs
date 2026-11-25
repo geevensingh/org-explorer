@@ -19,15 +19,18 @@ internal static partial class Program
         Directory.CreateDirectory(producer);
         CreatePhotoFixture(Path.Combine(producer, "avery.png"));
         var import = Path.Combine(producer, "import.json");
-        File.WriteAllText(import, """
+        File.WriteAllText(import, $$"""
             {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000001",
              "observedAt":"2026-11-01T17:00:00Z","people":[
              {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
               "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
              {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+             {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+             {{string.Join(",", Enumerable.Range(0, 24).Select(i =>
+                 $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""))}}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -135,7 +138,9 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            AssertAutomaticImportContext(window, preferencePath);
             ReturnToPeople(window);
+            AssertSelectedPeopleRow(window, "morgan@example.com", "z-context@example.com");
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
             AssertReportingStructure(window, null);
@@ -305,6 +310,7 @@ internal static partial class Program
             process = Launch(executable);
             window = Window(process);
             AwaitRestoredWorkspace(window, workspace, "avery@example.com");
+            AssertSelectedPeopleRow(window, "avery@example.com");
             AssertImportHidden(window);
             OpenPerson(window, "rowan@example.com", "morgan@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");

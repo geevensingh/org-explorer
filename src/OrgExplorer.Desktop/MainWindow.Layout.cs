@@ -17,7 +17,7 @@ public partial class MainWindow
     private bool wideWorkspace;
     private bool arrangingPanes;
     private bool draggingPane;
-    private string? pendingSearchRevealEmail;
+    private string? pendingPeopleRevealEmail;
     private int peopleBrowseRequest;
 
     private void ResizeWorkspace(object sender, SizeChangedEventArgs e) => ArrangeWorkspace();
@@ -52,7 +52,7 @@ public partial class MainWindow
             UpdatePeopleNavigation();
             if (transition && wide && workflow.PeopleNavigation.IsBrowsing)
             {
-                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
                 else RestorePeopleBrowsing();
             }
         }
@@ -131,7 +131,7 @@ public partial class MainWindow
         {
             if (workflow.PeopleNavigation.IsBrowsing)
             {
-                if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+                if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
                 else RestorePeopleBrowsing();
             }
             Dispatcher.BeginInvoke(() =>
@@ -191,6 +191,7 @@ public partial class MainWindow
         BrowsingPanel.Visibility = workflow.PeopleNavigation.IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
         ReportsSection.Visibility = ReportsList.HasItems && (!wideWorkspace || !workflow.PeopleNavigation.IsBrowsing)
             ? Visibility.Visible : Visibility.Collapsed;
+        if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -224,14 +225,18 @@ public partial class MainWindow
         }, DispatcherPriority.Loaded);
     }
 
-    private void RevealAcceptedSearchPerson()
+    private void RevealSelectedPerson()
     {
-        var email = pendingSearchRevealEmail;
+        if (!workflow.PeopleNavigation.IsBrowsing || ExplorerPanel.Visibility != Visibility.Visible ||
+            PeoplePanel.Visibility != Visibility.Visible || workflow.IsImportOpen) return;
+        var email = pendingPeopleRevealEmail;
         var request = ++peopleBrowseRequest;
         Dispatcher.BeginInvoke(() =>
         {
             if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
-                !workflow.PeopleNavigation.IsBrowsing || PeoplePanel.Visibility != Visibility.Visible) return;
+                email != workflow.PeopleNavigation.SelectedEmail || !workflow.IsWorkspaceCurrent ||
+                !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
+                ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible) return;
             FrameworkElement? row;
             if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
             {
@@ -260,7 +265,7 @@ public partial class MainWindow
                 FocusManager.SetFocusedElement(this, row);
                 if (IsVisible) row.Focus();
             }
-            pendingSearchRevealEmail = null;
+            pendingPeopleRevealEmail = null;
             RememberPeopleBrowsing();
         }, DispatcherPriority.Loaded);
     }

@@ -25,7 +25,8 @@ internal static partial class Program
             Await(() => Find(window, "SettingsGuidance").Current.Name.Contains("Settings"));
             AssertNoFakeUpdater(window);
             PickWorkspaceFolder(window, workspace);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "casey@example.com");
+            AssertSelectedPeopleRow(window, "casey@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             Await(() => Find(window, "FavoriteCount").Current.Name == "Favorites: 3");
@@ -134,7 +135,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Older Workspace rejection mutated its directories or lock.");
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, recoveryWorkspace);
-            AwaitRestoredWorkspace(window, recoveryWorkspace);
+            AwaitRestoredWorkspace(window, recoveryWorkspace, "casey@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertProfileValue(window, "OfficeNumber", "0009C");
             ClosePublishedWorkspace(recovery, recoveryWorkspace);
@@ -203,7 +204,7 @@ internal static partial class Program
                     throw new InvalidOperationException("A failed manual attempt replaced the remembered Workspace.");
                 SetSettingsVisible(window, true);
                 PickWorkspaceFolder(window, alternate, "ChooseAnotherWorkspace");
-                AwaitRestoredWorkspace(window, alternate);
+                AwaitRestoredWorkspace(window, alternate, "casey@example.com");
                 ClosePublishedWorkspace(choose, alternate);
             }
             finally { StopApplication(choose); }
@@ -212,7 +213,7 @@ internal static partial class Program
         try
         {
             var window = Window(reopened);
-            AwaitRestoredWorkspace(window, alternate);
+            AwaitRestoredWorkspace(window, alternate, "casey@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertProfileValue(window, "OfficeNumber", "0009C");
@@ -255,20 +256,59 @@ internal static partial class Program
             Path.GetFullPath(workspace), preferences, awaitState);
     }
 
-    private static void AwaitUnavailableView(AutomationElement window, string workspace)
+    private static void AwaitUnavailableView(AutomationElement window, string workspace, string expectedEmail)
     {
         Await(() => Find(window, "WorkspaceName").Current.HelpText == Path.GetFullPath(workspace) &&
             Activity(window) == "Ready" &&
             Freshness(window) == "Current validated local Workspace." &&
-            CurrentPersonEmail(window).Length == 0 &&
-            !Find(window, "WorkspaceStart").Current.IsOffscreen &&
+            CurrentPersonEmail(window) == expectedEmail &&
+            !IsVisible(window, "WorkspaceStart") &&
             !Find(window, "ViewPreferenceStatus").Current.IsOffscreen &&
-            Find(window, "ViewPreferenceStatus").Current.Name.Contains("unavailable or archived") &&
-            Find(window, "WorkspaceStartGuidance").Current.Name.Contains("Favorites"));
+            Find(window, "ViewPreferenceStatus").Current.Name.Contains("unavailable or archived"));
+        AssertSelectedPeopleRow(window, expectedEmail);
         var startup = window.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "WorkspaceStartupStatus"));
         if (startup?.Current.IsOffscreen == false)
             throw new InvalidOperationException("A valid Workspace with unavailable selection falsely reported Workspace reopen failure.");
+    }
+
+    private static void AssertAutomaticImportContext(AutomationElement window, string preferences)
+    {
+        Await(() => IsVisible(window, "ImportPath") && IsVisible(window, "BackToPeople") && !IsVisible(window, "People"));
+        var settings = new WorkspaceSettings(preferences);
+        if (settings.PreferenceError is { } error) throw new InvalidOperationException(error);
+        if (settings.GetLastView(Find(window, "WorkspaceName").Current.HelpText) is not null)
+            throw new InvalidOperationException("Automatic Import selection published a remembered destination.");
+    }
+
+    private static void AssertSelectedPeopleRow(AutomationElement window, string email, params string[] ancestors)
+    {
+        Await(() => CurrentPersonEmail(window) == email && IsVisible(window, "Email") && IsVisible(window, "EditProfile"));
+        var openedOverlay = IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation");
+        if (openedOverlay) Click(window, "OpenPeople");
+        Await(() =>
+        {
+            var tree = Find(window, "People");
+            var row = tree.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, email));
+            if (tree.Current.IsOffscreen || row is null || row.Current.IsOffscreen ||
+                !((SelectionItemPattern)row.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) return false;
+            var text = row.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text));
+            if (text is null || text.Current.IsOffscreen || string.IsNullOrEmpty(text.Current.Name)) return false;
+            var viewport = tree.Current.BoundingRectangle;
+            var header = text.Current.BoundingRectangle;
+            return !header.IsEmpty && header.Left >= viewport.Left && header.Left < viewport.Right &&
+                header.Top >= viewport.Top && header.Bottom <= viewport.Bottom &&
+                row.TryGetClickablePoint(out var point) && tree.Current.BoundingRectangle.Contains(point);
+        });
+        foreach (var emailOfAncestor in ancestors)
+        {
+            var ancestor = Find(window, "People").FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, emailOfAncestor));
+            if (ancestor is null ||
+                ((ExpandCollapsePattern)ancestor.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Current.ExpandCollapseState != ExpandCollapseState.Expanded)
+                throw new InvalidOperationException("Automatic selection did not expand its reporting ancestors.");
+        }
+        if (openedOverlay) Click(window, "ClosePeople");
     }
 
     private static void AssertRestoredNote(AutomationElement window, string scope, string id, string title)

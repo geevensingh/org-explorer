@@ -235,6 +235,22 @@ People and exact-note browsing remain available after failed Import or recovery
 maintenance without clearing either error or claiming safe close. Independent
 writing and divergence retain owner drafts while Person browsing stays available;
 rejected startup restoration reports recovery without publishing a partial remembered view.
+Opening and accepted-Import selection cases use the real WorkspaceViewModel
+People-navigation seam. Independent graphs cover current Direct-report
+eligibility, cross-branch depth, displayed Preferred-name/email ties, input-order
+independence, both fallback levels, current/Archived selection precedence and
+non-activating search with Import retained. Real-folder startup cases independently
+compare preference and Workspace bytes, exact secondary notes, unavailable-Person
+recovery and failed-reopen clearing. A valid remembered Person with an unavailable
+exact note is not redirected by this slice; its recovery and accepted-refresh
+integration remain separate work.
+Existing hosted profile/reopen, archival and search/responsive journeys observe
+the actual profile identity, selected row's rendered text and clickable point
+inside the tree viewport, expanded ancestors and deferred reveal after Import
+or search. The profile fixture places a qualifying Manager behind offscreen
+single-report ancestor context. These assertions do not realize, expand or scroll
+the expected row themselves. Existing scenario selections, full responsive
+matrices and budgets remain; compiled invisible checks are not hosted evidence.
 Blocked Workspace replacement is distinct from an attempted open failure. The
 compiled Retry action must still reconcile the current local store without
 reopening or creating the blocked destination or resetting the current view.

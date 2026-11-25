@@ -21,6 +21,52 @@ public sealed partial class WorkspaceViewModel
     public string? ViewRecoveryFeedback { get; private set; }
     private bool changingDestination;
 
+    private void EnsurePeopleSelection()
+    {
+        if (!IsWorkspaceCurrent ||
+            PeopleNavigation.SelectedEmail is { } selected && workflow.GetRelationships(selected) is not null)
+            return;
+        // Exact-note recovery is separate from Person availability, and must not redirect that Person.
+        if (Compatibility.WorkspacePath is { } path && settings?.GetLastView(path) is { } remembered &&
+            workflow.GetRelationships(remembered.PersonEmail)?.Person is { Archived: false })
+            return;
+        var level = workflow.ReportingRoots;
+        var fallback = level.OrderBy(node => node.Person.Heading)
+            .ThenBy(node => node.Person.Email, StringComparer.OrdinalIgnoreCase).FirstOrDefault()?.Person;
+        PersonProfile? candidate = null;
+        while (level.Count > 0)
+        {
+            candidate = level.Where(node => node.Reports.Count >= 2).OrderBy(node => node.Person.Heading)
+                .ThenBy(node => node.Person.Email, StringComparer.OrdinalIgnoreCase).FirstOrDefault()?.Person;
+            if (candidate is not null) break;
+            level = level.SelectMany(node => node.Reports).ToArray();
+        }
+        candidate ??= fallback;
+        if (candidate is null) return;
+        var overlay = PeopleNavigation.OverlayOpen;
+        changingDestination = true;
+        try
+        {
+            if (!NavigatePeopleCore(candidate.Email, null)) return;
+            ExpandPeoplePath(candidate.Email);
+            PeopleNavigation = PeopleNavigation with { OverlayOpen = overlay };
+        }
+        finally { changingDestination = false; }
+    }
+
+    private void ExpandPeoplePath(string email)
+    {
+        var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var context = workflow.GetRelationships(email);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (context is not null && visited.Add(context.Person.Email))
+        {
+            if (context.ImportedReports.Count > 0) expanded.Add(context.Person.Email);
+            context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
+        }
+        PeopleNavigation = PeopleNavigation with { ExpandedPeople = expanded.ToArray() };
+    }
+
     private void RememberCurrentView(NoteScope? scope = null, SearchResult? result = null)
     {
         if (changingDestination || !IsWorkspaceCurrent ||
@@ -282,17 +328,10 @@ public sealed partial class WorkspaceViewModel
         if (accepted)
         {
             ResetPeopleSearch();
-            var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var context = workflow.GetRelationships(current.Person.Email);
-            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            while (context is not null && visited.Add(context.Person.Email))
-            {
-                if (context.ImportedReports.Count > 0) expanded.Add(context.Person.Email);
-                context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
-            }
+            ExpandPeoplePath(current.Person.Email);
             PeopleNavigation = PeopleNavigation with
             {
-                Query = "", HighlightedResult = null, ExpandedPeople = expanded.ToArray(),
+                Query = "", HighlightedResult = null,
                 ArchivedPeopleVisible = current.Person.Archived || PeopleNavigation.ArchivedPeopleVisible
             };
             RememberCurrentView();

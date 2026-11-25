@@ -11,6 +11,105 @@ public sealed class WorkspaceStartupTests : IDisposable
         ".test-workspaces", "startup-" + Guid.NewGuid().ToString("N")));
     private string Preferences => Path.Combine(root, "app-settings", "workspace-settings.json");
 
+    [Fact]
+    public void Failed_reopen_never_keeps_an_automatic_Person_from_the_previous_Workspace()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace), app.Status);
+        Assert.Equal("casey@example.com", app.PeopleNavigation.SelectedEmail);
+        var preferences = File.ReadAllBytes(Preferences);
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        var missing = Path.Combine(root, "missing");
+        Assert.False(settings.RestoreWorkspace(app, missing));
+        Assert.False(app.IsWorkspaceCurrent);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Null(app.TeamNotesView.SelectedNote);
+        Assert.Contains("could not be opened", app.Status);
+        Assert.False(Directory.Exists(missing));
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+        AssertWorkspaceBytes(workspace, writing);
+    }
+
+    [Theory]
+    [InlineData(WorkspaceOpenMode.ExistingOnly, false)]
+    [InlineData(WorkspaceOpenMode.ExistingOnly, true)]
+    [InlineData(WorkspaceOpenMode.OpenOrCreate, false)]
+    [InlineData(WorkspaceOpenMode.OpenOrCreate, true)]
+    public void Populated_open_without_a_remembered_Person_reads_the_fallback_without_publishing_preferences(
+        WorkspaceOpenMode mode, bool noPreferences)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        WorkspaceFixtures.CopyCurrent(workspace);
+        var settings = new WorkspaceSettings(Preferences);
+        if (!noPreferences)
+        {
+            Assert.True(settings.SetPaneProportions(workspace, new(28, 38)));
+            Assert.True(settings.SetLastView(Path.Combine(root, "other"), new("other@example.com")));
+            Assert.True(settings.SetOngoingNote(Path.Combine(root, "other"), NoteScope.Person, "other@example.com", Guid.NewGuid()));
+        }
+        var preferences = File.Exists(Preferences) ? File.ReadAllBytes(Preferences) : null;
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(app.OpenWorkspace(workspace, mode), app.Status);
+        Assert.Equal("casey@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal("casey@example.com", app.PersonNotesView.OwnerEmail);
+        Assert.Null(app.PersonNotesView.SelectedNote);
+        Assert.Equal("Ancestor team", app.TeamNotesView.SelectedNote!.Title);
+        Assert.Equal("casey@example.com", app.TeamNotesView.SelectedNote.OwnerEmail);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.Null(app.ProfileEdit);
+        Assert.Null(app.PeopleNavigation.LastValidView);
+        Assert.Null(app.ViewRecoveryFeedback);
+        Assert.Null(new WorkspaceSettings(Preferences).GetLastView(workspace));
+        Assert.Equal(preferences is not null, File.Exists(Preferences));
+        if (preferences is not null) Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+        AssertWorkspaceBytes(workspace, writing);
+        Assert.True(app.NavigatePerson("avery@example.com"), app.Status);
+        Assert.Equal("avery@example.com", new WorkspaceSettings(Preferences).GetLastView(workspace)!.PersonEmail);
+        if (!noPreferences) Assert.Equal(new PaneProportions(28, 38), app.PaneProportions);
+        AssertWorkspaceBytes(workspace, writing);
+    }
+
+    [Fact]
+    public void Failed_real_Import_does_not_publish_the_candidate_and_accepted_retry_keeps_saved_destinations()
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var settings = new WorkspaceSettings(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.OpenWorkspace(app, workspace));
+        var remembered = new RememberedView("missing@example.com");
+        Assert.True(settings.SetLastView(workspace, remembered));
+        Assert.True(app.SavePaneProportions(28, 38));
+        var preferences = File.ReadAllBytes(Preferences);
+        var preview = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000004",
+             "observedAt":"2026-11-12T17:00:00Z","people":[
+             {"email":"first@example.com","displayName":"First","managerEmail":null}]}
+            """);
+        Assert.True(preview.CanApply);
+        using (WorkspaceFixtures.LockLocalStore(workspace))
+            Assert.False(app.ApplyImport(preview.Id));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Empty(app.People);
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+        app.DiscardImportChanges();
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.True(app.ApplyImport(app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000005",
+             "observedAt":"2026-11-12T17:00:00Z","people":[
+             {"email":"first@example.com","displayName":"First","managerEmail":null}]}
+            """).Id), app.Status);
+        Assert.Equal("first@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+        Assert.Equal(remembered, new WorkspaceSettings(Preferences).GetLastView(workspace));
+        Assert.Empty(app.GetPersonNotes("first@example.com", true));
+        Assert.Empty(app.GetTeamNotes("first@example.com", true));
+    }
+
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
@@ -268,6 +367,7 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.True(app.SavePaneProportions(28, 38));
             Assert.True(new WorkspaceSettings(Preferences).SetOngoingNote(workspace, scope, "avery@example.com", ongoing));
         }
+        var preferences = File.ReadAllBytes(Preferences);
         var before = WorkspaceFixtures.Bytes(workspace);
         var reopenedSettings = new WorkspaceSettings(Preferences);
         using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
@@ -282,6 +382,7 @@ public sealed class WorkspaceStartupTests : IDisposable
         Assert.False(view.IsOngoing);
         Assert.False(view.IsEditing);
         Assert.Equal(new PaneProportions(28, 38), reopened.PaneProportions);
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
         AssertWorkspaceBytes(workspace, before);
         Assert.True(reopened.OpenOngoingNote(scope));
         Assert.Equal(ongoing, reopened.GetOwnedNotesView(scope).SelectedNote!.Id);
@@ -315,16 +416,26 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.True(settings.SetLastView(workspace, remembered));
         }
         var bytes = WorkspaceFixtures.Bytes(workspace);
+        var preferences = File.ReadAllBytes(Preferences);
         var reopenedSettings = new WorkspaceSettings(Preferences);
         using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
         Assert.True(reopenedSettings.RestoreWorkspace(reopened));
         Assert.True(reopened.IsWorkspaceCurrent);
-        Assert.Null(reopened.PeopleNavigation.SelectedEmail);
+        Assert.Equal(failure is "archived-person" or "missing-person" ? "casey@example.com" : null,
+            reopened.PeopleNavigation.SelectedEmail);
         Assert.Null(reopened.PersonNotesView.SelectedNote);
-        Assert.Null(reopened.TeamNotesView.SelectedNote);
+        if (failure is "archived-person" or "missing-person")
+        {
+            Assert.Equal("casey@example.com", reopened.PersonNotesView.OwnerEmail);
+            Assert.Equal("Ancestor team", reopened.TeamNotesView.SelectedNote!.Title);
+            Assert.False(reopened.TeamNotesView.IsEditing);
+            Assert.Null(reopened.PeopleNavigation.LastValidView);
+        }
+        else Assert.Null(reopened.TeamNotesView.SelectedNote);
         Assert.Contains("unavailable or archived", reopened.ViewRecoveryFeedback);
         Assert.Contains("search, Favorites or People", reopened.ViewRecoveryFeedback);
         Assert.Equal(remembered, new WorkspaceSettings(Preferences).GetLastView(workspace));
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
         AssertWorkspaceBytes(workspace, bytes);
         Assert.True(reopened.NavigatePerson("casey@example.com"));
         Assert.Null(reopened.ViewRecoveryFeedback);
@@ -905,9 +1016,9 @@ public sealed class WorkspaceStartupTests : IDisposable
         var reopenedSettings = new WorkspaceSettings(Preferences);
         using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), reopenedSettings);
         Assert.True(reopenedSettings.RestoreWorkspace(reopened), reopened.Status);
-        Assert.Null(reopened.PeopleNavigation.SelectedEmail);
+        Assert.Equal("casey@example.com", reopened.PeopleNavigation.SelectedEmail);
         Assert.Null(reopened.PersonNotesView.SelectedNote);
-        Assert.Null(reopened.TeamNotesView.SelectedNote);
+        Assert.Equal("Ancestor team", reopened.TeamNotesView.SelectedNote!.Title);
         Assert.Equal(WorkspaceCompatibilityState.Compatible, reopened.Compatibility.State);
         Assert.Equal(Path.Combine(root, "workspace"), reopened.Compatibility.WorkspacePath);
         Assert.Equal("Ave", reopened.GetRelationships("avery@example.com")!.Person.PreferredName);

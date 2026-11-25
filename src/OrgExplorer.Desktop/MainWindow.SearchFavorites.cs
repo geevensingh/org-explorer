@@ -118,7 +118,7 @@ public partial class MainWindow
         UpdatePeopleNavigation();
         if (!wasBrowsing && workflow.PeopleNavigation.IsBrowsing)
         {
-            if (pendingSearchRevealEmail is not null) RevealAcceptedSearchPerson();
+            if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
             else RestorePeopleBrowsing();
         }
         if (workflow.PeopleNavigation.IsBrowsing)
@@ -237,10 +237,10 @@ public partial class MainWindow
             SearchQuery.Clear();
             ShowArchivedPeople.IsChecked = workflow.PeopleNavigation.ArchivedPeopleVisible;
             expandedPeople.UnionWith(workflow.PeopleNavigation.ExpandedPeople);
-            pendingSearchRevealEmail = result.Person.Email;
+            pendingPeopleRevealEmail = result.Person.Email;
             peopleBrowseRequest++;
             UpdatePeopleNavigation();
-            if (wideWorkspace) RevealAcceptedSearchPerson();
+            if (wideWorkspace) RevealSelectedPerson();
             else FocusPeopleEntry();
             ShowStatus();
         }

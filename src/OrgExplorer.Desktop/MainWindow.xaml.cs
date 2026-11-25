@@ -153,7 +153,7 @@ public partial class MainWindow : Window
         FavoriteButton.IsEnabled = false;
         FavoriteStatus.Text = "Select a Person.";
         expandedPeople.Clear();
-        pendingSearchRevealEmail = null;
+        pendingPeopleRevealEmail = null;
         peopleBrowseRequest++;
         workflow.ShowArchivedPeople(ShowArchivedPeople.IsChecked == true);
         loading = true;
@@ -282,7 +282,7 @@ public partial class MainWindow : Window
         var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
         if (changedPerson)
         {
-            pendingSearchRevealEmail = null;
+            pendingPeopleRevealEmail = null;
             peopleBrowseRequest++;
             HistoryAccess.IsExpanded = false;
             PersonScroll.ScrollToTop();
@@ -306,7 +306,13 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(PeopleList.ItemsSource, roots)) PeopleList.ItemsSource = roots;
         RefreshArchivedPeople();
         loading = false;
-        if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
+        if (workflow.IsWorkspaceCurrent && workflow.PeopleNavigation.SelectedEmail is { } prepared &&
+            !string.Equals(prepared, selectedEmail, StringComparison.OrdinalIgnoreCase) &&
+            workflow.GetRelationships(prepared) is { } preparedContext)
+        {
+            if (OpenPerson(preparedContext.Person, navigation: false)) pendingPeopleRevealEmail = prepared;
+        }
+        else if (selectedEmail is not null && workflow.GetRelationships(selectedEmail) is { } context)
             OpenPerson(context.Person, navigation: false);
         else if (selectedEmail is not null && workflow.CanSafelyClose && !HasPreferredNameDraft)
         {
@@ -331,6 +337,7 @@ public partial class MainWindow : Window
             ShowProfileTimeline(null);
         }
         UpdatePreferredNameActions();
+        if (pendingPeopleRevealEmail is not null) RevealSelectedPerson();
     }
     private void ShowPerson(PersonProfile person)
     {

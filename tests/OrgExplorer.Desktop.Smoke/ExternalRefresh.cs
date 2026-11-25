@@ -201,7 +201,7 @@ internal static partial class Program
             var window = Window(process);
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, folder);
-            AwaitRestoredWorkspace(window, folder);
+            AwaitRestoredWorkspace(window, folder, "casey@example.com");
             OpenPerson(window, "casey@example.com");
             AssertPhotoVisible(window);
             SelectNote(window, "Private context");

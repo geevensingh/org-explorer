@@ -38,7 +38,7 @@ internal static partial class Program
                 if (Find(window, "CheckForUpdates").Current.IsEnabled)
                     throw new InvalidOperationException("A duplicate manual check was enabled during the in-flight startup request.");
                 PickWorkspaceFolder(window, workspace);
-                AwaitRestoredWorkspace(window, workspace);
+                AwaitRestoredWorkspace(window, workspace, "casey@example.com");
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
                 var entry = PreferredNameEntry(window);
@@ -98,7 +98,7 @@ internal static partial class Program
             Click(window, "CheckForUpdates");
             AwaitUpdateFailure(window, "offline");
             PickWorkspaceFolder(window, workspace);
-            AwaitRestoredWorkspace(window, workspace);
+            AwaitRestoredWorkspace(window, workspace, "avery@example.com");
             OpenPerson(window, "casey@example.com", "alex@example.com");
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
@@ -163,7 +163,7 @@ internal static partial class Program
     {
         SetSettingsVisible(window, true);
         PickWorkspaceFolder(window, workspace);
-        AwaitRestoredWorkspace(window, workspace);
+        AwaitRestoredWorkspace(window, workspace, "avery@example.com");
         OpenPerson(window, "casey@example.com", "alex@example.com");
         Click(window, "NewPersonNote");
         Set(window, "PersonNoteTitle", "Automatic update writing");

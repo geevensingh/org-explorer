@@ -131,7 +131,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                 return false;
             }
             var opened = workflow.OpenWorkspace(path, mode);
-            if (opened)
+            if (opened || !IsWorkspaceCurrent)
             {
                 IsImportOpen = false;
                 noteViews.Clear();
@@ -142,13 +142,22 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                 LayoutPreferenceFeedback = null;
                 ViewPreferenceFeedback = null;
                 ViewRecoveryFeedback = null;
-                if (mode == WorkspaceOpenMode.ExistingOnly && IsWorkspaceCurrent) RestoreRememberedView();
+                if (opened && IsWorkspaceCurrent)
+                {
+                    RestoreRememberedView();
+                    EnsurePeopleSelection();
+                }
             }
             return opened;
         });
     public ImportPreview PreviewImport(string json) => Observe(() => workflow.PreviewImport(json));
     public ImportPreview PreviewImportFile(string path) => Observe(() => workflow.PreviewImportFile(path));
-    public bool ApplyImport(Guid previewId) => Observe(() => workflow.ApplyImport(previewId));
+    public bool ApplyImport(Guid previewId) => Observe(() =>
+    {
+        var applied = workflow.ApplyImport(previewId);
+        if (applied) EnsurePeopleSelection();
+        return applied;
+    });
     public bool EditPreferredName(string email, string? preferredName) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPreferredName(email, preferredName));
     public bool EditPersonArchived(string email, bool archived, bool confirmed = true,
         ProfileLeaveDecision profileDecision = ProfileLeaveDecision.Stay) =>

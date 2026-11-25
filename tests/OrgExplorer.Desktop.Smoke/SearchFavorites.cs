@@ -29,9 +29,28 @@ internal static partial class Program
             SetSettingsVisible(window, true);
             PickWorkspaceFolder(window, workspace);
             AwaitRestoredWorkspace(window, workspace);
+            if (responsive) ResizeWindow(window, 700, 500);
+            Set(window, "SearchQuery", "browse");
             OpenImportView(window);
             Set(window, "ImportPath", import);
-            ApplyReviewedHistoryImport(window);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            Click(window, "ApplyImport");
+            Await(() => Status(window).Contains("applied"));
+            AssertAutomaticImportContext(window, Path.Combine(root, "app-settings", "workspace-settings.json"));
+            ReturnToPeople(window);
+            Await(() => CurrentPersonEmail(window) == "alex@example.com" && Value(window, "SearchQuery") == "browse" &&
+                Find(window, "SearchCount").Current.Name == "People found: 40 — local profiles and notes");
+            AssertQueryHighlight(window, "browse01@example.com");
+            if (CurrentPersonEmail(window) != "alex@example.com")
+                throw new InvalidOperationException("Automatic selection activated a search highlight.");
+            Set(window, "SearchQuery", "");
+            AssertSelectedPeopleRow(window, "alex@example.com");
+            if (responsive)
+            {
+                ResizeWindow(window, 1100, 900);
+                AssertSelectedPeopleRow(window, "alex@example.com");
+            }
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave Preferred");
             AssertGroupedSearchResults(window);
@@ -153,7 +172,7 @@ internal static partial class Program
 
             process = Launch(executable);
             window = Window(process);
-            AwaitUnavailableView(window, workspace);
+            AwaitUnavailableView(window, workspace, "alex@example.com");
             AssertWorkspaceBytes(workspace, beforeReopen);
             SelectFavorite(window, "avery@example.com");
             if (responsive)
