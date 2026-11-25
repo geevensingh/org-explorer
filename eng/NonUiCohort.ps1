@@ -255,7 +255,8 @@ function Get-NonUiCohortRecordTypes {
             Validate = {
                 param($record, $path)
                 if ($record.policyVersion -cne 'non-ui-cohort-observation-v1' -or $record.authority -cne 'trusted-main-push' -or
-                    @($record.samples).Count -ne 3) {
+                    (@($record.samples).Count -ne 3 -and
+                        !(@($record.samples).Count -eq 5 -and $record.unexpectedExecutions -and $record.validation -ceq 'rejected'))) {
                     throw 'Live history cannot accept TEST-policy or manual pilot cohorts.'
                 }
                 Assert-NonUiCohortRecord $record $path
@@ -298,6 +299,9 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         "Original collection workflow: $($Record.collectionStatus) / $($Record.collectionOutcome). This summary describes NON-UI samples, not full scale/release acceptance."
         "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **not executed**."
         'Original 660-second setup/workload/cleanup budget and 1,000-ms profile p95 hard limit remain enforced.'
+        if ($Record.unexpectedExecutions) {
+            'Unexpected matching extra executions are retained and reject the cohort. The controller did not request them; three greens cannot be selected from this evidence.'
+        }
         ''
         '| Sample | Original job / runner outcome | Validation | Whole seconds | Evidence |'
         '|---|---|---|---:|---|'

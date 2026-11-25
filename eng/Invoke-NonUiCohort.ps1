@@ -88,6 +88,21 @@ $pages = Invoke-HealthApi "actions/runs/$CohortRunId/attempts/$CohortRunAttempt/
 $jobs = @($pages | ForEach-Object { $_.jobs })
 $pages = Invoke-HealthApi "actions/runs/$CohortRunId/artifacts?per_page=100" @('--paginate', '--slurp')
 $artifacts = @($pages | ForEach-Object { $_.artifacts })
+$requestedSamples = $ExpectedSamples
+$maximumObserved = 0
+foreach ($job in $jobs) {
+    if ($job.name -cmatch '(^| / )Non-UI cohort sample \((?<number>[1-9][0-9]*)\)$') {
+        $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
+    }
+}
+foreach ($artifact in $artifacts) {
+    if ($artifact.name -cmatch ("^non-ui-cohort-" + [regex]::Escape($cohortId) + '-sample-(?<number>[1-9][0-9]*)$')) {
+        $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
+    }
+}
+if ($maximumObserved -gt 5) { throw 'Unexpected execution exceeds the five-execution controller bound; no eligible cohort can be inferred.' }
+$unexpectedExecutions = $maximumObserved -gt $ExpectedSamples
+if ($unexpectedExecutions) { $ExpectedSamples = 5 }
 $samples = @()
 for ($number = 1; $number -le $ExpectedSamples; $number++) {
     $name = "non-ui-cohort-$cohortId-sample-$number"
@@ -156,7 +171,7 @@ $reliability = [ordered]@{ attempts = $samples.Count }
 foreach ($outcome in @('success', 'failure', 'incomplete', 'cancelled', 'skipped')) {
     $reliability[$outcome] = @($samples | Where-Object { $_.validation -ceq $outcome }).Count
 }
-$complete = $reliability.success -eq $ExpectedSamples
+$complete = $reliability.success -eq $ExpectedSamples -and !$unexpectedExecutions
 $compatible = !@($samples | Where-Object { $null -eq $_.seriesKey }).Count -and
     @($samples | ForEach-Object { $_.seriesKey } | Select-Object -Unique).Count -eq 1
 $metrics = Get-NonUiCohortMetrics $samples
@@ -182,6 +197,7 @@ $record = [ordered]@{
     validation = if ($complete) { 'success' } else { 'rejected' }
     timingHealth = if ($complete) { 'unbaselined' } else { 'inconclusive' }
     eligibility = $eligibility; metrics = $metrics; extraSamples = $extraSamples
+    requestedSamples = $requestedSamples; unexpectedExecutions = $unexpectedExecutions
     reference = $null; historySnapshot = $null
     historyDiagnostics = if ($null -ne $historyError) { @("History read failed: $($historyError.Exception.Message)") } else { @() }
 }

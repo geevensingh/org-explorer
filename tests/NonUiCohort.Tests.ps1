@@ -237,6 +237,24 @@ try {
     Assert ($five.samples.Count -eq 5 -and $five.metrics.executionSeconds.median -eq 150 -and
         $five.eligibility -ceq 'inconclusive' -and $five.extraSamples.Count -eq 0 -and
         $five.promotion -ceq 'disabled') 'Five still-inconsistent executions were retried, normalized or promoted.'
+    $global:NonUiCohortFixture.sampleJobs[4].conclusion = 'failure'
+    $extraWork = Join-Path $fixture 'unexpected-extra'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $extraWork
+    $extra = Get-Content -LiteralPath (Join-Path $extraWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($extra.samples.Count -eq 5 -and $extra.reliability.failure -eq 1 -and $extra.validation -ceq 'rejected' -and
+        $extra.metrics.executionSeconds.count -eq 5 -and $extra.extraSamples.Count -eq 0) 'An unexpected failed execution was excluded to select three greens.'
+    $global:NonUiCohortFixture.sampleJobs = @($global:NonUiCohortFixture.sampleJobs | Select-Object -First 3)
+    $global:NonUiCohortFixture.artifacts = @($global:NonUiCohortFixture.artifacts | Select-Object -First 3)
+    $global:NonUiCohortFixture.collection.status = 'completed'
+    $global:NonUiCohortFixture.collection.run_attempt = 2
+    $missingPlanWork = Join-Path $fixture 'missing-plan'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohortObservation.ps1" -RunId 99 -RunAttempt 2 -WorkingDirectory $missingPlanWork
+    } 'Completion observation inferred candidate/write authority without its exact attempt plan.'
+    Assert ((Get-Content -LiteralPath (Join-Path $missingPlanWork 'summary.md') -Raw).Contains('Exact-attempt plan is unavailable')) 'Unavailable cancellation qualification was hidden.'
+    $global:NonUiCohortFixture.collection.status = 'in_progress'
+    $global:NonUiCohortFixture.collection.run_attempt = 1
     $runnerFixture = Join-Path $fixture 'runner'
     New-Item -ItemType Directory -Path (Join-Path $runnerFixture 'eng') -Force | Out-Null
     foreach ($file in @('Run-Performance.ps1', 'ScaleRunner.ps1', 'PerformanceSuite.ps1')) {
@@ -272,6 +290,17 @@ try {
     $savedBlob = (git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim()
     Assert ($saved.metrics.executionSeconds.median -eq 150 -and $saved.samples.Count -eq 3 -and
         $saved.samples[1].measurements.profile.samplesMs.Count -eq 21 -and $saved.promotion -ceq 'disabled') 'Real history lost complete independent numeric inputs or promoted the cohort.'
+    $observerRemote = Join-Path $fixture 'observer.git'
+    git init --bare --quiet $observerRemote
+    $planName = 'non-ui-cohort-plan-99-1'
+    $global:NonUiCohortFixture.evidence[$planName] = $work
+    $global:NonUiCohortFixture.artifacts += @{ id = 900; name = $planName; expired = $false
+        workflow_run = @{ id = 99; head_sha = $revision } }
+    & "$root\eng\Invoke-NonUiCohortObservation.ps1" -RunId 99 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'completion-observer') `
+        -HistoryRemote $observerRemote -AllowLocalFixture
+    $observed = (git --git-dir=$observerRemote show "refs/heads/ci-health-data:$path") -join "`n" | ConvertFrom-Json -AsHashtable
+    Assert ($observed.revision -ceq $revision -and $observed.reliability.success -eq 3 -and
+        $observed.samples[2].measurements.profile.samplesMs.Count -eq 21) 'Real completion observer failed to authenticate and preserve its plan/results through history.'
     $peer = Join-Path $fixture 'peer'
     git clone --quiet --branch ci-health-data $remote $peer
     $prior = ($saved | ConvertTo-Json -Depth 30) | ConvertFrom-Json -AsHashtable

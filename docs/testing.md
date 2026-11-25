@@ -2700,6 +2700,8 @@ collector validates the original result contracts and recomputes profile p95
 from all 21 raw values. Failed, skipped, cancelled and incomplete jobs retain
 their original outcomes and any valid measurements. Missing or substituted
 evidence is unavailable/rejected, not zero or a replacement successful sample.
+Unexpected matching extra attempts are retained as rejected observations,
+not ignored to select three greens.
 Summaries show individual attempts, medians and descriptive ranges including
 all available failed-attempt measurements; no hard limit is averaged away.
 

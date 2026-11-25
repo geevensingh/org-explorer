@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory)][ValidateRange(1, [long]::MaxValue)][long]$RunId,
     [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$RunAttempt,
-    [Parameter(Mandatory)][string]$WorkingDirectory
+    [Parameter(Mandatory)][string]$WorkingDirectory,
+    [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
+    [switch]$AllowLocalFixture
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -36,7 +38,8 @@ try {
     }
     & "$PSScriptRoot\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $plan.revision `
         -CiRunId ([long]$plan.ciRunId) -CiRunAttempt ([int]$plan.ciRunAttempt) `
-        -CohortRunId $RunId -CohortRunAttempt $RunAttempt -WorkingDirectory (Join-Path $WorkingDirectory 'observation') -Publish
+        -CohortRunId $RunId -CohortRunAttempt $RunAttempt -WorkingDirectory (Join-Path $WorkingDirectory 'observation') `
+        -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish
 } catch {
     $summary = "### Non-UI cohort history unavailable`n`n$([Net.WebUtility]::HtmlEncode($_.Exception.Message))`n`nOriginal collection/release verdicts are unchanged; unavailable execution evidence is not successful verification."
     $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')
