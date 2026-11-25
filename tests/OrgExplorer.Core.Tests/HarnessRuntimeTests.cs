@@ -11,6 +11,42 @@ public sealed class HarnessRuntimeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Failure_snapshot_output_preserves_the_original_exception_without_retrying_the_writer(bool brokenOutput)
+    {
+        var records = new List<string>();
+        var diagnostics = new List<string>();
+        var failures = new HarnessRuntime.FailureLedger();
+        var original = new TimeoutException("Original row observation timeout");
+        var writes = 0;
+        string? originalStack = null;
+        Assert.Same(original, Assert.Throws<TimeoutException>(() => HarnessRuntime.Run<int>("row-failure", () =>
+        {
+            try { throw original; }
+            catch (TimeoutException)
+            {
+                originalStack = original.StackTrace;
+                HarnessRuntime.ReportDiagnostic("DEBUG-136-ROW {\"Selected\":false}");
+                throw;
+            }
+        }, write: records.Add, failures: failures, writeError: diagnostic =>
+        {
+            writes++;
+            if (brokenOutput) throw new IOException("Private diagnostic output failure");
+            diagnostics.Add(diagnostic);
+        })));
+        Assert.Equal(1, writes);
+        Assert.StartsWith(originalStack!, original.StackTrace);
+        Assert.Equal(brokenOutput ? 1 : 0, failures.Snapshot.Count);
+        if (!brokenOutput) Assert.Equal("DEBUG-136-ROW {\"Selected\":false}", Assert.Single(diagnostics));
+        using var final = JsonDocument.Parse(records[^1][Prefix.Length..]);
+        Assert.Equal("Failed", final.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(!brokenOutput, final.RootElement.GetProperty("diagnosticsComplete").GetBoolean());
+        Assert.DoesNotContain(records, record => record.Contains("Private diagnostic output failure", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Recovered_output_reports_incomplete_evidence_instead_of_silently_losing_a_boundary(bool serializationFailure)
     {
         var records = new List<string>();
