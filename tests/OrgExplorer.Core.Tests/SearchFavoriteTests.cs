@@ -6,6 +6,122 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class SearchFavoriteTests
 {
+    [Fact]
+    public void Collapse_subtree_resets_hidden_descendant_expansion_without_changing_ancestors_siblings_or_other_roots()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        Apply(app, """
+            {"email":"nested@example.com","displayName":"Nested","managerEmail":"avery@example.com"},
+            {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"nested@example.com"},
+            {"email":"sibling@example.com","displayName":"Sibling","managerEmail":"morgan@example.com"},
+            {"email":"sibling-leaf@example.com","displayName":"Sibling leaf","managerEmail":"sibling@example.com"},
+            {"email":"other@example.com","displayName":"Other","managerEmail":"alex@example.com"}
+            """, 2);
+        Assert.True(app.NavigatePerson("leaf@example.com"));
+        app.ShowPeopleOverlay(true);
+        app.RememberPeopleBrowsing(["morgan@example.com", "nested@example.com", "sibling@example.com", "alex@example.com"],
+            12, 39, 576.26);
+        var before = app.PeopleNavigation;
+
+        Assert.Equal([PeopleTreeAction.CollapseSubtree], app.GetPeopleTreeActions("AVERY@example.com"));
+        Assert.Empty(app.GetPeopleTreeActions("leaf@example.com"));
+        Assert.True(app.ExecutePeopleTreeAction("avery@example.com", PeopleTreeAction.CollapseSubtree));
+
+        Assert.Equal(["morgan@example.com", "sibling@example.com", "alex@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal(before with { ExpandedPeople = app.PeopleNavigation.ExpandedPeople }, app.PeopleNavigation);
+        Assert.Empty(app.GetPeopleTreeActions("avery@example.com"));
+        app.ChangePeopleQuery("leaf@example.com");
+        app.ChangePeopleQuery("");
+        app.ShowPeopleOverlay(false);
+        app.ShowPeopleOverlay(true);
+        Assert.Equal(["morgan@example.com", "sibling@example.com", "alex@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal("leaf@example.com", app.PeopleNavigation.SelectedEmail);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Collapse_subtree_retains_the_open_profile_independent_writing_and_existing_errors(NoteScope scope)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var owner = scope == NoteScope.Person ? "avery@example.com" : "morgan@example.com";
+        var noteId = scope == NoteScope.Person
+            ? app.CreatePersonNote(owner, "Saved title", "Saved writing")!.Id
+            : app.CreateTeamNote(owner, "Saved title", "Saved writing")!.Id;
+        Assert.True(app.NavigatePerson(owner));
+        Assert.True(app.OpenOwnedNote(scope, noteId, editing: true));
+        app.UpdateNoteDraft(scope, noteId, "", "  Exact failed owner writing\r\n");
+        Assert.False(await app.FlushNoteDraftsAsync());
+        Assert.True(app.NavigatePerson("avery@example.com"));
+        Assert.True(app.BeginProfileEdit("avery@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "  Independent profile writing\r\n"));
+        Assert.False(app.NavigatePerson("unavailable@example.com"));
+        var error = app.OperationError;
+        var status = app.Status;
+        var profile = app.ProfileEdit;
+        var retained = app.GetRetainedNoteDraft(scope, noteId);
+        var savedPerson = app.GetRelationships("avery@example.com")!.Person;
+        app.RememberPeopleBrowsing(["morgan@example.com", "alex@example.com"], 9);
+        app.ShowPeopleOverlay(true);
+
+        Assert.True(app.ExecutePeopleTreeAction("morgan@example.com", PeopleTreeAction.CollapseSubtree));
+
+        Assert.Equal("avery@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.Equal(["alex@example.com"], app.PeopleNavigation.ExpandedPeople);
+        Assert.Same(profile, app.ProfileEdit);
+        Assert.Equal(retained, app.GetRetainedNoteDraft(scope, noteId));
+        Assert.Same(retained!.Basis, app.GetRetainedNoteDraft(scope, noteId)!.Basis);
+        Assert.Equal(savedPerson, app.GetRelationships("avery@example.com")!.Person);
+        Assert.Equal("Saved writing", app.BeginNoteDraft(scope, owner, noteId)!.Markdown);
+        Assert.Equal(error, app.OperationError);
+        Assert.Equal(status, app.Status);
+        Assert.False(app.CanSafelyClose);
+    }
+
+    [Theory]
+    [InlineData("avery@example.com")]
+    [InlineData("missing@example.com")]
+    [InlineData("archived@example.com")]
+    [InlineData("morgan@example.com")]
+    public void Collapse_subtree_omits_no_work_and_unavailable_targets_and_rejects_a_stale_action(string target)
+    {
+        using var app = (WorkspaceViewModel)Open();
+        Apply(app, """{"email":"archived@example.com","displayName":"Archived","managerEmail":null}""", 2);
+        Assert.True(app.EditPersonArchived("archived@example.com", true));
+        app.RememberPeopleBrowsing(["alex@example.com", "archived@example.com"], 12);
+        var before = app.PeopleNavigation;
+
+        Assert.Empty(app.GetPeopleTreeActions(target));
+        Assert.False(app.ExecutePeopleTreeAction(target, PeopleTreeAction.CollapseSubtree));
+
+        Assert.Equal(before, app.PeopleNavigation);
+        Assert.Contains("not applied", app.PeopleTreeActionFeedback);
+    }
+
+    [Fact]
+    public void Collapse_subtree_resets_a_deep_imported_graph_without_a_depth_limit()
+    {
+        using var app = (WorkspaceViewModel)Open();
+        var records = Enumerable.Range(0, 1024).Select(index => JsonSerializer.Serialize(new
+        {
+            email = $"depth{index:0000}@example.com",
+            displayName = $"Depth {index}",
+            managerEmail = index == 0 ? "morgan@example.com" : $"depth{index - 1:0000}@example.com"
+        }));
+        Apply(app, string.Join(",", records), 2);
+        Assert.True(app.NavigatePerson("depth1023@example.com"));
+        app.RememberPeopleBrowsing(["morgan@example.com", "alex@example.com",
+            .. Enumerable.Range(0, 1023).Select(index => $"depth{index:0000}@example.com")], 0);
+
+        Assert.True(app.ExecutePeopleTreeAction("depth0256@example.com", PeopleTreeAction.CollapseSubtree));
+
+        Assert.Equal(["morgan@example.com", "alex@example.com",
+            .. Enumerable.Range(0, 256).Select(index => $"depth{index:0000}@example.com")], app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal("depth1023@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Empty(app.GetPeopleTreeActions("depth0256@example.com"));
+    }
+
     [Theory]
     [InlineData(NoteScope.Person, "avery@example.com")]
     [InlineData(NoteScope.Person, "morgan@example.com")]

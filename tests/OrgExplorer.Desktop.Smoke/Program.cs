@@ -99,6 +99,9 @@ internal static partial class Program
             if (args.Length == 2 && args[1] == "--verify-profile-refresh")
                 return HarnessRuntime.Run("compiled-profile-refresh",
                     () => VerifyCompiledXaml(executable, verifyProfileRefresh: true));
+            if (args.Length == 2 && args[1] == "--verify-tree-presentation")
+                return HarnessRuntime.Run("compiled-tree-presentation",
+                    () => VerifyCompiledXaml(executable, verifyTreePresentation: true));
             if (args.Length == 2 && args[1] == "--verify-update-yield")
                 return HarnessRuntime.Run("compiled-update-yield",
                     () => VerifyCompiledXaml(executable, verifyUpdateYield: true));

@@ -8,6 +8,10 @@
         AutomationProperties.HelpText="{Binding Text, ElementName=StatusText}"
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
+  <Window.CommandBindings>
+    <CommandBinding Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
+                    CanExecute="CanCollapseSubtree" Executed="CollapseSubtree"/>
+  </Window.CommandBindings>
   <Window.Resources>
     <SolidColorBrush x:Key="AccentBrush" Color="#0969DA"/>
     <SolidColorBrush x:Key="MutedBrush" Color="#576B82"/>
@@ -266,6 +270,23 @@
       <EventSetter Event="Loaded" Handler="RestoreTreeItem"/>
       <EventSetter Event="Expanded" Handler="ExpandPerson"/>
       <EventSetter Event="Collapsed" Handler="CollapsePerson"/>
+      <EventSetter Event="PreviewMouseRightButtonDown" Handler="TargetReportingMenu"/>
+      <EventSetter Event="ContextMenuOpening" Handler="PrepareReportingMenu"/>
+      <Setter Property="ContextMenu">
+        <Setter.Value>
+          <ContextMenu>
+            <ContextMenu.Style>
+              <Style TargetType="ContextMenu">
+                <EventSetter Event="Closed" Handler="CloseReportingMenu"/>
+              </Style>
+            </ContextMenu.Style>
+            <MenuItem Header="Collapse subtree" AutomationProperties.AutomationId="CollapseSubtree"
+                      Command="{x:Static local:MainWindow.CollapseSubtreeCommand}"
+                      CommandParameter="{Binding PlacementTarget.DataContext.Person.Email, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+          </ContextMenu>
+        </Setter.Value>
+      </Setter>
       <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
       <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
       <Setter Property="Template">

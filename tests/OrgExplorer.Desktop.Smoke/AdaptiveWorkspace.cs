@@ -270,6 +270,7 @@ internal static partial class Program
             AssertReportingStructure(window, null);
             QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
             AssertPersonCategory(window, "Employee");
+            AssertReportingTreeMenu(window, "morgan@example.com", "avery@example.com", stateName);
         }
         Resize(700, 500);
         AtSize(false, "reading-minimum-700-500");
@@ -589,6 +590,148 @@ internal static partial class Program
             () => IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation"),
             () => Click(window, "OpenPeople"), () => IsVisible(window, "People"), Await);
 
+    private static void AssertReportingTreeMenu(AutomationElement window, string managerEmail, string reportEmail, string state)
+    {
+        var panelWasOpen = IsVisible(window, "PeopleNavigation");
+        var compact = IsVisible(window, "OpenPeople");
+        var owner = CurrentPersonEmail(window);
+        string[] Snapshot()
+        {
+            var ids = new[] { "Email", "DirectoryName", "ProfileEditingState", "DirectoryNameEditor", "Alias", "JobTitle",
+                "Department", "OfficeBuilding", "OfficeNumber", "OfficeState", "OfficeCountry", "LinkedInProfileUrl",
+                "PersonNoteHeading", "TeamNoteHeading", "PersonNoteTitle", "PersonNoteMarkdown", "TeamNoteTitle",
+                "TeamNoteMarkdown", "PersonNoteStatus", "TeamNoteStatus" };
+            using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+            var cache = new CacheRequest { TreeScope = TreeScope.Element };
+            cache.Add(AutomationElement.AutomationIdProperty);
+            cache.Add(AutomationElement.NameProperty);
+            cache.Add(AutomationElement.HelpTextProperty);
+            cache.Add(ValuePattern.ValueProperty);
+            AutomationElementCollection controls;
+            using (cache.Activate())
+                controls = window.FindAll(TreeScope.Descendants, new OrCondition(ids.Select(id =>
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+            return controls.Cast<AutomationElement>().OrderBy(element => element.Cached.AutomationId)
+                .Select(element => $"{element.Cached.AutomationId}:{element.Cached.Name}:{element.Cached.HelpText}:" +
+                    element.GetCachedPropertyValue(ValuePattern.ValueProperty)).ToArray();
+        }
+        var before = Snapshot();
+        EnsurePeopleBrowsing(window);
+        var treeScroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
+        ControlReadiness.ScrollToTopIfScrollable(() => treeScroll.Current.VerticallyScrollable,
+            () => treeScroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        AutomationElement Row(string email) => Find(Find(window, "People"), email);
+        ExpandCollapsePattern Expansion(string email) => (ExpandCollapsePattern)Row(email).GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        AutomationElement? Menu() => AutomationElement.RootElement.FindAll(TreeScope.Descendants, new AndCondition(
+                new PropertyCondition(AutomationElement.ProcessIdProperty, window.Current.ProcessId),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu),
+                new PropertyCondition(AutomationElement.ClassNameProperty, "ContextMenu")))
+            .Cast<AutomationElement>().FirstOrDefault(menu => !menu.Current.IsOffscreen);
+        void RightClickRow(string email)
+        {
+            var bounds = Row(email).Current.BoundingRectangle;
+            var viewport = Find(window, "People").Current.BoundingRectangle;
+            var scale = DpiScale(window);
+            var x = bounds.Left + 40 * scale;
+            var y = bounds.Top + 14 * scale;
+            if (!viewport.Contains(new Point(x, y)) || Row(email).Current.IsOffscreen ||
+                !SetCursorPos((int)x, (int)y))
+                throw new InvalidOperationException($"The reporting row header is not reachable at {state}: {email}, {bounds}, {viewport}.");
+            mouse_event(8, 0, 0, 0, 0);
+            mouse_event(16, 0, 0, 0, 0);
+        }
+        void AssertRetained()
+        {
+            if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
+                !IsVisible(window, "People") || compact && !IsVisible(window, "ClosePeople"))
+                throw new InvalidOperationException($"A tree presentation action changed the profile/writing or dismissed compact People at {state}.");
+            var bounds = Row(managerEmail).Current.BoundingRectangle;
+            var viewport = Find(window, "People").Current.BoundingRectangle;
+            if (Row(managerEmail).Current.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                throw new InvalidOperationException($"Collapse subtree lost its target row at {state}.");
+        }
+        void AssertNoMenu()
+        {
+            var observation = System.Diagnostics.Stopwatch.StartNew();
+            Await(() => observation.ElapsedMilliseconds >= 200);
+            if (Menu() is not null)
+                throw new InvalidOperationException($"A leaf or fully reset branch opened an empty/no-op tree menu at {state}.");
+            AssertRetained();
+        }
+        void CollapseFromMenu(bool keyboard)
+        {
+            AutomationElement? menu = null;
+            Await(() => (menu = Menu()) is not null);
+            var actions = menu!.FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem)).Cast<AutomationElement>().ToArray();
+            if (actions.Length != 1 || actions[0].Current.Name != "Collapse subtree" || !actions[0].Current.IsEnabled)
+                throw new InvalidOperationException($"The tree menu contains a no-op, duplicate or unimplemented action at {state}.");
+            if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()))
+                throw new InvalidOperationException($"Opening the tree menu navigated or submitted retained writing at {state}.");
+            if (keyboard)
+            {
+                PressCopyKey(0x28);
+                PressCopyKey(0x0D);
+            }
+            else PrimaryClick(() => actions[0]);
+            Await(() => Menu() is null && Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+            AssertRetained();
+        }
+        var branch = Expansion(managerEmail);
+        if (branch.Current.ExpandCollapseState != ExpandCollapseState.Expanded) branch.Expand();
+        Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        Find(window, "SearchQuery").SetFocus();
+        Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
+        RightClickRow(reportEmail);
+        AssertNoMenu();
+        RightClickRow(managerEmail);
+        CollapseFromMenu(keyboard: false);
+        Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
+        RightClickRow(managerEmail);
+        AssertNoMenu();
+        if (owner == reportEmail)
+        {
+            branch.Expand();
+            Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+            Row(reportEmail).SetFocus();
+            Await(() => Row(reportEmail).Current.HasKeyboardFocus);
+            RightClickRow(managerEmail);
+            CollapseFromMenu(keyboard: false);
+            Await(() => Row(managerEmail).Current.HasKeyboardFocus);
+            foreach (var appsKey in new[] { true, false })
+            {
+                branch.Expand();
+                Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+                if (appsKey) PressCopyKey(0x5D);
+                else
+                {
+                    keybd_event(0x10, 0, 0, 0);
+                    try { PressCopyKey(0x79); }
+                    finally { keybd_event(0x10, 0, 2, 0); }
+                }
+                CollapseFromMenu(keyboard: true);
+                Await(() => Row(managerEmail).Current.HasKeyboardFocus);
+                PressCopyKey(0x5D);
+                AssertNoMenu();
+            }
+        }
+        CaptureVisualEvidence(window, state + "-tree-collapse-retained");
+        Set(window, "SearchQuery", "tree action unmatched query");
+        Await(() => !IsVisible(window, "People"));
+        Click(window, "ClearSearch");
+        Await(() => IsVisible(window, "People"));
+        if (Expansion(managerEmail).Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
+            throw new InvalidOperationException($"Search-clear resurrected recursively reset tree expansion at {state}.");
+        AssertRetained();
+        Expansion(managerEmail).Expand();
+        Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        if (compact && !panelWasOpen)
+        {
+            Click(window, "ClosePeople");
+            Await(() => !IsVisible(window, "PeopleNavigation"));
+        }
+    }
+
     private static void AssertResponsiveProfileForm(AutomationElement window)
     {
         var scale = DpiScale(window);
@@ -658,6 +801,7 @@ internal static partial class Program
                 Find(window, "Email").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("Notes joined the profile draft or stable email became editable.");
             CaptureVisualEvidence(window, state + "-manager");
+            AssertReportingTreeMenu(window, "casey@example.com", "avery@example.com", state);
         }
         ResizeWindow(window, 700, 500);
         AtSize("profile-inline-minimum-700-500");

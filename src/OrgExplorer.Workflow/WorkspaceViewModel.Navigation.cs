@@ -1,5 +1,7 @@
 namespace OrgExplorer.Workflow;
 
+public enum PeopleTreeAction { CollapseSubtree }
+
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
     IReadOnlyList<string> ExpandedPeople, double BrowseOffset, RememberedView? LastValidView = null,
@@ -230,6 +232,54 @@ public sealed partial class WorkspaceViewModel
             BrowseExtentWidth = extentWidth
         };
         Notify();
+    }
+
+    public string? PeopleTreeActionFeedback { get; private set; }
+
+    public IReadOnlyList<PeopleTreeAction> GetPeopleTreeActions(string email) =>
+        CurrentReportingSubtree(email).Overlaps(PeopleNavigation.ExpandedPeople)
+            ? [PeopleTreeAction.CollapseSubtree] : [];
+
+    public bool ExecutePeopleTreeAction(string email, PeopleTreeAction action)
+    {
+        if (action != PeopleTreeAction.CollapseSubtree) throw new ArgumentOutOfRangeException(nameof(action));
+        var subtree = CurrentReportingSubtree(email);
+        if (!subtree.Overlaps(PeopleNavigation.ExpandedPeople))
+        {
+            PeopleTreeActionFeedback = "Collapse subtree was not applied: that current reporting subtree has no expansion to reset.";
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+            return false;
+        }
+        PeopleNavigation = PeopleNavigation with
+        {
+            ExpandedPeople = PeopleNavigation.ExpandedPeople.Where(person => !subtree.Contains(person)).ToArray()
+        };
+        PeopleTreeActionFeedback = null;
+        // Presentation changes must not enter the mutation/navigation observation path or clear retained errors.
+        PropertyChanged?.Invoke(this, new(nameof(PeopleNavigation)));
+        PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+        return true;
+    }
+
+    private HashSet<string> CurrentReportingSubtree(string email)
+    {
+        var subtree = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!IsWorkspaceCurrent) return subtree;
+        var pending = new Stack<ReportingNode>(ReportingRoots);
+        while (pending.TryPop(out var node))
+        {
+            if (node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase))
+            {
+                pending.Clear();
+                pending.Push(node);
+                while (pending.TryPop(out var descendant))
+                    if (subtree.Add(descendant.Person.Email))
+                        foreach (var report in descendant.Reports) pending.Push(report);
+                return subtree;
+            }
+            foreach (var report in node.Reports) pending.Push(report);
+        }
+        return subtree;
     }
 
     public bool NavigatePerson(string email) => Observe(() =>
