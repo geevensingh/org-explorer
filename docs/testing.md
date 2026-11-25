@@ -1935,6 +1935,11 @@ release-planning no-ops do not certify executed scale or publication.
 
 Core preserves its unfiltered selection and emits the original terminal outcome
 plus timings for every existing mandatory companion and the health contracts.
+Raw local runner success/completed correctness checks are separate from
+original-policy acceptance: a completed execution beyond 300 seconds is a
+reported budget failure, not a within-budget/healthy sample, even where the
+preexisting local companion execution returns success. Reporting does not
+change that raw exit or extend the Actions deadline.
 Partitions retain their original required command/scenario matrices; named
 compiled trust/icon/output checks are additional observations, not substituted
 native proof. Core/filesystem TRX retains workload-family outcome counts,
@@ -2004,6 +2009,14 @@ source-derived ineligible publication, forged artifact eligibility, nonexecution
 and exclusion of PR/manual observations from comparison/baseline inputs.
 These fixtures establish result contracts, not hosted speed, Windows 11 client
 coverage, real desktop acceptance or production publication.
+
+`Export-LocalCoreHealth -Directory .ci-results\core -WorkingDirectory <folder>
+-ObservedExitCode <observed-code>` projects an actual local result through that
+same public validation/summary flow. It saves `record.json` and `summary.md`,
+retaining raw runner outcome, completed checks, original-policy acceptance and
+negative headroom without inventing a GitHub run. Local projections are never
+published or baseline/comparison inputs. This can explain a shared-local
+overrun; it cannot establish hosted CI capacity.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA

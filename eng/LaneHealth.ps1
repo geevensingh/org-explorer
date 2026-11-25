@@ -306,14 +306,46 @@ function Get-CoreHealthMeasurement([string]$Directory, $Run) {
         !@($steps | Where-Object { $_.status -cne 'Passed' }).Count -and
         $tests.failed -eq 0 -and $tests.notExecuted -eq 0 -and $tests.summary -ceq 'Completed') { $validation = 'success' }
     if ($tests.failed -gt 0) { $validation = 'failure' }
+    $correctness = $validation
     $diagnostics = @()
     if ($execution.ContainsKey('configurationErrors')) { $diagnostics += @($execution.configurationErrors) }
     if ($execution.ContainsKey('error') -and $execution.error) { $diagnostics += "Original runner error: $($execution.error)" }
+    if ($execution.executionSeconds -gt 300) {
+        if ($validation -ceq 'success') { $validation = 'failure' }
+        $diagnostics += 'Completed checks/runner exit cannot waive the original 300-second whole-execution acceptance budget.'
+    }
     return @{ validation = $validation; tests = $tests; configuration = $execution.configuration; diagnostics = $diagnostics
+        correctnessChecks = $correctness; originalPolicyAcceptance = $validation
         measuredAt = $execution.finishedAt; runnerOutcome = $execution.outcome; runnerComplete = $execution.complete
         measurements = @{ executionSeconds = $execution.executionSeconds; ceilingSeconds = 300
             headroomSeconds = 300 - $execution.executionSeconds; steps = $steps; metrics = @() }
         selector = 'all'; originalPolicy = 'core-original-v1' }
+}
+
+function Export-LocalCoreHealth([string]$Directory, [string]$WorkingDirectory, [Nullable[int]]$ObservedExitCode) {
+    $execution = Get-Content (Join-Path $Directory 'execution.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+    $run = @{ head_sha = $execution.revision; id = $execution.runId; run_attempt = $execution.runAttempt }
+    $result = Get-CoreHealthMeasurement $Directory $run
+    $record = [ordered]@{
+        schemaVersion = 2; recordType = 'local-lane-observation'; repository = $FilesystemHealthRepository; lane = 'core'
+        revision = $execution.revision; controllerRevision = $null; writerRevision = $null; writerScope = 'local result projection'
+        runId = $execution.runId; runAttempt = $execution.runAttempt; authority = 'untrusted-local-observation'
+        baselineEligible = $false; comparisonInputEligible = $false; candidateState = 'actual local runner metadata; not hosted acceptance'
+        jobName = 'Shared-local core'; jobOutcome = 'unavailable (no hosted job)'; observedCommandExitCode = $ObservedExitCode
+        runnerOutcome = $result.runnerOutcome; runnerComplete = $result.runnerComplete
+        correctnessChecks = $result.correctnessChecks; originalPolicyAcceptance = $result.originalPolicyAcceptance
+        observedAt = [DateTimeOffset]::UtcNow.ToString('O'); measuredAt = $result.measuredAt
+        validation = $result.validation; verificationScope = 'shared-local runner only'; policyVersion = 'lane-observation-v2'
+        originalPolicy = $result.originalPolicy; measurements = $result.measurements; tests = $result.tests
+        configuration = $result.configuration; diagnostics = @($result.diagnostics) + @('No hosted run, timing reference or canonical baseline eligibility is established.')
+        hosted = @{ seconds = $null; steps = @() }; timingHealth = 'inconclusive'; reference = $null
+        variability = $null; reliability = $null; recent = @()
+        evidence = @{ state = 'local'; url = ''; expiresAt = $null }
+    }
+    New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
+    $record | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $WorkingDirectory 'record.json')
+    Format-LaneHealth @($record) 'local projection only; no history publication' | Set-Content (Join-Path $WorkingDirectory 'summary.md')
+    return $record
 }
 
 function Get-DesktopHealthMeasurement($Descriptor, $Evidence, $Run) {
@@ -659,12 +691,16 @@ function Format-LaneHealth($Records, [string]$Publication) {
     foreach ($record in $Records) {
         $lines += @("### $([Net.WebUtility]::HtmlEncode($record.jobName))",
             "Validation: **$($record.validation)**; timing: **$($record.timingHealth)**; original job: **$($record.jobOutcome)**.",
-            "Candidate: ``$($record.revision)``; controller: ``$($record.controllerRevision)``; run/attempt: $($record.runId)/$($record.runAttempt).",
+            "Candidate: ``$($record.revision)``; source controller: $(if ($record.controllerRevision) { '``' + $record.controllerRevision + '``' } else { 'unavailable (local result)' }); run/attempt: $($record.runId)/$($record.runAttempt).",
             "Candidate evidence: $($record.candidateState).",
-            "Observer code: ``$($record.writerRevision)`` ($($record.writerScope)); source workflow revision is recorded separately.",
-            "History eligibility: $(if ($record.comparisonInputEligible) { 'qualified main observation; canonical baseline eligibility remains pending calibration' } else { 'baseline-ineligible PR/manual/fork observation; never a comparison input' }).",
-            "Policy: ``$($record.originalPolicy)``; scope: $($record.verificationScope).",
-            '| Measurement / phase | Value | Reference | Change |', '|---|---:|---:|---:|')
+            "Observer code: $(if ($record.writerRevision) { '``' + $record.writerRevision + '``' } else { 'unavailable (local projection)' }) ($($record.writerScope)); source workflow revision is recorded separately.",
+            "History eligibility: $(if ($record.comparisonInputEligible) { 'qualified main observation; canonical baseline eligibility remains pending calibration' } elseif ($record.recordType -ceq 'local-lane-observation') { 'baseline-ineligible local observation; never a comparison input' } else { 'baseline-ineligible PR/manual/fork observation; never a comparison input' }).",
+            "Policy: ``$($record.originalPolicy)``; scope: $($record.verificationScope).")
+        if ($record.Contains('runnerOutcome') -and $null -ne $record.runnerOutcome) {
+            $lines += "Raw runner outcome: **$($record.runnerOutcome)**; completed correctness checks: **$($record.correctnessChecks)**; original-policy acceptance: **$($record.originalPolicyAcceptance)**."
+        }
+        if ($record.Contains('observedCommandExitCode') -and $null -ne $record.observedCommandExitCode) { $lines += "Observed command exit: $($record.observedCommandExitCode)." }
+        $lines += @('', '| Measurement / phase | Value | Reference | Change |', '|---|---:|---:|---:|')
         if ($record.measurements) {
             $scope = if ($record.measurements.Contains('scope')) { $record.measurements.scope } else { 'Whole runner execution (setup/cleanup included)' }
             $reference = if ($record.reference) { "$($record.reference.executionSeconds) s" } else { 'unavailable' }
@@ -722,7 +758,7 @@ function Format-LaneHealth($Records, [string]$Publication) {
             }
         }
         foreach ($detail in $record.diagnostics) { $lines += [Net.WebUtility]::HtmlEncode($detail) }
-        $lines += @("Evidence: [$($record.evidence.state)]($($record.evidence.url)); expiry $($record.evidence.expiresAt).",
+        $lines += @("Evidence: $(if ($record.evidence.url) { '[' + $record.evidence.state + '](' + $record.evidence.url + ')' } else { 'local files, not GitHub artifacts' }); expiry $($record.evidence.expiresAt).",
             'Advertised runner/configuration identity is not proof of identical physical host load or a timing cause.',
             'Attribution: unknown unless the original evidence explicitly establishes it.', '')
     }

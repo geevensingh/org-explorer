@@ -99,6 +99,16 @@ try {
         $saved.measurements.steps[2].name -ceq 'CiGate.Tests.ps1') 'Core lost complete runner/companion evidence.'
     Assert ($saved.timingHealth -ceq 'unbaselined' -and $null -eq $saved.reference -and
         $observed.summary.Contains('Core and view models') -and $observed.summary.Contains('observation only')) 'Core invented comparative health.'
+    $execution.executionSeconds = 667.61; $execution.finishedAt = '2026-11-25T10:11:07.6100000Z'
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
+    $overBudget = Observe
+    $overBudgetCore = @($overBudget.records | Where-Object { $_.lane -ceq 'core' })[0]
+    Assert ($overBudgetCore.validation -ceq 'failure' -and $overBudgetCore.runnerOutcome -ceq 'success' -and
+        $overBudgetCore.correctnessChecks -ceq 'success' -and $overBudgetCore.originalPolicyAcceptance -ceq 'failure' -and
+        $overBudgetCore.measurements.headroomSeconds -eq -367.61 -and !$overBudgetCore.baselineEligible -and
+        $overBudget.summary.Contains('original-policy acceptance: **failure**')) 'Successful named checks concealed an original-budget overrun.'
+    $execution.executionSeconds = 120; $execution.finishedAt = '2026-11-25T10:02:00Z'
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
     foreach ($lane in @('desktop', 'high-resolution')) {
         $partitions = Get-Content "$root\tests\$(if ($lane -ceq 'desktop') { 'Desktop' } else { 'HighResolution' })Partitions.json" -Raw |
             ConvertFrom-Json -AsHashtable

@@ -122,6 +122,10 @@ foreach ($descriptor in $descriptors) {
         diagnostics = $diagnostics
         measurements = if ($measurement) { $measurement.measurements } else { $null }
         tests = if ($measurement) { $measurement.tests } else { $null }
+        runnerOutcome = if ($measurement -and $measurement.ContainsKey('runnerOutcome')) { $measurement.runnerOutcome } else { $null }
+        runnerComplete = if ($measurement -and $measurement.ContainsKey('runnerComplete')) { $measurement.runnerComplete } else { $null }
+        correctnessChecks = if ($measurement -and $measurement.ContainsKey('correctnessChecks')) { $measurement.correctnessChecks } else { 'not separately established' }
+        originalPolicyAcceptance = if ($measurement -and $measurement.ContainsKey('originalPolicyAcceptance')) { $measurement.originalPolicyAcceptance } else { $validation }
         timingHealth = 'inconclusive'; reference = $null; variability = $null; reliability = $null; recent = @()
         historySnapshot = if ($history) { $history.tip } else { $null }; evidence = $evidence
     }
