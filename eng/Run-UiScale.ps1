@@ -5,6 +5,8 @@ param(
     [string] $RunId = $env:GITHUB_RUN_ID,
     [string] $RunAttempt = $env:GITHUB_RUN_ATTEMPT,
     [string] $ResultsDirectory = '.ci-results\ui-scale',
+    [ValidatePattern('^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$')][string] $CohortId,
+    [ValidateRange(1, 5)][int] $Sample,
     [switch] $ExtendedObservation
 )
 $ErrorActionPreference = 'Stop'
@@ -18,6 +20,12 @@ $required = @($plan.workers[$Worker])
 $observation = if ($ExtendedObservation) { 900 } else { 660 }
 $selection = @{ selector = "--ui-scale-$Worker"; worker = $Worker; requiredScenarios = $required
     runId = $RunId; runAttempt = $RunAttempt; completedPhases = @() }
+if ($CohortId) {
+    if (!$ExpectedRevision -or $Sample -lt 1 -or $CohortId -cne "$ExpectedRevision-$RunId-$RunAttempt") {
+        throw 'Rich cohort execution requires exact candidate, sample and run/attempt.'
+    }
+    $selection.cohortId = $CohortId; $selection.sample = $Sample
+} elseif ($PSBoundParameters.ContainsKey('Sample')) { throw 'A rich sample requires its cohort identity.' }
 
 Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
     -ResultsDirectory $ResultsDirectory -ExpectedRevision $ExpectedRevision -ObservationSeconds $observation `
@@ -37,7 +45,7 @@ Invoke-ScaleSuite -Suite ui-scale -Label 'UI scale' `
             $handoff = Join-Path $run 'handoff'
             if ($Worker -eq 'tail') {
                 if (!$PrefixResultsDirectory) { throw 'The tail requires the current successful prefix worker artifact.' }
-                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt
+                $prefix = Get-UiScaleWorkerResult $PrefixResultsDirectory prefix $ExpectedRevision $RunId $RunAttempt $CohortId $Sample
                 $handoff = [IO.Path]::GetFullPath((Join-Path $prefix.run 'handoff'))
             }
             $env:UI_SCALE_HANDOFF_DIRECTORY = $handoff

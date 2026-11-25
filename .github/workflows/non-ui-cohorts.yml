@@ -1,4 +1,4 @@
-name: Non-UI performance cohorts
+name: Performance scale cohorts
 
 on:
   workflow_run:
@@ -23,3 +23,4 @@ jobs:
       revision: ${{ github.event.workflow_run.head_sha }}
       ci_run_id: ${{ format('{0}', github.event.workflow_run.id) }}
       ci_run_attempt: ${{ format('{0}', github.event.workflow_run.run_attempt) }}
+      rich_scale: true

@@ -7,6 +7,7 @@ param(
     [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$CohortRunAttempt,
     [Parameter(Mandatory)][string]$WorkingDirectory,
     [switch]$Pilot,
+    [switch]$RichScale,
     [ValidateSet(3, 5)][int]$ExpectedSamples = 3,
     [hashtable]$TestPolicy,
     [switch]$AllowLocalFixture,
@@ -24,7 +25,7 @@ $ReleaseRepository = $FilesystemHealthRepository
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 if ($Publish -and ($Pilot -or $null -ne $TestPolicy)) { throw 'Manual pilot/TEST policy cannot publish authoritative live history.' }
 if ($null -ne $TestPolicy) {
-    if (!$AllowLocalFixture -or $TestPolicy.version -cne 'TEST-non-ui-range-v1') {
+    if (!$AllowLocalFixture -or $TestPolicy.version -cne $(if ($RichScale) { 'TEST-rich-range-v2' } else { 'TEST-non-ui-range-v1' })) {
         throw 'Explicit TEST policy is allowed only at the isolated fixture boundary, never live calibration.'
     }
     Assert-HealthNumber $TestPolicy.maximumRangeSeconds 'TEST maximumRangeSeconds'
@@ -50,7 +51,8 @@ if ($Stage -ceq 'Plan') {
     if ($null -ne $historyError) { throw $historyError }
     $previous = @()
     if ($null -ne $history) {
-        $previous = @($history.records | Where-Object { $_.ContainsKey('recordType') -and $_.recordType -ceq 'performance-cohort' })
+        $previous = @($history.records | Where-Object { $_.ContainsKey('recordType') -and $_.recordType -ceq 'performance-cohort' -and
+            $_.schemaVersion -eq $(if ($RichScale) { 2 } else { 1 }) })
     }
     $collect = !@($previous | Where-Object { $_.revision -ceq $Revision }).Count
     if (!$Pilot) {
@@ -62,13 +64,13 @@ if ($Stage -ceq 'Plan') {
         }
     }
     $plan = [ordered]@{
-        schemaVersion = 1; revision = $Revision
+        schemaVersion = if ($RichScale) { 2 } else { 1 }; revision = $Revision
         ciRevision = $run.head_sha; ciRunId = [string]$CiRunId; ciRunAttempt = [string]$CiRunAttempt
         cohortId = "$Revision-$CohortRunId-$CohortRunAttempt"
         cohortRunId = [string]$CohortRunId; cohortRunAttempt = [string]$CohortRunAttempt
         samples = @(1, 2, 3); mode = 'observation'; promotion = 'disabled'
         authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
-        policyVersion = 'non-ui-cohort-observation-v1'
+        policyVersion = if ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
         collect = $collect; reason = if ($collect) { 'New qualifying observation' } else { 'Already durably observed; no retry-until-green.' }
     }
     $plan | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'plan.json')
@@ -94,9 +96,15 @@ foreach ($job in $jobs) {
     if ($job.name -cmatch '(^| / )Non-UI cohort sample \((?<number>[1-9][0-9]*)\)$') {
         $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
     }
+    if ($RichScale -and $job.name -cmatch '(^| / )Rich cohort (prefix|tail|union) \((?<number>[1-9][0-9]*)\)$') {
+        $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
+    }
 }
 foreach ($artifact in $artifacts) {
     if ($artifact.name -cmatch ("^non-ui-cohort-" + [regex]::Escape($cohortId) + '-sample-(?<number>[1-9][0-9]*)$')) {
+        $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
+    }
+    if ($RichScale -and $artifact.name -cmatch ("^rich-cohort-" + [regex]::Escape($cohortId) + '-sample-(?<number>[1-9][0-9]*)-(prefix|tail|union)$')) {
         $maximumObserved = [Math]::Max($maximumObserved, [int]$Matches.number)
     }
 }
@@ -130,7 +138,7 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
         elseif ($artifact.workflow_run.id -ne $CohortRunId -or $artifact.workflow_run.head_sha -cne $collection.head_sha) {
             $sample.evidence.state = 'rejected'; $sample.diagnostics += 'Artifact controller/run identity differs.'
         } else {
-            $directory = Join-Path $WorkingDirectory "sample-$number"
+            $directory = Join-Path $WorkingDirectory "sample-$number-$([guid]::NewGuid().ToString('N'))"
             & gh run download $CohortRunId --repo $FilesystemHealthRepository --name $name --dir $directory
             if ($LASTEXITCODE -ne 0) {
                 $sample.evidence.state = 'unavailable'; $sample.diagnostics += 'Artifact download failed.'
@@ -151,13 +159,19 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
             }
         }
     } else { $sample.diagnostics += 'Missing or duplicate exact-sample artifact; other executions cannot fill the gap.' }
+    if ($RichScale) {
+        Read-RichCohortSample $sample $WorkingDirectory $Revision $cohortId ([string]$CohortRunId) ([string]$CohortRunAttempt) $jobs $artifacts $collection
+    }
     $samples += $sample
 }
 $seen = @{}
 foreach ($sample in $samples) {
-    foreach ($field in @('jobId', 'runnerId', 'invocationId')) {
-        if ($null -eq $sample[$field]) { continue }
-        $key = "$field-$($sample[$field])"
+    $parts = @($sample)
+    if ($RichScale) { $parts += @($sample.rich.prefix, $sample.rich.tail, $sample.rich.union) }
+    foreach ($part in $parts) {
+      foreach ($field in @('jobId', 'runnerId', 'invocationId')) {
+        if ($null -eq $part[$field]) { continue }
+        $key = "$field-$($part[$field])"
         if ($seen.ContainsKey($key)) {
             $previous = $seen[$key]
             foreach ($duplicate in @($previous, $sample)) {
@@ -165,6 +179,7 @@ foreach ($sample in $samples) {
                 $duplicate.diagnostics += "Independent execution identity was reused: $field."
             }
         } else { $seen[$key] = $sample }
+      }
     }
 }
 $reliability = [ordered]@{ attempts = $samples.Count }
@@ -174,25 +189,34 @@ foreach ($outcome in @('success', 'failure', 'incomplete', 'cancelled', 'skipped
 $complete = $reliability.success -eq $ExpectedSamples -and !$unexpectedExecutions
 $compatible = !@($samples | Where-Object { $null -eq $_.seriesKey }).Count -and
     @($samples | ForEach-Object { $_.seriesKey } | Select-Object -Unique).Count -eq 1
+if ($RichScale) {
+    $compatible = $compatible -and !@($samples | Where-Object { $null -eq $_.rich.seriesKey }).Count -and
+        @($samples | ForEach-Object { $_.rich.seriesKey } | Select-Object -Unique).Count -eq 1
+}
 $metrics = Get-NonUiCohortMetrics $samples
 $eligibility = if (!$complete) { 'rejected' } elseif (!$compatible) { 'inconclusive' } else { 'pending-calibration' }
 $extraSamples = @()
 if ($complete -and $compatible -and $null -ne $TestPolicy) {
-    if ($metrics.executionSeconds.range -gt $TestPolicy.maximumRangeSeconds) {
+    $inconsistent = $metrics.executionSeconds.range -gt $TestPolicy.maximumRangeSeconds
+    if ($RichScale) {
+        $inconsistent = $inconsistent -or $metrics.'prefix-executionSeconds'.range -gt $TestPolicy.maximumRangeSeconds -or
+            $metrics.'tail-executionSeconds'.range -gt $TestPolicy.maximumRangeSeconds
+    }
+    if ($inconsistent) {
         $eligibility = if ($ExpectedSamples -eq 3) { 'inconsistent' } else { 'inconclusive' }
         if ($ExpectedSamples -eq 3) { $extraSamples = @(4, 5) }
     } else { $eligibility = 'TEST-eligible' }
 }
 $record = [ordered]@{
-    schemaVersion = 1; recordType = 'performance-cohort'; repository = $FilesystemHealthRepository
+    schemaVersion = if ($RichScale) { 2 } else { 1 }; recordType = 'performance-cohort'; repository = $FilesystemHealthRepository
     revision = $Revision; cohortId = $cohortId; cohortRunId = [string]$CohortRunId; cohortRunAttempt = [string]$CohortRunAttempt
     ciRevision = $run.head_sha; ciRunId = [string]$CiRunId; ciRunAttempt = [string]$CiRunAttempt
     controllerRevision = $collection.head_sha; observedAt = [DateTimeOffset]::UtcNow.ToString('O')
     collectionStatus = $collection.status
     collectionOutcome = if ($collection.ContainsKey('conclusion')) { $collection.conclusion } else { 'unavailable' }
     authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
-    mode = 'observation'; promotion = 'disabled'; richScaleAcceptance = 'not-executed'
-    policyVersion = if ($null -eq $TestPolicy) { 'non-ui-cohort-observation-v1' } else { $TestPolicy.version }
+    mode = 'observation'; promotion = 'disabled'; richScaleAcceptance = if (!$RichScale) { 'not-executed' } elseif ($complete) { 'complete' } else { 'rejected' }
+    policyVersion = if ($null -ne $TestPolicy) { $TestPolicy.version } elseif ($RichScale) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }
     testPolicy = $TestPolicy; samples = $samples; reliability = $reliability
     validation = if ($complete) { 'success' } else { 'rejected' }
     timingHealth = if ($complete) { 'unbaselined' } else { 'inconclusive' }
@@ -202,7 +226,7 @@ $record = [ordered]@{
     historyDiagnostics = if ($null -ne $historyError) { @("History read failed: $($historyError.Exception.Message)") } else { @() }
 }
 if ($null -ne $history) { Set-NonUiCohortComparison $record $history }
-Assert-NonUiCohortRecord $record "performance-cohorts/$Revision/$CohortRunId/$CohortRunAttempt.json"
+Assert-NonUiCohortRecord $record (Get-NonUiCohortPath $record)
 $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'record.json')
 $publication = 'read-only observation'
 $publicationError = $null

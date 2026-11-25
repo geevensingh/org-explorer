@@ -2677,9 +2677,68 @@ hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 
-### Observation-only independent non-UI cohorts
+### Observation-only complete performance/scale cohorts
 
-`non-ui-cohorts.yml` starts only after successful authenticated main-push
+The existing collector now selects complete cohorts (`rich_scale=true`) after
+successful authenticated main-push required CI. Its first three independent
+samples each own four fresh hosted jobs: the complete named non-UI workload,
+original rich prefix, its actual-snapshot public Join/tail, and strict union.
+Samples execute sequentially, including after a previous sample fails; at most
+the non-UI and prefix measurement workers overlap within one sample. Each
+native job has its own disposable hosted Windows desktop. No repeated native
+work runs on a shared local desktop.
+
+`rich-cohort-sample.yml` preserves all original selectors, fixture/size matrices,
+both 20/42/21 rich phases, all raw note/profile samples and nearest-rank p95,
+continued-typing durability, rendering/navigation and publication/reopen proof.
+Optional cohort/sample runner bindings supplement, never replace, the existing
+same-candidate source/product/native and run/attempt identities. A tail cannot
+consume another sample's prefix, and the collector revalidates both original
+artifacts and the union's owned copies. Each measurement worker retains its own
+660-second setup-through-cleanup acceptance budget and thirteen-minute watchdog.
+Worker durations are separate; their sum is not one 660-second execution.
+Rich note durability keeps its temporary enforced 1,050-ms ceiling and 1,000-ms
+goal; ordinary profile p95 keeps its 1,000-ms limit.
+
+Raw evidence has exact candidate/cohort/run/attempt/sample/worker names and
+30-day retention. Repeated collector downloads use fresh physical directories.
+The shared immutable trusted history descriptor stores schema-2 complete-cohort
+records under `rich-scale-cohorts/<revision>/<run>/<attempt>.json`; legacy schema-1
+`performance-cohorts` remains non-UI-only and cannot qualify as complete rich
+acceptance or its comparison reference. PR/manual lane observations remain
+baseline-ineligible and are not cohort comparison inputs. Every worker outcome,
+unavailable/expired/rejected artifact, raw latency series, handoff/receipt,
+individual measurement and descriptive median/range survives in compact history.
+Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
+no failure is voted away or replaced by a green retry.
+
+Live policy is `rich-cohort-observation-v2`: eligibility remains pending #130
+calibration and promotion disabled. Isolated `TEST-rich-range-v2` exercises
+otherwise eligible inconsistency extending from three to at most five complete
+executions; the live workflow cannot invent that policy or publish TEST records.
+Collection has a distinct noncancelling queued concurrency group, not release
+concurrency. Neither release nor ordinary PR selection waits for this battery.
+
+The registered scale workflow's default-off `rich_cohort_pilot=true` bridge
+executes the selected pushed workflow SHA without history/publication authority:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f rich_cohort_pilot=true -f cohort_ci_run_id=MAIN_CI_RUN_ID -f cohort_ci_run_attempt=1
+```
+
+The prior non-UI-only pilot option and normal reusable/nightly/release defaults
+remain unchanged. `NonUiCohort.Tests.ps1` crosses the same public collector,
+real strict validators and isolated Git publisher; only GitHub/hosted effects
+are synthetic. Fixture contracts are not actual hosted scale acceptance.
+The audit estimates three full samples at 53.2 consumed worker-minutes (60 with
+per-job rounding), five at 88.67 (100 rounded), plus controller/reporting;
+156/260 worker-minute watchdog envelopes are not extra passing allowance.
+The historical native-DLL cleanup refusal is retained, not repaired or retried
+here, and still does not establish a healthy calibration population.
+
+### Legacy observation-only independent non-UI cohorts
+
+Before the complete-cohort extension, `non-ui-cohorts.yml` started only after successful authenticated main-push
 required CI. Its trusted controller plans three separate hosted Windows jobs,
 with one sample worker active at a time, fresh checkouts/builds/fixtures and
 unique cohort/sample/job/runner/invocation identities. Every job runs the

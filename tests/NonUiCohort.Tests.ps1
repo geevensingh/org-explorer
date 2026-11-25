@@ -153,6 +153,99 @@ try {
         $record.metrics.executionSeconds.maximum -eq 180 -and $record.metrics.executionSeconds.range -eq 60) 'Cohort median/range do not preserve independent values.'
     Assert ($record.eligibility -ceq 'pending-calibration' -and $record.promotion -ceq 'disabled' -and
         $record.richScaleAcceptance -ceq 'not-executed' -and $record.extraSamples.Count -eq 0) 'Observation-only non-UI evidence claimed approved full-scale acceptance.'
+    . "$PSScriptRoot\UiScaleUnionFixture.ps1"
+    $nonUiJobs = $global:NonUiCohortFixture.sampleJobs
+    $nonUiArtifacts = $global:NonUiCohortFixture.artifacts
+    $richFixtures = @{}
+    for ($number = 1; $number -le 5; $number++) {
+        $rich = New-RichCohortSampleFixture (Join-Path $fixture "rich-$number") $revision $number '99' '1'
+        $richFixtures[$number] = $rich
+        if ($number -gt 3) { continue }
+        foreach ($worker in @('prefix', 'tail', 'union')) {
+            $directory = $rich[$worker]
+            $artifactName = "rich-cohort-$cohortId-sample-$number-$worker"
+            $global:NonUiCohortFixture.evidence[$artifactName] = $directory
+            $global:NonUiCohortFixture.sampleJobs += @{ id = 1000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
+                name = "Rich cohort $worker ($number)"; status = 'completed'; conclusion = 'success'
+                runner_id = 2000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker) }
+            $global:NonUiCohortFixture.artifacts += @{ id = 3000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
+                name = $artifactName; expired = $false; expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
+                workflow_run = @{ id = 99; head_sha = $revision } }
+        }
+    }
+    $richWork = Join-Path $fixture 'rich-summary'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $richWork -RichScale
+    $richRecord = Get-Content (Join-Path $richWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ((Get-Content (Join-Path $richWork 'summary.md') -Raw).Contains('Complete performance/scale cohort')) `
+        'Full rich cohort summary still claims only NON-UI or unexecuted rich acceptance.'
+    Assert ($richRecord.schemaVersion -eq 2 -and $richRecord.richScaleAcceptance -ceq 'complete' -and
+        $richRecord.reliability.success -eq 3 -and $richRecord.metrics.'prefix-executionSeconds'.count -eq 3 -and
+        $richRecord.samples[0].rich.prefix.notes.'normal-executable'.localDurability.samplesMs.Count -eq 21 -and
+        $richRecord.samples[0].rich.tail.profile.samplesMs.Count -eq 21 -and $richRecord.promotion -ceq 'disabled') `
+        "Complete independent cohorts lost the real strict union, original rich samples or observation-only policy: $(@($richRecord.samples | ForEach-Object { $_.diagnostics }) -join '; ')"
+    Assert ($richRecord.samples[0].rich.tail.phasesMs.ContainsKey('UI-close#2') -and
+        $richRecord.metrics.ContainsKey('tail-phase-UI-close#2-ms')) 'Repeated original rich phase overwrote an earlier phase measurement.'
+    $richJobs = $global:NonUiCohortFixture.sampleJobs
+    $richArtifacts = $global:NonUiCohortFixture.artifacts
+    $tailName = "rich-cohort-$cohortId-sample-2-tail"
+    $originalTail = $global:NonUiCohortFixture.evidence[$tailName]
+    $global:NonUiCohortFixture.evidence[$tailName] = $richFixtures[1].tail
+    $crossWork = Join-Path $fixture 'cross-sample'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $crossWork -RichScale -AllowLocalFixture `
+        -TestPolicy @{ version = 'TEST-rich-range-v2'; maximumRangeSeconds = 40 }
+    $cross = Get-Content (Join-Path $crossWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($cross.validation -ceq 'rejected' -and $cross.reliability.success -eq 2 -and
+        $cross.samples[1].rich.tail.evidence.state -ceq 'rejected' -and $cross.extraSamples.Count -eq 0 -and
+        $cross.metrics.'tail-executionSeconds'.unavailable -eq 1) 'Another sample tail supplied acceptance or hid unavailable evidence.'
+    $global:NonUiCohortFixture.evidence[$tailName] = $originalTail
+    $richPrefixPath = Join-Path $richFixtures[2].prefix 'result.json'
+    $richPrefixOriginal = Get-Content $richPrefixPath -Raw
+    foreach ($defect in @('attempt', 'diagnostic', 'budget', 'cancelled', 'skipped', 'missing-tail', 'during-typing', 'invalid-p95')) {
+        $changed = $richPrefixOriginal | ConvertFrom-Json -AsHashtable
+        $changedJob = @($richJobs | Where-Object { $_.name -ceq 'Rich cohort prefix (2)' })[0]
+        $notePath = Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-background-export.json"
+        $noteOriginal = Get-Content $notePath -Raw
+        switch ($defect) {
+            'attempt' { $changed.runAttempt = '2' }
+            'diagnostic' { $changed.diagnosticOnly = $true }
+            'budget' { $changed.executionSeconds = 660.001 }
+            'cancelled' { $changedJob.conclusion = 'cancelled' }
+            'skipped' { $changedJob.conclusion = 'skipped' }
+            'missing-tail' { $global:NonUiCohortFixture.artifacts = @($richArtifacts | Where-Object { $_.name -cne $tailName }) }
+            { $_ -in @('during-typing', 'invalid-p95') } {
+                $note = $noteOriginal | ConvertFrom-Json -AsHashtable
+                if ($defect -eq 'during-typing') { $note.localDurability.committedDuringTyping[0] = $false }
+                else { $note.localDurability.p95Ms = $true }
+                $note | ConvertTo-Json -Depth 20 | Set-Content $notePath
+            }
+        }
+        $changed | ConvertTo-Json -Depth 20 | Set-Content $richPrefixPath
+        $changed | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\result.json")
+        $defectWork = Join-Path $fixture "rich-$defect"
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $defectWork -RichScale -AllowLocalFixture `
+            -TestPolicy @{ version = 'TEST-rich-range-v2'; maximumRangeSeconds = 40 }
+        $rejectedRich = Get-Content (Join-Path $defectWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($rejectedRich.validation -ceq 'rejected' -and $rejectedRich.reliability.attempts -eq 3 -and
+            $rejectedRich.reliability.success -eq 2 -and $rejectedRich.extraSamples.Count -eq 0 -and
+            $rejectedRich.metrics.executionSeconds.count -eq 3) "Rich $defect was voted away, retried or lost original non-UI evidence."
+        $richPrefixOriginal | Set-Content $richPrefixPath
+        $richPrefixOriginal | Set-Content (Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\result.json")
+        $noteOriginal | Set-Content $notePath
+        $changedJob.conclusion = 'success'
+        $global:NonUiCohortFixture.artifacts = $richArtifacts
+    }
+    $richPolicyWork = Join-Path $fixture 'rich-policy'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $richPolicyWork -RichScale -AllowLocalFixture `
+        -TestPolicy @{ version = 'TEST-rich-range-v2'; maximumRangeSeconds = 40 }
+    $richPolicy = Get-Content (Join-Path $richPolicyWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($richPolicy.eligibility -ceq 'inconsistent' -and $richPolicy.extraSamples.Count -eq 2 -and
+        $richPolicy.extraSamples[0] -eq 4 -and $richPolicy.extraSamples[1] -eq 5) 'Complete eligible TEST rich inconsistency did not request precisely four/five.'
+    $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
+    $global:NonUiCohortFixture.artifacts = $nonUiArtifacts
     $testWork = Join-Path $fixture 'test-policy'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $testWork -AllowLocalFixture `
@@ -245,6 +338,38 @@ try {
     Assert ($five.samples.Count -eq 5 -and $five.metrics.executionSeconds.median -eq 150 -and
         $five.eligibility -ceq 'inconclusive' -and $five.extraSamples.Count -eq 0 -and
         $five.promotion -ceq 'disabled') 'Five still-inconsistent executions were retried, normalized or promoted.'
+    $fiveNonUiJobs = $global:NonUiCohortFixture.sampleJobs
+    $fiveNonUiArtifacts = $global:NonUiCohortFixture.artifacts
+    $global:NonUiCohortFixture.sampleJobs += @($richJobs | Where-Object { $_.name.StartsWith('Rich cohort') })
+    $global:NonUiCohortFixture.artifacts += @($richArtifacts | Where-Object { $_.name.StartsWith('rich-cohort-') })
+    foreach ($number in @(4, 5)) {
+        foreach ($worker in @('prefix', 'tail', 'union')) {
+            $artifactName = "rich-cohort-$cohortId-sample-$number-$worker"
+            $global:NonUiCohortFixture.evidence[$artifactName] = $richFixtures[$number][$worker]
+            $global:NonUiCohortFixture.sampleJobs += @{ id = 1000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
+                name = "Rich cohort $worker ($number)"; status = 'completed'; conclusion = 'success'
+                runner_id = 2000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker) }
+            $global:NonUiCohortFixture.artifacts += @{ id = 3000 + $number * 10 + [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
+                name = $artifactName; expired = $false; expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
+                workflow_run = @{ id = 99; head_sha = $revision } }
+        }
+    }
+    $fiveRichWork = Join-Path $fixture 'five-rich'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $fiveRichWork -RichScale -ExpectedSamples 5 -AllowLocalFixture `
+        -TestPolicy @{ version = 'TEST-rich-range-v2'; maximumRangeSeconds = 40 }
+    $fiveRich = Get-Content (Join-Path $fiveRichWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($fiveRich.reliability.success -eq 5 -and $fiveRich.samples.Count -eq 5 -and
+        $fiveRich.eligibility -ceq 'inconclusive' -and $fiveRich.extraSamples.Count -eq 0 -and
+        $fiveRich.metrics.'prefix-executionSeconds'.count -eq 5) 'Complete rich five-execution bound lost original proof or continued collecting.'
+    $unexpectedRichWork = Join-Path $fixture 'unexpected-rich'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $unexpectedRichWork -RichScale
+    $unexpectedRich = Get-Content (Join-Path $unexpectedRichWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($unexpectedRich.samples.Count -eq 5 -and $unexpectedRich.unexpectedExecutions -and
+        $unexpectedRich.validation -ceq 'rejected' -and $unexpectedRich.extraSamples.Count -eq 0) 'Unrequested rich executions were ignored to manufacture three greens.'
+    $global:NonUiCohortFixture.sampleJobs = $fiveNonUiJobs
+    $global:NonUiCohortFixture.artifacts = $fiveNonUiArtifacts
     $global:NonUiCohortFixture.sampleJobs[4].conclusion = 'failure'
     $extraWork = Join-Path $fixture 'unexpected-extra'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
@@ -298,13 +423,26 @@ try {
     $savedBlob = (git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim()
     Assert ($saved.metrics.executionSeconds.median -eq 150 -and $saved.samples.Count -eq 3 -and
         $saved.samples[1].measurements.profile.samplesMs.Count -eq 21 -and $saved.promotion -ceq 'disabled') 'Real history lost complete independent numeric inputs or promoted the cohort.'
+    $global:NonUiCohortFixture.sampleJobs = $richJobs
+    $global:NonUiCohortFixture.artifacts = $richArtifacts
+    $richPublicationWork = Join-Path $fixture 'rich-publication'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $richPublicationWork -Publish -RichScale -AllowLocalFixture -HistoryRemote $remote
+    $richPath = "rich-scale-cohorts/$revision/99/1.json"
+    $richSaved = (git --git-dir=$remote show "refs/heads/ci-health-data:$richPath") -join "`n" | ConvertFrom-Json -AsHashtable
+    Assert ($richSaved.schemaVersion -eq 2 -and $richSaved.reliability.success -eq 3 -and
+        $richSaved.samples[2].rich.prefix.notes.'background-export'.localDurability.samplesMs.Count -eq 21 -and
+        $richSaved.samples[2].rich.receipt.head -ceq $richSaved.samples[2].rich.handoff.head -and $richSaved.promotion -ceq 'disabled') `
+        'Shared immutable history lost exact rich proof/raw inputs or mixed legacy non-UI into full acceptance.'
+    $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
+    $global:NonUiCohortFixture.artifacts = $nonUiArtifacts
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-core') `
         -HistoryRemote $remote -AllowLocalFixture -Publish
     & "$root\eng\Invoke-FilesystemHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-filesystem') `
         -HistoryRemote $remote -AllowLocalFixture -Publish
     $paths = @(git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data)
     Assert ($paths -ccontains $path -and $paths -ccontains 'lanes/42/1/core.json' -and
-        $paths -ccontains 'filesystem/42/1.json') 'Mixed public core/filesystem readers rejected or overwrote the trusted cohort namespace.'
+        $paths -ccontains 'filesystem/42/1.json' -and $paths -ccontains $richPath) 'Mixed public core/filesystem readers rejected or overwrote either trusted cohort namespace.'
     $observerRemote = Join-Path $fixture 'observer.git'
     git init --bare --quiet $observerRemote
     $planName = 'non-ui-cohort-plan-99-1'
@@ -363,6 +501,13 @@ try {
     Assert ($cancelled.reliability.cancelled -eq 3 -and $cancelled.samples.Count -eq 3 -and
         $cancelled.metrics.Count -eq 0 -and $cancelled.collectionOutcome -ceq 'cancelled') 'Cancelled independent attempts were dropped or fabricated after earlier greens.'
     Assert ((git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim() -ceq $savedBlob) 'A later cancellation rewrote the earlier cohort.'
+    $cancelledRichWork = Join-Path $fixture 'cancelled-rich-history'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 2 -WorkingDirectory $cancelledRichWork -Publish -RichScale -AllowLocalFixture -HistoryRemote $remote
+    $cancelledRich = (git --git-dir=$remote show "refs/heads/ci-health-data:rich-scale-cohorts/$revision/99/2.json") -join "`n" |
+        ConvertFrom-Json -AsHashtable
+    Assert ($cancelledRich.reliability.cancelled -eq 3 -and $cancelledRich.metrics.Count -eq 0 -and
+        $cancelledRich.validation -ceq 'rejected' -and $cancelledRich.samples.Count -eq 3) 'Cancelled full cohort fabricated measurements or lost unavailable workers.'
     $global:NonUiCohortFixture.collection.run_attempt = 1
     $global:NonUiCohortFixture.collection.conclusion = 'success'
     $global:NonUiCohortFixture.sampleJobs = $jobSnapshot
@@ -377,6 +522,40 @@ try {
     Assert ((Get-Content -LiteralPath (Join-Path $refusedWork 'summary.md') -Raw).Contains('History publication: FAILED')) 'Publication error is not visible at the public summary seam.'
     $badHistory = Join-Path $fixture 'bad-history'
     git clone --quiet --branch ci-health-data $remote $badHistory
+    $badRichPath = Join-Path $badHistory "rich-scale-cohorts\$revision\99\1.json"
+    $badRich = Get-Content $badRichPath -Raw | ConvertFrom-Json -AsHashtable
+    $badRichOriginal = Get-Content $badRichPath -Raw
+    $badRich.samples[0].rich.prefix.report.requiredScenarios = @('substituted-rich-workload')
+    $badRich | ConvertTo-Json -Depth 30 | Set-Content $badRichPath
+    git -C $badHistory add rich-scale-cohorts
+    git -C $badHistory -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Substituted rich selection fixture'
+    git -C $badHistory push --quiet
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'bad-rich-selection') `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $remote
+    } 'Compact complete-cohort history accepted substituted original rich selection.'
+    $badRichOriginal | Set-Content $badRichPath
+    git -C $badHistory add rich-scale-cohorts
+    git -C $badHistory -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Restore original rich selection fixture'
+    git -C $badHistory push --quiet
+    $badCancelledPath = Join-Path $badHistory "rich-scale-cohorts\$revision\99\2.json"
+    $badCancelledOriginal = Get-Content $badCancelledPath -Raw
+    $badCancelled = $badCancelledOriginal | ConvertFrom-Json -AsHashtable
+    $badCancelled.reliability.cancelled = 0
+    $badCancelled | ConvertTo-Json -Depth 30 | Set-Content $badCancelledPath
+    git -C $badHistory add rich-scale-cohorts
+    git -C $badHistory -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Dropped cancelled rich attempts fixture'
+    git -C $badHistory push --quiet
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'bad-rich-reliability') `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $remote
+    } 'Rich all-attempt history voted away cancellation when no metric was available.'
+    $badCancelledOriginal | Set-Content $badCancelledPath
+    git -C $badHistory add rich-scale-cohorts
+    git -C $badHistory -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Restore cancelled rich attempts fixture'
+    git -C $badHistory push --quiet
     $badPath = Join-Path $badHistory "performance-cohorts\$revision\99\1.json"
     $bad = Get-Content -LiteralPath $badPath -Raw | ConvertFrom-Json -AsHashtable
     $bad.timingHealth = 'green'

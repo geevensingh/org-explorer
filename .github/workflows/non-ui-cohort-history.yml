@@ -2,7 +2,7 @@ name: Non-UI cohort history
 
 on:
   workflow_run:
-    workflows: [Non-UI performance cohorts]
+    workflows: [Non-UI performance cohorts, Performance scale cohorts]
     types: [completed]
 
 permissions:

@@ -25,10 +25,12 @@ try {
     & gh run download $RunId --repo $FilesystemHealthRepository --name $name --dir $directory
     if ($LASTEXITCODE -ne 0) { throw 'Exact-attempt collection plan download failed.' }
     $plan = Get-Content -LiteralPath (Join-Path $directory 'plan.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 10
-    if ($plan.schemaVersion -ne 1 -or $plan.revision -cnotmatch '^[0-9a-f]{40}$' -or
+    if ($plan.schemaVersion -notin @(1, 2) -or $plan.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $plan.cohortRunId -cne [string]$RunId -or $plan.cohortRunAttempt -cne [string]$RunAttempt -or
         $plan.cohortId -cne "$($plan.revision)-$RunId-$RunAttempt" -or $plan.authority -cne 'trusted-main-push' -or
-        $plan.collect -isnot [bool] -or $plan.mode -cne 'observation' -or $plan.promotion -cne 'disabled') {
+        $plan.collect -isnot [bool] -or $plan.mode -cne 'observation' -or $plan.promotion -cne 'disabled' -or
+        ($plan.samples -join ',') -cne '1,2,3' -or
+        $plan.policyVersion -cne $(if ($plan.schemaVersion -eq 2) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' })) {
         throw 'Collection plan is malformed/substituted; it is data, never execution or write authority.'
     }
     if (!$plan.collect) {
@@ -39,7 +41,7 @@ try {
     & "$PSScriptRoot\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $plan.revision `
         -CiRunId ([long]$plan.ciRunId) -CiRunAttempt ([int]$plan.ciRunAttempt) `
         -CohortRunId $RunId -CohortRunAttempt $RunAttempt -WorkingDirectory (Join-Path $WorkingDirectory 'observation') `
-        -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish
+        -HistoryRemote $HistoryRemote -AllowLocalFixture:$AllowLocalFixture -Publish -RichScale:($plan.schemaVersion -eq 2)
 } catch {
     $summary = "### Non-UI cohort history unavailable`n`n$([Net.WebUtility]::HtmlEncode($_.Exception.Message))`n`nOriginal collection/release verdicts are unchanged; unavailable execution evidence is not successful verification."
     $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')

@@ -16,10 +16,19 @@ on:
         required: false
         default: false
         type: boolean
+      rich_scale:
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: independent-performance-cohort-execution
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   plan:
@@ -40,8 +49,9 @@ jobs:
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_RUN_ATTEMPT: ${{ inputs.ci_run_attempt }}
           PILOT: ${{ inputs.pilot }}
+          RICH_SCALE: ${{ inputs.rich_scale }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -Pilot:([bool]::Parse($env:PILOT)) -CheckHistory:(![bool]::Parse($env:PILOT))
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -Pilot:([bool]::Parse($env:PILOT)) -CheckHistory:(![bool]::Parse($env:PILOT)) -RichScale:([bool]::Parse($env:RICH_SCALE))
           $plan = Get-Content .ci-results\cohort-plan\plan.json -Raw | ConvertFrom-Json
           "collect=$($plan.collect.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -55,7 +65,7 @@ jobs:
   samples:
     name: Non-UI cohort sample (${{ matrix.sample }})
     needs: plan
-    if: ${{ needs.plan.outputs.collect == 'true' }}
+    if: ${{ needs.plan.outputs.collect == 'true' && !inputs.rich_scale }}
     runs-on: windows-latest
     timeout-minutes: 13
     strategy:
@@ -92,8 +102,32 @@ jobs:
             .ci-results/performance/**/*.log
             .ci-results/performance/**/*.trx
 
+  rich-sample-1:
+    needs: plan
+    if: ${{ needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ inputs.revision }}
+      sample: 1
+
+  rich-sample-2:
+    needs: [plan, rich-sample-1]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ inputs.revision }}
+      sample: 2
+
+  rich-sample-3:
+    needs: [plan, rich-sample-2]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' && inputs.rich_scale }}
+    uses: ./.github/workflows/rich-cohort-sample.yml
+    with:
+      revision: ${{ inputs.revision }}
+      sample: 3
+
   summary:
-    needs: [plan, samples]
+    needs: [plan, samples, rich-sample-1, rich-sample-2, rich-sample-3]
     if: ${{ always() && needs.plan.outputs.collect == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 5
@@ -109,8 +143,9 @@ jobs:
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_RUN_ATTEMPT: ${{ inputs.ci_run_attempt }}
           PILOT: ${{ inputs.pilot }}
+          RICH_SCALE: ${{ inputs.rich_scale }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-summary -Pilot:([bool]::Parse($env:PILOT)) -ReadHistory:(![bool]::Parse($env:PILOT))
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-summary -Pilot:([bool]::Parse($env:PILOT)) -ReadHistory:(![bool]::Parse($env:PILOT)) -RichScale:([bool]::Parse($env:RICH_SCALE))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:

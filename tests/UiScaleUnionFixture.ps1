@@ -1,10 +1,11 @@
 # Synthetic runner artifacts only: no native UI or product behavior is claimed by this contract fixture.
 function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
-    [string] $RunId = '123', [string] $RunAttempt = '2', [DateTimeOffset] $StartedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1)) {
+    [string] $RunId = '123', [string] $RunAttempt = '2', [DateTimeOffset] $StartedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1),
+    [string] $RunName = ('run-' + ('b' * 32)), [string] $TailRunName = $RunName) {
     . "$PSScriptRoot\..\eng\DesktopResults.ps1"
     . "$PSScriptRoot\..\eng\UiScaleResults.ps1"
     $plan = Get-UiScalePlan
-    $runName = 'run-' + ('b' * 32)
+    $runName = $RunName
     $prefix = Join-Path $Directory 'prefix'
     $tail = Join-Path $Directory 'tail'
     $bundle = Join-Path $prefix "$runName\handoff"
@@ -33,17 +34,20 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
     $receipt = @{} + $metadata
     $receipt.Remove('snapshotFile')
     $receipt.outcome = 'Passed'; $receipt.handoffSha256 = $hash; $receipt.receiverWorkspace = 'C:\synthetic\receiver'
-    Write-Json (Join-Path $tail "$runName\handoff-received.json") $receipt
+    Write-Json (Join-Path $tail "$TailRunName\handoff-received.json") $receipt
     foreach ($worker in @('prefix', 'tail')) {
         $workerDirectory = Join-Path $Directory $worker
-        $run = Join-Path $workerDirectory $runName
+        $workerRun = if ($worker -eq 'prefix') { $runName } else { $TailRunName }
+        $run = Join-Path $workerDirectory $workerRun
         $report = @{ suite = 'ui-scale'; worker = $worker; selector = "--ui-scale-$worker"
             outcome = 'success'; observedOutcome = 'success'; phase = 'finished'; failure = $null
             revision = $Candidate; expectedRevision = $Candidate; runId = $RunId; runAttempt = $RunAttempt
             trackedChanges = $false; untrackedChanges = $false; diagnosticOnly = $false
+            environment = @{ processors = 4; os = 'Windows'; runtime = '.NET 10'; powershell = '7.6'
+                image = 'win25'; imageVersion = '20261116' }
             ceilingSeconds = 660; observationSeconds = 660; executionSeconds = 1
             startedAt = $StartedAt.ToString('O'); completedAt = $StartedAt.AddSeconds(1).ToString('O')
-            runDirectory = $runName; requiredScenarios = @($plan.workers[$worker]); completedPhases = @($plan.phases[$worker])
+            runDirectory = $workerRun; requiredScenarios = @($plan.workers[$worker]); completedPhases = @($plan.phases[$worker])
             handoffSha256 = $hash; steps = @('restore-app', 'restore-tests', 'build-app', 'display-prerequisite', 'ui-scale') |
                 ForEach-Object { @{ name = $_; exitCode = 0; seconds = 0 } } }
         Write-Json (Join-Path $workerDirectory 'result.json') $report
@@ -74,12 +78,31 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
         $profile = @{} + $common
         $profile.phase = $sample[2]; $profile.samplesMs = @(1) * 21; $profile.p95Ms = 1
         $profile.budgetMs = 1000; $profile.independentFullReopenVerificationMs = @(1) * 21
-        Write-Json (Join-Path $sample[0] "$runName\$($sample[1])-ui-sqlite-rich-profile-latency-$($sample[2]).json") $profile
+        $workerRun = if ($sample[0] -eq $prefix) { $runName } else { $TailRunName }
+        Write-Json (Join-Path $sample[0] "$workerRun\$($sample[1])-ui-sqlite-rich-profile-latency-$($sample[2]).json") $profile
     }
     $lifecycle = @{} + $common
     $lifecycle.outcome = 'Passed'; $lifecycle.error = $null; $lifecycle.profileAdmittedAt = 1
     $lifecycle.profileBrowsedAt = 2; $lifecycle.admittedAt = 3; $lifecycle.localWritingVerifiedAt = 4
     $lifecycle.releasedAt = 5; $lifecycle.exportedRevision = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'; $lifecycle.latestRevision = $head
     Write-Json (Join-Path $prefix "$runName\scale-mutation-save-prefix-ui-sqlite-rich-export-lifecycle.json") $lifecycle
-    return @{ prefix = $prefix; tail = $tail; runName = $runName }
+    return @{ prefix = $prefix; tail = $tail; runName = $runName; tailRunName = $TailRunName }
+}
+
+function New-RichCohortSampleFixture([string]$Directory, [string]$Candidate, [int]$Sample,
+    [string]$RunId, [string]$RunAttempt) {
+    $fixture = New-UiScaleUnionFixture $Directory $Candidate $RunId $RunAttempt `
+        -RunName ('run-' + [guid]::NewGuid().ToString('N')) -TailRunName ('run-' + [guid]::NewGuid().ToString('N'))
+    $cohortId = "$Candidate-$RunId-$RunAttempt"
+    foreach ($worker in @('prefix', 'tail')) {
+        $path = Join-Path $fixture[$worker] 'result.json'
+        $report = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+        $report.cohortId = $cohortId; $report.sample = $Sample
+        $report | ConvertTo-Json -Depth 15 | Set-Content $path
+        $report | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $fixture[$worker] "$($report.runDirectory)\result.json")
+    }
+    $fixture.union = Join-Path $Directory 'union'
+    & "$PSScriptRoot\..\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $fixture.prefix -TailDirectory $fixture.tail `
+        -ExpectedRevision $Candidate -RunId $RunId -RunAttempt $RunAttempt -ResultsDirectory $fixture.union -CohortId $cohortId -Sample $Sample
+    return $fixture
 }
