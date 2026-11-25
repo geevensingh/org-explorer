@@ -194,6 +194,51 @@ notes remain available through the normal note surfaces. Preserve
 archived-information access and the distinction between the Imported population
 and a complete company directory.
 
+### Reporting-tree context menu
+
+Approved November 25, 2026; awaiting implementation. Keep this amendment
+unmerged until delivered with its matching behavior.
+
+Offer tree-specific actions through right-click and keyboard context-menu
+invocation. Do not add a hover/More button or duplicate prominent or trivial
+Person-profile actions, including copying, editing and archival. Ordinary row
+selection and disclosure-arrow interaction remain the primary entry points.
+Right-click targets the clicked row; keyboard invocation targets the focused
+row. Opening or using the menu does not change the displayed Person profile.
+
+Use these labels and scopes:
+
+- **Expand subtree** reveals every available current reporting level beneath
+  the target, leaving other branches unchanged. Use only the Imported
+  population's current, non-archived People; do not fetch missing people or
+  silently cap depth or count. Omit this action unless some available
+  Reporting descendants remain hidden.
+- **Collapse subtree** recursively clears expansion throughout the target's
+  Reporting subtree, including hidden remembered descendant expansion, rather
+  than merely hiding descendants behind the target's disclosure arrow. Omit
+  it when that subtree has no expansion to reset.
+- **Collapse other branches** recursively clears expansion outside the target's
+  Reporting subtree and ancestor path, including hidden remembered expansion.
+  Preserve expansion within the subtree and the visible ancestor path; neither
+  reroot the tree nor automatically expand the target. Offer it only when
+  outside branches have expansion to reset. It can apply to a Person without
+  reports.
+
+Omit no-op actions and do not open an empty menu. Do not add subtree rerooting,
+depth-limited expansion, exports or a separate saved focus mode. Apply ordinary
+tree-state persistence to the resulting expansion state.
+
+Keep the target row in view without jumping to a descendant. A collapse may
+hide the row for the open profile: preserve that profile and its writing. If an
+action hides the keyboard-focused row, move keyboard focus to the target;
+otherwise preserve it. This focus recovery is not profile navigation. In compact
+layout, menu actions remain tree presentation changes, not Person destinations
+that dismiss the temporary People panel.
+
+Full-subtree expansion must keep the application responsive. If slow, expose
+progress and cancellation; cancellation retains expansion already completed
+rather than rolling it back or claiming the whole subtree was expanded.
+
 ### Person-level search
 
 This approved design supersedes the destination-level search behavior described
