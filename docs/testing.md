@@ -1834,6 +1834,7 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 ```powershell
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
+.\tests\FilesystemHealth.Tests.ps1
 .\tests\ImplementationBaseline.Tests.ps1
 .\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
@@ -1854,6 +1855,64 @@ Local remotes require the harness's explicit fixture opt-in. Credential-route
 cases reject matching configured Authorization headers without contacting GitHub
 or printing header values.
 It needs no GitHub credentials, network or desktop.
+
+### Filesystem timing observation tracer
+
+`Run-CiLane.ps1 filesystem` also emits versioned `execution.json`: exact Git
+candidate and run/attempt, original `Category!=Performance` selection and
+`filesystem-original-v1` policy, terminal outcome, command phases, whole-execution
+seconds and resolved test-tree/SDK/runtime/runner configuration. The original
+660-second execution budget, 300-second target, assertions and exit behavior
+remain unchanged. Configuration capture is counted in elapsed time; setup and
+cleanup are not subtracted. Missing configuration prevents comparison, not
+execution of the existing checks.
+
+CI retains filesystem JSON/log/TRX evidence for 30 days in
+`filesystem-attempt-<runAttempt>`. The separate `filesystem-health.yml` observer
+runs after CI completes; it is not a dependency of `CI`, scale or release.
+Its code comes from the trusted controller's `github.workflow_sha`, never the
+observed candidate or its artifact. It reads only data from the source attempt.
+PR/manual/fork observations are read-only and retained as 30-day summary
+artifacts; only authenticated repository `main` push attempts can append
+authoritative compact history to `ci-health-data`. Failed, cancelled, skipped
+and interrupted main attempts remain beside successes. Source run/attempt and
+artifact bindings are verified again by the public collector.
+
+`Invoke-FilesystemHealth.ps1` saves `record.json` and `summary.md` in its explicit
+working directory and appends the summary to the observer's GitHub step summary.
+The dedicated data branch contains only `filesystem/<runId>/<attempt>.json`,
+not executable files, release metadata or product commits. A non-force Git
+append preserves the pinned history snapshot and comparison across up to three
+concurrent-update reconciliation attempts. Duplicate attempts are immutable;
+different data cannot overwrite them. Read/write failures fail the observer
+explicitly and appear in its summary without changing the original CI verdict.
+
+Comparisons use a prior compatible **observation**, not an approved healthy
+baseline. The key includes workload/test-tree and linked-fixture identity,
+selector, metric/policy definition, resolved SDK/runtime, OS/architecture/processors, runner image/version,
+PowerShell and setup scope; application revision is provenance, not an equality
+key. A candidate's own observations are excluded, resolving an available older
+compatible predecessor instead. The summary separates validation and
+`observation`/`unbaselined`/`inconclusive` timing, whole/command seconds, original
+budget headroom, reference revision/age, difference and an explicitly descriptive
+cross-revision range where supported. No warning bands, cohort eligibility,
+canonical reference promotion or new blocking policy is active.
+
+Compact numeric inputs, original test/outcome counts, comparison and evidence
+expiry survive raw artifact deletion. Expired links are labeled; no old metric
+record can replace fresh exact-candidate release acceptance. Missing/malformed
+TRX, nonnumeric durations, incomplete commands or unavailable evidence stay
+explicit, never zero or green.
+
+`FilesystemHealth.Tests.ps1`, also run by core CI, drives this public collector
+with representative artifacts, real TRX validation and isolated Git repositories.
+It checks independent saved values, failed/cancelled/interrupted history,
+non-self/configuration comparisons, expired raw evidence, publication refusal,
+candidate-data nonexecution and a genuine competing data-branch append. It also
+invokes the real public filesystem runner with an already exhausted budget and
+feeds that terminal result through history/summary, preserving the failing gate.
+Only GitHub transport is faked; no internal classifier or validator is replaced.
+These non-UI contracts are not hosted timing or release acceptance evidence.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA

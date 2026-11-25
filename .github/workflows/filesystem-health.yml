@@ -1,0 +1,66 @@
+name: Filesystem timing observations
+
+on:
+  workflow_run:
+    workflows: [Continuous integration]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observation:
+    if: ${{ github.event.workflow_run.event != 'push' || github.event.workflow_run.head_branch != 'main' || github.event.workflow_run.head_repository.full_name != github.repository }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Observe candidate data without publication authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
+          OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        shell: pwsh
+        run: |
+          .\eng\Invoke-FilesystemHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\filesystem-health
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: filesystem-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          retention-days: 30
+          path: |
+            .ci-results/filesystem-health/record.json
+            .ci-results/filesystem-health/summary.md
+
+  history:
+    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Append trusted main attempt and report pinned observations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
+          OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        shell: pwsh
+        run: |
+          .\eng\Invoke-FilesystemHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\filesystem-health -Publish
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: filesystem-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          retention-days: 30
+          path: |
+            .ci-results/filesystem-health/record.json
+            .ci-results/filesystem-health/summary.md
