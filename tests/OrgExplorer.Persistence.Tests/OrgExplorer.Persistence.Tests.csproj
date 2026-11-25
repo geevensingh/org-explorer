@@ -19,6 +19,7 @@
     <Compile Include="..\InstallerWorkspacePreservation.cs" Link="InstallerWorkspacePreservation.cs" />
     <Compile Include="..\SnapshotClock.cs" Link="SnapshotClock.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\NoteCommitObservation.cs" Link="NoteCommitObservation.cs" />
+    <Compile Include="..\OrgExplorer.Desktop.Smoke\FinalNoteVerification.cs" Link="FinalNoteVerification.cs" />
     <Compile Include="..\OrgExplorer.Desktop.Smoke\HeldSnapshotAdoption.cs" Link="HeldSnapshotAdoption.cs" />
     <Content Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

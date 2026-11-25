@@ -101,8 +101,13 @@ A failed entry does not wait indefinitely or dispose an active writer: resource
 cleanup follows the existing save's completion, and late task/cancellation or
 cleanup faults remain visible under `NOTE-SAVE-TASK-OUTCOME` or
 `NOTE-SAVE-CLEANUP-FAULT`. Scheduling, assertions and storage behavior are unchanged.
-The separate in-memory two-scope busy-discard case retains its own five-second
-`SaveNoteDraft` admission wait. Only a timeout emits `NOTE-SAVE-CORE-ENTRY-REFUSAL`:
+The separate in-memory two-scope busy-discard case uses its own six-second
+`SaveNoteDraft` admission wait. On 2026-11-24 the owner approved this temporary
+20% test-only increase from five seconds for both scopes and the shared delayed
+variants, deferring investigation. It does not claim a timing cause was fixed
+or relabel earlier failed runs as passing. Other tests' deadlines and production
+save, synchronization and latency policies are unchanged.
+Only a timeout emits `NOTE-SAVE-CORE-ENTRY-REFUSAL`:
 request/create/update/observation monotonic timestamps, actual synchronization
 context/thread and worker snapshots, admission-signal state, and at most 32
 existing public-proxy entry/return/fault observations. Naturally returned local
@@ -115,7 +120,7 @@ historical hosted admission refusal.
 This busy-discard contract controls only its view-model request clock so a
 delayed test continuation cannot turn the deliberately held writer into an
 unrelated real-time stall. Both scopes also run with a continuation delayed past
-three wall-clock seconds; the five-second admission wait and all discard
+three wall-clock seconds; the six-second admission wait and all discard
 assertions stay intact. Production clocks and separate exact three-second
 queue/stall/unknown-outcome regressions remain unchanged.
 Preferred-name Save/Enter submits the displayed field's immutable Person base
@@ -380,6 +385,20 @@ same helper through actual compiled Sync controls and two real stores, verifies
 new incoming profile/note data and matching current/published revisions, and
 separately requires close-only preparation to reject an unexpectedly advanced
 head without losing the adopted version. It is also in the full compiled selection.
+The normal-close preparation replay observes the same enabled Sync now and
+locally-saved-and-published text predicate as native publication preparation,
+not only the underlying model's completion.
+Real-store synchronization coverage requires three full semantic validations
+when two retained incoming versions precede a genuinely newer outgoing version,
+not repeated reconstruction of the same content during retention.
+Retention still rereads and integrity-checks
+actual artifacts; changed bytes must receive fresh semantic validation, even
+during that same publication. No validation result survives into a later pass.
+The rich no-window diagnosis reproduced the original 20-second readiness
+predicate failure with two retained snapshots; reusing exact-content validation
+within that pass removes repeated SQLite reconstruction without changing the
+native observation, workload, close guard or scale budgets. This is not complete
+hosted rich-scale acceptance or attribution of the historical runner's exact phase.
 
 The Team/history journey preserves the exact reopened secondary note across owner
 navigation, then deliberately uses Open ongoing before inspecting that owner's
@@ -717,6 +736,19 @@ It independently reopens the exact latest owner writing before release and
 requires the original publisher callback to remain active. Its elapsed local
 commit observations are diagnostic; the ordinary and rich background-export
 native percentile targets remain unchanged.
+Busy-periodic regressions hold the real snapshot publisher in both note scopes,
+commit newer owner writing independently, and require the original manual
+request to finish after one actual synchronization pass. Its older publication
+cannot acknowledge the newer head. The original next 60-second tick still
+publishes and independently delivers that writing without an inactivity reset.
+Separate explicit-during-active cases retain the needed second pass even when
+a later busy periodic tick arrives; real reopen/Join verifies the exact newer
+owner/note data. Only the timer callback coalesces busy ticks: explicit requests
+keep their existing follow-up flag and no concurrent worker is introduced.
+The full-rich compiled 20-second publication predicate reproduces the duplicate
+pass failure path when an ordinary periodic tick arrives during manual
+publication. Eliminating that demonstrated path is not attribution of the
+historical native E9 Publishing-text timeout or complete hosted acceptance.
 The combined #97/#98 case admits an exact-version choice while clean, then waits
 at the real isolated candidate's `snapshot.validate-commit` observer phase after
 its writes and **before** SQLite Commit invocation. Both note scopes
@@ -1008,7 +1040,10 @@ Optional `localDurability.observerAdmittedMs`, `firstReadStartedMs` and
 21 raw totals. Queueing and read/validation are included, never deducted; these
 are observation boundaries, not a database-only commit timestamp or proof of
 a slow-write root cause. Neither delayed collection nor instrumentation can
-satisfy the unchanged native p95-at-most-1000-ms/during-typing assertions.
+satisfy the native durability/during-typing assertions. Small-fixture note p95
+remains enforced at 1,000 ms; only the rich normal/held-export note phases use
+the temporarily enforced 1,050-ms ceiling described below, retaining the
+1,000-ms goal.
 The invisible compiled selection also records twenty actual note Add handlers,
 layout, Person selection and independently reopened commits under a clearly
 labelled `DIAGNOSTIC` marker. Those timings decompose local product work; they
@@ -2177,6 +2212,25 @@ without changing its display. They cover:
   prove proportional enlargement, and pixel spans prove the matching 144-DIP
   circle. Choosing/clearing stays staged until explicit Save; Cancel and
   Person switching retain the correct saved photo/initials footprint.
+  An original initials timeout also writes failure-only
+  `photo-rejection-<scenario>-ui.png` / `.json` diagnostics. The PNG is the last
+  already-captured rejected `ReadPhotoPixels` buffer, retained before its GDI
+  disposal, never a later screenshot. JSON carries its original acquisition
+  interval, crop/viewport/text/previous-photo coordinates, DPI, the first false
+  guard or probe and observed RGB, computed glyph bounds and circle-edge offsets.
+  Unreached stages stay unobserved. Only one rejected buffer (up to 2 MiB) and
+  bounded probe records are retained; a later pre-pixel refusal is labelled
+  separately from that buffer. Native window/PID binding observations have
+  their own timestamp, distinct from pixel acquisition. Source/run/attempt,
+  app/workflow/harness and native hashes are bound after the original failure.
+  PNG/JSON are emitted only after the unchanged twenty-second failure; output
+  faults remain attached to the primary exception and separately reported.
+  No extra desktop acquisition, GetPixel, UIA or business query is made, no
+  predicate is replayed, and no capture/serialization time is deducted. All
+  geometry, colour tolerance, expected values, focus and cursor behavior remain.
+  Synthetic managed-raster recorder/PNG/refusal tests run in Core; they do not
+  claim actual desktop pixels or fix app rendering. These diagnostics do not
+  replace normal visual evidence or any required acceptance check.
   Clear is invoked once and its visible staged-clear notice must appear before
   asserting the unchanged saved photo or cancelling; pixels already present
   before the click do not establish that the handler ran.
@@ -2641,9 +2695,23 @@ informational editor/navigation timings so functional validation can finish
 without further performance work. Their historical 100-ms `budgetMs` references
 remain, with `budgetEnforced: false` and `timingUse: informational`; every sample,
 percentile and functional usable-state assertion is retained. Ordinary
-durable-save p95 remains at most 1 second, with `budgetEnforced: true`, and all
-commits must still be observed during continued typing. Missing/incorrect UI,
-owner, writing or durability remains a failure within the original observations.
+durable-save p95 retains its 1,000-ms goal. On 2026-11-24 the owner approved a
+temporary 1,050-ms **enforced** ceiling only for these rich ordinary note saves
+in both `normal-executable` and `background-export`. The note result contract
+records `localDurability.goalMs: 1000`, `budgetMs: 1050`,
+`budgetEnforced: true`, `temporaryCeiling: true` and `timingUse: acceptance`.
+`goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
+accepted p95 above the goal must report `goalMet: false`, not claim one-second
+success. The union recomputes p95 from all 21 raw samples and requires this exact
+policy metadata in both phases. At 1,050 ms it accepts; above it, it rejects.
+All commits must still be observed during continued typing. Profile saves,
+small-fixture note/first-commit one-second checks, queue-inclusive three-second
+stall, held-adoption capture proof and both 660-second worker budgets are
+unchanged. This is temporary acceptance pending later optimization/review, not
+informational-only durability or authority to increase another limit. Historical
+failed runs retain their original measurements and verdicts.
+Missing/incorrect UI, owner, writing or durability remains a failure within the
+original observations.
 
 The rich save clock starts before native input and runs through actual WPF
 post-Commit acknowledgment for the exact current owner/note/title/request.
@@ -2683,10 +2751,50 @@ to verify its request is durably covered under the original owner, never the
 selected report. Full-population reopen verification duration is reported
 separately: load/validation cost is not substituted for application Commit latency.
 Reopen proves data correctness; it is not used to retroactively date Commit.
+The two former after-typing reads (prefix backing and final exact-writing
+readiness) now share one genuinely fresh public ExistingOnly reopen per check at
+the original final UI-readiness point. No harness mutation intervenes; late saves
+can settle, so an earlier/in-memory reader is never reused. That one coherent
+read checks the original request prefix, exact final title/body, exact owner and
+wrong-owner absence, inside the unchanged final observation. Original Ready and
+current-owner checks are also retained after the reopen. An earlier durable
+prefix with a legitimately later final title/body still pending, or changed UI
+readiness, returns false to the same original20-second Await; each later check
+reopens freshly, never reuses the earlier reader or submits another save.
+Missing/corrupt storage, wrong owner or an uncovered original request prefix
+remains an explicit refusal. All 21 successful independent verification
+durations remain in
+`independentFullReopenVerificationMs`, with
+`independentVerificationScope: fresh-final-prefix-owner-and-exact-writing`.
+The shared numeric sample validator rejects JSON booleans, including these 21
+verification durations in both note phases. Finite nonnegative numeric values,
+including zero and fractions, remain valid; counts and p95/policy checks are
+unchanged.
+They measure the successful final reopen/validation/disposal, never replace the
+ACK sample or deduct any pending-check work from the observation. The actual
+compiled regression enters this same final predicate when a completed real
+work operation exposes Ready/latest editable UI while a later real Commit is
+held. It stays pending without success/exception, then proves fresh final owner
+data after release with one success record and the original ACK timestamp.
+Separate cold pre-Commit negatives and
+post-Commit positives still require their distinct real states/readers.
 Focused two-Person
 20/42/21 samples keep their existing independent-reopen timer, original 20-second
 observation, 60-ms continued-input workload and p95 contracts unchanged.
 No per-worker budget, functional observation or sample-count change is permitted.
+
+The pending-observation cancellation fixture holds the actual admitted app
+transaction before Commit through cancellation; a competing SQLite writer
+would instead end the app attempt at the unchanged one-second busy limit and
+make a later IsSaving poll miss that transient state. Its original five-second
+admission and exact cancellation exception remain, including a delayed-body
+case. Exit cancellation is observed through the caller's cancellation-aware
+Task for the entire operation, including a completed-await/queued-continuation
+gap. An owned non-UI child constrains only its own managed workers and holds a
+real Commit plus the external completion-post effect; the unchanged one-second
+cancellation, three-second stall, retained draft/fault/browsing and original
+compatible exception assertions remain. The shared test host/desktop is never
+reconfigured by that child.
 
 For investigation on an authorized interactive desktop, use the worker selectors
 or one scale name with the explicit candidate/run/attempt handoff. Use both

@@ -138,6 +138,15 @@ on the user becoming idle. Sync now and normal exit request publication
 immediately, without waiting for the periodic interval. Background synchronization
 must not starve ordinary local commits.
 
+Periodic ticks arriving while the synchronization worker is active coalesce into
+that work rather than forcing another complete pass before it can finish.
+They neither set nor clear an explicit follow-up request. Sync now during active
+work still requests a follow-up for the latest local writing/incoming check.
+New writing not included in an older publication remains unpublished and is
+picked up by explicit synchronization or the next scheduled tick after the
+worker completes. The fixed 60-second schedule is not restarted by typing,
+completion or activity; this does not require the user to become idle.
+
 The interval is an app scheduling target, not a provider-delivery SLA. If export
 cannot keep up or the folder is unavailable, show the actual state and retry
 safely rather than claim successful synchronization. Slow or failed
@@ -235,15 +244,25 @@ For healthy local storage under ordinary editing load, measure separately:
 | --- | --- |
 | Add Team note opens a usable editor | Informational p95; historical 100-ms reference, not a pass/fail gate |
 | Person navigation displays a usable selected view | Informational p95; historical 100-ms reference, not a pass/fail gate |
-| Ordinary edits become locally durable | p95 at most 1 second |
+| Ordinary edits become locally durable | p95 goal at most 1 second; temporary rich-note enforcement exception below |
 | Outstanding ordinary save becomes explicitly stalled | After 3 seconds without completion |
 
 The owner approved making editor/navigation timings informational on
 2026-11-20 so functional validation can finish without further performance work.
 Retain every raw sample and the historical reference; do not relabel earlier
 failed runs. Exact usable views, writable/focused editors, owner-correct writing
-and bounded functional observations remain required. The one-second durability
-and three-second stall contracts are unchanged.
+and bounded functional observations remain required.
+
+On 2026-11-24 the owner approved a **temporary enforced p95 ceiling of 1,050 ms**
+for rich ordinary Person/Team-note saves in both the normal-executable and
+held-background-export phases. The **1,000-ms goal remains**; a p95 above that
+goal and at or below the temporary ceiling is accepted without claiming the
+one-second goal was met. Optimization is deferred for later review, not replaced
+by informational-only durability or an automatic further increase. Preserve raw
+samples and nearest-rank p95, all 21 commits observed during continued typing,
+exact owner/data/reopen and lifetime assertions, and the original suite budgets.
+Profile-save and small-fixture first-commit one-second enforcement, the
+queue-inclusive three-second stall, and held-adoption capture proof are unchanged.
 
 The local-durability target includes save scheduling and queueing, and applies
 while typing continues, not only after typing stops. Sync/provider delivery time

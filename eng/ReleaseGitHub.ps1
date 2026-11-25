@@ -4,7 +4,7 @@ function Invoke-ReleaseApi([string]$Endpoint, [string[]]$Arguments = @()) {
     if ($text) { return (($text -join "`n") | ConvertFrom-Json -Depth 30) }
 }
 
-function Assert-TrustedCi([string]$Candidate, [long]$CiRunId) {
+function Assert-TrustedCi([string]$Candidate, [long]$CiRunId, [switch]$RequireCurrentLayout) {
     if ($Candidate -cnotmatch '^[0-9a-f]{40}$' -or $CiRunId -le 0) { throw 'An exact candidate and successful trusted CI run ID are required.' }
     $run = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId"
     if ($run.id -ne $CiRunId -or $run.event -cne 'push' -or $run.head_branch -cne 'main' -or
@@ -12,8 +12,34 @@ function Assert-TrustedCi([string]$Candidate, [long]$CiRunId) {
         $run.path -cne '.github/workflows/ci.yml' -or $run.head_repository.full_name -cne $ReleaseRepository) {
         throw 'Publication requires successful ci.yml push CI from this repository main at the exact candidate. PR/manual/fork runs cannot authorize production.'
     }
-    $jobs = (Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId/jobs").jobs
-    foreach ($name in @('Core and view models', 'Real filesystem persistence', 'Actual Windows desktop smoke', 'CI')) {
+    $required = @('Core and view models', 'Real filesystem persistence',
+        'Actual Windows desktop smoke (people)', 'Actual Windows desktop smoke (workspace)',
+        'High-resolution Windows smoke (reading)', 'High-resolution Windows smoke (context)', 'CI')
+    if (!$RequireCurrentLayout) {
+        $source = Invoke-ReleaseApi "repos/$ReleaseRepository/contents/.github/workflows/ci.yml?ref=$Candidate"
+        if ($source.type -cne 'file' -or $source.path -cne '.github/workflows/ci.yml' -or
+            $source.sha -cnotmatch '^[0-9a-f]{40}\z') { throw 'Cannot authenticate the CI layout at the exact original product source.' }
+        # Immutable historical workflow blobs, never a fallback inferred from missing jobs.
+        $original = @('Core and view models', 'Real filesystem persistence', 'Actual Windows desktop smoke')
+        switch -CaseSensitive ($source.sha) {
+            { $_ -cin @('959f172a7a495274b15dd95598930d6ca17c8084', '2e07763102c4fd4187d6ea1f4094120e5efd0fc2') } {
+                $required = @($original) + 'CI'
+            }
+            { $_ -cin @('299ed12a0c9513ec6740bd4300df7466a6399d05', '044330069aa2c0e80f663aad6816dc6795a54865',
+                    'a8070b98ddb256dbf6dfd8880c0ededfe9cdb369') } {
+                $required = @($original) + @('High-resolution Windows smoke', 'CI')
+            }
+        }
+    }
+    $pages = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId/jobs?per_page=100" @('--paginate', '--slurp')
+    $jobs = @($pages | ForEach-Object { $_.jobs })
+    $nativeNames = @($required | Where-Object { $_ -match '^(Actual Windows desktop smoke|High-resolution Windows smoke)' })
+    $nativeJobs = @($jobs | Where-Object { $_.name -match '^(Actual Windows desktop smoke|High-resolution Windows smoke)' })
+    if ($nativeJobs.Count -ne $nativeNames.Count -or
+        (Compare-Object @($nativeNames | Sort-Object) @($nativeJobs.name | Sort-Object) -CaseSensitive)) {
+        throw 'Required CI desktop layout differs from the candidate policy. Missing, duplicate, unexpected or mixed partitions are not approval.'
+    }
+    foreach ($name in $required) {
         $matches = @($jobs | Where-Object { $_.name -ceq $name })
         if ($matches.Count -ne 1 -or $matches[0].status -cne 'completed' -or $matches[0].conclusion -cne 'success') {
             throw "Required CI lane did not succeed: $name. Missing/skipped/cancelled/timed-out work is not approval."
@@ -22,7 +48,7 @@ function Assert-TrustedCi([string]$Candidate, [long]$CiRunId) {
 }
 
 function Assert-TrustedMainCi([string]$Candidate, [long]$CiRunId) {
-    Assert-TrustedCi -Candidate $Candidate -CiRunId $CiRunId
+    Assert-TrustedCi -Candidate $Candidate -CiRunId $CiRunId -RequireCurrentLayout
     $head = Invoke-ReleaseApi "repos/$ReleaseRepository/git/ref/heads/main"
     if ($head.object.sha -cne $Candidate) { throw 'Main moved past this candidate. This older build must not publish or replace latest; wait for successful CI of the new main.' }
 }

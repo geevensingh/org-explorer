@@ -146,7 +146,7 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
     }
     function Assert-Samples($Samples, [int] $Count) {
         if (@($Samples).Count -ne $Count -or @($Samples | Where-Object {
-            $_ -isnot [ValueType] -or ![double]::IsFinite([double]$_) -or [double]$_ -lt 0 }).Count) {
+            $_ -is [bool] -or $_ -isnot [ValueType] -or ![double]::IsFinite([double]$_) -or [double]$_ -lt 0 }).Count) {
             throw 'Missing, nonnumeric or invalid original latency samples.'
         }
         return @($Samples | Sort-Object)[[int][Math]::Ceiling($Count * .95) - 1]
@@ -157,14 +157,22 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
         $editorP95 = Assert-Samples $note.addTeamNote.samplesMs 20
         $navigationP95 = Assert-Samples $note.personNavigation.samplesMs 42
         $durabilityP95 = Assert-Samples $durability.samplesMs 21
+        $null = Assert-Samples $durability.independentFullReopenVerificationMs 21
         if ($note.richScale -isnot [bool] -or !$note.richScale -or $note.phase -cne $phase -or
             $note.heldExport -isnot [bool] -or $note.heldExport -ne ($phase -eq 'background-export') -or
             @($note.addTeamNote.samplesMs).Count -ne 20 -or @($note.personNavigation.samplesMs).Count -ne 42 -or
             @($durability.samplesMs).Count -ne 21 -or @($durability.committedDuringTyping).Count -ne 21 -or
             @($durability.committedDuringTyping | Where-Object { $_ -isnot [bool] -or !$_ }).Count -or
             $note.addTeamNote.p95Ms -ne $editorP95 -or $note.personNavigation.p95Ms -ne $navigationP95 -or
-            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt 1000 -or $durability.budgetMs -ne 1000 -or
+            $durability.p95Ms -ne $durabilityP95 -or $durabilityP95 -gt 1050 -or
+            $durability.budgetMs -isnot [ValueType] -or $durability.budgetMs -is [bool] -or $durability.budgetMs -ne 1050 -or
+            $durability.goalMs -isnot [ValueType] -or $durability.goalMs -is [bool] -or $durability.goalMs -ne 1000 -or
+            $durability.goalMet -isnot [bool] -or
+            $durability.goalMet -ne ($durabilityP95 -le 1000) -or
             $durability.budgetEnforced -isnot [bool] -or !$durability.budgetEnforced -or
+            $durability.temporaryCeiling -isnot [bool] -or !$durability.temporaryCeiling -or
+            $durability.timingUse -cne 'acceptance' -or
+            $durability.independentVerificationScope -cne 'fresh-final-prefix-owner-and-exact-writing' -or
             $durability.continuedEditsPerNote -ne 6 -or $durability.nominalEditSpacingMs -ne 250) {
             throw 'Combined original normal/held-export 20/42/21 continuous-typing proof is incomplete or nonaccepting.'
         }

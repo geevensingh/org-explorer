@@ -24,6 +24,75 @@ public sealed class WorkspaceSnapshotTests : IDisposable
          {"email":"manager@example.com","displayName":"Manager","managerEmail":null}]}
         """;
 
+    [Fact]
+    public void New_publication_reuses_complete_content_validation_for_retention_and_rechecks_later_delivery()
+    {
+        var observer = new ExitPublicationObserver();
+        using var first = Create("first", observer);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.True(first.EditPreferredName("report@example.com", "Previous complete version"), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.Equal(2, Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Length);
+        var note = first.CreateTeamNote("manager@example.com", "Exact owner note", "Newest complete writing")!;
+        var latest = first.Synchronization.LocalRevision;
+        observer.ValidationWrites = 0;
+        Assert.True(first.SyncNow(), first.Status);
+        Assert.Equal(3, observer.ValidationWrites);
+        Assert.Equal(latest, first.Synchronization.PublishedRevision);
+        Assert.False(first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(latest, receiver.Synchronization.LocalRevision);
+        Assert.Equal("Newest complete writing", receiver.GetTeamNotes("manager@example.com").Single(item => item.Id == note.Id).Markdown);
+        var delivered = Directory.GetFiles(Local("outgoing"), "*.oesnapshot").Single(file =>
+            Path.GetFileName(file).Contains(latest!.Value.ToString("D")));
+        var original = File.ReadAllBytes(delivered);
+        RewriteSnapshot(delivered, data =>
+        {
+            var row = data["people"]![0]!;
+            var person = JsonNode.Parse(row["value"]!.GetValue<string>())!.AsObject();
+            person.Remove("managerEmail");
+            row["value"] = person.ToJsonString();
+        });
+        Assert.False(first.SyncNow());
+        Assert.NotNull(first.Synchronization.Error);
+        Assert.Equal(latest, first.Synchronization.LocalRevision);
+        File.WriteAllBytes(delivered, original);
+        Assert.True(first.SyncNow(), first.Status);
+    }
+
+    [Fact]
+    public void Changed_previously_validated_content_is_rejected_during_the_same_publication_pass()
+    {
+        var publisher = new SnapshotPublisher();
+        using var first = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        Assert.True(first.SyncNow(), first.Status);
+        var earlier = Assert.Single(Directory.GetFiles(Local("outgoing"), "*.oesnapshot"));
+        Assert.True(first.EditPreferredName("report@example.com", "Durable newest writing"), first.Status);
+        var latest = first.Synchronization.LocalRevision;
+        publisher.BeforeSnapshot = () => RewriteSnapshot(earlier, data =>
+        {
+            var row = data["people"]![0]!;
+            var person = JsonNode.Parse(row["value"]!.GetValue<string>())!.AsObject();
+            person.Remove("managerEmail");
+            row["value"] = person.ToJsonString();
+        });
+        Assert.False(first.SyncNow());
+        Assert.NotNull(first.Synchronization.Error);
+        Assert.True(File.Exists(earlier));
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(latest, reopened.Synchronization.LocalRevision);
+        Assert.Equal("Durable newest writing", reopened.GetRelationships("report@example.com")!.Person.PreferredName);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -693,6 +762,135 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.True(second.SyncNow(), second.Synchronization.Error);
         Assert.Equal("Next minute 6", second.GetRelationships("report@example.com")!.Person.PreferredName);
         Assert.Contains("delivery elsewhere is unknown", first.Synchronization.Summary);
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Busy_periodic_ticks_do_not_extend_manual_publication_or_reset_idle_cadence(NoteScope scope)
+    {
+        var clock = new SnapshotClock();
+        var publisher = new SnapshotPublisher { Hold = true };
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        var syncCalls = 0;
+        boundary.BeforeSync = () => Interlocked.Increment(ref syncCalls);
+        using var first = new WorkspaceViewModel(proxy, synchronizationTimeProvider: clock);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var owner = scope == NoteScope.Person ? "report@example.com" : "manager@example.com";
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(scope, owner)!,
+            "Exact owner note", "Original committed writing")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        var head = first.Synchronization.LocalRevision;
+        Guid? next = null;
+        var syncing = first.SynchronizeAsync();
+        try
+        {
+            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)), "The actual snapshot publication was not held.");
+            Assert.True(first.IsSynchronizing);
+            Assert.Equal(1, Volatile.Read(ref publisher.ActiveSnapshotPublications));
+            clock.Advance(TimeSpan.FromSeconds(60));
+            Assert.False(syncing.IsCompleted);
+            Assert.Equal(1, Volatile.Read(ref syncCalls));
+            Assert.NotNull(first.SaveNoteDraft(first.BeginNoteDraft(scope, owner, note.Id)!,
+                note.Title, "Writing for the next scheduled period"));
+            next = first.Synchronization.LocalRevision;
+            Assert.NotEqual(head, next);
+            Assert.False(publisher.Release.IsSet);
+        }
+        finally
+        {
+            publisher.Release.Set();
+            Assert.True(await syncing.WaitAsync(TimeSpan.FromSeconds(10)), first.Synchronization.Error);
+        }
+        Assert.False(first.IsSynchronizing);
+        Assert.Equal(1, Volatile.Read(ref syncCalls));
+        Assert.Equal(head, first.Synchronization.PublishedRevision);
+        Assert.True(first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal("Original committed writing", receiver.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.False(first.IsSynchronizing);
+        Assert.Equal(1, Volatile.Read(ref syncCalls));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await AwaitSnapshot(() => !first.IsSynchronizing);
+        Assert.Equal(2, Volatile.Read(ref syncCalls));
+        Assert.Equal(next, first.Synchronization.PublishedRevision);
+        Deliver("outgoing", "incoming");
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal("Writing for the next scheduled period",
+            receiver.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        Assert.Null(receiver.BeginNoteDraft(scope, owner == "report@example.com" ? "manager@example.com" : "report@example.com", note.Id));
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
+    public async Task Explicit_sync_during_active_publication_retains_newer_writing_followup_across_periodic_ticks(NoteScope scope)
+    {
+        var clock = new SnapshotClock();
+        var publisher = new SnapshotPublisher { Hold = true };
+        var proxy = DispatchProxy.Create<IApplicationWorkflow, SnapshotSaveBoundary>();
+        var boundary = (SnapshotSaveBoundary)(object)proxy;
+        boundary.Inner = ApplicationWorkflow.CreateFileBacked(filePublisher: publisher);
+        var syncCalls = 0;
+        boundary.BeforeSync = () => Interlocked.Increment(ref syncCalls);
+        using var first = new WorkspaceViewModel(proxy, synchronizationTimeProvider: clock);
+        Assert.True(first.OpenWorkspace(Local("first")), first.Status);
+        Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
+        var owner = scope == NoteScope.Person ? "report@example.com" : "manager@example.com";
+        var note = first.SaveNoteDraft(first.BeginNoteDraft(scope, owner)!,
+            "Exact owner note", "Original committed writing")!;
+        Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
+        var original = first.Synchronization.LocalRevision;
+        Task<bool>? explicitSync = null;
+        Guid? latest = null;
+        clock.Advance(TimeSpan.FromSeconds(60));
+        try
+        {
+            Assert.True(publisher.Entered.Wait(TimeSpan.FromSeconds(5)), "The idle periodic publication was not held.");
+            Assert.Equal(1, Volatile.Read(ref syncCalls));
+            Assert.NotNull(first.SaveNoteDraft(first.BeginNoteDraft(scope, owner, note.Id)!,
+                note.Title, "Newer owner writing needs an explicit follow-up"));
+            latest = first.Synchronization.LocalRevision;
+            Assert.NotEqual(original, latest);
+            using (var reopened = ApplicationWorkflow.CreateFileBacked())
+            {
+                Assert.True(reopened.OpenWorkspace(Local("first"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+                Assert.Equal("Newer owner writing needs an explicit follow-up",
+                    reopened.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+            }
+            explicitSync = first.SynchronizeAsync();
+            clock.Advance(TimeSpan.FromSeconds(60));
+            Assert.False(explicitSync.IsCompleted);
+            Assert.Equal(1, Volatile.Read(ref publisher.ActiveSnapshotPublications));
+            Assert.False(publisher.Release.IsSet);
+            publisher.Release.Set();
+            Assert.True(await explicitSync.WaitAsync(TimeSpan.FromSeconds(10)), first.Synchronization.Error);
+        }
+        finally
+        {
+            publisher.Release.Set();
+            if (explicitSync is not null) await explicitSync.WaitAsync(TimeSpan.FromSeconds(10));
+            else await AwaitSnapshot(() => !first.IsSynchronizing);
+        }
+        Assert.False(first.IsSynchronizing);
+        Assert.Equal(2, Volatile.Read(ref syncCalls));
+        Assert.Equal(latest, first.Synchronization.PublishedRevision);
+        Assert.False(first.Synchronization.HasUnpublishedChanges);
+        Deliver("outgoing", "incoming");
+        using var receiver = Create("receiver");
+        Assert.True(receiver.ConfigureSynchronizationFolder(Local("incoming"), true), receiver.Status);
+        Assert.True(receiver.SyncNow(), receiver.Status);
+        Assert.Equal(latest, receiver.Synchronization.LocalRevision);
+        Assert.Equal("Newer owner writing needs an explicit follow-up",
+            receiver.BeginNoteDraft(scope, owner, note.Id)!.Markdown);
+        Assert.Null(receiver.BeginNoteDraft(scope, owner == "report@example.com" ? "manager@example.com" : "report@example.com", note.Id));
     }
 
     [Theory]
