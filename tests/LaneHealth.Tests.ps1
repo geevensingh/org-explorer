@@ -67,7 +67,7 @@ try {
     $core = Join-Path $evidence 'core-attempt-1'
     New-Item -ItemType Directory -Path $core | Out-Null
     $companions = @('CiGate', 'CiRunner', 'FilesystemHealth', 'LaneHealth', 'MixedHealth', 'ImplementationBaseline',
-        'DocumentationHandoff', 'DraftDiscard', 'Performance', 'DesktopResults', 'UiScale', 'Release',
+        'DocumentationHandoff', 'DraftDiscard', 'Performance', 'NonUiCohort', 'DesktopResults', 'UiScale', 'Release',
         'Release.Gates', 'Release.Publication', 'Release.Renewal', 'Release.Workflow', 'Release.Payload',
         'Update.TrustLifetime', 'ApplicationIcon')
     $execution = @{

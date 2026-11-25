@@ -4,9 +4,15 @@ function Invoke-ReleaseApi([string]$Endpoint, [string[]]$Arguments = @()) {
     if ($text) { return (($text -join "`n") | ConvertFrom-Json -Depth 30) }
 }
 
-function Assert-TrustedCi([string]$Candidate, [long]$CiRunId, [switch]$RequireCurrentLayout) {
+function Assert-TrustedCi([string]$Candidate, [long]$CiRunId, [switch]$RequireCurrentLayout,
+    [ValidateRange(1, [int]::MaxValue)][int]$RunAttempt) {
     if ($Candidate -cnotmatch '^[0-9a-f]{40}$' -or $CiRunId -le 0) { throw 'An exact candidate and successful trusted CI run ID are required.' }
-    $run = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId"
+    $runPath = "repos/$ReleaseRepository/actions/runs/$CiRunId"
+    if ($PSBoundParameters.ContainsKey('RunAttempt')) { $runPath += "/attempts/$RunAttempt" }
+    $run = Invoke-ReleaseApi $runPath
+    if ($PSBoundParameters.ContainsKey('RunAttempt') -and $run.run_attempt -ne $RunAttempt) {
+        throw 'Required CI evidence differs from the exact requested attempt.'
+    }
     if ($run.id -ne $CiRunId -or $run.event -cne 'push' -or $run.head_branch -cne 'main' -or
         $run.head_sha -cne $Candidate -or $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
         $run.path -cne '.github/workflows/ci.yml' -or $run.head_repository.full_name -cne $ReleaseRepository) {
@@ -31,7 +37,7 @@ function Assert-TrustedCi([string]$Candidate, [long]$CiRunId, [switch]$RequireCu
             }
         }
     }
-    $pages = Invoke-ReleaseApi "repos/$ReleaseRepository/actions/runs/$CiRunId/jobs?per_page=100" @('--paginate', '--slurp')
+    $pages = Invoke-ReleaseApi "$runPath/jobs?per_page=100" @('--paginate', '--slurp')
     $jobs = @($pages | ForEach-Object { $_.jobs })
     $nativeNames = @($required | Where-Object { $_ -match '^(Actual Windows desktop smoke|High-resolution Windows smoke)' })
     $nativeJobs = @($jobs | Where-Object { $_.name -match '^(Actual Windows desktop smoke|High-resolution Windows smoke)' })

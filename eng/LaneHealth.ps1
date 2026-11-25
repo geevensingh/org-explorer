@@ -2,11 +2,12 @@
 . "$PSScriptRoot\DesktopResults.ps1"
 . "$PSScriptRoot\PerformanceSuite.ps1"
 . "$PSScriptRoot\UiScaleResults.ps1"
+. "$PSScriptRoot\NonUiCohort.ps1"
 
 function Get-CoreHealthSteps {
     return @('restore', 'test', 'CiGate.Tests.ps1', 'CiRunner.Tests.ps1', 'FilesystemHealth.Tests.ps1',
         'LaneHealth.Tests.ps1', 'MixedHealth.Tests.ps1', 'ImplementationBaseline.Tests.ps1', 'DocumentationHandoff.Tests.ps1',
-        'DraftDiscard.Tests.ps1', 'Performance.Tests.ps1', 'DesktopResults.Tests.ps1', 'UiScale.Tests.ps1',
+        'DraftDiscard.Tests.ps1', 'Performance.Tests.ps1', 'NonUiCohort.Tests.ps1', 'DesktopResults.Tests.ps1', 'UiScale.Tests.ps1',
         'Release.Tests.ps1', 'Release.Gates.Tests.ps1', 'Release.Publication.Tests.ps1',
         'Release.Renewal.Tests.ps1', 'Release.Workflow.Tests.ps1', 'Release.Payload.Tests.ps1',
         'Update.TrustLifetime.Tests.ps1', 'ApplicationIcon.Tests.ps1')
@@ -90,7 +91,7 @@ function Get-LaneHealthJobs($Run, $Jobs) {
 }
 
 function Get-LaneHealthRecordTypes {
-    return @{
+    $types = @{
         'lane-health' = @{
             PathPattern = '^lanes/[1-9][0-9]*/[1-9][0-9]*/[a-z][a-z0-9-]*\.json$'
             GetPath = { param($record) "lanes/$($record.runId)/$($record.runAttempt)/$($record.lane).json" }
@@ -102,6 +103,8 @@ function Get-LaneHealthRecordTypes {
             Validate = { param($record, $path) Assert-LaneHealthRecord $record $path }
         }
     }
+    foreach ($type in (Get-NonUiCohortRecordTypes).GetEnumerator()) { $types[$type.Key] = $type.Value }
+    return $types
 }
 
 function Test-QualifiedHealthSource([string]$Event, [string]$Branch, [string]$Repository) {
