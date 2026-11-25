@@ -1,0 +1,122 @@
+name: Independent non-UI cohort execution
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      ci_run_id:
+        required: true
+        type: string
+      ci_run_attempt:
+        required: true
+        type: string
+      pilot:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    outputs:
+      collect: ${{ steps.plan.outputs.collect }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Authenticate the source and plan three independent executions
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.revision }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_RUN_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          PILOT: ${{ inputs.pilot }}
+        run: |
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -Pilot:([bool]::Parse($env:PILOT)) -CheckHistory:(![bool]::Parse($env:PILOT))
+          $plan = Get-Content .ci-results\cohort-plan\plan.json -Raw | ConvertFrom-Json
+          "collect=$($plan.collect.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: .ci-results/cohort-plan/plan.json
+
+  samples:
+    name: Non-UI cohort sample (${{ matrix.sample }})
+    needs: plan
+    if: ${{ needs.plan.outputs.collect == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 13
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        sample: [1, 2, 3]
+    steps:
+      - name: Start the unchanged whole-execution budget before setup
+        run: '"SCALE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Execute the complete original workload on this fresh worker
+        env:
+          REVISION: ${{ inputs.revision }}
+          SAMPLE: ${{ matrix.sample }}
+        run: |
+          .\eng\Run-Performance.ps1 -ExpectedRevision $env:REVISION -CohortId "$env:REVISION-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -Sample ([int]$env:SAMPLE)
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-cohort-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}-sample-${{ matrix.sample }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/performance/**/*.json
+            .ci-results/performance/**/*.log
+            .ci-results/performance/**/*.trx
+
+  summary:
+    needs: [plan, samples]
+    if: ${{ always() && needs.plan.outputs.collect == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Preserve every attempt without activating reference promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.revision }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_RUN_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          PILOT: ${{ inputs.pilot }}
+        run: |
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-summary -Pilot:([bool]::Parse($env:PILOT)) -ReadHistory:(![bool]::Parse($env:PILOT))
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: non-ui-cohort-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .ci-results/cohort-summary/record.json
+            .ci-results/cohort-summary/summary.md

@@ -1,0 +1,25 @@
+name: Non-UI performance cohorts
+
+on:
+  workflow_run:
+    workflows: [Continuous integration]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+# This group cannot hold or cancel production release verification.
+concurrency:
+  group: non-ui-performance-cohort-collection
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  collection:
+    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/non-ui-cohort-execution.yml
+    with:
+      revision: ${{ github.event.workflow_run.head_sha }}
+      ci_run_id: ${{ format('{0}', github.event.workflow_run.id) }}
+      ci_run_attempt: ${{ format('{0}', github.event.workflow_run.run_attempt) }}

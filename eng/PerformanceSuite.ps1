@@ -3,6 +3,37 @@ $PerformanceTests = @(
     'OrgExplorer.Persistence.Tests.ScaleWorkflowTests.Ten_thousand_People_keep_complete_durable_current_and_frozen_context_through_mutations_and_delivery'
 )
 
+function Get-PerformanceConfiguration {
+    $root = Split-Path $PSScriptRoot -Parent
+    $projectDirectory = Join-Path $root 'tests\OrgExplorer.Persistence.Tests'
+    [xml]$project = Get-Content -LiteralPath (Join-Path $projectDirectory 'OrgExplorer.Persistence.Tests.csproj') -Raw
+    $paths = @('tests/OrgExplorer.Persistence.Tests', 'tests/OrgExplorer.Storage.ProcessFixture', 'tests/Fixtures',
+        'Directory.Build.props', 'Directory.Build.targets', 'global.json', 'eng/Run-Performance.ps1',
+        'eng/ScaleRunner.ps1', 'eng/PerformanceSuite.ps1')
+    foreach ($compile in @($project.SelectNodes('/Project/ItemGroup/Compile'))) {
+        $path = [IO.Path]::GetFullPath((Join-Path $projectDirectory $compile.GetAttribute('Include')))
+        $paths += [IO.Path]::GetRelativePath($root, $path).Replace('\', '/')
+    }
+    $tree = @(git ls-tree -r HEAD -- @paths)
+    if ($LASTEXITCODE -ne 0 -or !$tree.Count) { throw 'Selected workload/linked-fixture identity could not be resolved.' }
+    $fixtureTree = ($tree -join "`n") | git hash-object --stdin
+    if ($LASTEXITCODE -ne 0) { throw 'Selected workload identity could not be hashed.' }
+    $testTree = git rev-parse --verify HEAD:tests/OrgExplorer.Persistence.Tests
+    if ($LASTEXITCODE -ne 0) { throw 'Persistence test-tree identity unavailable.' }
+    $sdk = dotnet --version
+    if ($LASTEXITCODE -ne 0) { throw 'Resolved SDK identity unavailable.' }
+    $runtimes = @(dotnet --list-runtimes | ForEach-Object { $_ -replace ' \[.*\]$', '' })
+    if ($LASTEXITCODE -ne 0 -or !$runtimes) { throw 'Resolved runtime identity unavailable.' }
+    return @{
+        workload = 'OrgExplorer.Persistence.Tests'; testTree = $testTree; fixtureTree = $fixtureTree
+        sdk = $sdk; runtimes = $runtimes; os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+        architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+        processors = [Environment]::ProcessorCount; image = $env:ImageOS; imageVersion = $env:ImageVersion
+        powershell = $PSVersionTable.PSVersion.ToString()
+        setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
+    }
+}
+
 function Assert-PerformanceResults([string] $Directory) {
     $files = @(Get-ChildItem $Directory -Filter '*.trx' -File)
     if ($files.Count -ne 1) { throw 'Expected exactly one fresh performance TRX result.' }

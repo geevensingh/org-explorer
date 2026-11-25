@@ -2677,6 +2677,69 @@ hosted WPF supplies the real selection/visibility evidence.
 
 ## Separate scale commands and results
 
+### Observation-only independent non-UI cohorts
+
+`non-ui-cohorts.yml` starts only after successful authenticated main-push
+required CI. Its trusted controller plans three separate hosted Windows jobs,
+with one sample worker active at a time, fresh checkouts/builds/fixtures and
+unique cohort/sample/job/runner/invocation identities. Every job runs the
+complete existing `Run-Performance.ps1` workload with the original 660-second
+setup-through-cleanup budget. The 21 profile samples and original 1,000-ms p95
+limit remain acceptance checks, not cohort-median substitutes.
+
+The separate collection concurrency group uses `queue: max` (up to 100 pending
+Actions runs) and never cancels a running collection or shares release
+concurrency. Queue overflow/cancellation is not successful execution. Initial
+collection uses latest main; later queued candidates must retain trusted main
+ancestry. Already durably observed revisions do not retry to manufacture greens.
+Neither ordinary PR selection nor release depends on these workflows.
+
+Each sample uploads exact-candidate/cohort/run/attempt results, complete named
+TRX and original phase/profile logs for 30 days, including failures. The public
+collector validates the original result contracts and recomputes profile p95
+from all 21 raw values. Failed, skipped, cancelled and incomplete jobs retain
+their original outcomes and any valid measurements. Missing or substituted
+evidence is unavailable/rejected, not zero or a replacement successful sample.
+Summaries show individual attempts, medians and descriptive ranges including
+all available failed-attempt measurements; no hard limit is averaged away.
+
+`non-ui-cohort-history.yml` observes completion independently, including
+cancellation that prevented the normal summary. It authenticates the saved
+plan and original exact required-CI attempt again, then uses the shared
+versioned, immutable `ci-health-data` publisher and trusted cohort validator.
+An unavailable plan prevents inferred candidate authority and emits an explicit
+history failure. Compact records live at
+`performance-cohorts/<revision>/<cohortRunId>/<attempt>.json`; raw artifact
+expiry is explicit. Prior complete compatible non-self cohorts can provide
+observation comparisons, never fresh release proof or active canonical references.
+
+Live eligibility/noise policy remains pending #130. The public collector's
+isolated `TEST-non-ui-range-v1` policy exercises otherwise eligible inconsistency
+extending from three to at most five executions. Failure never requests another
+execution; continued inconsistency stops at five. TEST policy cannot publish
+live history. Active-reference promotion is disabled, and this NON-UI slice
+does not claim rich UI prefix/tail/union or full performance/scale acceptance.
+
+Before default-branch registration, the existing scale workflow has a
+default-off `non_ui_cohort_pilot=true` manual bridge. It executes only the three
+non-UI workers at the explicitly selected trusted branch SHA, anchors its plan
+to supplied successful main CI ID/attempt, and grants no publication authority.
+Normal reusable/nightly/release scale execution remains unchanged. Example:
+
+```powershell
+gh workflow run scale-verification.yml --repo geevensingh/org-explorer --ref YOUR_PUSHED_BRANCH -f non_ui_cohort_pilot=true -f cohort_ci_run_id=MAIN_CI_RUN_ID -f cohort_ci_run_attempt=1
+```
+
+`NonUiCohort.Tests.ps1` exercises the public plan/runner/result/history seam
+with real validators and isolated Git fixtures, faking only GitHub/hosted effects.
+Its fixture timings are not hosted performance evidence. Based on the audit's
+199-second non-UI job, three executions cost about 9.95 worker-minutes (12 with
+per-job rounding), five about 16.58 (20 rounded), plus controller/reporting jobs.
+Their watchdog envelopes are 39/65 measurement-worker minutes, not passing
+allowance; failures consume resources too.
+
+### Existing complete scale execution
+
 The complete workloads are outside required PR smoke, not removed:
 
 | Command | Required selection | Evidence |

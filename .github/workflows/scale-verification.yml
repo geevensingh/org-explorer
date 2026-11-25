@@ -16,6 +16,20 @@ on:
     - cron: '23 10 * * *'
   workflow_dispatch:
     inputs:
+      non_ui_cohort_pilot:
+        description: Read-only three-worker NON-UI cohort pilot; no rich UI or publication
+        required: false
+        default: false
+        type: boolean
+      cohort_ci_run_id:
+        description: Exact successful main-push required CI anchoring the non-promoting pilot
+        required: false
+        type: string
+      cohort_ci_run_attempt:
+        description: Exact required CI attempt anchoring the pilot
+        required: false
+        default: '1'
+        type: string
       revision:
         description: Full 40-character candidate SHA to check freshly (blank uses the selected workflow commit)
         required: false
@@ -30,7 +44,20 @@ permissions:
   contents: read
 
 jobs:
+  non-ui-cohort-pilot:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.non_ui_cohort_pilot }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/non-ui-cohort-execution.yml
+    with:
+      revision: ${{ github.sha }}
+      ci_run_id: ${{ inputs.cohort_ci_run_id }}
+      ci_run_attempt: ${{ inputs.cohort_ci_run_attempt }}
+      pilot: true
+
   non-ui-performance:
+    if: ${{ !inputs.non_ui_cohort_pilot }}
     name: Thorough non-UI performance
     runs-on: windows-latest
     timeout-minutes: 13
@@ -67,6 +94,7 @@ jobs:
             .ci-results/performance/**/*.trx
 
   ui-scale-prefix:
+    if: ${{ !inputs.non_ui_cohort_pilot }}
     name: Rich combined normal and held-export saves
     runs-on: windows-latest
     timeout-minutes: 13
@@ -104,6 +132,7 @@ jobs:
             .ci-results/ui-scale-prefix/**/*.oesnapshot
 
   ui-scale-tail:
+    if: ${{ !inputs.non_ui_cohort_pilot }}
     name: Rich logical Join, delivery, reopen and navigation
     needs: ui-scale-prefix
     runs-on: windows-latest
@@ -136,7 +165,7 @@ jobs:
       - name: Resume actual validated logical snapshot in a fresh physical store
         run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
       - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
+        if: ${{ always() && !inputs.non_ui_cohort_pilot }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
