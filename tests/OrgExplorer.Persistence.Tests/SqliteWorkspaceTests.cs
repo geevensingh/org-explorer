@@ -1489,32 +1489,43 @@ public sealed partial class SqliteWorkspaceTests : IDisposable
         Assert.Same(secondary, actual);
     }
 
-    [Fact]
-    public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancelling_observation_of_a_pending_real_write_never_confirms_it_saved(bool delayedObservation)
     {
-        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        using var boundary = new CommitBoundary();
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(fileObserver: boundary));
         Assert.True(app.OpenWorkspace(Workspace, WorkspaceOpenMode.OpenOrCreate), app.Status);
         Assert.True(app.ApplyImport(app.PreviewImport(Initial).Id), app.Status);
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Workspace, "workspace.sqlite")};Pooling=False");
-        connection.Open();
-        using var held = connection.BeginTransaction();
+        // A competing writer refuses at the 1s busy limit; hold the admitted app Commit instead.
+        boundary.Hold = true;
         var draft = Assert.IsType<NoteDraft>(app.CreateOwnedNoteDraft(NoteScope.Team, "manager@example.com"));
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => NoteCommitObservation.RunAsync(
-            () => app.UpdateNoteDraft(NoteScope.Team, draft.Id, "Pending context", "Not yet committed"),
-            () =>
-            {
-                using var reading = ApplicationWorkflow.CreateFileBacked();
-                Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
-                return reading.BeginNoteDraft(NoteScope.Team, "manager@example.com", draft.Id)?.Markdown == "Not yet committed";
-            }, async observation =>
-            {
-                await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
-                observation.Cancel();
-                observation.Complete();
-            }));
-        Assert.Contains("cancelled", failure.Message);
-        Assert.False(app.CanSafelyClose);
-        held.Commit();
+        try
+        {
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => NoteCommitObservation.RunAsync(
+                () => app.UpdateNoteDraft(NoteScope.Team, draft.Id, "Pending context", "Not yet committed"),
+                () =>
+                {
+                    using var reading = ApplicationWorkflow.CreateFileBacked();
+                    Assert.True(reading.OpenWorkspace(Workspace, WorkspaceOpenMode.ExistingOnly), reading.Status);
+                    return reading.BeginNoteDraft(NoteScope.Team, "manager@example.com", draft.Id)?.Markdown == "Not yet committed";
+                }, async observation =>
+                {
+                    if (delayedObservation)
+                    {
+                        await WaitUntil(() => app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
+                        await Task.Delay(1500);
+                    }
+                    await WaitUntil(() => boundary.Entered.IsSet &&
+                        app.GetRetainedNoteDraft(NoteScope.Team, draft.Id)?.IsSaving == true);
+                    observation.Cancel();
+                    observation.Complete();
+                }));
+            Assert.Contains("cancelled", failure.Message);
+            Assert.False(app.CanSafelyClose);
+        }
+        finally { boundary.Hold = false; boundary.Release.Set(); }
         Assert.True(await app.FlushNoteDraftsAsync(), app.Status);
     }
 

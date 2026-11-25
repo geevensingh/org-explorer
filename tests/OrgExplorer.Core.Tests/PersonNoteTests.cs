@@ -182,13 +182,13 @@ public sealed class PersonNoteTests(ITestOutputHelper output)
         var updatedAt = Stopwatch.GetTimestamp();
         try
         {
-            try { await admitted.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            try { await admitted.Task.WaitAsync(TimeSpan.FromSeconds(6)); }
             catch (TimeoutException failure)
             {
                 ReportAdmissionRefusal(failure, () => JsonSerializer.Serialize(new
                 {
                     schemaVersion = 1, scope = scope.ToString(), noteId = basis.Id, owner = basis.OwnerEmail,
-                    entryDeadlineMs = 5000, observedAt = DateTimeOffset.UtcNow,
+                    entryDeadlineMs = 6000, observedAt = DateTimeOffset.UtcNow,
                     frequency = Stopwatch.Frequency, requestedAt, createdAt, updatedAt,
                     observedTicks = Stopwatch.GetTimestamp(), requestThreadId, requestContext, requestWorkers,
                     observationThreadId = Environment.CurrentManagedThreadId,

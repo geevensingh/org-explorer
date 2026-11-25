@@ -1,7 +1,11 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -97,18 +101,26 @@ internal static partial class Program
         { throw new TimeoutException("Photo presentation did not settle: " + describe(), error); }
     }
 
-    private static bool TryPhotoViewport(AutomationElement window, out Rect viewport, out string observed) =>
-        TryPhotoViewport(window, ControlObservation.Capture(window, "Photo"), out viewport, out observed);
+    private static bool TryPhotoViewport(AutomationElement window, out Rect viewport, out string observed,
+        InitialsObservation? observation = null) =>
+        TryPhotoViewport(window, ControlObservation.Capture(window, "Photo"), out viewport, out observed, observation);
 
     private static bool TryPhotoViewport(AutomationElement window, ControlObservation controls,
-        out Rect viewport, out string observed)
+        out Rect viewport, out string observed, InitialsObservation? observation = null)
     {
         var photo = controls["Photo"].Cached;
         var bounds = photo.BoundingRectangle;
         var scale = DpiScale(window);
+        if (observation is not null)
+        {
+            observation.Viewport = new(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+            observation.ViewportScale = scale;
+        }
         viewport = Rect.Empty;
         observed = $"viewport={bounds}, offscreen={photo.IsOffscreen}, scale={scale}";
-        if (photo.IsOffscreen || bounds.IsEmpty || Math.Abs(bounds.Width / scale - 144) > 1 ||
+        var checkedOffscreen = photo.IsOffscreen;
+        if (observation is not null) observation.CheckedViewportOffscreen = checkedOffscreen;
+        if (checkedOffscreen || bounds.IsEmpty || Math.Abs(bounds.Width / scale - 144) > 1 ||
             Math.Abs(bounds.Height / scale - 144) > 1)
             return false;
         viewport = bounds;
@@ -136,18 +148,23 @@ internal static partial class Program
         return viewport;
     }
 
-    private static bool PixelMatches(IntPtr dc, Rect circle, double scale, double x, double y, uint expected)
+    private static bool PixelMatches(IntPtr dc, Rect circle, double scale, double x, double y, uint expected,
+        InitialsObservation? observation = null)
     {
-        var actual = GetPixel(dc, (int)Math.Round(circle.Left + circle.Width / 2 + x * scale),
-            (int)Math.Round(circle.Top + circle.Height / 2 + y * scale));
+        var captureX = (int)Math.Round(circle.Left + circle.Width / 2 + x * scale);
+        var captureY = (int)Math.Round(circle.Top + circle.Height / 2 + y * scale);
+        var actual = GetPixel(dc, captureX, captureY);
         if (actual == uint.MaxValue)
             throw new InvalidOperationException("Actual photo pixels are unavailable; an unlocked isolated desktop is required.");
-        return Math.Abs((int)(actual & 255) - (int)(expected & 255)) <= 20 &&
+        var matched = Math.Abs((int)(actual & 255) - (int)(expected & 255)) <= 20 &&
             Math.Abs((int)((actual >> 8) & 255) - (int)((expected >> 8) & 255)) <= 20 &&
             Math.Abs((int)((actual >> 16) & 255) - (int)((expected >> 16) & 255)) <= 20;
+        observation?.Probe(x, y, expected, actual, matched, captureX, captureY);
+        return matched;
     }
 
-    private static bool ReadPhotoPixels(Rect circle, double scale, Func<Func<double, double, uint, bool>, bool> observe)
+    private static bool ReadPhotoPixels(Rect circle, double scale, Func<Func<double, double, uint, bool>, bool> observe,
+        InitialsObservation? observation = null, InitialsRejectionEvidence? rejection = null)
     {
         var left = (int)Math.Floor(circle.Left - 10 * scale);
         var top = (int)Math.Floor(circle.Top - 10 * scale);
@@ -165,11 +182,38 @@ internal static partial class Program
             if (memory == IntPtr.Zero || bitmap == IntPtr.Zero)
                 throw new InvalidOperationException("Actual photo capture could not allocate its pixel buffer.");
             previous = SelectObject(memory, bitmap);
+            var acquisitionStartedAt = observation is null ? 0 : Stopwatch.GetTimestamp();
             if (previous == IntPtr.Zero || previous == new IntPtr(-1) ||
                 !BitBlt(memory, 0, 0, width, height, screen, left, top, 0x40CC0020))
                 throw new InvalidOperationException("Actual desktop photo capture failed.");
+            var acquisitionCompletedAt = observation is null ? 0 : Stopwatch.GetTimestamp();
+            var capturedAt = observation is null ? default : DateTimeOffset.UtcNow;
             var local = new Rect(circle.Left - left, circle.Top - top, circle.Width, circle.Height);
-            return observe((x, y, color) => PixelMatches(memory, local, scale, x, y, color));
+            var passed = observe((x, y, color) => PixelMatches(memory, local, scale, x, y, color, observation));
+            if (!passed && observation is not null && rejection is not null)
+                rejection.Reject(observation, () =>
+                {
+                    // Copy this rejected buffer, never acquire another desktop frame.
+                    var stride = checked(width * 4);
+                    var byteCount = checked(stride * height);
+                    if (byteCount > 2 * 1024 * 1024)
+                        throw new InvalidOperationException("Original rejected bitmap exceeds the diagnostic copy bound.");
+                    var source = Imaging.CreateBitmapSourceFromHBitmap(bitmap, IntPtr.Zero,
+                        Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    var bgr = source.Format == PixelFormats.Bgr32 ? source :
+                        new FormatConvertedBitmap(source, PixelFormats.Bgr32, null, 0);
+                    var pixels = new byte[byteCount];
+                    bgr.CopyPixels(pixels, stride, 0);
+                    var handle = (IntPtr)observation.WindowHandle;
+                    observation.WindowMetadataObservedAt = Stopwatch.GetTimestamp();
+                    GetWindowThreadProcessId(handle, out var processId);
+                    observation.ProcessId = checked((int)processId);
+                    if (!GetWindowRect(handle, out var bounds))
+                        rejection.RecordFailure(new Win32Exception(Marshal.GetLastWin32Error(), "Rejected-frame window metadata is unavailable."));
+                    else observation.WindowBounds = new(bounds.Left, bounds.Top, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+                    return new(left, top, width, height, stride, pixels, acquisitionStartedAt, acquisitionCompletedAt, capturedAt);
+                });
+            return passed;
         }
         finally
         {
@@ -181,7 +225,7 @@ internal static partial class Program
     }
 
     private static bool CircleSpans(Func<double, double, uint, bool> at, double scale,
-        uint left, uint right, uint top, uint bottom)
+        uint left, uint right, uint top, uint bottom, InitialsObservation? observation = null)
     {
         var edges = new int[4];
         for (var offset = (int)(55 * scale); offset <= 80 * scale; offset++)
@@ -190,6 +234,13 @@ internal static partial class Program
             if (at(offset / scale, 0, right)) edges[1] = offset;
             if (at(0, -offset / scale, top)) edges[2] = offset;
             if (at(0, offset / scale, bottom)) edges[3] = offset;
+        }
+        if (observation is not null)
+        {
+            observation.CircleEdges = edges;
+            return observation.Check("circle-edges-present", edges.All(edge => edge > 0)) &&
+                observation.Check("circle-horizontal-span", Math.Abs((edges[0] + edges[1] + 1) / scale - 144) <= 2 / scale) &&
+                observation.Check("circle-vertical-span", Math.Abs((edges[2] + edges[3] + 1) / scale - 144) <= 2 / scale);
         }
         return edges.All(edge => edge > 0) &&
             Math.Abs((edges[0] + edges[1] + 1) / scale - 144) <= 2 / scale &&
@@ -241,41 +292,72 @@ internal static partial class Program
     private static void AssertInitialsCircle(AutomationElement window, string initials, Rect? previousPhoto = null)
     {
         var observed = "initials not yet observed";
-        AwaitPhoto(() =>
+        var rejection = new InitialsRejectionEvidence();
+        var prefix = Path.Combine(Path.GetDirectoryName(diagnostics)!, "photo-rejection-" + Path.GetFileNameWithoutExtension(diagnostics));
+        rejection.Observe(() => AwaitPhoto(() =>
         {
+            var attempt = new InitialsObservation
+            {
+                PreviousPhoto = previousPhoto is { } previousBounds
+                    ? new(previousBounds.Left, previousBounds.Top, previousBounds.Width, previousBounds.Height) : null
+            };
+            bool Require(string stage, bool passed)
+            {
+                if (attempt.Check(stage, passed)) return true;
+                attempt.Description = observed;
+                rejection.Reject(attempt);
+                return false;
+            }
             var placeholder = Find(window, "PhotoPlaceholder");
             observed = $"initials={placeholder.Current.Name}, offscreen={placeholder.Current.IsOffscreen}";
-            if (placeholder.Current.IsOffscreen ||
-                placeholder.Current.Name != $"No local photo. Initials: {initials}") return false;
-            var scale = DpiScale(window);
+            var checkedOffscreen = placeholder.Current.IsOffscreen;
+            var checkedName = checkedOffscreen ? null : placeholder.Current.Name;
+            attempt.CheckedInitialsOffscreen = checkedOffscreen;
+            attempt.CheckedInitialsName = checkedName;
+            if (!Require("initials-visible-name", !checkedOffscreen &&
+                checkedName == $"No local photo. Initials: {initials}")) return false;
+            var scale = DpiScale(window, out var handle);
+            attempt.WindowHandle = (long)handle;
+            attempt.Scale = scale;
             var text = placeholder.Current.BoundingRectangle;
-            var viewportReady = TryPhotoViewport(window, out var circle, out var viewportObserved);
+            attempt.Text = new(text.Left, text.Top, text.Width, text.Height);
+            var viewportReady = TryPhotoViewport(window, out var circle, out var viewportObserved, attempt);
             observed += $"; text={text}; {viewportObserved}";
-            if (!viewportReady) return false;
-            if (text.IsEmpty || Math.Abs(text.Left + text.Width / 2 - circle.Left - circle.Width / 2) > scale ||
-                Math.Abs(text.Top + text.Height / 2 - circle.Top - circle.Height / 2) > scale)
+            if (!Require("viewport", viewportReady)) return false;
+            if (!Require("text-center", !(text.IsEmpty || Math.Abs(text.Left + text.Width / 2 - circle.Left - circle.Width / 2) > scale ||
+                Math.Abs(text.Top + text.Height / 2 - circle.Top - circle.Height / 2) > scale)))
                 return false;
             // A pending-edit notice can move the entire header without resizing its photo area.
-            if (previousPhoto is { } previous &&
-                (Math.Abs(circle.Width - previous.Width) > scale || Math.Abs(circle.Height - previous.Height) > scale))
+            if (!Require("previous-photo-footprint", !(previousPhoto is { } previous &&
+                (Math.Abs(circle.Width - previous.Width) > scale || Math.Abs(circle.Height - previous.Height) > scale))))
                 return false;
             // TextBlock has no TextPattern. Its original 26.6-DIP Segoe UI line box scales to 68.4 DIP.
-            if (Math.Abs(text.Height / scale - 68.4) > 1)
+            if (!Require("text-line-box", !(Math.Abs(text.Height / scale - 68.4) > 1)))
                 return false;
+            attempt.Description = observed;
             return ReadPhotoPixels(circle, scale, At =>
             {
+                bool Anchor(string name, double x, double y, uint color)
+                {
+                    attempt.ProbeStage = "anchor-" + name;
+                    return At(x, y, color);
+                }
                 const uint background = 0x794b21;
-                if (!At(-68, 0, background) || !At(68, 0, background) ||
-                    !At(0, -68, background) || !At(0, 68, background) ||
-                    !At(-48, -48, background) || !At(48, 48, background) ||
-                    !At(-60, -48, WhitePixel) || !At(60, 48, WhitePixel) ||
-                    !At(-74, 0, WhitePixel) || !At(74, 0, WhitePixel)) return false;
+                if (!Anchor("background-left", -68, 0, background) || !Anchor("background-right", 68, 0, background) ||
+                    !Anchor("background-top", 0, -68, background) || !Anchor("background-bottom", 0, 68, background) ||
+                    !Anchor("background-diagonal-top", -48, -48, background) || !Anchor("background-diagonal-bottom", 48, 48, background) ||
+                    !Anchor("clip-diagonal-left", -60, -48, WhitePixel) || !Anchor("clip-diagonal-right", 60, 48, WhitePixel) ||
+                    !Anchor("outside-left", -74, 0, WhitePixel) || !Anchor("outside-right", 74, 0, WhitePixel)) return false;
+                attempt.ProbeStage = "glyph-ink";
+                var samples = 0;
                 var inkTop = 144d;
                 var inkBottom = -144d;
                 var inkLeft = 144d;
                 var inkRight = -144d;
                 for (var y = -40; y <= 40; y += 2)
                     for (var x = -54; x <= 54; x += 2)
+                    {
+                        samples++;
                         if (At(x, y, WhitePixel))
                         {
                             inkTop = Math.Min(inkTop, y);
@@ -283,11 +365,41 @@ internal static partial class Program
                             inkLeft = Math.Min(inkLeft, x);
                             inkRight = Math.Max(inkRight, x);
                         }
-                return inkBottom - inkTop >= 30 && inkRight - inkLeft >= 20 &&
-                    CircleSpans(At, scale, background, background, background, background);
-            });
-        }, () => observed);
+                    }
+                attempt.Ink = new(inkLeft, inkTop, inkRight, inkBottom, samples);
+                if (!attempt.Check("glyph-ink-height", inkBottom - inkTop >= 30) ||
+                    !attempt.Check("glyph-ink-width", inkRight - inkLeft >= 20)) return false;
+                attempt.ProbeStage = "circle-edges";
+                return CircleSpans(At, scale, background, background, background, background, attempt);
+            }, attempt, rejection);
+        }, () => observed), prefix, () => InitialsFailureBinding(rejection.BindingObservation, initials));
     }
+
+    private static object InitialsFailureBinding(InitialsObservation? observation, string initials)
+    {
+        var processId = observation?.ProcessId ?? 0;
+        if (processId == 0 && observation is { WindowHandle: not 0 })
+        {
+            GetWindowThreadProcessId((IntPtr)observation.WindowHandle, out var id);
+            processId = checked((int)id);
+        }
+        if (processId == 0) processId = Applications.Single(application => !application.HasExited).Id;
+        using var process = Process.GetProcessById(processId);
+        var executable = process.MainModule?.FileName ?? throw new InvalidOperationException("Rejected-frame application identity is unavailable.");
+        var files = new[] { executable, Path.ChangeExtension(executable, ".dll"),
+            Path.Combine(Path.GetDirectoryName(executable)!, "OrgExplorer.Workflow.dll"), typeof(Program).Assembly.Location,
+            Path.Combine(Path.GetDirectoryName(executable)!, "runtimes", "win-x64", "native", "e_sqlite3.dll") };
+        return new
+        {
+            revision = Environment.GetEnvironmentVariable("GITHUB_SHA"), runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+            runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"), processId, harnessProcessId = Environment.ProcessId,
+            expectedInitials = initials,
+            runtimeFiles = files.Select(file => new { file = Path.GetFileName(file), sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))) }).ToArray()
+        };
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 
     private static void StageProfilePhotoClear(AutomationElement window)
     {

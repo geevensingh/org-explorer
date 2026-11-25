@@ -48,8 +48,11 @@ internal static partial class Program
         void Publish()
         {
             Invoke("SyncNowButton");
-            PumpUntil(() => !model.IsSynchronizing && !model.Synchronization.HasUnpublishedChanges &&
-                model.Synchronization.PublishedRevision == model.Synchronization.LocalRevision);
+            PumpUntil(() => Control<Button>("SyncNowButton").IsEnabled &&
+                Control<TextBlock>("SynchronizationStatus").Text.Contains("Locally saved and published.", StringComparison.Ordinal));
+            if (model.IsSynchronizing || model.Synchronization.HasUnpublishedChanges ||
+                model.Synchronization.PublishedRevision != model.Synchronization.LocalRevision)
+                throw new InvalidOperationException("The enabled publication UI did not confirm the exact current revision.");
         }
         Publish();
         var earlierPublished = model.Synchronization.PublishedRevision;

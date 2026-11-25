@@ -7,6 +7,87 @@ $candidate = 'a' * 40
 $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
 Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2'
 $checks = 0
+foreach ($phase in @('normal-executable', 'background-export')) {
+    foreach ($case in @(
+        @{ p95 = 1000.0; rejected = $false },
+        @{ p95 = 1034.3852; rejected = $false },
+        @{ p95 = 1049.9999; rejected = $false },
+        @{ p95 = 1050.0; rejected = $false },
+        @{ p95 = 1050.0001; rejected = $true }
+    )) {
+        $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+        $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $notePath -Raw | ConvertFrom-Json
+        $note.localDurability.samplesMs = @(1) * 19 + @($case.p95, ($case.p95 + 20))
+        $note.localDurability.p95Ms = $case.p95
+        $note.localDurability.goalMet = $case.p95 -le 1000
+        $note | ConvertTo-Json -Depth 8 | Set-Content $notePath
+        $rejected = $false
+        try { Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2' } catch { $rejected = $true }
+        if ($rejected -ne $case.rejected) { throw "Rich $phase collector disagrees at p95=$($case.p95) ms." }
+        $checks++
+    }
+    foreach ($verificationCase in @(
+        @{ name = 'numeric-zero-and-fraction'; samples = @(0, 0.125, 1.5) + @(2) * 18; rejected = $false },
+        @{ name = 'all-true'; samples = @($true) * 21; rejected = $true },
+        @{ name = 'all-false'; samples = @($false) * 21; rejected = $true },
+        @{ name = 'mixed-booleans'; samples = @($true) * 11 + @($false) * 10; rejected = $true },
+        @{ name = 'numeric-and-boolean'; samples = @(0.5) * 20 + @($true); rejected = $true }
+    )) {
+        $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+        $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $notePath -Raw | ConvertFrom-Json
+        $note.localDurability.independentFullReopenVerificationMs = $verificationCase.samples
+        $note | ConvertTo-Json -Depth 8 | Set-Content $notePath
+        $failure = $null
+        try { Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2' }
+        catch { $failure = $_.Exception.Message }
+        if (($null -ne $failure) -ne $verificationCase.rejected -or
+            ($verificationCase.rejected -and $failure -cne 'Missing, nonnumeric or invalid original latency samples.')) {
+            throw "Rich $phase independent verification collector disagrees for $($verificationCase.name): $failure"
+        }
+        $checks++
+    }
+    foreach ($defect in @('goal', 'goal-type', 'goal-met', 'ceiling', 'ceiling-type', 'temporary', 'enforced', 'informational',
+        'missing-goal', 'verification-count', 'verification-scope')) {
+        $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+        $notePath = Join-Path $fixture.prefix "$($fixture.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+        $note = Get-Content $notePath -Raw | ConvertFrom-Json
+        switch ($defect) {
+            'goal' { $note.localDurability.goalMs = 1050 }
+            'goal-type' { $note.localDurability.goalMs = $true }
+            'goal-met' { $note.localDurability.goalMet = $false }
+            'ceiling' { $note.localDurability.budgetMs = 1051 }
+            'ceiling-type' { $note.localDurability.budgetMs = $true }
+            'temporary' { $note.localDurability.temporaryCeiling = $false }
+            'enforced' { $note.localDurability.budgetEnforced = $false }
+            'informational' { $note.localDurability.timingUse = 'informational' }
+            'missing-goal' { $note.localDurability.PSObject.Properties.Remove('goalMs') }
+            'verification-count' { $note.localDurability.independentFullReopenVerificationMs = @(1) * 20 }
+            'verification-scope' { $note.localDurability.independentVerificationScope = 'earlier-prefix-only' }
+        }
+        $note | ConvertTo-Json -Depth 8 | Set-Content $notePath
+        $rejected = $false
+        try { Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2' } catch { $rejected = $true }
+        if (!$rejected) { throw "Rich $phase collector accepted misleading or incomplete $defect policy metadata." }
+        $checks++
+    }
+}
+foreach ($sample in @(
+    @('prefix', 'scale-mutation-save-prefix', 'background-export'),
+    @('tail', 'scale-mutation-delivery-tail', 'normal-executable')
+)) {
+    $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
+    $profilePath = Join-Path $fixture[$sample[0]] "$($fixture.runName)\$($sample[1])-ui-sqlite-rich-profile-latency-$($sample[2]).json"
+    $profile = Get-Content $profilePath -Raw | ConvertFrom-Json
+    $profile.samplesMs = @(1000.0001) * 21
+    $profile.p95Ms = 1000.0001
+    $profile | ConvertTo-Json -Depth 8 | Set-Content $profilePath
+    $rejected = $false
+    try { Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2' } catch { $rejected = $true }
+    if (!$rejected) { throw "Rich profile $($sample[2]) must retain its enforced1000ms p95." }
+    $checks++
+}
 foreach ($defect in @('missing-worker', 'failed-worker', 'diagnostic', 'attempt', 'budget', 'step',
     'missing-phase', 'duplicate-phase', 'failed-phase', 'scenario', 'receipt', 'snapshot', 'preferences',
     'selection', 'source-invocation', 'native', 'samples', 'during-typing', 'profile', 'lifecycle')) {
@@ -68,7 +149,7 @@ foreach ($defect in @('missing-worker', 'failed-worker', 'diagnostic', 'attempt'
     if (!$rejected) { throw "UI-scale acceptance passed $defect." }
     $checks++
 }
-Write-Host "PASS: complete split acceptance fixture plus $checks missing/failed/mismatched/duplicate/substituted/over-budget union refusals."
+Write-Host "PASS: complete split acceptance fixture plus $checks rich ceiling/policy and fail-closed union checks."
 $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
 $failedJobs = Join-Path $ResultsDirectory 'failed-upstream'
 $rejected = $false

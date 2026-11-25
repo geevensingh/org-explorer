@@ -31,7 +31,11 @@ public sealed partial class WorkspaceViewModel
         }
     }
 
-    public async Task PrepareForExitAsync(CancellationToken cancellationToken)
+    // Inner waits can finish before the exit continuation runs; cancellation must cover that gap.
+    public Task PrepareForExitAsync(CancellationToken cancellationToken) =>
+        PrepareForExitCoreAsync(cancellationToken).WaitAsync(cancellationToken);
+
+    private async Task PrepareForExitCoreAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var state = Synchronization;

@@ -111,8 +111,10 @@ public sealed partial class WorkspaceViewModel
             if (folder is null) return;
             synchronizationTimer = synchronizationClock.CreateTimer(state =>
             {
+                // Periodic ticks share active work; explicit requests retain follow-up demand.
                 lock (synchronizationLifecycle)
-                    if (!synchronizationStopped && schedule == synchronizationSchedule) _ = RequestSynchronization();
+                    if (!synchronizationStopped && schedule == synchronizationSchedule && synchronizationTask is null)
+                        _ = RequestSynchronization();
             }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
         }
     }

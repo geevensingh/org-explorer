@@ -285,9 +285,13 @@ public sealed partial class ApplicationWorkflow
                 SetSynchronizationPhase(WorkspaceSynchronizationPhase.Checking);
                 var delivered = Directory.GetFiles(folder, "*.oesnapshot").Order(StringComparer.Ordinal)
                     .Select(ReadDeliveredSnapshot).ToArray();
+                var validatedContent = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var item in delivered)
                 {
-                    using var validated = ValidateSnapshot(path, item.Data);
+                    if (validatedContent.Add(item.Hash))
+                    {
+                        using var validated = ValidateSnapshot(path, item.Data);
+                    }
                     if (!joining && item.Data.WorkspaceId != identity ||
                         delivered.Any(other => item.Data.WorkspaceId != other.Data.WorkspaceId))
                         throw new FormatException("Synchronization folder contains a different Workspace identity. Nothing adopted or overwritten.");
@@ -305,7 +309,6 @@ public sealed partial class ApplicationWorkflow
                 var newest = heads.SingleOrDefault();
                 if (newest is not null)
                 {
-                    using var candidate = ValidateSnapshot(path, newest.Data);
                     LogicalSnapshot? previous = null;
                     string? expectedRevision = null;
                     lock (workspaceGate)
@@ -330,6 +333,7 @@ public sealed partial class ApplicationWorkflow
                     }
                     if (expectedRevision is not null)
                     {
+                        using var candidate = ValidateSnapshot(path, newest.Data);
                         if (previous is not null)
                         {
                             using var validatedPrevious = ValidateSnapshot(path, previous);
@@ -347,7 +351,7 @@ public sealed partial class ApplicationWorkflow
                 else if (joining)
                     throw new IOException("No complete Workspace snapshot is available to join. Incomplete delivery is not an empty Workspace.");
                 SetSynchronizationPhase(WorkspaceSynchronizationPhase.Publishing);
-                PublishLocalSnapshot(path, folder);
+                PublishLocalSnapshot(path, folder, validatedContent);
                 synchronization = Synchronization with { Error = null, Phase = WorkspaceSynchronizationPhase.Idle };
                 Status = Synchronization.Summary;
                 result = true;
@@ -487,7 +491,7 @@ public sealed partial class ApplicationWorkflow
         }
     }
 
-    private void PublishLocalSnapshot(string path, string folder)
+    private void PublishLocalSnapshot(string path, string folder, HashSet<string> validatedContent)
     {
         LogicalSnapshot snapshot;
         lock (workspaceGate)
@@ -498,6 +502,7 @@ public sealed partial class ApplicationWorkflow
         }
         using var validated = ValidateSnapshot(path, snapshot);
         var encoded = EncodeSnapshot(snapshot);
+        validatedContent.Add(encoded.Hash);
         EnsureSnapshotArtifact(folder, encoded);
         lock (workspaceGate)
         {
@@ -518,7 +523,7 @@ public sealed partial class ApplicationWorkflow
             transaction.Commit();
             OpenLocalSqlite(false);
         }
-        ReclaimRoutineSnapshots(path, folder, snapshot);
+        ReclaimRoutineSnapshots(path, folder, snapshot, validatedContent);
     }
 
     private void EnsureSnapshotArtifact(string folder, DeliveredSnapshot encoded)

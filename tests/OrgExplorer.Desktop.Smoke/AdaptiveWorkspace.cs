@@ -52,7 +52,13 @@ internal static partial class Program
     private static extern void mouse_event(uint flags, uint x, uint y, uint data, nuint extra);
 
     private static double DpiScale(AutomationElement window) =>
-        GetDpiForWindow((IntPtr)window.Current.NativeWindowHandle) / 96d;
+        DpiScale(window, out _);
+
+    private static double DpiScale(AutomationElement window, out IntPtr handle)
+    {
+        handle = (IntPtr)window.Current.NativeWindowHandle;
+        return GetDpiForWindow(handle) / 96d;
+    }
 
     private static void ResizeWindow(AutomationElement window, double width, double height)
     {

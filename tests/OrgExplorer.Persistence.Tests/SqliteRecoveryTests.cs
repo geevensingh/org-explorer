@@ -13,6 +13,39 @@ public sealed partial class SqliteWorkspaceTests
     [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
+    public async Task Exit_cancellation_finishes_within_one_second_across_a_completed_await_continuation_gap(NoteScope scope)
+    {
+        var start = new ProcessStartInfo("dotnet")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "exec", "--runtimeconfig",
+            Path.ChangeExtension(typeof(SqliteWorkspaceTests).Assembly.Location, ".runtimeconfig.json"),
+            typeof(StorageCrash).Assembly.Location, "exit-cancellation", Workspace, scope.ToString() })
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ??
+            throw new InvalidOperationException("The owned exit-cancellation fixture process did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15)); }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(true); await process.WaitForExitAsync(); }
+        }
+        var text = await output;
+        Console.WriteLine("EXIT-CANCELLATION-CAUSAL " + text);
+        Assert.Equal(0, process.ExitCode);
+        var stderr = await errors;
+        Assert.True(string.IsNullOrEmpty(stderr), stderr);
+        using var observation = System.Text.Json.JsonDocument.Parse(text);
+        Assert.Equal(process.Id, observation.RootElement.GetProperty("processId").GetInt32());
+        Assert.True(observation.RootElement.GetProperty("completed").GetBoolean());
+        Assert.True(observation.RootElement.GetProperty("cancelled").GetBoolean());
+        Assert.True(observation.RootElement.GetProperty("realCommitHeld").GetBoolean());
+        Assert.True(observation.RootElement.GetProperty("completedAwaitGap").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(NoteScope.Person)]
+    [InlineData(NoteScope.Team)]
     public async Task Canceling_exit_during_a_stalled_real_transaction_preserves_exact_drafts_fault_and_browsing(NoteScope scope)
     {
         var clock = new SaveClock();
