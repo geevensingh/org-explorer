@@ -124,6 +124,18 @@ function Assert-UnchangedReleaseBaseline($Plan) {
     if ($source -cne $Plan.lastSourceSha -or $tag -cne $Plan.lastTag) { throw 'Another publication changed the comparison baseline. Replan from successful main CI; never replace it with an older build.' }
 }
 
+function Format-ReleaseSubject([string]$Subject, [string]$SourceSha) {
+    if ([string]::IsNullOrWhiteSpace($Subject) -or $Subject -match '\p{Cc}') {
+        throw "Unusable source commit subject for $SourceSha. Publication stopped before tag or draft creation."
+    }
+    # A padded code span preserves literal text, including GitHub mentions/emoji and embedded backticks.
+    $delimiter = '`'
+    foreach ($ticks in [regex]::Matches($Subject, '`+')) {
+        if ($ticks.Length -ge $delimiter.Length) { $delimiter = '`' * ($ticks.Length + 1) }
+    }
+    return "$delimiter $Subject $delimiter"
+}
+
 function Publish-Release($Plan, [string]$ReleaseDirectory, [long]$CiRunId, [Security.Cryptography.ECDsa]$Key, [string]$KeyId,
     [string]$Root = (Split-Path $PSScriptRoot -Parent)) {
     if (!$Plan.publish -or $Plan.tag -cne "v$($Plan.version)") { throw 'This plan does not authorize an app publication.' }
@@ -133,17 +145,49 @@ function Publish-Release($Plan, [string]$ReleaseDirectory, [long]$CiRunId, [Secu
     try {
         $subject = (Invoke-ReleaseGit $Root @('show', '-s', '--encoding=UTF-8', '--format=%s', $Plan.sourceSha, '--')) -join "`n"
     } catch { throw "Cannot resolve source commit subject for $($Plan.sourceSha). Publication stopped before tag or draft creation: $_" }
-    if ([string]::IsNullOrWhiteSpace($subject) -or $subject -match '\p{Cc}') {
-        throw "Unusable source commit subject for $($Plan.sourceSha). Publication stopped before tag or draft creation."
-    }
-    # A padded code span preserves literal text, including GitHub mentions/emoji and embedded backticks.
-    $delimiter = '`'
-    foreach ($ticks in [regex]::Matches($subject, '`+')) {
-        if ($ticks.Length -ge $delimiter.Length) { $delimiter = '`' * ($ticks.Length + 1) }
-    }
-    $subject = "$delimiter $subject $delimiter"
+    $subject = Format-ReleaseSubject $subject $Plan.sourceSha
+    try {
+        if ((Invoke-ReleaseGit $Root @('rev-parse', '--is-shallow-repository')) -cne 'false') {
+            throw 'Release descriptions require complete history, not a shallow checkout. Fetch full history before publication.'
+        }
+        $range = $Plan.sourceSha
+        if ($Plan.lastSourceSha) {
+            $null = Invoke-ReleaseGit $Root @('merge-base', '--is-ancestor', $Plan.lastSourceSha, $Plan.sourceSha)
+            $mainline = @(Invoke-ReleaseGit $Root @('rev-list', '--first-parent', $Plan.sourceSha, '--'))
+            if ($Plan.lastSourceSha -cnotin $mainline) {
+                throw 'The last successful app source is not on the candidate first-parent mainline. Reconcile the release history; do not guess a range.'
+            }
+            $range = "$($Plan.lastSourceSha)..$($Plan.sourceSha)"
+        }
+        $commits = @(Invoke-ReleaseGit $Root @('log', '--first-parent', '--reverse', '--encoding=UTF-8',
+            '--format=%H%x00%s', $range, '--'))
+    } catch { throw "Cannot resolve changes since the last successful release. Publication stopped before tag or draft creation: $_" }
+    if ($commits.Count -eq 0) { throw 'No mainline changes in the authorized release range. Publication stopped before tag or draft creation.' }
+    $repositoryUrl = "https://github.com/$ReleaseRepository"
+    $description = @(
+        '## Changes since the last successful release'
+        ''
+        if ($Plan.lastSourceSha) {
+            "Since [$($Plan.lastTag)]($repositoryUrl/releases/tag/$($Plan.lastTag)). [Full comparison]($repositoryUrl/compare/$($Plan.lastSourceSha)...$($Plan.sourceSha))."
+        } else {
+            'First product release; no previous successful app release.'
+        }
+        ''
+        foreach ($commit in $commits) {
+            if ($commit -cnotmatch '^(?<sha>[0-9a-f]{40})\x00(?<subject>.*)\z') {
+                throw 'Unusable mainline commit record. Publication stopped before tag or draft creation.'
+            }
+            $sha = $Matches.sha
+            $changeSubject = Format-ReleaseSubject $Matches.subject $sha
+            "- [$($sha.Substring(0, 7))]($repositoryUrl/commit/$sha) $changeSubject"
+        }
+        ''
+        '## Technical provenance'
+        ''
+        "Source commit: $subject"
+    ) -join "`n"
     Publish-VerifiedReleaseDraft -PublicationTag $Plan.tag -SourceSha $Plan.sourceSha -Name "Org explorer $($Plan.version)" `
-        -Body "Source commit: $subject`n`nExact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing." `
+        -Body "$description`n`nExact source: $($Plan.sourceSha). Trusted CI: $CiRunId. Fresh complete scale verification: $($provenance.verificationRunId). See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing." `
         -ReleaseDirectory $ReleaseDirectory -BeforePromotion {
             Assert-ReleaseInventory -ReleaseDirectory $ReleaseDirectory -Version $Plan.version -Key $Key -KeyId $KeyId
             Assert-UnchangedReleaseBaseline $Plan
