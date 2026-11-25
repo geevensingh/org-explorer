@@ -106,6 +106,8 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            AssertGroupedImportDisclosure(window, "avery@example.com", "Add",
+                ["Directory name: Avery Example", "Manager: morgan@example.com", "Photo: Supplied local image"]);
             CaptureVisualEvidence(window, "settings-import-enter-preview");
             using (var saved = ApplicationWorkflow.CreateFileBacked())
             {
@@ -279,6 +281,17 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
+            AssertGroupedImportDisclosure(window, "avery@example.com", "2 changes",
+                ["Department: Research → (clear)", "Office number: 007B → 0009C"]);
+            var reviewedUpdate = File.ReadAllText(import);
+            File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"archived\":true"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertGroupedImportDisclosure(window, "avery@example.com", "Archive; 3 changes",
+                ["Archive: Current → Archived; retain profile and local context"]);
+            File.WriteAllText(import, reviewedUpdate);
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             ReturnToPeople(window);
             AssertProfileValue(window, "OfficeNumber", "007B");
             OpenImportView(window);

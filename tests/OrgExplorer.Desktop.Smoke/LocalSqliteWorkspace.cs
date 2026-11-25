@@ -109,7 +109,8 @@ internal static partial class Program
             Invoke("PreviewButton");
             PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
             if (workflow.People.Count != 0 ||
-                !Control<ListBox>("PreviewText").Items.Cast<string>().Any(text => text.Contains("avery@example.com")))
+                !System.Windows.Automation.AutomationProperties.GetName(Control<ListBox>("PreviewText"))
+                    .Contains("avery@example.com"))
                 throw new InvalidOperationException("The compiled SQLite Import preview lost its reviewed Person or accepted data before Apply.");
             Invoke("ApplyButton");
             PumpUntil(() => workflow.People.Count == 2 && Control<TextBlock>("WorkflowActivity").Text == "Ready");

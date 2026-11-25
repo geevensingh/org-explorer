@@ -1292,7 +1292,8 @@ internal static partial class Program
         var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
         File.WriteAllText(import, """
             {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000073",
-             "observedAt":"2026-11-02T17:00:00Z","people":[{"email":"avery@example.com","officeNumber":"123"}]}
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","officeNumber":"123","department":null}]}
             """);
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1302,16 +1303,36 @@ internal static partial class Program
             new UnshownInputSource { RootVisual = (Visual)window.Content }, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent };
         path.RaiseEvent(enter);
         PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
-        if (!enter.Handled || !((ListBox)window.FindName("PreviewText")).Items.Cast<string>().Any(text =>
-                text.Contains("123", StringComparison.Ordinal)))
+        var review = (ListBox)window.FindName("PreviewText");
+        if (!enter.Handled || review.Items.Count != 1 ||
+            !System.Windows.Automation.AutomationProperties.GetName(review).Contains("123", StringComparison.Ordinal))
             throw new InvalidOperationException("Import-path Enter did not produce the same explicit reviewed preview.");
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(1100, 900));
+        root.Arrange(new Rect(0, 0, 1100, 900));
+        root.UpdateLayout();
+        var disclosure = VisualDescendants(review).OfType<Expander>().Single();
+        if (disclosure.IsExpanded ||
+            System.Windows.Automation.AutomationProperties.GetName(disclosure) != "avery@example.com — 2 changes")
+            throw new InvalidOperationException("The compiled Person review must start collapsed with one semantic change count.");
+        disclosure.ApplyTemplate();
+        var toggle = VisualDescendants(disclosure).OfType<ToggleButton>().First();
+        if (!toggle.Focusable || !KeyboardNavigation.GetIsTabStop(toggle))
+            throw new InvalidOperationException("The native Person disclosure is not keyboard accessible.");
+        ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+        root.UpdateLayout();
+        var detailText = VisualDescendants(disclosure).OfType<TextBlock>().Select(t => t.Text).ToArray();
+        if (!disclosure.IsExpanded || review.Items.Count != 1 ||
+            !detailText.Contains("Department: Research → (clear)") ||
+            !detailText.Contains("Office number: 007B → 123"))
+            throw new InvalidOperationException("Inline expansion lost the complete differences or duplicated the Person entry.");
         AssertWorkspaceBytes(folder, before);
         var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
         back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (((Button)window.FindName("ApplyButton")).IsEnabled)
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
-        Console.WriteLine("PASS: compiled Import-path Enter previews without applying or changing saved Workspace bytes.");
+        Console.WriteLine("PASS: compiled Import-path Enter groups two differences in one collapsed native disclosure, expands complete details, and preserves saved Workspace bytes.");
     }
 
     private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)

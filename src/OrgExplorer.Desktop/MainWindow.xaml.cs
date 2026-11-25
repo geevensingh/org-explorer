@@ -208,9 +208,7 @@ public partial class MainWindow : Window
         {
             var path = ImportPath.Text;
             var result = await RunWorkflowAsync(() => workflow.PreviewImportFile(path), "Validating Import preview…", isImport: true);
-            var messages = result.Errors.Concat(result.Warnings).Concat(result.Changes).ToArray();
-            PreviewText.ItemsSource = messages;
-            System.Windows.Automation.AutomationProperties.SetName(PreviewText, string.Join("\n", messages));
+            ShowImportReview(result);
             preview = result.CanApply ? result.Id : null;
             ApplyButton.IsEnabled = result.CanApply;
             ShowStatus();

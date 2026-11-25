@@ -116,7 +116,13 @@ public sealed class PhotoTests : IDisposable
         Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
         Assert.True(app.EditPhoto("avery@example.com", null), app.Status);
         var import = Import("\"avery.png\"", 2);
-        Assert.True(app.ApplyImport(app.PreviewImportFile(import).Id), app.Status);
+        var preview = app.PreviewImportFile(import);
+        var photoChange = Assert.Single(Assert.Single(preview.People).Changes);
+        Assert.Equal(ImportChangeKind.Photo, photoChange.Kind);
+        Assert.Equal("photoPath", photoChange.Field);
+        Assert.Null(photoChange.Before);
+        Assert.Equal("supplied local image", photoChange.After);
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
         using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);
         var changes = reopened.GetProfileTimeline("avery@example.com")!.Changes;
@@ -140,6 +146,10 @@ public sealed class PhotoTests : IDisposable
         Assert.Equal(Png, app.GetPhoto("avery@example.com")!.Bytes.ToArray());
         var clear = app.PreviewImportFile(Import("null", 3, "Avery Updated"));
         Assert.Contains(clear.Changes, change => change.Contains("Photo") && change.Contains("clear"));
+        var photoChange = Assert.Single(Assert.Single(clear.People).Changes);
+        Assert.Equal(ImportChangeKind.Photo, photoChange.Kind);
+        Assert.Null(photoChange.Before);
+        Assert.Null(photoChange.After);
         Assert.True(app.ApplyImport(clear.Id), app.Status);
         using var reopened = CreateWorkflow();
         Assert.True(reopened.OpenWorkspace(Workspace), reopened.Status);

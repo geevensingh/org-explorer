@@ -64,6 +64,16 @@ evidence, publication rejection, earlier-success rejection, identity correction,
 JSON array cardinality and process exit status.
 No live M365 connection or desktop automation is involved.
 
+Grouped import review uses the public import-preview/Apply seam in
+`ReportingImportTests`: ordered per-Person differences, addition baselines,
+distinct lifecycle/preference actions, full long values, clears and exact replay.
+Existing history and photo cases retain same-value Observations and meaningful
+Photo-clear outcomes. The invisible compiled Import-path Enter contract checks
+one initially collapsed native disclosure and complete inline expansion without
+changing saved bytes. The hosted profile journey separately checks rendered Add,
+two-change and Archive/count entries, full expanded details and Space-key
+disclosure. Neither the in-memory nor compiled checks are hosted WPF evidence.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled

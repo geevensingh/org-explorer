@@ -1,6 +1,7 @@
 <Window x:Class="OrgExplorer.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         xmlns:workflow="clr-namespace:OrgExplorer.Workflow;assembly=OrgExplorer.Workflow"
         xmlns:local="clr-namespace:OrgExplorer.Desktop"
         Title="Org explorer" Width="1100" Height="900" MinWidth="700" MinHeight="500"
@@ -9,6 +10,33 @@
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
+    <DataTemplate DataType="{x:Type local:ImportReviewEntry}">
+      <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                AutomationProperties.AutomationId="{Binding AutomationId}"
+                AutomationProperties.Name="{Binding AccessibleSummary}">
+        <Expander.Header>
+          <DockPanel LastChildFill="True" ToolTip="{Binding AccessibleSummary}">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Margin="12,0,0,0"
+                       TextWrapping="NoWrap"/>
+            <TextBlock Text="{Binding Email}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+          </DockPanel>
+        </Expander.Header>
+        <StackPanel Margin="24,8,8,12">
+          <TextBox Text="{Binding Email, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
+                   BorderThickness="0" Background="Transparent" Padding="0"
+                   AutomationProperties.Name="Full Person email" Margin="0,0,0,8"/>
+          <TextBlock Text="{Binding DetailHeading}" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <ItemsControl ItemsSource="{Binding Details}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6"/>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Expander>
+    </DataTemplate>
     <SolidColorBrush x:Key="AccentBrush" Color="#0969DA"/>
     <SolidColorBrush x:Key="MutedBrush" Color="#576B82"/>
     <SolidColorBrush x:Key="SeparatorBrush" Color="#DCE5EF"/>
@@ -545,10 +573,18 @@
         <ListBox x:Name="PreviewText" AutomationProperties.AutomationId="Preview"
                  AutomationProperties.Name="Import changes will appear here. No data changes until Apply."
                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.CanContentScroll="True"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-          <ListBox.ItemTemplate>
-            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
-          </ListBox.ItemTemplate>
+          <ListBox.Resources>
+            <DataTemplate DataType="{x:Type sys:String}">
+              <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+            </DataTemplate>
+          </ListBox.Resources>
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            </Style>
+          </ListBox.ItemContainerStyle>
         </ListBox>
       </DockPanel>
     </Grid>
