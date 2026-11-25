@@ -79,6 +79,13 @@ menu/writing/focus/visibility assertions and 20-second observation deadline rema
 Runner cases replay the captured external effects through the actual preparation
 input-selection seam; the compiled contract also uses the actual non-focusable
 disclosure Toggle binding. Ordinary provider behavior is unchanged.
+The exact command-target viewport predicate remains required at every actual
+menu-action, no-op and search-clear boundary. Final ordinary fixture restoration
+still requires unchanged profile/writing and an open People panel, but its
+focus-induced scrolling is not attributed to the preceding Collapse command.
+Run `45698927097` captured this distinction after all command checks passed;
+connected runner regressions keep invisible command targets and lost writing
+as failures while permitting that later ordinary restoration.
 `TREE-MENU-EXPANSION` retains bounded fresh row/profile/panel/focus observations,
 the request input and provider state, and a failure capture if necessary.
 Diagnostic refusal is separate and does not replace the original failure.

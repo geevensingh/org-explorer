@@ -3,6 +3,14 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static class TreeItemRealization
 {
     internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow }
+    internal enum MenuRetentionBoundary { Command, OrdinaryFixtureRestoration }
+
+    internal static void AssertMenuRetention(MenuRetentionBoundary boundary,
+        Action assertContentRetained, Action assertTargetVisible)
+    {
+        assertContentRetained();
+        if (boundary != MenuRetentionBoundary.OrdinaryFixtureRestoration) assertTargetVisible();
+    }
 
     internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
         Action<Func<bool>> awaitState) =>
