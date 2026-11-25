@@ -26,12 +26,15 @@ internal static partial class Program
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: true, newerWhilePending: true);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: false, newerWhilePending: true);
         VerifyPreferredNameOriginalDuringReturn(windowType, settings);
-        VerifyPreferredNameFailedDefaultReturn(windowType, settings);
+        VerifyPreferredNameFailedDefaultReturn(windowType, settings, populatedBase: false);
+        VerifyPreferredNameFailedDefaultReturn(windowType, settings, populatedBase: true);
     }
 
-    private static void VerifyPreferredNameFailedDefaultReturn(Type windowType, string settings)
+    private static void VerifyPreferredNameFailedDefaultReturn(Type windowType, string settings, bool populatedBase)
     {
-        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-default-failure"));
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-failure-" + populatedBase));
+        if (populatedBase && !fixture.Model.EditPreferredName("avery@example.com", "Avery"))
+            throw new InvalidOperationException(fixture.Model.Status);
         fixture.Select("avery@example.com");
         var basis = fixture.Model.GetRelationships("avery@example.com")!.Person;
         fixture.Click("EditPreferredNameButton");
@@ -81,7 +84,7 @@ internal static partial class Program
         if (fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName) is not null ||
             fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("Cancel did not release only the failed default entry.");
-        Console.WriteLine("PASS: failed untouched Directory-name default Save retains exact text, immutable base and inline error across browsing and stale retry.");
+        Console.WriteLine($"PASS: failed untouched Directory-name default Save retains exact text, immutable base and inline error across browsing and stale retry; populatedBase={populatedBase}.");
     }
 
     private static void VerifyProfileRetryOwner(Type windowType, string settings)

@@ -82,6 +82,32 @@ public class PersonAttributeTests
         Assert.False(app.RestartWhenSafe(_ => Assert.Fail("Independent writing must still prevent restart.")));
     }
 
+    [Fact]
+    public void Explicit_original_Preferred_name_submission_retains_rejection_without_prior_typing()
+    {
+        var inner = ApplicationWorkflow.CreateInMemory();
+        using var app = new WorkspaceViewModel(inner);
+        Assert.True(app.OpenWorkspace("fictitious"));
+        var batch = CompleteBatch.Replace("\"Avery Example\"", "\"Avery\"").Replace("\"Ave\"", "\"Avery\"");
+        Assert.True(app.ApplyImport(app.PreviewImport(batch).Id));
+        var basis = Assert.Single(app.People);
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(inner.EditPreferredName(basis.Email, "Delivered Preferred name"));
+
+        Assert.Null(app.SavePersonTextDraft(basis, PersonTextField.PreferredName, basis.PreferredName));
+
+        var retained = Assert.IsType<RetainedPersonTextDraft>(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.Equal(basis, retained.Basis);
+        Assert.Equal("Avery", retained.Value);
+        Assert.Contains("changed externally", retained.Error!);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Delivered Preferred name", Assert.Single(app.People).PreferredName);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        Assert.Null(app.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName));
+        Assert.True(app.CanSafelyClose, app.Status);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

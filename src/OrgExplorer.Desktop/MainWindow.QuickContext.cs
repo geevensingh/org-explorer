@@ -92,7 +92,7 @@ public partial class MainWindow
         var text = PreferredName.Text;
         var value = text.Length == 0 ? null : text;
         if (RetainsPersonDrafts)
-            workflow.RetainPersonTextDraft(basis, PersonTextField.PreferredName, value);
+            workflow.RetainPersonTextSubmission(basis, PersonTextField.PreferredName, value);
         preferredNameSavePending = true;
         PersonProfile? accepted;
         try

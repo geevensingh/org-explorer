@@ -132,6 +132,8 @@ Fresh compact entries display Preferred name, otherwise Directory name, otherwis
 empty, without retaining or publishing that default. Explicit Save/Enter captures
 the submitted text and original base before asynchronous work begins, so an
 untouched default survives pending or rejected submission and owner browsing.
+Explicit submissions remain retained even when their text equals the original
+Preferred name; only unsubmitted original-value typing is retired as clean.
 Save/Enter clears a valid
 name equivalent to the current accepted Directory name, ignoring capitalization
 and outer whitespace only; distinct text retains its exact storage behavior.
@@ -1311,6 +1313,8 @@ show a window or create a native main-window handle; they are not hosted
 interaction or latency acceptance.
 The untouched-default regression holds the actual local read to check submitted
 retention before completion, then browses A-B-A after a same-field rejection.
+Both an unset Preferred name and an existing Directory-equivalent Preferred name
+retain the explicit submission without retaining an untouched editor on opening.
 Exact submitted text, original base and the retained failure remain available
 for stale retry until deliberate cancellation; reopening preserves external data.
 

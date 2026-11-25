@@ -71,7 +71,11 @@ public sealed partial class ApplicationWorkflow
     {
         var key = (basis.Email.ToLowerInvariant(), field);
         lock (profileDraftGate)
+        {
             personTextSaveRequests[key] = personTextSaveRequests.GetValueOrDefault(key) + 1;
+            if (field == PersonTextField.PreferredName)
+                retainedPersonTextDrafts.TryAdd(key, value);
+        }
         try { return CanBeginLocalSave() ? TrackLocalSave(() => SavePersonTextDraftCore(basis, field, value)) : null; }
         finally
         {
