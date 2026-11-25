@@ -225,18 +225,27 @@ public partial class MainWindow
         }, DispatcherPriority.Loaded);
     }
 
+    partial void ObserveRevealLifecycle(string stage, int request, string? email, FrameworkElement? row, Rect? target);
+
     private void RevealSelectedPerson()
     {
+        ObserveRevealLifecycle("request-considered", peopleBrowseRequest, pendingPeopleRevealEmail, null, null);
         if (!workflow.PeopleNavigation.IsBrowsing || ExplorerPanel.Visibility != Visibility.Visible ||
             PeoplePanel.Visibility != Visibility.Visible || workflow.IsImportOpen) return;
         var email = pendingPeopleRevealEmail;
         var request = ++peopleBrowseRequest;
+        ObserveRevealLifecycle("request-queued", request, email, null, null);
         Dispatcher.BeginInvoke(() =>
         {
             if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
                 email != workflow.PeopleNavigation.SelectedEmail || !workflow.IsWorkspaceCurrent ||
                 !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
-                ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible) return;
+                ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible)
+            {
+                ObserveRevealLifecycle("callback-rejected", request, email, null, null);
+                return;
+            }
+            ObserveRevealLifecycle("callback-valid", request, email, null, null);
             FrameworkElement? row;
             if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
             {
@@ -255,11 +264,15 @@ public partial class MainWindow
             }
             if (row is null)
             {
+                ObserveRevealLifecycle("row-unavailable", request, email, null, null);
                 StatusText.Text = "The Person is open, but their People row could not be revealed. Reopen People to try again.";
                 return;
             }
+            ObserveRevealLifecycle("realization-complete", request, email, row, null);
             // Root rows can reserve a wider browsing extent; reveal the header's leading edge, not its trailing blank width.
-            row.BringIntoView(new Rect(0, 0, 1, Math.Min(28, row.ActualHeight)));
+            var target = new Rect(0, 0, 1, Math.Min(28, row.ActualHeight));
+            ObserveRevealLifecycle("bring-call", request, email, row, target);
+            row.BringIntoView(target);
             if (wideWorkspace)
             {
                 FocusManager.SetFocusedElement(this, row);
@@ -273,6 +286,7 @@ public partial class MainWindow
                     workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
                     ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
                     RememberPeopleBrowsing();
+                ObserveRevealLifecycle("context-idle-result", request, email, row, target);
             }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);
     }

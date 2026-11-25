@@ -2525,6 +2525,21 @@ UIA lookups, action retries, corrective scrolling, changed cadence or new
 deadline; the original exception is rethrown. No private names or writing are
 recorded. Remove this capture and dispatch route after the native cause is
 proved/fixed; diagnostic evidence is never final clean acceptance.
+The same temporary diagnostic dispatch alone compiles `RevealLifecycleFile`
+and supplies `ORG_EXPLORER_REVEAL_LIFECYCLE_FILE` under its result directory.
+Normal builds erase the partial observation calls and include neither observer
+nor recorder in the application. `reveal-lifecycle.json` is tagged
+`DEBUG-136-REVEAL-LIFECYCLE` and retains at most 16 records: the first eight
+and last eight original request/guard, realization, single BringIntoView and
+context-idle observations. It records only booleans/counters, measure/arrange
+state, target/relative geometry and scroll viewport/extent/offset, never private
+identifiers or writing. Recording is bounded in memory; one coalesced worker
+publishes snapshots after dispatcher context idle, outside the reveal action.
+Output failure is retained as bounded type/HResult evidence and a fixed stderr
+marker without replacing product outcomes; missing output is also marked in the
+diagnostic execution metadata. This adds no UIA lookups or corrective actions.
+Remove observer, recorder, partial hooks and build/dispatch routing with the other
+temporary diagnostics after native cause/fix verification.
 The full selection and `update-settings` require the prepared update fixture and
 matching test-trust build; a production-trust build cannot substitute for that
 controlled evidence. Other focused scenarios may use a normal build.

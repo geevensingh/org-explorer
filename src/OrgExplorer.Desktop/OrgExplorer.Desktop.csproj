@@ -13,6 +13,9 @@
     <UpdateTrustFile Condition="'$(UpdateTrustFile)' == ''">$(MSBuildProjectDirectory)\update-trust.json</UpdateTrustFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(RevealLifecycleFile)" Link="RevealLifecycleDiagnostics.cs" Condition="'$(RevealLifecycleFile)' != ''" />
+    <Compile Include="..\..\tests\OrgExplorer.Desktop.Smoke\RevealLifecycleRecorder.cs"
+             Link="RevealLifecycleRecorder.cs" Condition="'$(RevealLifecycleFile)' != ''" />
     <Compile Remove="UpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <Compile Include="$(UpdateEffectsFile)" Link="ControlledUpdateEffects.cs" Condition="'$(UpdateEffectsFile)' != ''" />
     <Compile Include="..\..\tests\WorkspacePublicState.cs" Link="WorkspacePublicState.cs" Condition="'$(UpdateEffectsFile)' != ''" />

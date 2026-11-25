@@ -30,6 +30,8 @@ $ceilingSeconds = if ($Lane -eq 'core') { 300 } `
 $env:SCALE_TIMING_FILE = Join-Path $results 'scale-measurements.log'
 $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
+$previousRevealLifecycleFile = $env:ORG_EXPLORER_REVEAL_LIFECYCLE_FILE
+$env:ORG_EXPLORER_REVEAL_LIFECYCLE_FILE = if ($InvestigateProfileJourney) { Join-Path $results 'reveal-lifecycle.json' } else { $null }
 $complete = $false
 if ($partition -or $InvestigateProfileJourney) {
     $executionRevision = git rev-parse HEAD
@@ -119,6 +121,9 @@ try {
             Invoke-BudgetedDotnet restore-app @('restore', 'src\OrgExplorer.Desktop', '--locked-mode')
             Invoke-BudgetedDotnet restore-tests @('restore', 'tests\OrgExplorer.Desktop.Smoke', '--locked-mode')
             $buildArguments = @('build', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore')
+            if ($InvestigateProfileJourney) {
+                $buildArguments += "-p:RevealLifecycleFile=$(Join-Path $root 'tests\RevealLifecycleDiagnostics.cs')"
+            }
             if (!$highResolution -and !$InvestigateProfileJourney) {
                 $buildArguments += @("-p:UpdateTrustFile=$(Join-Path $updateFixture 'trust.json')",
                     "-p:UpdateEffectsFile=$(Join-Path $root 'tests\ControlledUpdateEffects.cs')")
@@ -162,6 +167,7 @@ try {
     $complete = $true
 } finally {
     $env:ORG_EXPLORER_UPDATE_FIXTURE = $previousUpdateFixture
+    $env:ORG_EXPLORER_REVEAL_LIFECYCLE_FILE = $previousRevealLifecycleFile
     if ($updateFixture -and (Test-Path -LiteralPath $updateFixture)) { Remove-Item -LiteralPath $updateFixture -Recurse -Force }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
@@ -178,6 +184,10 @@ try {
             $metadata.Remove('partition')
             $metadata.diagnosticOnly = $true
             $metadata.scenario = 'profile-journey'
+            $metadata.lifecycleEvidencePresent = Test-Path -LiteralPath (Join-Path $results 'reveal-lifecycle.json')
+            if (!$metadata.lifecycleEvidencePresent) {
+                [Console]::Error.WriteLine('DEBUG-136-REVEAL-LIFECYCLE output-incomplete: lifecycle file is missing.')
+            }
         }
         $metadata | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $results 'execution.json')
     }
