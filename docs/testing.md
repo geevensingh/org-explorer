@@ -86,6 +86,16 @@ focus-induced scrolling is not attributed to the preceding Collapse command.
 Run `45698927097` captured this distinction after all command checks passed;
 connected runner regressions keep invisible command targets and lost writing
 as failures while permitting that later ordinary restoration.
+Run `45707651375` additionally captured an initially shown archived list consuming
+the entire current-tree viewport before any menu input. The menu subjourney
+captures that initial state, conditionally hides the list once, awaits a real
+current-tree viewport, and conditionally restores the list once after successful
+command checks. These two reconciled fixture inputs preserve the same archived
+profile/exact draft and the original archived reading/editing matrices; they are
+not input retries or product-layout changes. An unexpected visibility change or
+unreached preparation remains a failure, without repair. Runner and actual
+compiled CheckBox binding cases cover this setup/restoration; all actual
+mouse/keyboard/menu/target checks remain unchanged and require hosted evidence.
 `TREE-MENU-EXPANSION` retains bounded fresh row/profile/panel/focus observations,
 the request input and provider state, and a failure capture if necessary.
 Diagnostic refusal is separate and does not replace the original failure.
