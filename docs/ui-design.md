@@ -153,9 +153,14 @@ A retained label is hidden and not editable while that requirement is unmet.
 
 Immediately after Team name, show a compact `Reporting structure` fact when the
 selected Person has at least one current, non-archived direct report. Use the
-ordinary facts grid, not a separate card, chart, or large-number tiles. Put Total
-and every supported category count in short inline text, initially Total,
-Employees, and Vendors, including zero counts. Only the count value uses a
+ordinary facts grid, not a separate card, chart, or large-number tiles. Put
+reporting counts in short inline text, omitting zero-count categories. Omit
+the explicit total when exactly one category has descendants: `4 employees` or
+`4 vendors`. For mixed categories, show the total followed by the nonzero
+category counts: `4 total, 3 employees, 1 vendor`. Use lowercase category nouns,
+singular forms for one (`1 employee`, `1 vendor`), comma separators, and
+category-definition order, initially Employees before Vendors. Only the count
+value uses a
 borderless, read-only selectable text control: selection and Copy are available,
 but the derived counts cannot be edited. Keep ordinary fact typography and
 content-sized spacing. Let the text wrap at narrow widths
