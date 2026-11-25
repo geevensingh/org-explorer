@@ -204,10 +204,8 @@ internal static partial class Program
                 else PrimaryClick(() => Find(window, "SearchQuery"));
                 AssertPreferredNameReading(window, "", "Add preferred name");
                 Await(() => Find(window, dismissal == "outside" ? "SearchQuery" : "EditPreferredName").Current.HasKeyboardFocus);
-                using var saved = OpenSmokeWorkspace(workspace);
-                if (saved.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
-                    saved.GetRelationships("avery@example.com")!.Person.DirectoryName != "Avery Example")
-                    throw new InvalidOperationException("Dismissing the untouched Directory-name default changed durable names: " + dismissal);
+                AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                    "Dismissing the untouched Directory-name default changed durable names: " + dismissal);
             }
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
@@ -216,10 +214,8 @@ internal static partial class Program
             PrimaryClick(() => Find(entry, "SavePreferredName"));
             Await(() => Status(window) == "Saved locally.");
             AssertPreferredNameReading(window, "", "Add preferred name");
-            using (var saved = OpenSmokeWorkspace(workspace))
-                if (saved.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
-                    saved.GetRelationships("avery@example.com")!.Person.DirectoryName != "Avery Example")
-                    throw new InvalidOperationException("Physical Save of the unchanged Directory-name default created an override.");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Save of the unchanged Directory-name default created an override.");
             Click(window, "EditPreferredName");
             entry = PreferredNameEntry(window);
             AssertValue(entry, "PreferredName", "Avery Example");
@@ -271,10 +267,8 @@ internal static partial class Program
             Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
             PressCopyKey(0x0D);
             AssertPreferredNameReading(window, "", "Add preferred name");
-            using (var saved = OpenSmokeWorkspace(workspace))
-                if (saved.GetRelationships("avery@example.com")!.Person.PreferredName is not null ||
-                    saved.GetRelationships("avery@example.com")!.Person.DirectoryName != "Avery Example")
-                    throw new InvalidOperationException("Physical Enter did not clear an equivalent Preferred name while preserving Directory name.");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Enter did not clear an equivalent Preferred name while preserving Directory name.");
             Click(window, "EditPreferredName");
             entry = PreferredNameEntry(window);
             AssertValue(entry, "PreferredName", "Avery Example");
@@ -377,6 +371,15 @@ internal static partial class Program
             ClosePublishedWorkspace(process, workspace);
         }
         finally { if (process is not null) StopApplication(process); }
+    }
+
+    private static void AssertSavedPersonNames(string workspace, string email,
+        string? expectedPreferredName, string? expectedDirectoryName, string failureMessage)
+    {
+        using var saved = OpenSmokeWorkspace(workspace);
+        var person = saved.GetRelationships(email)!.Person;
+        if (person.PreferredName != expectedPreferredName || person.DirectoryName != expectedDirectoryName)
+            throw new InvalidOperationException(failureMessage);
     }
 
     private static void BeginProfileEditing(AutomationElement window)
