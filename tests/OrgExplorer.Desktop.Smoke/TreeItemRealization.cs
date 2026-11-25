@@ -2,6 +2,12 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow }
+
+    internal static void PrepareMenuBranch(Func<bool> isExpanded, Action<MenuBranchInput> requestInput,
+        Action<Func<bool>> awaitState) =>
+        AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureArrow), awaitState);
+
     internal static (double X, double Y) ReportingHeaderPoint(
         (double Left, double Top, double Width, double Height) row,
         (double Left, double Top, double Width, double Height) viewport, double scale)

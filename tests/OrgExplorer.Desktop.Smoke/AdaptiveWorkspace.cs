@@ -680,7 +680,7 @@ internal static partial class Program
             AssertRetained();
         }
         var branch = Expansion(managerEmail);
-        void ObserveExpansion(string phase, string boundary)
+        void ObserveExpansion(string phase, string boundary, string? input = null)
         {
             try
             {
@@ -698,7 +698,7 @@ internal static partial class Program
                 var focus = AutomationElement.FocusedElement;
                 Console.WriteLine("TREE-MENU-EXPANSION " + JsonSerializer.Serialize(new
                 {
-                    state, phase, boundary, managerEmail, reportEmail,
+                    state, phase, boundary, input, managerEmail, reportEmail,
                     revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                     runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                     runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
@@ -726,9 +726,34 @@ internal static partial class Program
             ObserveExpansion(phase, "before-request");
             try
             {
-                branch.Expand();
-                ObserveExpansion(phase, "returned-request");
-                Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+                var requested = false;
+                TreeItemRealization.PrepareMenuBranch(
+                    () => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded,
+                    input =>
+                    {
+                        requested = true;
+                        if (input == TreeItemRealization.MenuBranchInput.ExpandCollapseProvider)
+                        {
+                            branch.Expand();
+                        }
+                        else
+                        {
+                            var row = Row(managerEmail);
+                            var bounds = row.Current.BoundingRectangle;
+                            var viewport = Find(window, "People").Current.BoundingRectangle;
+                            var scale = DpiScale(window);
+                            var point = new Point(bounds.Left + 9 * scale, bounds.Top + 14 * scale);
+                            if (row.Current.IsOffscreen || !viewport.Contains(point) ||
+                                !SetCursorPos((int)point.X, (int)point.Y))
+                                throw new InvalidOperationException($"The reporting disclosure arrow is not reachable at {state}: {managerEmail}, {bounds}, {viewport}.");
+                            mouse_event(2, 0, 0, 0, 0);
+                            mouse_event(4, 0, 0, 0, 0);
+                        }
+                        ObserveExpansion(phase, "returned-request", input.ToString());
+                    }, Await);
+                ObserveExpansion(phase, requested ? "prepared-state" : "already-expanded",
+                    requested ? TreeItemRealization.MenuBranchInput.DisclosureArrow.ToString() : null);
+                AssertRetained();
             }
             catch (Exception error) when (error is TimeoutException or ElementNotAvailableException or InvalidOperationException or COMException)
             {
@@ -737,8 +762,7 @@ internal static partial class Program
                 throw;
             }
         }
-        if (branch.Current.ExpandCollapseState != ExpandCollapseState.Expanded) branch.Expand();
-        Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        ReexpandForMenu("initial");
         Find(window, "SearchQuery").SetFocus();
         Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
         RightClickRow(reportEmail);
@@ -780,8 +804,7 @@ internal static partial class Program
         if (Expansion(managerEmail).Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
             throw new InvalidOperationException($"Search-clear resurrected recursively reset tree expansion at {state}.");
         AssertRetained();
-        Expansion(managerEmail).Expand();
-        Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        ReexpandForMenu("restore-fixture");
         if (compact && !panelWasOpen)
         {
             Click(window, "ClosePeople");

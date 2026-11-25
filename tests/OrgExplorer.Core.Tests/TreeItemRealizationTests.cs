@@ -5,6 +5,58 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData("morgan@example.com")]
+    [InlineData("casey@example.com")]
+    public void Menu_focus_preparation_avoids_the_observed_expansion_provider_navigation(string manager)
+    {
+        var owner = "avery@example.com";
+        var overlayOpen = true;
+        var expanded = false;
+        var requests = new List<TreeItemRealization.MenuBranchInput>();
+        TreeItemRealization.PrepareMenuBranch(() => overlayOpen && expanded, input =>
+        {
+            requests.Add(input);
+            expanded = true;
+            // Ordinary provider outcomes captured at run 45693688714's request boundary.
+            if (input == TreeItemRealization.MenuBranchInput.ExpandCollapseProvider)
+            {
+                owner = manager;
+                overlayOpen = false;
+            }
+        }, AwaitProvider);
+
+        Assert.Equal([TreeItemRealization.MenuBranchInput.DisclosureArrow], requests);
+        Assert.Equal("avery@example.com", owner);
+        Assert.True(overlayOpen);
+        Assert.True(expanded);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Already_expanded_menu_preparation_does_not_toggle_the_disclosure_closed()
+    {
+        var expanded = true;
+        var requests = 0;
+        TreeItemRealization.PrepareMenuBranch(() => expanded,
+            _ => { requests++; expanded = !expanded; }, AwaitProvider);
+
+        Assert.Equal(0, requests);
+        Assert.True(expanded);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Unreached_menu_preparation_fails_without_repeating_disclosure_input()
+    {
+        var requests = 0;
+        Assert.Throws<TimeoutException>(() =>
+            TreeItemRealization.PrepareMenuBranch(() => false, _ => requests++, AwaitProvider));
+
+        Assert.Equal(1, requests);
+    }
+
     [Fact]
     [Trait("Category", "Runner")]
     public void Reporting_header_request_uses_the_visible_header_when_native_browsing_is_horizontally_scrolled()
