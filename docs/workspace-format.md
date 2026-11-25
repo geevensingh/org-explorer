@@ -75,6 +75,30 @@ Import envelopes and logical fingerprints, Profile observations/changes, Person
 and Team notes, Team confirmation/context revisions, frozen Historical team
 contexts, and required photo bytes.
 
+**Approved Favorites ordering design (not yet implemented):** retain the saved
+Favorite sequence as private Workspace state, using stable Person identity
+rather than displayed names. A workspace without saved ordering initializes it
+once from its existing A-Z displayed-name sequence, preserving relative order
+among equal names. A saved empty sequence is still initialized state, not a
+reason to alphabetize again.
+
+Membership changes and completed reorders commit coherently with the local
+Workspace state. New Favorites append; removing one discards its position.
+Renaming or archiving a Person does not move them. A failed reorder save leaves
+the previously committed sequence authoritative and reports the failure.
+Validated complete snapshots must retain the saved order together with Favorite
+membership, including across restart and external sync. Divergent arrangements
+follow the existing whole-snapshot choice, with no order merge or independent
+per-device preference.
+
+Ordinary Person Import cannot supply a custom order. It preserves existing
+Favorites' relative order and appends newly favorited people from that batch in
+A-Z displayed-name order, retaining input order for equal names. Existing
+Favorite omission/false and accepted-batch replay semantics remain unchanged.
+Ordinary Person export continues to exclude private Favorite status and order;
+complete-snapshot sync is distinct from that exchange. See the
+[approved product behavior](design.md#favorites-ordering-approved-design-not-yet-implemented).
+
 Explicit profile/Preferred-name Save always reads the actual SQLite head and
 format. If that revision still matches the already validated local state, Save
 reuses that state instead of loading/validating the whole population again.

@@ -187,6 +187,18 @@ without activating a result restores Favorites and the previous reporting-tree
 position. Successful activation instead reveals the chosen Person as described
 below.
 
+**Approved Favorites ordering design (not yet implemented):** keep one Favorites
+list with the saved sequence described in [the product design](design.md#favorites-ordering-approved-design-not-yet-implemented).
+Reordering uses drag-and-drop from a dedicated handle; ordinary row clicks still
+open the Person's profile. Save each completed move immediately, preserving the
+previous order and reporting an error if saving fails. Dragging does not itself
+activate another profile.
+
+There are no keyboard move commands, named groups, alphabetize/reset action,
+confirmation dialog, separate editing mode or order Save button. Reordering is
+available in the Favorites list, not in the search results that temporarily
+replace it; People, search and reporting-tree ordering remain unchanged.
+
 Search still covers existing profile and note information, including its
 current/historical distinctions; it is not reduced to a name-only filter.
 Secondary notes remain searchable: their matches lead to their Person, whose
