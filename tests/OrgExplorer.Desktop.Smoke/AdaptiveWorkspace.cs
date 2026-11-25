@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using OrgExplorer.Workflow;
@@ -632,8 +633,9 @@ internal static partial class Program
             var bounds = Row(email).Current.BoundingRectangle;
             var viewport = Find(window, "People").Current.BoundingRectangle;
             var scale = DpiScale(window);
-            var x = bounds.Left + 40 * scale;
-            var y = bounds.Top + 14 * scale;
+            var (x, y) = TreeItemRealization.ReportingHeaderPoint(
+                (bounds.Left, bounds.Top, bounds.Width, bounds.Height),
+                (viewport.Left, viewport.Top, viewport.Width, viewport.Height), scale);
             if (!viewport.Contains(new Point(x, y)) || Row(email).Current.IsOffscreen ||
                 !SetCursorPos((int)x, (int)y))
                 throw new InvalidOperationException($"The reporting row header is not reachable at {state}: {email}, {bounds}, {viewport}.");
@@ -678,6 +680,63 @@ internal static partial class Program
             AssertRetained();
         }
         var branch = Expansion(managerEmail);
+        void ObserveExpansion(string phase, string boundary)
+        {
+            try
+            {
+                var cache = new CacheRequest { TreeScope = TreeScope.Element };
+                foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
+                    AutomationElement.IsOffscreenProperty, AutomationElement.BoundingRectangleProperty,
+                    AutomationElement.HasKeyboardFocusProperty, AutomationElement.IsExpandCollapsePatternAvailableProperty,
+                    ExpandCollapsePattern.ExpandCollapseStateProperty })
+                    cache.Add(property);
+                AutomationElementCollection controls;
+                using (cache.Activate())
+                    controls = window.FindAll(TreeScope.Descendants, new OrCondition(
+                        new[] { "Email", "People", "PeopleNavigation", "OpenPeople", "ProfileEditingState", managerEmail, reportEmail }
+                            .Select(id => new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+                var focus = AutomationElement.FocusedElement;
+                Console.WriteLine("TREE-MENU-EXPANSION " + JsonSerializer.Serialize(new
+                {
+                    state, phase, boundary, managerEmail, reportEmail,
+                    revision = Environment.GetEnvironmentVariable("GITHUB_SHA"),
+                    runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                    runAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+                    monotonicTimestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
+                    retainedProviderState = branch.Current.ExpandCollapseState.ToString(),
+                    focusedId = focus?.Current.ProcessId == window.Current.ProcessId ? focus.Current.AutomationId : null,
+                    controls = controls.Cast<AutomationElement>().Select(control => new
+                    {
+                        id = control.Cached.AutomationId, name = control.Cached.Name,
+                        offscreen = control.Cached.IsOffscreen, focused = control.Cached.HasKeyboardFocus,
+                        bounds = control.Cached.BoundingRectangle.ToString(),
+                        expansion = (bool)control.GetCachedPropertyValue(AutomationElement.IsExpandCollapsePatternAvailableProperty)
+                            ? control.GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty).ToString() : null
+                    }).ToArray(),
+                    interpretation = "Non-atomic native observations, not readiness or a confirmed cause. No actions are replayed."
+                }));
+            }
+            catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or COMException)
+            {
+                Console.Error.WriteLine($"TREE-MENU-EXPANSION-DIAGNOSTIC-FAULT state={state}; phase={phase}; boundary={boundary}; {error}");
+            }
+        }
+        void ReexpandForMenu(string phase)
+        {
+            ObserveExpansion(phase, "before-request");
+            try
+            {
+                branch.Expand();
+                ObserveExpansion(phase, "returned-request");
+                Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+            }
+            catch (Exception error) when (error is TimeoutException or ElementNotAvailableException or InvalidOperationException or COMException)
+            {
+                ObserveExpansion(phase, "failed-observation");
+                CaptureFailureEvidence(window, state + "-" + phase + "-expansion-failure");
+                throw;
+            }
+        }
         if (branch.Current.ExpandCollapseState != ExpandCollapseState.Expanded) branch.Expand();
         Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
         Find(window, "SearchQuery").SetFocus();
@@ -691,8 +750,7 @@ internal static partial class Program
         AssertNoMenu();
         if (owner == reportEmail)
         {
-            branch.Expand();
-            Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+            ReexpandForMenu("report-focus");
             Row(reportEmail).SetFocus();
             Await(() => Row(reportEmail).Current.HasKeyboardFocus);
             RightClickRow(managerEmail);
@@ -700,8 +758,7 @@ internal static partial class Program
             Await(() => Row(managerEmail).Current.HasKeyboardFocus);
             foreach (var appsKey in new[] { true, false })
             {
-                branch.Expand();
-                Await(() => Expansion(managerEmail).Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+                ReexpandForMenu(appsKey ? "apps-menu" : "shift-f10-menu");
                 if (appsKey) PressCopyKey(0x5D);
                 else
                 {

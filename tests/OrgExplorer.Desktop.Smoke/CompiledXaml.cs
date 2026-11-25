@@ -2854,6 +2854,31 @@ internal static partial class Program
         if (child.IsExpanded || model.PeopleNavigation.ExpandedPeople.Contains("avery@example.com") ||
             model.PeopleNavigation.SelectedEmail != "casey@example.com")
             throw new InvalidOperationException("Recursive collapse failed to clear hidden nested expansion without navigating the unrelated profile.");
+        container.IsExpanded = true;
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(child)
+            .GetPattern(PatternInterface.SelectionItem)).Select();
+        Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var retainedProfile = model.ProfileEdit;
+        Layout(700, 500);
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        var managerDataPeer = UIElementAutomationPeer.CreatePeerForElement(tree).GetChildren()
+            .Single(peer => peer.GetAutomationId() == "morgan@example.com");
+        var retainedProvider = (IExpandCollapseProvider)managerDataPeer.GetPattern(PatternInterface.ExpandCollapse);
+        command.Execute("morgan@example.com", container);
+        Layout(700, 500);
+        if (container.IsExpanded || !model.PeopleNavigation.OverlayOpen)
+            throw new InvalidOperationException("The compact compiled provider replay did not reach its collapsed/open-panel baseline.");
+        retainedProvider.Expand();
+        Layout(700, 500);
+        if (!container.IsExpanded || model.PeopleNavigation.SelectedEmail != "avery@example.com" ||
+            !model.PeopleNavigation.OverlayOpen || model.ProfileEdit != retainedProfile ||
+            Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("A retained real WPF data-item expansion provider navigated or dismissed compact People after recursive collapse.");
+        Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => model.CanSafelyClose);
         Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse subtree, hidden/recycled expansion reset, search restoration and exact independent profile/note writing.");
     }
 
