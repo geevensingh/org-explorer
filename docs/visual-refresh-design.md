@@ -472,6 +472,10 @@ real isolated folders for durability/nonmutation, and actual rendered WPF for
 appearance, focus, layout, and binding behavior. Invisible compiled-control
 checks cannot establish the visual result.
 
+For Person-specific assertions, use [profile/editor contracts](testing/person-profiles.md),
+[responsive reading/layout](testing/person-reading-layout.md), and
+[current/frozen note reading](testing/note-reading-context.md).
+
 Adapt existing journeys for deliberate UI changes without weakening destination,
 save, rejection, ownership, or recovery assertions. Do not add hidden Settings
 repair, action retries, fake success/readiness flags, smaller populations, or
