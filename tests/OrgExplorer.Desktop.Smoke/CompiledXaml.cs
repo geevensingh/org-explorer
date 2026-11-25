@@ -791,19 +791,29 @@ internal static partial class Program
 
     private static void VerifyProfileCaptureStateNames()
     {
-        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var state in CompactIdentityStateCases)
+        var records = new List<string>();
+        HarnessRuntime.Run("compiled-capture-state-names", () =>
         {
-            var stem = PersonCaptureState("profile-inline-minimum-700-500", state.Email);
-            var names = new List<string> { stem + "-top", stem + "-manager" };
-            if (state.Archived) names.Add(PersonCaptureState("profile-reading-narrow", state.Email));
-            foreach (var name in names)
+            var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var state in CompactIdentityStateCases)
             {
-                ValidateVisualEvidenceState(name);
-                if (!emitted.Add(name))
-                    throw new InvalidOperationException("Profile evidence states must remain unique: " + name);
+                var stem = PersonCaptureState("profile-inline-minimum-700-500", state.Email);
+                var names = new List<string> { stem + "-top", stem + "-manager" };
+                if (state.Archived) names.Add(PersonCaptureState("profile-reading-narrow", state.Email));
+                foreach (var name in names)
+                {
+                    ValidateVisualEvidenceState(name);
+                    if (!emitted.Add(name))
+                        throw new InvalidOperationException("Profile evidence states must remain unique: " + name);
+                }
             }
-        }
+            return true;
+        }, write: records.Add);
+        using var result = JsonDocument.Parse(records[^1]["DIAGNOSTIC: harness-runtime ".Length..]);
+        var capture = result.RootElement.GetProperty("operations").EnumerateArray()
+            .Single(operation => operation.GetProperty("name").GetString() == "Capture");
+        if (capture.GetProperty("started").GetInt64() != 0 || capture.GetProperty("completed").GetInt64() != 0)
+            throw new InvalidOperationException("Profile evidence name validation must not report screenshot capture work.");
         Console.WriteLine("PASS: actual profile-case capture names satisfy the strict path-safe contract and remain unique.");
     }
 

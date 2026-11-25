@@ -2520,8 +2520,11 @@ Each phase carries the exact `GITHUB_SHA`, run and attempt (null when unbound
 locally), its parent/context and outcome. Fixed-size, thread-safe in-memory
 counters retain started/completed counts, total and maximum elapsed observation
 cost for existing discovery, shared native requests, waits/predicates, filtered
-note snapshots, capture/pixels and compiled copy/SQLite layout. These diagnostics
-add no per-poll writes, UIA reads/cache warming, actions or retries. Existing
+note snapshots, capture/pixels and compiled copy/SQLite layout. Capture measures
+screenshot acquisition, PNG encoding and metadata writing;
+standalone path-safe state validation records no capture operations. The existing
+invisible capture-name regression verifies that distinction without taking screenshots.
+These diagnostics add no per-poll writes, UIA reads/cache warming, actions or retries. Existing
 direct native latency requests and samples remain unchanged. Nested/inclusive
 measurements overlap and concurrent snapshots are non-atomic; these are neither
 database commit times nor replacement product latency, and nothing is subtracted
