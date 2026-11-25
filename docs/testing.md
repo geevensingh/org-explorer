@@ -256,6 +256,13 @@ whole-subtree centre. The latter can lie below the viewport while the entire
 selected header is visible. The compiled automatic-opening case exercises this
 same late-branch layout and actual named/selected header without a native window;
 the hosted check remains responsible for screen coordinates and clickable points.
+Logical TreeViewItem `IsOffscreen` metadata is not an additional visibility
+requirement for its selected header. The shared observation still requires the
+actual selected row, an available named header whose own provider is onscreen,
+the original viewport geometry and a real in-viewport clickable point.
+Missing/unselected rows, missing/offscreen headers and rejected geometry/points
+retain the same bounded failure. The compiled case also exercises this selection
+and header observation through actual BAML/provider state, not only a fake identity.
 After Import, the search journey deliberately resumes compact People and focuses
 the unchanged query before its existing highlight/geometry/focus assertions.
 It does not assume that clicking Back to People is a query-field focus gesture.

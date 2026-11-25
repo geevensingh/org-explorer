@@ -2142,6 +2142,16 @@ internal static partial class Program
             var viewport = tree.TransformToAncestor(content).TransformBounds(new Rect(tree.RenderSize));
             var headerBounds = header.TransformToAncestor(content).TransformBounds(new Rect(header.RenderSize));
             var headerCenter = new Point(headerBounds.Left + headerBounds.Width / 2, headerBounds.Top + headerBounds.Height / 2);
+            ControlReadiness.AwaitSelectedHeader(
+                () => new ControlReadiness.SelectedRowHeader<UIElementAutomationPeer>(peer.IsOffscreen(),
+                    ((ISelectionItemProvider)peer.GetPattern(PatternInterface.SelectionItem)).IsSelected, headerPeer),
+                current => current.GetName() == "Casey" && viewport.Contains(headerCenter) &&
+                    headerBounds.Top >= viewport.Top && headerBounds.Bottom <= viewport.Bottom,
+                condition =>
+                {
+                    if (!condition())
+                        throw new InvalidOperationException("Logical row metadata rejected the actual selected viewport-visible header.");
+                });
             if (peer.GetName() != "Casey (casey@example.com); Directory name: Casey" ||
                 peer.GetPattern(PatternInterface.SelectionItem) is not ISelectionItemProvider { IsSelected: true } ||
                 headerPeer.GetName() != "Casey" || !viewport.Contains(headerCenter) ||

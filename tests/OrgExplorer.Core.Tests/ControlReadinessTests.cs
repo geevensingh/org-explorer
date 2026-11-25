@@ -7,6 +7,42 @@ public sealed class ControlReadinessTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Selected_visible_header_is_observed_even_when_the_logical_row_reports_offscreen()
+    {
+        var header = new Reading("Morgan Example", false);
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(true, true, header);
+        var observed = ControlReadiness.AwaitSelectedHeader(() => row,
+            current => !current.Offscreen && current.Name == "Morgan Example", AwaitReady);
+        Assert.Same(header, observed);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    public void Unselected_offscreen_or_missing_header_still_fails_bounded_row_observation(
+        bool selected, bool headerOffscreen, bool headerPresent)
+    {
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(false, selected,
+            headerPresent ? new Reading("Morgan Example", headerOffscreen) : null);
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader(() => row,
+            current => !current.Offscreen, AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Missing_row_and_rejected_header_geometry_or_click_point_remain_bounded_failures()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader<Reading>(
+            () => null, _ => true, AwaitReady));
+        var row = new ControlReadiness.SelectedRowHeader<Reading>(true, true, new Reading("Morgan Example", false));
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitSelectedHeader(
+            () => row, _ => false, AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Historical_reading_retains_the_successful_text_observation_without_an_unguarded_second_lookup()
     {
         var observations = 0;

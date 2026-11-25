@@ -37,6 +37,23 @@ internal static class ControlReadiness
     internal static string AwaitReading(Func<string> read, string expected, Action<Func<bool>> awaitState) =>
         AwaitControl(read, text => text.Contains(expected), awaitState);
 
+    internal sealed record SelectedRowHeader<THeader>(bool RowOffscreen, bool Selected, THeader? Header) where THeader : class;
+
+    internal static THeader AwaitSelectedHeader<THeader>(Func<SelectedRowHeader<THeader>?> observe,
+        Func<THeader, bool> headerReady, Action<Func<bool>> awaitState) where THeader : class
+    {
+        THeader? header = null;
+        awaitState(() =>
+        {
+            var row = observe();
+            // Logical row metadata does not establish the rendered header's visibility.
+            if (row is null || !row.Selected || row.Header is null) return false;
+            header = row.Header;
+            return headerReady(header);
+        });
+        return header!;
+    }
+
     internal static void AssertCollapsed(IEnumerable<string> sections, Func<string, bool> isCollapsed,
         Action<Func<bool>> awaitState)
     {

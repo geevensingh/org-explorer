@@ -82,16 +82,6 @@ internal static class HarnessRuntime
     internal static Measurement Measure(Work work) => new(Current.Value, work);
     internal static void Checkpoint(string stage) => Current.Value?.Emit("checkpoint", "Running", stage);
 
-    internal static void ReportDiagnostic(string diagnostic)
-    {
-        var phase = Current.Value;
-        try { (phase?.WriteError ?? Console.Error.WriteLine)(diagnostic); }
-        catch (Exception error) when (IsOutputFailure(error))
-        {
-            (phase?.Failures ?? ProcessFailures).Record(error);
-        }
-    }
-
     internal readonly struct Measurement : IDisposable
     {
         private readonly Phase? phase;
