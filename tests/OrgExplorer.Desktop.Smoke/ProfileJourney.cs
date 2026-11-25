@@ -27,7 +27,8 @@ internal static partial class Program
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
              {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+             {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -106,7 +107,7 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
-            AssertImportBatchImpact(window, "People added: 4; Existing people changed: 0; No Person changes: 0");
+            AssertImportBatchImpact(window, "People added: 5; Existing people changed: 0; No Person changes: 0");
             AssertGroupedImportDisclosure(window, "avery@example.com", "Add",
                 ["Directory name: Avery Example", "Manager: morgan@example.com", "Photo: Supplied local image"]);
             CaptureVisualEvidence(window, "settings-import-enter-preview");
@@ -290,7 +291,8 @@ internal static partial class Program
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
             AssertGroupedImportDisclosure(window, "avery@example.com", "2 changes",
-                ["Department: Research → (clear)", "Office number: 007B → 0009C"]);
+                "Department: Research → (clear); Office number: 007B → 0009C",
+                ["Department: Research → (clear)", "Office number: 007B → 0009C"], allowCountFallback: true);
             AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2");
             var reviewedUpdate = File.ReadAllText(import);
             File.WriteAllText(import, reviewedUpdate.Replace("2026-11-03", "2026-10-03"));
@@ -301,8 +303,10 @@ internal static partial class Program
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             AssertGroupedImportDisclosure(window, "avery@example.com", "Archive; 3 changes",
-                ["Archive: Current → Archived; retain profile and local context"]);
+                "Department: Research → (clear); Office number: 007B → 0009C; Archive: Current → Archived; retain profile and local context",
+                ["Archive: Current → Archived; retain profile and local context"], allowCountFallback: true);
             AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2", "Archived: 1");
+            ExerciseAdaptiveImportReview(window, workspace, import);
             File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"managerEmail\":\"missing@example.com\""));
             Click(window, "PreviewImport");
             Await(() => !Find(window, "ApplyImport").Current.IsEnabled && Status(window).Contains("Import rejected"));

@@ -1286,6 +1286,36 @@ internal static partial class Program
         Console.WriteLine("PASS: actual compiled long Person/owned/current/frozen reading stays bounded in one scroll at 700/1100/maximized sizes, with collapsed attributed warnings.");
     }
 
+    private static void VerifyCompiledImportReview(Type windowType, string root)
+    {
+        var folder = Path.Combine(root, "workspace");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000072",
+                 "observedAt":"2026-11-01T17:00:00Z","people":[
+                 {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
+                  "department":"Research","officeCountry":"Canada","officeNumber":"007B"},
+                 {"email":"zara@example.com","displayName":"Zara","managerEmail":null},
+                 {"email":"header-archived@example.com","displayName":"Archived example","managerEmail":null,"archived":true}]}
+                """).Id))
+                throw new InvalidOperationException("Import review fixture failed: " + seed.Status);
+        }
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => folder)], null)!;
+        try
+        {
+            ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("OpenWorkspaceButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("OpenWorkspaceButton")).IsEnabled &&
+                ((TextBlock)window.FindName("StatusText")).Text == "Local SQLite Workspace opened.");
+            VerifyImportPreviewKey(window, folder);
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Import review verification must not show a window or create a native handle.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
     private static void VerifyImportPreviewKey(Window window, string folder)
     {
         var before = WorkspaceFixtures.Bytes(folder);
@@ -1351,7 +1381,7 @@ internal static partial class Program
             throw new InvalidOperationException("The native Person disclosure is not keyboard accessible.");
         ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
         root.UpdateLayout();
-        var detailText = VisualDescendants(disclosure).OfType<TextBlock>().Select(t => t.Text).ToArray();
+        var detailText = VisualDescendants(disclosure).OfType<TextBox>().Select(t => t.Text).ToArray();
         if (!disclosure.IsExpanded || review.Items.Count != 2 ||
             !detailText.Contains("Department: Research → (clear)") ||
             !detailText.Contains("Office number: 007B → 123") ||
@@ -1371,12 +1401,99 @@ internal static partial class Program
             !diagnostics.Text.Contains("missing@example.com", StringComparison.Ordinal))
             throw new InvalidOperationException("An invalid complete graph must block the entire Import and show errors without partial/success-shaped impact.");
         AssertWorkspaceBytes(folder, before);
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000074",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"avery@example.com","officeState":"Washington","officeCountry":"United States of America"}]}
+            """);
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        foreach (var (width, expected) in new[]
+        {
+            (1100, "Office state: (none) → Washington; Office country: Canada → United States of America"),
+            (700, "2 changes"),
+            (1100, "Office state: (none) → Washington; Office country: Canada → United States of America")
+        })
+        {
+            root.Measure(new Size(width, 900));
+            root.Arrange(new Rect(0, 0, width, 900));
+            root.UpdateLayout();
+            disclosure = VisualDescendants(review).OfType<Expander>().Single();
+            var summary = VisualDescendants(disclosure).OfType<TextBox>().SingleOrDefault(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportSummary");
+            if (summary is null || summary.Text != expected || summary.TextWrapping != TextWrapping.NoWrap ||
+                disclosure.IsExpanded)
+                throw new InvalidOperationException($"The compiled import summary did not adapt at {width}: expected '{expected}', got '{summary?.Text}'; review={review.ActualWidth}, entry={disclosure.ActualWidth}, header={((FrameworkElement)disclosure.Header).ActualWidth}, summary={summary?.ActualWidth}/{summary?.DesiredSize}.");
+            var identity = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportIdentity");
+            foreach (var text in new[] { identity, summary })
+            {
+                for (var index = 0; index < text.Text.Length; index++)
+                {
+                    var glyph = text.GetRectFromCharacterIndex(index);
+                    if (glyph.IsEmpty || glyph.Height <= 0 || glyph.Left < 0 ||
+                        glyph.Right > text.ActualWidth || glyph.Bottom > text.ActualHeight)
+                        throw new InvalidOperationException("Compiled import text is clipped: " + text.Text[index]);
+                }
+            }
+        }
+        var longValue = new string('W', 160) + " complete end";
+        foreach (var (person, email, expected) in new[]
+        {
+            ($$"""{"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}}}""",
+                "avery@example.com", "1 change"),
+            ("""{"email":"avery@example.com","officeBuilding":"North floor\nSouth floor"}""",
+                "avery@example.com", "1 change"),
+            ($$"""{"email":"avery@example.com","displayName":"Updated Avery","alias":"updated","jobTitle":"Engineer","department":"New research","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"officeNumber":"999","officeState":"WA","officeCountry":"USA","isFavorite":true}""",
+                "avery@example.com", "9 changes"),
+            ($$"""{"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":true}""",
+                "avery@example.com", "Archive; 2 changes"),
+            ($$"""{"email":"header-archived@example.com","officeBuilding":{{JsonSerializer.Serialize(longValue)}},"archived":false}""",
+                "header-archived@example.com", "Reactivate; 2 changes"),
+            ("""{"email":"new.reference@example.com","displayName":"New reference","managerEmail":null}""",
+                "new.reference@example.com", "Add")
+        })
+        {
+            File.WriteAllText(import, $$"""
+                {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-02T17:00:00Z","people":[{{person}}]}
+                """);
+            ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+            root.Measure(new Size(1100, 900));
+            root.Arrange(new Rect(0, 0, 1100, 900));
+            root.UpdateLayout();
+            disclosure = VisualDescendants(review).OfType<Expander>().Single();
+            var summary = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(text) == "ImportSummary");
+            if (summary.Text != expected ||
+                System.Windows.Automation.AutomationProperties.GetName(disclosure) != $"{email} — {expected}" ||
+                disclosure.IsExpanded)
+                throw new InvalidOperationException("Long/multiline/many/lifecycle/Add review lost its complete count or action: " + summary.Text);
+            var provider = (ITextProvider)UIElementAutomationPeer.CreatePeerForElement(summary).GetPattern(PatternInterface.Text);
+            if (provider.DocumentRange.GetText(-1) != expected ||
+                !Equals(provider.DocumentRange.GetAttributeValue(System.Windows.Automation.TextPattern.FontSizeAttribute.Id), 10.5d))
+                throw new InvalidOperationException("The native import text provider lost its readable unchanged typography.");
+            disclosure.IsExpanded = true;
+            root.UpdateLayout();
+            if (person.Contains("officeBuilding", StringComparison.Ordinal))
+            {
+                var building = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+                    text.Text.StartsWith("Office building:", StringComparison.Ordinal));
+                var value = person.Contains("North floor", StringComparison.Ordinal) ? "North floor\nSouth floor" : longValue;
+                if (building.Text != "Office building: (none) → " + value || building.TextWrapping != TextWrapping.Wrap ||
+                    building.GetRectFromCharacterIndex(building.Text.Length - 1).IsEmpty)
+                    throw new InvalidOperationException("Expanded review lost the full long/multiline supplied value.");
+            }
+            AssertWorkspaceBytes(folder, before);
+        }
+        AssertWorkspaceBytes(folder, before);
         var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
         back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (((Button)window.FindName("ApplyButton")).IsEnabled)
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
         Console.WriteLine("PASS: compiled Import-path Enter shows complete impact, ordered identity-only unchanged disclosure, independent accessible warnings and whole-batch errors while preserving saved Workspace bytes.");
+        Console.WriteLine("PASS: invisible compiled Import-path Enter retains one native disclosure, complete details and Workspace bytes; actual text layout selects inline/count/inline across 1100/700/1100 widths. Hosted rendering is separate.");
     }
 
     private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)

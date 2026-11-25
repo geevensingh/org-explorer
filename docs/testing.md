@@ -77,11 +77,21 @@ Observations, invalid whole batches and exact replay. Real-photo cases include
 replacement and clear counts without treating a new Person's photo as a transition.
 The compiled Import contract also checks the counted collapsed end section,
 identity-only recycling list, accessible warnings above counts and invalid-batch
-suppression without changing saved bytes. The hosted profile journey separately
-checks rendered Add, two-change and Archive/count entries, full expanded details,
-Space-key disclosure, impact counts, identity-only unchanged expansion, and
-independent warnings/error/replay status plus ordinary zero-change explanation.
-Neither the in-memory nor compiled checks are hosted WPF evidence.
+suppression without changing saved bytes. Its narrow `--verify-import-review`
+selector also drives
+the actual compiled controls through 1100/700/1100 widths, checking native text
+layout, inline/count/restoration, long/multiline/many differences and explicit
+Add/Archive/Reactivate fallback. It uses the same public preview and compiled
+contract as the full profile-refresh selection; it does not open a native window.
+The hosted profile journey separately checks every collapsed identity/summary
+character's actual TextPattern rectangle on one line, complete expanded text,
+unchanged typography, Space-key disclosure and 1000/700/1000 width transitions
+on the established 96-DPI disposable desktop. Long/multiline values, many fields
+and lifecycle fallback retain full details and unchanged saved bytes. Native
+read-only text providers support those character checks; a one-line outer box
+alone is not evidence. The hosted journey also checks impact counts, identity-only
+unchanged expansion, independent warnings/error/replay status and ordinary
+zero-change explanation. Neither in-memory nor compiled checks are hosted WPF evidence.
 
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
