@@ -1,8 +1,8 @@
 # Person-first import preview
 
-Status: approved in the November 25, 2026 design interview; implementation is
-pending. Deliver this document with its corresponding implementation, not as an
-independent planning-document merge.
+Status: approved in the November 25, 2026 design interview and implemented on
+`geevensingh-import-preview`. Deliver this document with its corresponding
+implementation, not as an independent planning-document merge.
 
 Source baseline: `caec4da7a96a57a5e49b3ea047f29eaabf299835`, matching freshly
 fetched `origin/main` during the interview.
