@@ -106,6 +106,7 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             if (!Find(window, "Preview").Current.Name.Contains("avery@example.com"))
                 throw new InvalidOperationException("The real import preview omitted the new Person.");
+            AssertImportBatchImpact(window, "People added: 4; Existing people changed: 0; No Person changes: 0");
             AssertGroupedImportDisclosure(window, "avery@example.com", "Add",
                 ["Directory name: Avery Example", "Manager: morgan@example.com", "Photo: Supplied local image"]);
             CaptureVisualEvidence(window, "settings-import-enter-preview");
@@ -137,6 +138,11 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportDiagnostic(window, "Already applied: exact replay is a no-op.");
+            AssertImportHasNoImpact(window);
+            CaptureVisualEvidence(window, "import-replay-status");
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
             AssertPersonCategory(window, "Employee");
@@ -274,7 +280,9 @@ internal static partial class Program
             File.WriteAllText(import, """
                 {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000002",
                  "observedAt":"2026-11-03T17:00:00Z","people":[
-                 {"email":"avery@example.com","officeNumber":"0009C","department":null}]}
+                 {"email":"morgan@example.com","displayName":"Morgan Example"},
+                 {"email":"avery@example.com","officeNumber":"0009C","department":null},
+                 {"email":"V-reference@example.com"}]}
                 """);
             OpenImportView(window);
             Click(window, "PreviewImport");
@@ -283,12 +291,24 @@ internal static partial class Program
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
             AssertGroupedImportDisclosure(window, "avery@example.com", "2 changes",
                 ["Department: Research → (clear)", "Office number: 007B → 0009C"]);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2");
             var reviewedUpdate = File.ReadAllText(import);
+            File.WriteAllText(import, reviewedUpdate.Replace("2026-11-03", "2026-10-03"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportUnchangedDisclosure(window, ["morgan@example.com", "V-reference@example.com"], "older evidence");
             File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"archived\":true"));
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             AssertGroupedImportDisclosure(window, "avery@example.com", "Archive; 3 changes",
                 ["Archive: Current → Archived; retain profile and local context"]);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 2", "Archived: 1");
+            File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"managerEmail\":\"missing@example.com\""));
+            Click(window, "PreviewImport");
+            Await(() => !Find(window, "ApplyImport").Current.IsEnabled && Status(window).Contains("Import rejected"));
+            AssertImportDiagnostic(window, "missing@example.com");
+            AssertImportHasNoImpact(window);
+            CaptureVisualEvidence(window, "import-invalid-diagnostics");
             File.WriteAllText(import, reviewedUpdate);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
@@ -301,6 +321,15 @@ internal static partial class Program
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             Click(window, "ApplyImport");
             Await(() => Status(window).Contains("Import applied"));
+            File.WriteAllText(import, reviewedUpdate.Replace("000000000002", "000000000003"));
+            Click(window, "PreviewImport");
+            Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 0; No Person changes: 3");
+            var observation = Find(window, "ImportObservations").Current;
+            if (observation.IsOffscreen || !observation.Name.StartsWith("Zero Person changes.", StringComparison.Ordinal) ||
+                !observation.Name.Contains("email-only records supply no field Observation", StringComparison.Ordinal))
+                throw new InvalidOperationException("An ordinary all-unchanged Import must remain applicable and explain conditional Observations without claiming replay.");
+            CaptureVisualEvidence(window, "import-ordinary-unchanged");
             ReturnToPeople(window);
             ExpandHistory(window);
             Await(() => Find(window, "ProfileTimeline").Current.Name.Contains("007B → 0009C") &&

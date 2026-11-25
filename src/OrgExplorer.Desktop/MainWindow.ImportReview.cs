@@ -21,21 +21,50 @@ internal sealed class ImportReviewEntry(ImportPersonPreview person)
             : $"{c.Label}: {c.Before ?? "(none)"} → {c.After ?? "(clear)"}").ToArray();
 }
 
+internal sealed class ImportUnchangedSection(IReadOnlyList<string> emails)
+{
+    public IReadOnlyList<string> Emails => emails;
+    public string Summary => $"No Person changes: {emails.Count}";
+    public bool IsExpanded { get; set; }
+}
+
 public partial class MainWindow
 {
     private void ShowImportReview(ImportPreview result)
     {
+        var diagnostics = result.Errors.Concat(result.Warnings).Concat(result.Messages).ToArray();
+        ImportDiagnostics.Text = string.Join("\n", diagnostics);
+        ImportDiagnostics.Visibility = diagnostics.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        AutomationProperties.SetName(ImportDiagnostics, ImportDiagnostics.Text);
+        var impact = result.Impact;
+        ImportImpactText.Visibility = ImportActionsText.Visibility = ImportObservationText.Visibility = Visibility.Collapsed;
+        ImportImpactText.Text = ImportActionsText.Text = ImportObservationText.Text = "";
         var entries = new List<object>();
-        entries.AddRange(result.Errors);
-        entries.AddRange(result.Warnings);
-        entries.AddRange(result.Messages);
-        foreach (var person in result.People)
+        if (impact is not null)
         {
-            if (person.IsNew || person.Changes.Count > 0) entries.Add(new ImportReviewEntry(person));
-            else entries.Add($"{person.Email}: No explicit field changes; omitted values and people stay unchanged.");
+            ImportImpactText.Text = $"People added: {impact.PeopleAdded}; Existing people changed: {impact.ExistingPeopleChanged}; No Person changes: {impact.NoPersonChanges}";
+            ImportImpactText.Visibility = ImportObservationText.Visibility = Visibility.Visible;
+            ImportObservationText.Text = (impact.PeopleAdded == 0 && impact.ExistingPeopleChanged == 0 ? "Zero Person changes. " : "") +
+                "Omitted fields and people stay unchanged. Supplied Observations may still be recorded without Person differences; email-only records supply no field Observation.";
+            var actions = new[]
+            {
+                ("Archived", impact.Archived), ("Reactivated", impact.Reactivated),
+                ("Manager changed", impact.ManagerChanged), ("Photo changed", impact.PhotoChanged),
+                ("Favorite changed", impact.FavoriteChanged)
+            }.Where(action => action.Item2 > 0).Select(action => $"{action.Item1}: {action.Item2}").ToArray();
+            if (actions.Length > 0)
+            {
+                ImportActionsText.Text = "Overlapping actions for existing people — " + string.Join("; ", actions);
+                ImportActionsText.Visibility = Visibility.Visible;
+            }
+            entries.AddRange(result.People.Where(p => p.IsNew || p.Changes.Count > 0).Select(p => new ImportReviewEntry(p)));
+            var unchanged = result.People.Where(p => !p.IsNew && p.Changes.Count == 0).Select(p => p.Email).ToArray();
+            if (unchanged.Length > 0) entries.Add(new ImportUnchangedSection(unchanged));
         }
         PreviewText.ItemsSource = entries;
         AutomationProperties.SetName(PreviewText, string.Join("\n",
-            result.Errors.Concat(result.Warnings).Concat(result.Changes)));
+            diagnostics.Concat(new[] { ImportImpactText.Text, ImportActionsText.Text, ImportObservationText.Text })
+                .Concat(entries.OfType<ImportReviewEntry>().SelectMany(e => new[] { e.AccessibleSummary }.Concat(e.Details)))
+                .Concat(entries.OfType<ImportUnchangedSection>().SelectMany(e => e.Emails))));
     }
 }

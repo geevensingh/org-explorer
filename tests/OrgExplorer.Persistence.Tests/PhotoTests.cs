@@ -39,6 +39,7 @@ public sealed class PhotoTests : IDisposable
         File.WriteAllBytes(Path.Combine(Producer, "avery.data"), Png);
         var preview = app.PreviewImportFile(import);
         Assert.True(preview.CanApply, string.Join("\n", preview.Errors));
+        Assert.Equal(new ImportBatchImpact(1, 0, 0, 0, 0, 0, 0, 0), preview.Impact);
         Assert.True(app.ApplyImport(preview.Id), app.Status);
         Directory.Delete(Producer, true);
 
@@ -118,6 +119,7 @@ public sealed class PhotoTests : IDisposable
         var import = Import("\"avery.png\"", 2);
         var preview = app.PreviewImportFile(import);
         var photoChange = Assert.Single(Assert.Single(preview.People).Changes);
+        Assert.Equal(new ImportBatchImpact(0, 1, 0, 0, 0, 0, 1, 0), preview.Impact);
         Assert.Equal(ImportChangeKind.Photo, photoChange.Kind);
         Assert.Equal("photoPath", photoChange.Field);
         Assert.Null(photoChange.Before);
@@ -147,6 +149,7 @@ public sealed class PhotoTests : IDisposable
         var clear = app.PreviewImportFile(Import("null", 3, "Avery Updated"));
         Assert.Contains(clear.Changes, change => change.Contains("Photo") && change.Contains("clear"));
         var photoChange = Assert.Single(Assert.Single(clear.People).Changes);
+        Assert.Equal(new ImportBatchImpact(0, 1, 0, 0, 0, 0, 1, 0), clear.Impact);
         Assert.Equal(ImportChangeKind.Photo, photoChange.Kind);
         Assert.Null(photoChange.Before);
         Assert.Null(photoChange.After);

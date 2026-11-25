@@ -70,9 +70,18 @@ distinct lifecycle/preference actions, full long values, clears and exact replay
 Existing history and photo cases retain same-value Observations and meaningful
 Photo-clear outcomes. The invisible compiled Import-path Enter contract checks
 one initially collapsed native disclosure and complete inline expansion without
-changing saved bytes. The hosted profile journey separately checks rendered Add,
-two-change and Archive/count entries, full expanded details and Space-key
-disclosure. Neither the in-memory nor compiled checks are hosted WPF evidence.
+changing saved bytes. Batch-impact cases at that same public preview/Apply seam
+cover zero-inclusive Person totals, overlapping existing-person actions, Add
+baselines, interleaved unchanged identities, email-only versus supplied
+Observations, invalid whole batches and exact replay. Real-photo cases include
+replacement and clear counts without treating a new Person's photo as a transition.
+The compiled Import contract also checks the counted collapsed end section,
+identity-only recycling list, accessible warnings above counts and invalid-batch
+suppression without changing saved bytes. The hosted profile journey separately
+checks rendered Add, two-change and Archive/count entries, full expanded details,
+Space-key disclosure, impact counts, identity-only unchanged expansion, and
+independent warnings/error/replay status plus ordinary zero-change explanation.
+Neither the in-memory nor compiled checks are hosted WPF evidence.
 
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared

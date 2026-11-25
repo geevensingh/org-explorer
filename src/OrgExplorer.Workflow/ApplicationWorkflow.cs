@@ -30,7 +30,19 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
     public IReadOnlyList<ImportPersonPreview> People { get; init; } = [];
     public IReadOnlyList<string> Messages { get; init; } = [];
     public bool IsReplay { get; init; }
+    public ImportBatchImpact? Impact => !CanApply || IsReplay ? null : new(
+        People.Count(p => p.IsNew),
+        People.Count(p => !p.IsNew && p.Changes.Count > 0),
+        People.Count(p => !p.IsNew && p.Changes.Count == 0),
+        CountAction(ImportChangeKind.Archive), CountAction(ImportChangeKind.Reactivate),
+        CountAction(ImportChangeKind.Manager), CountAction(ImportChangeKind.Photo), CountAction(ImportChangeKind.Favorite));
+
+    private int CountAction(ImportChangeKind kind) =>
+        People.Count(p => !p.IsNew && p.Changes.Any(c => c.Kind == kind));
 }
+
+public sealed record ImportBatchImpact(int PeopleAdded, int ExistingPeopleChanged, int NoPersonChanges,
+    int Archived, int Reactivated, int ManagerChanged, int PhotoChanged, int FavoriteChanged);
 
 public enum ImportChangeKind { Text, Manager, Photo, Archive, Reactivate, Favorite }
 public sealed record ImportPersonChange(string Field, string Label, ImportChangeKind Kind, string? Before, string? After);

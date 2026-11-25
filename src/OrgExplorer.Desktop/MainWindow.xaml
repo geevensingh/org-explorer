@@ -10,6 +10,28 @@
         Icon="/OrgExplorer.Desktop;component/Assets/OrgExplorer.ico"
         FontFamily="Segoe UI" FontSize="14" Background="#FAFBFC" Foreground="#24292F">
   <Window.Resources>
+    <DataTemplate DataType="{x:Type local:ImportUnchangedSection}">
+      <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Header="{Binding Summary}"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                AutomationProperties.AutomationId="ImportUnchanged" AutomationProperties.Name="{Binding Summary}">
+        <ListBox ItemsSource="{Binding Emails}" Margin="24,8,8,12" MaxHeight="240"
+                 AutomationProperties.AutomationId="ImportUnchangedIdentities"
+                 AutomationProperties.Name="People without Person changes"
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            </Style>
+          </ListBox.ItemContainerStyle>
+        </ListBox>
+      </Expander>
+    </DataTemplate>
     <DataTemplate DataType="{x:Type local:ImportReviewEntry}">
       <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
@@ -570,6 +592,16 @@
         <Button x:Name="ApplyButton" DockPanel.Dock="Bottom" Content="Apply reviewed import" AutomationProperties.AutomationId="ApplyImport"
                 IsEnabled="False" Click="ApplyImport" HorizontalAlignment="Right" Margin="0,8,0,0"/>
         <TextBlock DockPanel.Dock="Top" Text="Reviewed changes — no data changes until Apply." Margin="0,0,0,4"/>
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+          <TextBlock x:Name="ImportDiagnostics" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,4"
+                     AutomationProperties.AutomationId="ImportDiagnostics"/>
+          <TextBlock x:Name="ImportImpactText" Visibility="Collapsed" FontWeight="SemiBold"
+                     AutomationProperties.AutomationId="ImportImpact" TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <TextBlock x:Name="ImportActionsText" Visibility="Collapsed"
+                     AutomationProperties.AutomationId="ImportActions" TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <TextBlock x:Name="ImportObservationText" Visibility="Collapsed"
+                     AutomationProperties.AutomationId="ImportObservations" TextWrapping="Wrap"/>
+        </StackPanel>
         <ListBox x:Name="PreviewText" AutomationProperties.AutomationId="Preview"
                  AutomationProperties.Name="Import changes will appear here. No data changes until Apply."
                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"

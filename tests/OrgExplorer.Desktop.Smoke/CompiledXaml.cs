@@ -1292,8 +1292,10 @@ internal static partial class Program
         var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
         File.WriteAllText(import, """
             {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000073",
-             "observedAt":"2026-11-02T17:00:00Z","people":[
-             {"email":"avery@example.com","officeNumber":"123","department":null}]}
+             "observedAt":"2026-10-02T17:00:00Z","people":[
+             {"email":"zara@example.com"},
+             {"email":"avery@example.com","officeNumber":"123","department":null},
+             {"email":"header-archived@example.com","archived":true}]}
             """);
         ((Button)window.FindName("OpenSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ((Button)window.FindName("OpenImportButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1304,14 +1306,42 @@ internal static partial class Program
         path.RaiseEvent(enter);
         PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
         var review = (ListBox)window.FindName("PreviewText");
-        if (!enter.Handled || review.Items.Count != 1 ||
+        if (!enter.Handled || review.Items.Count != 2 ||
             !System.Windows.Automation.AutomationProperties.GetName(review).Contains("123", StringComparison.Ordinal))
             throw new InvalidOperationException("Import-path Enter did not produce the same explicit reviewed preview.");
         var root = (FrameworkElement)window.Content;
         root.Measure(new Size(1100, 900));
         root.Arrange(new Rect(0, 0, 1100, 900));
         root.UpdateLayout();
-        var disclosure = VisualDescendants(review).OfType<Expander>().Single();
+        var impact = window.FindName("ImportImpactText") as TextBlock;
+        var diagnostics = (TextBlock)window.FindName("ImportDiagnostics");
+        if (impact is null || impact.Visibility != Visibility.Visible ||
+            impact.Text != "People added: 0; Existing people changed: 1; No Person changes: 2")
+            throw new InvalidOperationException("The compiled Import must show complete zero-inclusive batch impact above the Person list.");
+        var diagnosticText = diagnostics.Text;
+        if (diagnostics.Visibility != Visibility.Visible || !diagnosticText.Contains("older evidence", StringComparison.Ordinal) ||
+            UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetName() != diagnosticText ||
+            diagnostics.TransformToAncestor(root).Transform(new Point(0, diagnostics.ActualHeight)).Y >
+                impact.TransformToAncestor(root).Transform(new Point()).Y)
+            throw new InvalidOperationException("Workflow warnings must be accessible and placed above counts, outside all disclosure content.");
+        var disclosures = VisualDescendants(review).OfType<Expander>().ToArray();
+        var disclosure = disclosures.Single(e =>
+            System.Windows.Automation.AutomationProperties.GetAutomationId(e) == "ImportPerson:avery@example.com");
+        var unchanged = disclosures.Single(e =>
+            System.Windows.Automation.AutomationProperties.GetAutomationId(e) == "ImportUnchanged");
+        if (unchanged.IsExpanded ||
+            System.Windows.Automation.AutomationProperties.GetName(unchanged) != "No Person changes: 2" ||
+            review.Items.IndexOf(unchanged.DataContext) != 1)
+            throw new InvalidOperationException("People without changes must occupy one counted, collapsed final section.");
+        unchanged.IsExpanded = true;
+        root.UpdateLayout();
+        var identities = VisualDescendants(unchanged).OfType<ListBox>().Single();
+        if (!identities.Items.Cast<string>().SequenceEqual(new[] { "zara@example.com", "header-archived@example.com" }) ||
+            VisualDescendants(identities).OfType<Expander>().Any() ||
+            !VirtualizingPanel.GetIsVirtualizing(identities) ||
+            VirtualizingPanel.GetVirtualizationMode(identities) != VirtualizationMode.Recycling)
+            throw new InvalidOperationException("The final section must expose only ordered email identities in an efficient native list.");
+        unchanged.IsExpanded = false;
         if (disclosure.IsExpanded ||
             System.Windows.Automation.AutomationProperties.GetName(disclosure) != "avery@example.com — 2 changes")
             throw new InvalidOperationException("The compiled Person review must start collapsed with one semantic change count.");
@@ -1322,17 +1352,31 @@ internal static partial class Program
         ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
         root.UpdateLayout();
         var detailText = VisualDescendants(disclosure).OfType<TextBlock>().Select(t => t.Text).ToArray();
-        if (!disclosure.IsExpanded || review.Items.Count != 1 ||
+        if (!disclosure.IsExpanded || review.Items.Count != 2 ||
             !detailText.Contains("Department: Research → (clear)") ||
-            !detailText.Contains("Office number: 007B → 123"))
+            !detailText.Contains("Office number: 007B → 123") ||
+            diagnostics.Visibility != Visibility.Visible || diagnostics.Text != diagnosticText)
             throw new InvalidOperationException("Inline expansion lost the complete differences or duplicated the Person entry.");
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000074",
+             "observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"zara@example.com"},
+             {"email":"avery@example.com","managerEmail":"missing@example.com"}]}
+            """);
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("PreviewButton")).IsEnabled &&
+            ((TextBlock)window.FindName("StatusText")).Text.Contains("Import rejected", StringComparison.Ordinal));
+        if (((Button)window.FindName("ApplyButton")).IsEnabled || review.Items.Count != 0 ||
+            impact.Visibility != Visibility.Collapsed || diagnostics.Visibility != Visibility.Visible ||
+            !diagnostics.Text.Contains("missing@example.com", StringComparison.Ordinal))
+            throw new InvalidOperationException("An invalid complete graph must block the entire Import and show errors without partial/success-shaped impact.");
         AssertWorkspaceBytes(folder, before);
         var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
         back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (((Button)window.FindName("ApplyButton")).IsEnabled)
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
-        Console.WriteLine("PASS: compiled Import-path Enter groups two differences in one collapsed native disclosure, expands complete details, and preserves saved Workspace bytes.");
+        Console.WriteLine("PASS: compiled Import-path Enter shows complete impact, ordered identity-only unchanged disclosure, independent accessible warnings and whole-batch errors while preserving saved Workspace bytes.");
     }
 
     private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)

@@ -18,6 +18,87 @@ public class ReportingImportTests
         """;
 
     [Fact]
+    public void Batch_impact_counts_each_Person_once_and_existing_actions_overlap_without_counting_Add_baselines()
+    {
+        using var app = Open();
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+            {"email":"manager@example.com","displayName":"Manager","managerEmail":null},
+            {"email":"changed@example.com","displayName":"Changed","managerEmail":"manager@example.com","isFavorite":true},
+            {"email":"former@example.com","displayName":"Former","managerEmail":null,"archived":true},
+            {"email":"archived@example.com","displayName":"Archived","managerEmail":null,"archived":true}
+            """)).Id));
+        var preview = app.PreviewImport(Batch("""
+            {"email":"archived@example.com","archived":true},
+            {"email":"changed@example.com","managerEmail":null,"archived":true,"isFavorite":false},
+            {"email":"manager@example.com"},
+            {"email":"new@example.com","displayName":"New","managerEmail":"manager@example.com","archived":true,"isFavorite":true},
+            {"email":"former@example.com","archived":false,"isFavorite":true}
+            """, 2));
+        Assert.True(preview.CanApply, app.Status);
+        var impact = Assert.IsType<ImportBatchImpact>(preview.Impact);
+        Assert.Equal(new ImportBatchImpact(1, 2, 2, 1, 1, 1, 0, 2), impact);
+        Assert.Equal(new[] { "changed@example.com", "new@example.com", "former@example.com" },
+            preview.People.Where(p => p.IsNew || p.Changes.Count > 0).Select(p => p.Email));
+        Assert.Equal(new[] { "archived@example.com", "manager@example.com" },
+            preview.People.Where(p => !p.IsNew && p.Changes.Count == 0).Select(p => p.Email));
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        Assert.True(app.GetRelationships("changed@example.com")!.Person.Archived);
+        Assert.False(app.GetRelationships("former@example.com")!.Person.Archived);
+    }
+
+    [Fact]
+    public void Ordinary_unchanged_batch_has_zero_Person_changes_but_retains_Apply_and_supplied_Observations_unlike_replay()
+    {
+        using var app = Open();
+        Assert.True(app.ApplyImport(app.PreviewImport(Batch("""
+            {"email":"same@example.com","displayName":"Same","managerEmail":null},
+            {"email":"email-only@example.com","displayName":"Email only","managerEmail":null}
+            """)).Id));
+        var emailOnlyBefore = app.GetProfileTimeline("email-only@example.com")!.Observations.ToArray();
+        var input = Batch("""
+            {"email":"same@example.com","displayName":"Same","managerEmail":null,"photoPath":null,"isFavorite":false,"archived":false},
+            {"email":"email-only@example.com"}
+            """, 2);
+        var preview = app.PreviewImport(input);
+        Assert.True(preview.CanApply);
+        Assert.False(preview.IsReplay);
+        Assert.Equal(new ImportBatchImpact(0, 0, 2, 0, 0, 0, 0, 0), preview.Impact);
+        Assert.All(preview.People, p => Assert.Empty(p.Changes));
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+        var timeline = app.GetProfileTimeline("same@example.com")!;
+        Assert.Empty(timeline.Changes);
+        Assert.Equal(new[] { "displayName", "managerEmail", "photoPath", "isFavorite", "archived" },
+            timeline.Observations.Where(o => o.BatchId == Guid.Parse("50000000-0000-4000-8000-000000000002")).Select(o => o.Field));
+        Assert.Equal(emailOnlyBefore, app.GetProfileTimeline("email-only@example.com")!.Observations);
+        var replay = app.PreviewImport(input);
+        Assert.True(replay.CanApply);
+        Assert.True(replay.IsReplay);
+        Assert.Null(replay.Impact);
+        Assert.Empty(replay.People);
+        Assert.True(app.ApplyImport(replay.Id));
+        var afterReplay = app.GetProfileTimeline("same@example.com")!;
+        Assert.Equal(timeline.Changes, afterReplay.Changes);
+        Assert.Equal(timeline.Observations, afterReplay.Observations);
+        Assert.Equal(timeline.Confirmations, afterReplay.Confirmations);
+    }
+
+    [Theory]
+    [InlineData("""{"email":"missing-name@example.com","managerEmail":null}""")]
+    [InlineData("""{"email":"broken-graph@example.com","displayName":"Broken","managerEmail":"missing@example.com"}""")]
+    public void Invalid_batch_never_reports_complete_impact_or_accepts_a_valid_prefix(string invalidPerson)
+    {
+        using var app = Open();
+        var preview = app.PreviewImport(Batch("""
+            {"email":"valid-prefix@example.com","displayName":"Valid","managerEmail":null},
+            """ + invalidPerson));
+        Assert.False(preview.CanApply);
+        Assert.NotEmpty(preview.Errors);
+        Assert.Null(preview.Impact);
+        Assert.False(app.ApplyImport(preview.Id));
+        Assert.Empty(app.People);
+    }
+
+    [Fact]
     public void Preview_groups_complete_changed_fields_once_per_Person_in_input_order()
     {
         using var app = Open();

@@ -109,6 +109,11 @@ public partial class MainWindow : Window
     {
         preview = null;
         ApplyButton.IsEnabled = false;
+        ImportDiagnostics.Text = "";
+        ImportDiagnostics.Visibility = ImportImpactText.Visibility = ImportActionsText.Visibility =
+            ImportObservationText.Visibility = Visibility.Collapsed;
+        System.Windows.Automation.AutomationProperties.SetName(ImportDiagnostics, "");
+        ImportImpactText.Text = ImportActionsText.Text = ImportObservationText.Text = "";
         const string guidance = "Choose a version-1 Import batch and preview again. No data changes until Apply.";
         PreviewText.ItemsSource = new[] { guidance };
         System.Windows.Automation.AutomationProperties.SetName(PreviewText, guidance);
