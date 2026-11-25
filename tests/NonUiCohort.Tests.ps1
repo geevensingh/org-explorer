@@ -177,6 +177,9 @@ try {
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $richWork -RichScale
     $richRecord = Get-Content (Join-Path $richWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    $richPlanWork = Join-Path $fixture 'rich-plan'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $richPlanWork -RichScale
     Assert ((Get-Content (Join-Path $richWork 'summary.md') -Raw).Contains('Complete performance/scale cohort')) `
         'Full rich cohort summary still claims only NON-UI or unexecuted rich acceptance.'
     Assert ($richRecord.schemaVersion -eq 2 -and $richRecord.richScaleAcceptance -ceq 'complete' -and
@@ -457,6 +460,21 @@ try {
     $observed = (git --git-dir=$observerRemote show "refs/heads/ci-health-data:$path") -join "`n" | ConvertFrom-Json -AsHashtable
     Assert ($observed.revision -ceq $revision -and $observed.reliability.success -eq 3 -and
         $observed.samples[2].measurements.profile.samplesMs.Count -eq 21) 'Real completion observer failed to authenticate and preserve its plan/results through history.'
+    $richObserverRemote = Join-Path $fixture 'rich-observer.git'
+    git init --bare --quiet $richObserverRemote
+    $observerArtifacts = $global:NonUiCohortFixture.artifacts
+    $global:NonUiCohortFixture.evidence[$planName] = $richPlanWork
+    $global:NonUiCohortFixture.sampleJobs = $richJobs
+    $global:NonUiCohortFixture.artifacts = @($richArtifacts) + @($observerArtifacts | Where-Object { $_.name -ceq $planName })
+    & "$root\eng\Invoke-NonUiCohortObservation.ps1" -RunId 99 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'rich-completion-observer') `
+        -HistoryRemote $richObserverRemote -AllowLocalFixture
+    $richObserved = (git --git-dir=$richObserverRemote show "refs/heads/ci-health-data:$richPath") -join "`n" | ConvertFrom-Json -AsHashtable
+    Assert ($richObserved.schemaVersion -eq 2 -and $richObserved.richScaleAcceptance -ceq 'complete' -and
+        $richObserved.reliability.success -eq 3 -and $richObserved.samples[0].rich.tail.profile.samplesMs.Count -eq 21) `
+        'Trusted completion observer lost complete rich qualification, original raw proof or its separate namespace.'
+    $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
+    $global:NonUiCohortFixture.artifacts = $observerArtifacts
+    $global:NonUiCohortFixture.evidence[$planName] = $work
     $peer = Join-Path $fixture 'peer'
     git clone --quiet --branch ci-health-data $remote $peer
     $prior = ($saved | ConvertTo-Json -Depth 30) | ConvertFrom-Json -AsHashtable
