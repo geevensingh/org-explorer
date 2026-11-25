@@ -42,6 +42,8 @@ internal static partial class Program
                 OpenPerson(window, "casey@example.com", "alex@example.com");
                 Click(window, "EditPreferredName");
                 var entry = PreferredNameEntry(window);
+                AssertValue(entry, "PreferredName", "Ave");
+                Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
                 Set(entry, "PreferredName", "Editable during update check");
                 Click(entry, "SavePreferredName");
                 Await(() => Status(window) == "Saved locally.");
@@ -103,6 +105,7 @@ internal static partial class Program
             AssertPreferredNameReading(window, "Editable during update check", "Edit");
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Editable during update check");
             Set(entry, "PreferredName", "Editable after update failure");
             Click(entry, "SavePreferredName");
             Await(() => Activity(window) == "Ready" &&

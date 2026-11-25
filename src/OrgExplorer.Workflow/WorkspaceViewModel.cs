@@ -2,7 +2,10 @@ using System.ComponentModel;
 
 namespace OrgExplorer.Workflow;
 
-public sealed record RetainedPersonTextDraft(PersonProfile Basis, PersonTextField Field, string? Value, string? Error = null);
+public sealed record RetainedPersonTextDraft(PersonProfile Basis, PersonTextField Field, string? Value, string? Error = null)
+{
+    internal bool Submitted { get; init; }
+}
 
 public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPropertyChanged
 {
@@ -166,7 +169,12 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public PersonPhoto? GetPhoto(string email) => workflow.GetPhoto(email);
     public bool EditPhoto(string email, string? localPath) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPhoto(email, localPath));
     public bool EditPersonText(string email, PersonTextField field, string? value) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditPersonText(email, field, value));
-    public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value)
+    public void RetainPersonTextDraft(PersonProfile basis, PersonTextField field, string? value) =>
+        RetainPersonTextDraftCore(basis, field, value, submitted: false);
+    public void RetainPersonTextSubmission(PersonProfile basis, PersonTextField field, string? value) =>
+        RetainPersonTextDraftCore(basis, field, value, submitted: true);
+
+    private void RetainPersonTextDraftCore(PersonProfile basis, PersonTextField field, string? value, bool submitted)
     {
         if (!AllowLocalDraftEdit()) return;
         if (field != PersonTextField.PreferredName)
@@ -175,11 +183,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         {
             var key = (basis.Email.ToLowerInvariant(), field);
             var error = personTextDrafts.GetValueOrDefault(key)?.Error;
-            if (value == basis.PreferredName && error is null && localSaveRequests.Status.OutstandingRequests == 0 &&
+            if (!submitted && value == basis.PreferredName && error is null && localSaveRequests.Status.OutstandingRequests == 0 &&
                 !personTextSaveRequests.ContainsKey(key) &&
                 workflow.GetRelationships(basis.Email)?.Person is { } current && current.PreferredName == basis.PreferredName)
                 personTextDrafts.Remove(key);
-            else personTextDrafts[key] = new(basis, field, value, error);
+            else personTextDrafts[key] = new(basis, field, value, error) { Submitted = submitted };
             workflow.RetainPersonTextDraft(basis, field, value);
         }
         Notify();
@@ -195,7 +203,11 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
         if (!CanSubmitLocalSave()) return null;
         var key = (basis.Email.ToLowerInvariant(), field);
         lock (personTextDraftGate)
+        {
             personTextSaveRequests[key] = personTextSaveRequests.GetValueOrDefault(key) + 1;
+            if (field == PersonTextField.PreferredName)
+                personTextDrafts.TryAdd(key, new(basis, field, value) { Submitted = true });
+        }
         try
         {
             var accepted = workflow.SavePersonTextDraft(basis, field, value);
@@ -210,7 +222,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
                         personTextDrafts[key] = latest with
                         {
                             Basis = accepted ?? latest.Basis,
-                            Error = accepted is null ? workflow.LocalSaveError ?? workflow.Status : null
+                            Error = accepted is null ? workflow.LocalSaveError ?? workflow.Status : null,
+                            Submitted = accepted is null && latest.Submitted
                         };
                         if (accepted is not null) workflow.RetainPersonTextDraft(accepted, field, latest.Value);
                     }
@@ -249,7 +262,7 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
             if (personTextDrafts.Count != 0 && personTextSaveRequests.Count == 0 &&
                 localSaveRequests.Status.OutstandingRequests == 0 && !LocalSave.EditsPaused)
                 foreach (var (key, draft) in personTextDrafts.ToArray())
-                    if (draft.Error is null && draft.Value == draft.Basis.PreferredName &&
+                    if (!draft.Submitted && draft.Error is null && draft.Value == draft.Basis.PreferredName &&
                         workflow.GetRelationships(draft.Basis.Email)?.Person is { } current &&
                         current.PreferredName == draft.Basis.PreferredName)
                     {

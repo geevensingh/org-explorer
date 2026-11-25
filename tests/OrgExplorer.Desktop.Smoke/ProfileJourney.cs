@@ -198,8 +198,32 @@ internal static partial class Program
                 throw new InvalidOperationException("Rejected import did not show a concrete error with Apply disabled.");
             ReturnToPeople(window);
             AssertPreferredNameReading(window, "", "Add preferred name");
+            foreach (var dismissal in new[] { "cancel", "escape", "outside" })
+            {
+                Click(window, "EditPreferredName");
+                var defaultEntry = PreferredNameEntry(window);
+                AssertValue(defaultEntry, "PreferredName", "Avery Example");
+                Await(() => Find(defaultEntry, "PreferredName").Current.HasKeyboardFocus);
+                if (dismissal == "cancel") Click(defaultEntry, "CancelPreferredName");
+                else if (dismissal == "escape") PressCopyKey(0x1B);
+                else PrimaryClick(() => Find(window, "SearchQuery"));
+                AssertPreferredNameReading(window, "", "Add preferred name");
+                Await(() => Find(window, dismissal == "outside" ? "SearchQuery" : "EditPreferredName").Current.HasKeyboardFocus);
+                AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                    "Dismissing the untouched Directory-name default changed durable names: " + dismissal);
+            }
             Click(window, "EditPreferredName");
             var entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
+            Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+            PrimaryClick(() => Find(entry, "SavePreferredName"));
+            Await(() => Status(window) == "Saved locally.");
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Save of the unchanged Directory-name default created an override.");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
             Set(entry, "PreferredName", "Unconfirmed name");
             Find(entry, "PreferredName").SetFocus();
             PressCopyKey(0x09);
@@ -240,10 +264,27 @@ internal static partial class Program
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
             AssertPersonCategory(window, "Employee");
             AssertPreferredNameReading(window, "Ave", "Edit");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Ave");
+            Set(entry, "PreferredName", "  aVeRy ExAmPlE  ");
+            Find(entry, "PreferredName").SetFocus();
+            Await(() => Find(entry, "PreferredName").Current.HasKeyboardFocus);
+            PressCopyKey(0x0D);
+            AssertPreferredNameReading(window, "", "Add preferred name");
+            AssertSavedPersonNames(workspace, "avery@example.com", null, "Avery Example",
+                "Physical Enter did not clear an equivalent Preferred name while preserving Directory name.");
+            Click(window, "EditPreferredName");
+            entry = PreferredNameEntry(window);
+            AssertValue(entry, "PreferredName", "Avery Example");
+            Set(entry, "PreferredName", "Ave");
+            PrimaryClick(() => Find(entry, "SavePreferredName"));
+            AssertPreferredNameReading(window, "Ave", "Edit");
             foreach (var dismissal in new[] { "cancel", "escape", "outside" })
             {
                 Click(window, "EditPreferredName");
                 entry = PreferredNameEntry(window);
+                AssertValue(entry, "PreferredName", "Ave");
                 Set(entry, "PreferredName", "Must not save " + dismissal);
                 if (dismissal == "cancel") Click(entry, "CancelPreferredName");
                 else if (dismissal == "escape")
@@ -336,6 +377,15 @@ internal static partial class Program
             ClosePublishedWorkspace(process, workspace);
         }
         finally { if (process is not null) StopApplication(process); }
+    }
+
+    private static void AssertSavedPersonNames(string workspace, string email,
+        string? expectedPreferredName, string? expectedDirectoryName, string failureMessage)
+    {
+        using var saved = OpenSmokeWorkspace(workspace);
+        var person = saved.GetRelationships(email)!.Person;
+        if (person.PreferredName != expectedPreferredName || person.DirectoryName != expectedDirectoryName)
+            throw new InvalidOperationException(failureMessage);
     }
 
     private static void BeginProfileEditing(AutomationElement window)
