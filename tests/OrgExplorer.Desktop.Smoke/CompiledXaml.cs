@@ -2141,6 +2141,15 @@ internal static partial class Program
             PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
                 Control<TextBlock>("Email").Text == (importRetry ? "" : email));
             var content = (FrameworkElement)window.Content;
+            var observedBringExtents = new List<double>();
+            var observedTree = Control<TreeView>("PeopleList");
+            VirtualizingPanel.SetCacheLength(observedTree, new VirtualizationCacheLength(0));
+            observedTree.AddHandler(FrameworkElement.RequestBringIntoViewEvent, new RequestBringIntoViewEventHandler((_, request) =>
+            {
+                if (request.TargetObject is TreeViewItem { DataContext: ReportingNode node } &&
+                    node.Person.Email == email && !request.TargetRect.IsEmpty && request.TargetRect.Width == 1)
+                    observedBringExtents.Add(VisualDescendants(observedTree).OfType<ScrollViewer>().First().ExtentHeight);
+            }), handledEventsToo: true);
             void Settle()
             {
                 var settled = false;
@@ -2155,6 +2164,7 @@ internal static partial class Program
                 content.UpdateLayout();
                 Settle();
                 content.UpdateLayout();
+                Settle();
             }
             Layout();
             if (importRetry)
@@ -2196,6 +2206,10 @@ internal static partial class Program
                 item.DataContext is ReportingNode node && node.Person.Email == email);
             var browsing = (WorkspaceViewModel)tree.DataContext;
             var treeScroll = VisualDescendants(tree).OfType<ScrollViewer>().First();
+            if (observedBringExtents.Count != 1 || observedBringExtents[0] < treeScroll.ExtentHeight - 1)
+                throw new InvalidOperationException($"The single reveal used an unsettled scroll extent: " +
+                    $"requests={observedBringExtents.Count}; requestedExtent={observedBringExtents.FirstOrDefault()}; " +
+                    $"settledExtent={treeScroll.ExtentHeight}.");
             if (Math.Abs(browsing.PeopleNavigation.BrowseOffset - treeScroll.VerticalOffset) >= 1)
                 throw new InvalidOperationException($"The accepted reveal remembered a stale browsing offset: " +
                     $"remembered={browsing.PeopleNavigation.BrowseOffset}; actual={treeScroll.VerticalOffset}.");

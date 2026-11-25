@@ -269,24 +269,40 @@ public partial class MainWindow
                 return;
             }
             ObserveRevealLifecycle("realization-complete", request, email, row, null);
-            // Root rows can reserve a wider browsing extent; reveal the header's leading edge, not its trailing blank width.
-            var target = new Rect(0, 0, 1, Math.Min(28, row.ActualHeight));
-            ObserveRevealLifecycle("bring-call", request, email, row, target);
-            row.BringIntoView(target);
-            if (wideWorkspace)
-            {
-                FocusManager.SetFocusedElement(this, row);
-                if (IsVisible) row.Focus();
-            }
-            pendingPeopleRevealEmail = null;
-            // BringIntoView queues scroll/layout work; do not remember the preceding offset.
+            // Expanded realization can publish its scroll extent after the current layout callback.
             Dispatcher.BeginInvoke(() =>
             {
-                if (request == peopleBrowseRequest && email == selectedEmail &&
-                    workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
-                    ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
-                    RememberPeopleBrowsing();
-                ObserveRevealLifecycle("context-idle-result", request, email, row, target);
+                if (request != peopleBrowseRequest || email != selectedEmail ||
+                    email != workflow.PeopleNavigation.SelectedEmail || !workflow.IsWorkspaceCurrent ||
+                    !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
+                    ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible ||
+                    row is TreeViewItem treeRow &&
+                        (treeRow.DataContext is not ReportingNode node ||
+                            !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+                {
+                    ObserveRevealLifecycle("bring-rejected", request, email, row, null);
+                    return;
+                }
+                ObserveRevealLifecycle("bring-layout-ready", request, email, row, null);
+                // Preserve leading-edge reveal without including the expanded subtree or trailing blank width.
+                var target = new Rect(0, 0, 1, Math.Min(28, row.ActualHeight));
+                ObserveRevealLifecycle("bring-call", request, email, row, target);
+                row.BringIntoView(target);
+                if (wideWorkspace)
+                {
+                    FocusManager.SetFocusedElement(this, row);
+                    if (IsVisible) row.Focus();
+                }
+                pendingPeopleRevealEmail = null;
+                // Capture browsing only after the one queued scroll request has applied.
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (request == peopleBrowseRequest && email == selectedEmail &&
+                        workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
+                        ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
+                        RememberPeopleBrowsing();
+                    ObserveRevealLifecycle("context-idle-result", request, email, row, target);
+                }, DispatcherPriority.ContextIdle);
             }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);
     }

@@ -271,6 +271,13 @@ BringIntoView requests are asynchronous: the adapter records browsing at context
 idle after queued scroll/layout effects, guarded by the accepted request and owner.
 It does not issue a second reveal, restore an earlier offset, change any deadline
 or bypass active search/Import or retained writing.
+Cold virtualization coverage observes the extent at the one actual reveal request
+and compares it with the settled real TreeView extent. The adapter first realizes
+and expands the path, then defers that original request to guarded context idle
+so pending layout/scroll-extent publication can finish before MakeVisible clamps
+the offset. It never repairs a clamped request with a second scroll.
+The compiled fixture services the staged request and its existing post-scroll
+snapshot before asserting exact selected-header geometry and browsing position.
 After Import, the search journey deliberately resumes compact People and focuses
 the unchanged query before its existing highlight/geometry/focus assertions.
 It does not assume that clicking Back to People is a query-field focus gesture.
