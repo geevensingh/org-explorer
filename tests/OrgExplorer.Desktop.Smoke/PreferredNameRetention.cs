@@ -26,6 +26,62 @@ internal static partial class Program
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: true, newerWhilePending: true);
         VerifyPreferredNameReturn(windowType, settings, chooseFolder, cancel: false, newerWhilePending: true);
         VerifyPreferredNameOriginalDuringReturn(windowType, settings);
+        VerifyPreferredNameFailedDefaultReturn(windowType, settings);
+    }
+
+    private static void VerifyPreferredNameFailedDefaultReturn(Type windowType, string settings)
+    {
+        using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-default-failure"));
+        fixture.Select("avery@example.com");
+        var basis = fixture.Model.GetRelationships("avery@example.com")!.Person;
+        fixture.Click("EditPreferredNameButton");
+        if (fixture.Control<TextBox>("PreferredName").Text != "Avery" ||
+            fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName) is not null)
+            throw new InvalidOperationException("Opening the Directory-name default must not retain writing.");
+        using (var external = OpenSmokeWorkspace(fixture.Path))
+            if (!external.EditPreferredName(basis.Email, "Delivered Preferred name"))
+                throw new InvalidOperationException(external.Status);
+        fixture.Observer.Hold("local-sqlite-read-snapshot");
+        fixture.Click("SavePreferredNameButton");
+        PumpUntil(() => fixture.Observer.Entered.IsSet);
+        try
+        {
+            var pending = fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName);
+            if (pending is null || pending.Basis != basis || pending.Value != "Avery" ||
+                fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Visible ||
+                fixture.Control<TextBox>("PreferredName").Text != "Avery")
+                throw new InvalidOperationException("The untouched default was not retained before its admitted Save completed.");
+        }
+        finally { fixture.Observer.Release.Set(); }
+        fixture.AwaitIdle();
+        var failure = fixture.Model.LocalSaveError;
+        if (failure is null || !failure.Contains("changed externally", StringComparison.Ordinal) ||
+            fixture.Control<TextBlock>("PreferredNameError").Visibility != Visibility.Visible ||
+            !fixture.Control<TextBlock>("PreferredNameErrorDetails").Text.Contains(failure, StringComparison.Ordinal))
+            throw new InvalidOperationException("Saving the untouched default did not reject the changed Preferred-name base.");
+        fixture.Select("casey@example.com");
+        fixture.Select(basis.Email);
+        var retained = fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName);
+        if (fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Visible ||
+            fixture.Control<TextBox>("PreferredName").Text != "Avery" ||
+            retained is null || retained.Basis != basis || retained.Value != "Avery" ||
+            retained.Error != failure ||
+            fixture.Control<TextBlock>("PreferredNameError").Visibility != Visibility.Visible ||
+            fixture.Control<TextBlock>("PreferredNameErrorDetails").Text != failure || fixture.Model.CanSafelyClose)
+            throw new InvalidOperationException("A failed untouched-default Save lost its submitted text, original base or inline error after browsing away and back.");
+        fixture.Click("SavePreferredNameButton");
+        fixture.AwaitIdle();
+        if (fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName)?.Basis != basis ||
+            fixture.Control<TextBlock>("PreferredNameError").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Retry replaced the failed default's original Preferred-name base.");
+        using (var reading = OpenSmokeWorkspace(fixture.Path))
+            if (reading.GetRelationships(basis.Email)!.Person.PreferredName != "Delivered Preferred name")
+                throw new InvalidOperationException("A failed default submission or retry overwrote the external Preferred name.");
+        fixture.Click("CancelPreferredNameButton");
+        if (fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName) is not null ||
+            fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Cancel did not release only the failed default entry.");
+        Console.WriteLine("PASS: failed untouched Directory-name default Save retains exact text, immutable base and inline error across browsing and stale retry.");
     }
 
     private static void VerifyProfileRetryOwner(Type windowType, string settings)

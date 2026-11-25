@@ -129,7 +129,10 @@ update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
 that field's unsaved failure, never other fields, profile sessions, quick actions,
 notes, Import, local recovery or retained synchronization divergence.
 Fresh compact entries display Preferred name, otherwise Directory name, otherwise
-empty, without retaining or publishing that default. Save/Enter clears a valid
+empty, without retaining or publishing that default. Explicit Save/Enter captures
+the submitted text and original base before asynchronous work begins, so an
+untouched default survives pending or rejected submission and owner browsing.
+Save/Enter clears a valid
 name equivalent to the current accepted Directory name, ignoring capitalization
 and outer whitespace only; distinct text retains its exact storage behavior.
 Public Person-text cases cover the matching/missing-name matrix, meaningful
@@ -1306,6 +1309,10 @@ entry and retain its exact writing/error without overwriting external data.
 These checks use the existing bounded dispatcher/commit observations and never
 show a window or create a native main-window handle; they are not hosted
 interaction or latency acceptance.
+The untouched-default regression holds the actual local read to check submitted
+retention before completion, then browses A-B-A after a same-field rejection.
+Exact submitted text, original base and the retained failure remain available
+for stale retry until deliberate cancellation; reopening preserves external data.
 
 `--verify-preferred-name-snapshot-deferral` isolates the full profile-refresh
 selection's compiled incoming-archival/Preferred-name deferral case, including
