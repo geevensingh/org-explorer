@@ -2810,7 +2810,7 @@ The shared immutable trusted history descriptor stores schema-2 complete-cohort
 records under `rich-scale-cohorts/<revision>/<run>/<attempt>.json`; legacy schema-1
 `performance-cohorts` remains non-UI-only and cannot qualify as complete rich
 acceptance or its comparison reference. PR/manual lane observations remain
-baseline-ineligible and are not cohort comparison inputs. Every worker outcome,
+baseline-ineligible and are not cohort comparison inputs. Every original worker name/outcome,
 unavailable/expired/rejected artifact, raw latency series, handoff/receipt,
 individual measurement and descriptive median/range survives in compact history.
 Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;

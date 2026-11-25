@@ -206,10 +206,11 @@ try {
     $global:NonUiCohortFixture.evidence[$tailName] = $originalTail
     $richPrefixPath = Join-Path $richFixtures[2].prefix 'result.json'
     $richPrefixOriginal = Get-Content $richPrefixPath -Raw
-    foreach ($defect in @('attempt', 'diagnostic', 'budget', 'cancelled', 'skipped', 'missing-tail', 'during-typing', 'invalid-p95', 'no-worker')) {
+    foreach ($defect in @('attempt', 'diagnostic', 'budget', 'cancelled', 'skipped', 'missing-tail', 'during-typing', 'invalid-p95', 'no-worker', 'skipped-tail-template')) {
         $changed = $richPrefixOriginal | ConvertFrom-Json -AsHashtable
         $changedJob = @($richJobs | Where-Object { $_.name -ceq 'Rich cohort prefix (2)' })[0]
         $originalRunnerId = $changedJob.runner_id
+        $tailJob = @($richJobs | Where-Object { $_.name -ceq 'Rich cohort tail (2)' })[0]
         $notePath = Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-background-export.json"
         $noteOriginal = Get-Content $notePath -Raw
         switch ($defect) {
@@ -219,6 +220,10 @@ try {
             'cancelled' { $changedJob.conclusion = 'cancelled' }
             'skipped' { $changedJob.conclusion = 'skipped' }
             'no-worker' { $changedJob.runner_id = 0 }
+            'skipped-tail-template' {
+                $tailJob.name = 'non-ui-cohort-pilot / rich-sample-2 / Rich cohort tail (${{ inputs.sample }})'
+                $tailJob.conclusion = 'skipped'
+            }
             'missing-tail' { $global:NonUiCohortFixture.artifacts = @($richArtifacts | Where-Object { $_.name -cne $tailName }) }
             { $_ -in @('during-typing', 'invalid-p95') } {
                 $note = $noteOriginal | ConvertFrom-Json -AsHashtable
@@ -237,11 +242,17 @@ try {
         Assert ($rejectedRich.validation -ceq 'rejected' -and $rejectedRich.reliability.attempts -eq 3 -and
             $rejectedRich.reliability.success -eq 2 -and $rejectedRich.extraSamples.Count -eq 0 -and
             $rejectedRich.metrics.executionSeconds.count -eq 3) "Rich $defect was voted away, retried or lost original non-UI evidence."
+        if ($defect -eq 'skipped-tail-template') {
+            Assert ($rejectedRich.samples[1].rich.tail.jobOutcome -ceq 'skipped' -and
+                $rejectedRich.samples[1].rich.tail.validation -ceq 'skipped' -and
+                $rejectedRich.samples[1].rich.tail.jobName -ceq $tailJob.name) 'Original skipped reusable worker was mistaken for a missing job.'
+        }
         $richPrefixOriginal | Set-Content $richPrefixPath
         $richPrefixOriginal | Set-Content (Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\result.json")
         $noteOriginal | Set-Content $notePath
         $changedJob.conclusion = 'success'
         $changedJob.runner_id = $originalRunnerId
+        $tailJob.name = 'Rich cohort tail (2)'; $tailJob.conclusion = 'success'
         $global:NonUiCohortFixture.artifacts = $richArtifacts
     }
     $richPolicyWork = Join-Path $fixture 'rich-policy'

@@ -25,10 +25,14 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
     $outcomes = @($Sample.validation)
     foreach ($worker in @('prefix', 'tail', 'union')) {
         $name = "rich-cohort-$CohortId-sample-$($Sample.number)-$worker"
-        $workerJobs = @($Jobs | Where-Object { $_.name -cmatch "(^| / )Rich cohort $worker \($($Sample.number)\)$" })
+        $templateName = [regex]::Escape("rich-sample-$($Sample.number) / Rich cohort $worker (" + '${{ inputs.sample }}' + ')')
+        $workerJobs = @($Jobs | Where-Object {
+            $_.name -cmatch "(^| / )Rich cohort $worker \($($Sample.number)\)$" -or
+            ($_.conclusion -cin @('skipped', 'cancelled') -and $_.name -cmatch "(^| / )$templateName$")
+        })
         $found = @($Artifacts | Where-Object { $_.name -ceq $name })
         $part = [ordered]@{
-            jobId = $null; runnerId = $null; invocationId = $null; jobOutcome = 'missing'
+            jobId = $null; jobName = $null; runnerId = $null; invocationId = $null; jobOutcome = 'missing'
             validation = 'incomplete'; report = $null; phasesMs = @{}; notes = @{}; profile = $null; lifecycle = $null
             evidence = @{ state = 'missing'; artifactId = $null; digest = $null; expiresAt = $null
                 url = "https://github.com/$FilesystemHealthRepository/actions/runs/$RunId/attempts/$RunAttempt" }
@@ -36,6 +40,7 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
         $Sample.rich[$worker] = $part
         if ($workerJobs.Count -eq 1) {
             $part.jobId = $workerJobs[0].id; $part.runnerId = $workerJobs[0].runner_id; $part.jobOutcome = $workerJobs[0].conclusion
+            $part.jobName = $workerJobs[0].name
             $part.validation = switch -CaseSensitive ($part.jobOutcome) {
                 'failure' { 'failure' }; 'cancelled' { 'cancelled' }; 'skipped' { 'skipped' }; default { 'incomplete' }
             }
