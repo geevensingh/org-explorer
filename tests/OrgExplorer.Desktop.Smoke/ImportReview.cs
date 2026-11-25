@@ -165,7 +165,7 @@ internal static partial class Program
             var longValue = new string('W', 160) + " complete end";
             const string multiline = "North floor\nSouth floor";
             File.WriteAllText(import, $$"""
-                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000089",
+                {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000090",
                  "observedAt":"2026-11-03T17:00:00Z","people":[
                  {"email":"avery@example.com","displayName":"Avery updated","alias":"avery.updated",
                   "jobTitle":"Principal researcher","department":"Applied research","officeBuilding":{{JsonSerializer.Serialize(longValue)}},
