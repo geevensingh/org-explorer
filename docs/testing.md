@@ -263,6 +263,14 @@ the original viewport geometry and a real in-viewport clickable point.
 Missing/unselected rows, missing/offscreen headers and rejected geometry/points
 retain the same bounded failure. The compiled case also exercises this selection
 and header observation through actual BAML/provider state, not only a fake identity.
+The real-folder compiled opening case also replays failed Apply, Import discard,
+local reconciliation, accepted re-preview/Apply and Back to People at the ordinary
+viewport width. It compares the remembered browse offset with the settled actual
+TreeView offset, alongside the exact profile, selected header and expanded ancestor.
+BringIntoView requests are asynchronous: the adapter records browsing at context
+idle after queued scroll/layout effects, guarded by the accepted request and owner.
+It does not issue a second reveal, restore an earlier offset, change any deadline
+or bypass active search/Import or retained writing.
 After Import, the search journey deliberately resumes compact People and focuses
 the unchanged query before its existing highlight/geometry/focus assertions.
 It does not assume that clicking Back to People is a query-field focus gesture.

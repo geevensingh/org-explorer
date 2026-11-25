@@ -266,7 +266,14 @@ public partial class MainWindow
                 if (IsVisible) row.Focus();
             }
             pendingPeopleRevealEmail = null;
-            RememberPeopleBrowsing();
+            // BringIntoView queues scroll/layout work; do not remember the preceding offset.
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (request == peopleBrowseRequest && email == selectedEmail &&
+                    workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
+                    ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
+                    RememberPeopleBrowsing();
+            }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);
     }
 

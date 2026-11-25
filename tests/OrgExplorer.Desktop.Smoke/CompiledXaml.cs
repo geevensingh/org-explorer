@@ -2102,39 +2102,103 @@ internal static partial class Program
 
     private static void VerifyAutomaticPeopleReading(Type windowType, string root)
     {
-        var path = Path.Combine(root, "automatic-reading");
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: true);
+        VerifyAutomaticPeopleReading(windowType, root, importRetry: false);
+    }
+
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root, bool importRetry)
+    {
+        var path = Path.Combine(root, importRetry ? "automatic-import-reading" : "automatic-reading");
+        var email = importRetry ? "morgan@example.com" : "casey@example.com";
+        var heading = importRetry ? "Morgan Example" : "Casey";
+        var ancestorEmail = importRetry ? "z-context@example.com" : "anchor@example.com";
+        var records = (importRetry ? """
+            {"email":"z-context@example.com","displayName":"Z single-report ancestor","managerEmail":null},
+            {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":"z-context@example.com"},
+            {"email":"avery@example.com","displayName":"Avery Example","managerEmail":"morgan@example.com"},
+            {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+            {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+            """ : """
+            {"email":"anchor@example.com","displayName":"Z ancestor","managerEmail":null},
+            {"email":"casey@example.com","displayName":"Casey","managerEmail":"anchor@example.com"},
+            {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"casey@example.com"},
+            """) + string.Join(",", Enumerable.Range(0, 24).Select(i =>
+                $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""));
         using (var seed = ApplicationWorkflow.CreateFileBacked())
         {
-            var records = """
-                {"email":"anchor@example.com","displayName":"Z ancestor","managerEmail":null},
-                {"email":"casey@example.com","displayName":"Casey","managerEmail":"anchor@example.com"},
-                {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
-                {"email":"second@example.com","displayName":"Second","managerEmail":"casey@example.com"},
-                """ + string.Join(",", Enumerable.Range(0, 24).Select(i =>
-                    $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""));
-            if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 902)).Id))
+            if (!seed.OpenWorkspace(path) || !importRetry && !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 902)).Id))
                 throw new InvalidOperationException(seed.Status);
         }
         var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
             [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         try
         {
-            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Control<Button>("OpenWorkspaceButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Invoke("OpenSettingsButton");
+            Invoke("OpenWorkspaceButton");
             PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
-                Control<TextBlock>("Email").Text == "casey@example.com");
+                Control<TextBlock>("Email").Text == (importRetry ? "" : email));
             var content = (FrameworkElement)window.Content;
-            content.Measure(new Size(1100, 736));
-            content.Arrange(new Rect(0, 0, 1100, 736));
-            content.UpdateLayout();
-            var settled = false;
-            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
-            PumpUntil(() => settled);
-            content.UpdateLayout();
+            void Settle()
+            {
+                var settled = false;
+                window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+                PumpUntil(() => settled);
+            }
+            void Layout()
+            {
+                var size = importRetry ? new Size(1024, 697) : new Size(1100, 736);
+                content.Measure(size);
+                content.Arrange(new Rect(size));
+                content.UpdateLayout();
+                Settle();
+                content.UpdateLayout();
+            }
+            Layout();
+            if (importRetry)
+            {
+                var model = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+                var import = Path.Combine(root, "automatic-import.json");
+                File.WriteAllText(import, SearchImport(records, 903));
+                void Preview()
+                {
+                    Invoke("OpenSettingsButton");
+                    Invoke("OpenImportButton");
+                    Control<TextBox>("ImportPath").Text = import;
+                    Invoke("PreviewButton");
+                    PumpUntil(() => Control<Button>("ApplyButton").IsEnabled);
+                }
+                void BackToPeople() => LogicalDescendants(Control<FrameworkElement>("ImportPanel")).OfType<Button>()
+                    .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Preview();
+                using (WorkspaceFixtures.LockLocalStore(path))
+                {
+                    Invoke("ApplyButton");
+                    PumpUntil(() => model.HasFailedImport && Control<Button>("DiscardImportButton").IsEnabled);
+                    BackToPeople();
+                    Invoke("DiscardImportButton");
+                }
+                Invoke("NoticeRetryButton");
+                PumpUntil(() => !model.LocalSave.EditsPaused && Control<TextBlock>("WorkflowActivity").Text == "Ready");
+                Preview();
+                Invoke("ApplyButton");
+                PumpUntil(() => model.PeopleNavigation.SelectedEmail == email &&
+                    Control<TextBlock>("WorkflowActivity").Text == "Ready");
+                if (!model.IsImportOpen) throw new InvalidOperationException("Automatic selection left Import.");
+                BackToPeople();
+                Layout();
+            }
             var tree = Control<TreeView>("PeopleList");
             var row = VisualDescendants(tree).OfType<TreeViewItem>().Single(item =>
-                item.DataContext is ReportingNode { Person.Email: "casey@example.com" });
+                item.DataContext is ReportingNode node && node.Person.Email == email);
+            var browsing = (WorkspaceViewModel)tree.DataContext;
+            var treeScroll = VisualDescendants(tree).OfType<ScrollViewer>().First();
+            if (Math.Abs(browsing.PeopleNavigation.BrowseOffset - treeScroll.VerticalOffset) >= 1)
+                throw new InvalidOperationException($"The accepted reveal remembered a stale browsing offset: " +
+                    $"remembered={browsing.PeopleNavigation.BrowseOffset}; actual={treeScroll.VerticalOffset}.");
             var peer = UIElementAutomationPeer.CreatePeerForElement(row);
             var headerPeer = (UIElementAutomationPeer)(peer.GetChildren() ?? []).Single(child =>
                 child.GetAutomationControlType() == AutomationControlType.Text);
@@ -2145,20 +2209,20 @@ internal static partial class Program
             ControlReadiness.AwaitSelectedHeader(
                 () => new ControlReadiness.SelectedRowHeader<UIElementAutomationPeer>(peer.IsOffscreen(),
                     ((ISelectionItemProvider)peer.GetPattern(PatternInterface.SelectionItem)).IsSelected, headerPeer),
-                current => current.GetName() == "Casey" && viewport.Contains(headerCenter) &&
+                current => current.GetName() == heading && viewport.Contains(headerCenter) &&
                     headerBounds.Top >= viewport.Top && headerBounds.Bottom <= viewport.Bottom,
                 condition =>
                 {
                     if (!condition())
                         throw new InvalidOperationException("Logical row metadata rejected the actual selected viewport-visible header.");
                 });
-            if (peer.GetName() != "Casey (casey@example.com); Directory name: Casey" ||
+            if (peer.GetName() != $"{heading} ({email}); Directory name: {heading}" ||
                 peer.GetPattern(PatternInterface.SelectionItem) is not ISelectionItemProvider { IsSelected: true } ||
-                headerPeer.GetName() != "Casey" || !viewport.Contains(headerCenter) ||
+                headerPeer.GetName() != heading || !viewport.Contains(headerCenter) ||
                 headerBounds.Top < viewport.Top || headerBounds.Bottom > viewport.Bottom ||
                 Control<Button>("EditProfileButton").Visibility != Visibility.Visible)
                 throw new InvalidOperationException("Automatic opening did not expose the exact selected Person's reading profile and viewport-visible header.");
-            var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == "anchor@example.com");
+            var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == ancestorEmail);
             if (tree.ItemContainerGenerator.ContainerFromItem(ancestor) is not TreeViewItem { IsExpanded: true })
                 throw new InvalidOperationException("Automatic opening did not expand the selected Manager's ancestor.");
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
