@@ -128,7 +128,9 @@ public static class $typeName {
         @{ job = 'ui-scale-tail'; command = 'Run-UiScale.ps1'; artifact = 'ui-scale-tail-' }
     )) {
         $job = [regex]::Match($workflow, "(?ms)^  $($suite.job):\r?`n(?<body>.*?)(?=^  [\w-]+:|\z)").Groups['body'].Value
-        $watchdog = 'timeout-minutes: 13'
+        $watchdog = if ($suite.job -eq 'ui-scale-prefix') {
+            'timeout-minutes: ${{ inputs.prefix_only_diagnostic && 17 || 13 }}'
+        } else { 'timeout-minutes: 13' }
         foreach ($required in @('runs-on: windows-latest', $watchdog, 'SCALE_STARTED_AT=',
             'TESTED_REVISION=', 'CANDIDATE_REVISION', 'if-no-files-found: error', $suite.artifact,
             ($suite.command + ' -ExpectedRevision $env:TESTED_REVISION'))) {

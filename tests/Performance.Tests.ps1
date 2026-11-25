@@ -212,13 +212,32 @@ Write-Progress 'SCALE END heartbeat-probe; outcome=Passed'
     }
     Write-Host 'PASS: stdout and current-run timing files retain live and final phase evidence, ignoring unrelated inherited logs.'
     $diagnostic = Join-Path $results 'diagnostic-only'
+    $deadlineProbe = Join-Path $results 'observation-deadline.ps1'
+    @'
+param([string] $Report)
+$ErrorActionPreference = 'Stop'
+$result = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+$deadline = [DateTimeOffset]::Parse($env:SCALE_DEADLINE_AT)
+if ($deadline -ne ([DateTimeOffset]$result.startedAt).AddSeconds(900)) {
+    throw 'Diagnostic held work inherited the acceptance deadline instead of the observation deadline.'
+}
+if ($result.ceilingSeconds -ne 660 -or !$result.diagnosticOnly) {
+    throw 'Deadline propagation changed the original acceptance policy.'
+}
+Write-Output 'captured-diagnostic-deadline'
+'@ | Set-Content -LiteralPath $deadlineProbe
     Assert-Rejected {
         Invoke-ScaleSuite -Suite contract -Label 'Diagnostic observation' -ResultsDirectory $diagnostic `
-            -ObservationSeconds 900 -Selection @{} -Verify { param($run, $build) }
+            -ObservationSeconds 900 -Selection @{} -Verify {
+                param($run, $build)
+                Invoke-ScaleProcess observation-deadline pwsh @('-NoProfile', '-File', $deadlineProbe,
+                    (Join-Path $run 'result.json'))
+            }
     } 'diagnostic observation as successful candidate verification'
     $status = Get-Content (Join-Path $diagnostic 'result.json') -Raw | ConvertFrom-Json
     if ($status.outcome -ne 'diagnostic_complete' -or !$status.diagnosticOnly -or
-        $status.observedOutcome -ne 'success' -or $status.ceilingSeconds -ne 660 -or $status.observationSeconds -ne 900) {
+        $status.observedOutcome -ne 'success' -or $status.ceilingSeconds -ne 660 -or $status.observationSeconds -ne 900 -or
+        $status.steps.Count -ne 1 -or $status.steps[0].exitCode -ne 0) {
         throw 'Extended observation did not retain the unchanged budget and non-verifying outcome.'
     }
     $priorStarted = $env:SCALE_STARTED_AT

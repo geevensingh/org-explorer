@@ -40,6 +40,16 @@ check, not the requested percentage, proves that browsing was preserved.
 
 ## Placement
 
+The #130 staged diagnostic uses the registered Scale verification workflow's
+`prefix_only_diagnostic` manual input at its exact workflow-source SHA. Only one
+rich prefix runs: 900 seconds of observation, a 17-minute hosted watchdog, and
+the observation deadline inherited by the held publisher. Normal executions
+still inherit 660 seconds. Both absolute deadlines are retained in runner JSON;
+cleanup still enforces the original 660-second verdict even if diagnostic work
+finishes later. Diagnostic artifacts cannot accept a candidate or supply a
+baseline; there is no diagnostic tail/union or production publication. This
+capture is separately approved, not approval of numerical timing policy.
+
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |

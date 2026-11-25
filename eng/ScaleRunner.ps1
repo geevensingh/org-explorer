@@ -40,6 +40,8 @@ function Invoke-ScaleSuite(
             ceilingSeconds = $ceilingSeconds; steps = @($state.steps.ToArray())
             runDirectory = [IO.Path]::GetRelativePath($results, $run); queuesIncluded = $false; cdIncluded = $false
             observationSeconds = $ObservationSeconds; diagnosticOnly = $ObservationSeconds -gt $ceilingSeconds
+            acceptanceDeadlineAt = $state.started.AddSeconds($ceilingSeconds).ToString('O')
+            observationDeadlineAt = $state.started.AddSeconds($ObservationSeconds).ToString('O')
             observedOutcome = $state.observedOutcome; phase = $state.phase; activeCommand = $state.activeCommand
             lastProgress = $state.lastProgress; heartbeatAt = [DateTimeOffset]::UtcNow.ToString('O')
             activePhase = $state.activePhase; lastActivePhase = $state.lastActivePhase
@@ -123,7 +125,7 @@ function Invoke-ScaleSuite(
         try {
             $previousDeadline = [Environment]::GetEnvironmentVariable('SCALE_DEADLINE_AT')
             try {
-                [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $state.started.AddSeconds($ceilingSeconds).ToString('O'))
+                [Environment]::SetEnvironmentVariable('SCALE_DEADLINE_AT', $state.started.AddSeconds($ObservationSeconds).ToString('O'))
                 $process = Start-Process $FilePath -ArgumentList $quoted -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $errors
             } finally {
                 if ($null -eq $previousDeadline) {
