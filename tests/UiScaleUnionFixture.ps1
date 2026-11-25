@@ -45,6 +45,11 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
             trackedChanges = $false; untrackedChanges = $false; diagnosticOnly = $false
             environment = @{ processors = 4; os = 'Windows'; runtime = '.NET 10'; powershell = '7.6'
                 image = 'win25'; imageVersion = '20261116' }
+            configuration = @{ workload = 'OrgExplorer.Desktop.Smoke'; testTree = 'c' * 40; fixtureTree = 'd' * 40
+                sdk = '10.0.100'; runtimes = @('Microsoft.NETCore.App 10.0.0'); os = 'Windows'; architecture = 'X64'
+                processors = 4; image = 'win25'; imageVersion = '20261116'; powershell = '7.6'
+                setup = 'locked-restore;isolated-build;setup-and-cleanup-included'; display = @{ width = 1920; height = 1080 }
+                native = @{ version = 'synthetic-native'; sourceId = 'synthetic-source'; loadedSha256 = 'D' * 64 } }
             ceilingSeconds = 660; observationSeconds = 660; executionSeconds = 1
             startedAt = $StartedAt.ToString('O'); completedAt = $StartedAt.AddSeconds(1).ToString('O')
             runDirectory = $workerRun; requiredScenarios = @($plan.workers[$worker]); completedPhases = @($plan.phases[$worker])

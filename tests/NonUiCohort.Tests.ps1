@@ -49,8 +49,9 @@ function gh {
     }
     switch -Regex ($args[1]) {
         '/actions/runs/42/attempts/1$' { $global:NonUiCohortFixture.run | ConvertTo-Json -Depth 10; return }
+        '/actions/runs/42/attempts/2$' { $global:NonUiCohortFixture.run | ConvertTo-Json -Depth 10; return }
         '/actions/runs/42$' { $global:NonUiCohortFixture.latest | ConvertTo-Json -Depth 10; return }
-        '/actions/runs/42(/attempts/1)?/jobs\?per_page=100$' {
+        '/actions/runs/42(/attempts/[12])?/jobs\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ jobs = $global:NonUiCohortFixture.jobs }) -Depth 10; return
         }
         '/git/ref/heads/main$' { @{ object = @{ sha = $global:NonUiCohortFixture.revision } } | ConvertTo-Json; return }
@@ -444,11 +445,16 @@ try {
     $global:NonUiCohortFixture.artifacts = $nonUiArtifacts
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-core') `
         -HistoryRemote $remote -AllowLocalFixture -Publish
+    $run.run_attempt = 2; $run.event = 'pull_request'; $run.head_branch = 'feature'
+    & "$root\eng\Invoke-LaneHealth.ps1" -RunId 42 -RunAttempt 2 -WorkingDirectory (Join-Path $fixture 'mixed-observation') `
+        -HistoryRemote $remote -AllowLocalFixture -PublishObservations
+    $run.run_attempt = 1; $run.event = 'push'; $run.head_branch = 'main'
     & "$root\eng\Invoke-FilesystemHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-filesystem') `
         -HistoryRemote $remote -AllowLocalFixture -Publish
     $paths = @(git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data)
     Assert ($paths -ccontains $path -and $paths -ccontains 'lanes/42/1/core.json' -and
-        $paths -ccontains 'filesystem/42/1.json' -and $paths -ccontains $richPath) 'Mixed public core/filesystem readers rejected or overwrote either trusted cohort namespace.'
+        $paths -ccontains 'filesystem/42/1.json' -and $paths -ccontains $richPath -and
+        $paths -ccontains 'observations/42/2/core.json') 'Mixed public readers lost a complete/legacy cohort, qualified lane or ineligible observation namespace.'
     $observerRemote = Join-Path $fixture 'observer.git'
     git init --bare --quiet $observerRemote
     $planName = 'non-ui-cohort-plan-99-1'

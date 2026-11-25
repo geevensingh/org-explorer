@@ -70,7 +70,7 @@ try {
     if (Test-Path $installer) { Remove-Item $installer -Recurse -Force }
     if (Test-Path $renewalDirectory) { Remove-Item $renewalDirectory -Recurse -Force }
 }
-@{ outcome = 'success'; revision = $Candidate; verificationRunId = $runId; productionPublication = $false
+@{ outcome = 'success'; revision = $Candidate; verificationRunId = $runId; runAttempt = $env:GITHUB_RUN_ATTEMPT; productionPublication = $false
     ephemeralSigningOnly = $true; productionTrustIsolation = $true; installationExecuted = $false
     metadataRenewalVerified = $true; originalAppVersion = $version; renewalAppVersion = $version } |
     ConvertTo-Json | Set-Content (Join-Path $result 'result.json')

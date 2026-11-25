@@ -93,6 +93,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: non-ui-performance-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/performance/**/*.json
@@ -131,6 +132,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-prefix-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-prefix/**/*.json
@@ -174,6 +176,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-tail/**/*.json
@@ -210,6 +213,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-${{ inputs.revision || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .ci-results/ui-scale-union/**/*.json

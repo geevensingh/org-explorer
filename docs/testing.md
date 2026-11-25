@@ -1835,6 +1835,8 @@ rebuilding/rerunning unrelated suites. Contract checks without launching WPF:
 .\tests\CiGate.Tests.ps1
 .\tests\CiRunner.Tests.ps1
 .\tests\FilesystemHealth.Tests.ps1
+.\tests\LaneHealth.Tests.ps1
+.\tests\MixedHealth.Tests.ps1
 .\tests\ImplementationBaseline.Tests.ps1
 .\tests\DraftDiscard.Tests.ps1
 .\tests\Performance.Tests.ps1
@@ -1868,20 +1870,27 @@ cleanup are not subtracted. Missing configuration prevents comparison, not
 execution of the existing checks.
 
 CI retains filesystem JSON/log/TRX evidence for 30 days in
-`filesystem-attempt-<runAttempt>`. The separate `filesystem-health.yml` observer
+`filesystem-attempt-<runAttempt>`. The separate `lane-health.yml` observer
 runs after CI completes; it is not a dependency of `CI`, scale or release.
 Its code comes from the trusted controller's `github.workflow_sha`, never the
 observed candidate or its artifact. It reads only data from the source attempt.
-PR/manual/fork observations are read-only and retained as 30-day summary
-artifacts; only authenticated repository `main` push attempts can append
-authoritative compact history to `ci-health-data`. Failed, cancelled, skipped
+Candidate PR/manual/fork code remains read-only. Under the
+[maintainer's observation-history checkpoint](https://github.com/geevensingh/org-explorer/issues/127#issuecomment-7173207158),
+the authenticated trusted controller also retains these attempts in a separate
+baseline-ineligible namespace on `ci-health-data`. Qualified main observations
+include authenticated repository main pushes, scheduled scale and release
+controllers; canonical baseline qualification remains main-only and separately
+calibrated.
+Failed, cancelled, skipped
 and interrupted main attempts remain beside successes. Source run/attempt and
 artifact bindings are verified again by the public collector.
 
 `Invoke-FilesystemHealth.ps1` saves `record.json` and `summary.md` in its explicit
 working directory and appends the summary to the observer's GitHub step summary.
-The dedicated data branch contains only `filesystem/<runId>/<attempt>.json`,
-not executable files, release metadata or product commits. A non-force Git
+The dedicated data branch retains the legacy `filesystem/<runId>/<attempt>.json`
+records, qualified `lanes/<runId>/<attempt>/<lane>.json` records and ineligible
+`observations/<runId>/<attempt>/<lane>.json` records, not executable
+files, release metadata or product commits. A non-force Git
 append preserves the pinned history snapshot and comparison across up to three
 concurrent-update reconciliation attempts. Duplicate attempts are immutable;
 different data cannot overwrite them. Read/write failures fail the observer
@@ -1913,6 +1922,101 @@ invokes the real public filesystem runner with an already exhausted budget and
 feeds that terminal result through history/summary, preserving the failing gate.
 Only GitHub transport is faked; no internal classifier or validator is replaced.
 These non-UI contracts are not hosted timing or release acceptance evidence.
+
+### All-lane observation and evidence boundaries
+
+`Invoke-LaneHealth.ps1` extends that same public result/history flow to core,
+filesystem, both ordinary and both high-resolution partitions, explicit non-UI
+performance, rich prefix/tail/union, installer and release/renewal/rehearsal
+jobs. Reusable scale jobs keep their calling scope and exact tested candidate
+separate from the workflow controller revision. Unknown jobs are explicitly
+job-only observations, not guessed product acceptance. Optional skips and
+release-planning no-ops do not certify executed scale or publication.
+
+Core preserves its unfiltered selection and emits the original terminal outcome
+plus timings for every existing mandatory companion and the health contracts.
+Raw local runner success/completed correctness checks are separate from
+original-policy acceptance: a completed execution beyond 300 seconds is a
+reported budget failure, not a within-budget/healthy sample, even where the
+preexisting local companion execution returns success. Reporting does not
+change that raw exit or extend the Actions deadline.
+Partitions retain their original required command/scenario matrices; named
+compiled trust/icon/output checks are additional observations, not substituted
+native proof. Core/filesystem TRX retains workload-family outcome counts,
+including concurrent-reader, repeated-write, recovery and producer families.
+Case-duration sums may overlap and are never lane wall time or inner-operation
+latency. Missing duration fields remain unavailable.
+
+The adapters use the real desktop, performance and rich-union validators.
+The accepting union still requires both actual workers, original ordered phases,
+20/42/21 note samples, both 21-sample profile phases and exact logical/native/
+product handoff. A worker alone is not a complete accepting union.
+Interrupted prefixes retain safe candidate/run/attempt-bound numeric samples
+even before final handoff capture, explicitly labeling reported product hashes
+as unverified against that missing handoff. Stale metric identities are rejected.
+No process is restarted or repaired to collect a measurement.
+
+Resolved workload/linked-fixture identity, SDK/runtimes, runner image/version,
+OS/architecture/processors, actual display and available rich loaded-native
+identity determine comparison availability. Application revision remains
+provenance, not a cross-revision equality key. Nested configuration is hashed
+canonically. Missing relevant configuration, clocks or raw evidence stays
+inconclusive; advertised metadata does not prove identical physical host load.
+Setup/configuration/cleanup costs are not subtracted. Terminal serialization
+follows the runner's existing elapsed measurement; API job/step wall durations
+include outer setup/post/upload and are labeled separately. Invalid or skipped
+API clocks never become zero-duration passing work.
+
+The observer saves `records.json` and `summary.md`, appends the GitHub summary,
+and publishes a complete observed attempt in one immutable data-branch append.
+Its existing bounded reconciliation preserves simultaneous attempts and pinned
+comparisons. Both public CLIs validate mixed legacy/lane history.
+`Open-HealthHistory -RecordTypes` accepts namespace/path/validator descriptors
+only from trusted controller code; retrieved data cannot register or execute
+validators. Failed schema/provenance/history reads and publications remain
+explicit observer failures without changing original CI/release verdicts.
+
+CI and scale JSON/log/TRX/native evidence and secret-free rehearsal artifacts
+have explicit 30-day retention; installer evidence keeps seven days.
+The controller retains PR/manual/fork attempts, including the installer's
+path-filtered/manual runs, in `observations/`, with `baselineEligible=false` and
+`comparisonInputEligible=false`. It derives source eligibility from authenticated
+run provenance, never an artifact claim. Only the trusted controller receives
+write credentials; `-PublishObservations` verifies its repository-main
+`workflow_run`, committed clean code and pinned workflow SHA before writing.
+The normal public CLI remains read-only unless the appropriate publication mode
+is explicitly selected. The legacy filesystem CLI cannot grant PR/fork authority.
+Qualified main observations alone can provide prior comparison inputs; no
+single lane record becomes a canonical baseline before calibration/cohort
+qualification. Both namespaces retain compact numeric/provenance records after
+raw expiry. Reference availability is retained
+metadata plus expiry, not a new download or fresh release acceptance.
+
+Summaries separate validation, timing observation, original policy/metric
+ceilings, reference age/revision, differences, descriptive variability/headroom,
+all-attempt reliability and recent individual outcomes. They activate no
+numerical bands, cohort eligibility, promotion or comparative blockers.
+The observer is not a CI, cohort or release dependency. Ordinary PR selection,
+current budgets, actual product assertions and fresh release gates are unchanged.
+
+`LaneHealth.Tests.ps1` and `MixedHealth.Tests.ps1` run in core without native UI.
+They drive representative complete/broken artifacts through the public CLI,
+real validators and isolated Git: missing compiled companions, stale metrics,
+interrupted prefix measurements, absent actual handoff, installer trust/platform
+limits, skipped release clocks, failed/cancelled/rerun history, non-self
+comparison, atomic publication, malformed series and immutable mixed history,
+source-derived ineligible publication, forged artifact eligibility, nonexecution
+and exclusion of PR/manual observations from comparison/baseline inputs.
+These fixtures establish result contracts, not hosted speed, Windows 11 client
+coverage, real desktop acceptance or production publication.
+
+`Export-LocalCoreHealth -Directory .ci-results\core -WorkingDirectory <folder>
+-ObservedExitCode <observed-code>` projects an actual local result through that
+same public validation/summary flow. It saves `record.json` and `summary.md`,
+retaining raw runner outcome, completed checks, original-policy acceptance and
+negative headroom without inventing a GitHub run. Local projections are never
+published or baseline/comparison inputs. This can explain a shared-local
+overrun; it cannot establish hosted CI capacity.
 
 `--verify-xaml` is a separate non-UI build/load contract, not a desktop scenario.
 It constructs the actual compiled MainWindow BAML and event connectors on STA

@@ -4,7 +4,10 @@
 function Get-RichCohortSeriesKey($Sample) {
     $configuration = @{} + $Sample.configuration
     foreach ($worker in @('prefix', 'tail')) {
-        $configuration[$worker] = $Sample.rich[$worker].report.environment
+        $configuration[$worker] = Get-HealthSeriesKey @{
+            policyVersion = 'rich-scale-original-v1'; selector = "--ui-scale-$worker"
+            configuration = $Sample.rich[$worker].report.configuration
+        }
     }
     $configuration.richTestTree = $Sample.rich.handoff.binding.testTree
     $configuration.nativeVersion = $Sample.rich.handoff.binding.nativeVersion
@@ -98,7 +101,9 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
                             foreach ($key in $files.Keys) {
                                 $file = Join-Path $run $files[$key]
                                 if (!(Test-Path -LiteralPath $file)) { $Sample.diagnostics += "Rich $worker $key evidence missing."; continue }
-                                $data = Get-Content $file -Raw | ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
+                                $data = if ($key -in @('handoff', 'receipt')) {
+                                    Get-Content $file -Raw | ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
+                                } else { Read-UiScaleEvidenceIdentity $run $files[$key] $Revision $RunId $RunAttempt -AsHashtable }
                                 if ($key.StartsWith('note-')) { $part.notes[$key.Substring(5)] = $data }
                                 elseif ($key -in @('handoff', 'receipt')) { $Sample.rich[$key] = $data }
                                 else { $part[$key] = $data }

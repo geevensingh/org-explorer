@@ -86,6 +86,12 @@ snapshot; it does not reseed equivalent data. Each execution retains its own
 660-second budget. See the [canonical commands and artifact contract](testing.md#separate-scale-commands-and-results);
 one rich worker cannot establish complete verification.
 
+The independent `lane-health.yml` observer reports release/renewal job phases
+and available exact-attempt scale evidence after the source run completes.
+Its history/comparisons never replace these fresh gates, delay publication or
+rewrite a release verdict. A planning success with skipped scale/publication
+remains a no-op, not executed release verification.
+
 Rich ordinary note durability retains its 1,000-ms goal with the owner-approved
 temporary enforced 1,050-ms p95 ceiling in both normal and held-export phases.
 The collector requires honest goal/ceiling metadata and every original

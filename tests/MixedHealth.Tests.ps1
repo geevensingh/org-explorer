@@ -31,9 +31,12 @@ function gh {
             workflow_run = @{ id = 71; head_sha = $f.run.head_sha } }) }) -Depth 10
     } else { $f.run | ConvertTo-Json -Depth 10 }
 }
-function Run-Observation([string]$Lane, [int]$Attempt) {
+function Run-Observation([string]$Lane, [int]$Attempt, [switch]$Unqualified) {
     $f = $global:MixedHealthFixture
     $f.lane = $Lane; $f.run.run_attempt = $Attempt
+    $f.run.event = if ($Unqualified) { 'pull_request' } else { 'push' }
+    $f.run.head_branch = if ($Unqualified) { 'feature' } else { 'main' }
+    $f.run.head_repository.full_name = if ($Unqualified) { 'attacker/fork' } else { 'geevensingh/org-explorer' }
     $steps = if ($Lane -ceq 'core') { Get-CoreHealthSteps } else { @('restore', 'test') }
     @{ schemaVersion = 1; lane = $Lane; revision = $f.run.head_sha; runId = '71'; runAttempt = [string]$Attempt
         complete = $true; outcome = 'success'; executionSeconds = 120; targetSeconds = 300
@@ -46,25 +49,33 @@ function Run-Observation([string]$Lane, [int]$Attempt) {
             powershell = '7.6.10'; setup = 'locked-restore;isolated-build;setup-and-cleanup-included' }
         steps = @($steps | ForEach-Object { @{ name = $_; seconds = 1; status = 'Passed' } })
     } | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $evidence 'execution.json')
-    '<TestRun><Results><UnitTestResult testName="Real.saved_result" outcome="Passed" /></Results><ResultSummary outcome="Completed"><Counters total="1" executed="1" passed="1" failed="0" notExecuted="0" /></ResultSummary></TestRun>' |
+    $test = if ($Lane -ceq 'core') { 'OrgExplorer.Core.Tests.OrgExportTests.Producer_retains_attempts' } else { 'OrgExplorer.Persistence.Tests.WorkspaceReadLifetimeTests.Readers_keep_durable_writing' }
+    "<TestRun><Results><UnitTestResult testName=`"$test`" outcome=`"Passed`" duration=`"00:00:00.5000000`" /></Results><ResultSummary outcome=`"Completed`"><Counters total=`"1`" executed=`"1`" passed=`"1`" failed=`"0`" notExecuted=`"0`" /></ResultSummary></TestRun>" |
         Set-Content (Join-Path $evidence 'result.trx')
     $work = Join-Path $fixture "$Lane-$Attempt"
     $script = if ($Lane -ceq 'core') { 'Invoke-LaneHealth.ps1' } else { 'Invoke-FilesystemHealth.ps1' }
-    & "$root\eng\$script" -RunId 71 -RunAttempt $Attempt -HistoryRemote $remote -AllowLocalFixture -WorkingDirectory $work -Publish
+    $arguments = @{ RunId = 71; RunAttempt = $Attempt; HistoryRemote = $remote; AllowLocalFixture = $true; WorkingDirectory = $work }
+    if ($Unqualified) { $arguments.PublishObservations = $true } else { $arguments.Publish = $true }
+    & "$root\eng\$script" @arguments
 }
 try {
     Run-Observation core 1
     Run-Observation filesystem 1
+    Run-Observation core 3 -Unqualified
     Run-Observation core 2
     Run-Observation filesystem 2
     $paths = @(git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data)
-    foreach ($path in @('lanes/71/1/core.json', 'filesystem/71/1.json', 'lanes/71/2/core.json', 'filesystem/71/2.json')) {
+    foreach ($path in @('lanes/71/1/core.json', 'filesystem/71/1.json', 'lanes/71/2/core.json', 'filesystem/71/2.json', 'observations/71/3/core.json')) {
         if ($paths -cnotcontains $path) { throw "Mixed publication lost $path" }
         $saved = (git --git-dir=$remote show "refs/heads/ci-health-data:$path") -join "`n" | ConvertFrom-Json -AsHashtable
         if ($saved.validation -cne 'success' -or $saved.measurements.executionSeconds -ne 120) { throw 'Mixed readers lost real validation/numeric inputs.' }
     }
     $filesystem = (git --git-dir=$remote show refs/heads/ci-health-data:filesystem/71/2.json) -join "`n" | ConvertFrom-Json -AsHashtable
     if ($filesystem.reliability.attempts -ne 2 -or $filesystem.reliability.success -ne 2) { throw 'Filesystem reliability counted other lane records.' }
+    if ($filesystem.tests.workloads[0].name -cne 'WorkspaceReadLifetimeTests' -or
+        $filesystem.tests.workloads[0].passed -ne 1 -or $filesystem.tests.workloads[0].seconds -ne .5) {
+        throw 'Nested concurrent-reader coverage or actual test-case duration was lost.'
+    }
     $tip = git --git-dir=$remote rev-parse refs/heads/ci-health-data
     $rejected = $false
     try { Run-Observation filesystem 2 } catch { $rejected = $true }

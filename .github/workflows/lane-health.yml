@@ -1,0 +1,71 @@
+name: Validation lane observations
+
+on:
+  workflow_run:
+    workflows: [Continuous integration, Scale verification, Isolated Windows installer, Product release, Product release rehearsal]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observation:
+    if: ${{ !contains(fromJSON('["push","schedule","workflow_run"]'), github.event.workflow_run.event) || github.event.workflow_run.head_branch != 'main' || github.event.workflow_run.head_repository.full_name != github.repository }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Observe candidate data without publication authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
+          OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEALTH_CONTROLLER_REVISION: ${{ github.workflow_sha }}
+        shell: pwsh
+        run: |
+          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health -PublishObservations
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: lane-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          retention-days: 30
+          path: |
+            .ci-results/lane-health/records.json
+            .ci-results/lane-health/summary.md
+
+  history:
+    if: ${{ contains(fromJSON('["push","schedule","workflow_run"]'), github.event.workflow_run.event) && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Append trusted main attempt and report pinned observations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
+          OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEALTH_CONTROLLER_REVISION: ${{ github.workflow_sha }}
+        shell: pwsh
+        run: |
+          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health -Publish
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: lane-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          retention-days: 30
+          path: |
+            .ci-results/lane-health/records.json
+            .ci-results/lane-health/summary.md

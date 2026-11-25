@@ -26,6 +26,7 @@ function Invoke-ScaleSuite(
         outcome = 'running'; failure = $null; steps = [System.Collections.Generic.List[object]]::new()
         observedOutcome = 'running'; phase = 'setup'; activeCommand = $null; lastProgress = $null
         activePhase = $null; lastActivePhase = $null
+        configuration = $null; configurationErrors = @()
     }
 
     function Write-ScaleReport {
@@ -43,9 +44,10 @@ function Invoke-ScaleSuite(
             lastProgress = $state.lastProgress; heartbeatAt = [DateTimeOffset]::UtcNow.ToString('O')
             activePhase = $state.activePhase; lastActivePhase = $state.lastActivePhase
             environment = $executionEnvironment
+            configuration = $state.configuration; configurationErrors = $state.configurationErrors
         }
         foreach ($key in $Selection.Keys) { $report[$key] = $Selection[$key] }
-        $json = $report | ConvertTo-Json -Depth 5
+        $json = $report | ConvertTo-Json -Depth 12
         foreach ($path in @((Join-Path $run 'result.json'), (Join-Path $results 'result.json'))) {
             [IO.File]::WriteAllText("$path.writing", $json)
             [IO.File]::Move("$path.writing", $path, $true)
@@ -184,6 +186,29 @@ function Invoke-ScaleSuite(
             throw 'Pre-publication/candidate verification requires the exact expected revision and a clean checkout, including untracked files.'
         }
         $null = Assert-ScaleRemainingBudget -ForObservation
+        if ($Suite -ceq 'ui-scale') {
+            try {
+                $testTree = (& git rev-parse --verify HEAD:tests/OrgExplorer.Desktop.Smoke).Trim()
+                if ($LASTEXITCODE -ne 0) { throw 'Rich test-tree identity unavailable.' }
+                $tree = @(git ls-tree -r HEAD -- tests eng Directory.Build.props Directory.Build.targets)
+                if ($LASTEXITCODE -ne 0 -or !$tree.Count) { throw 'Rich workload/fixture identity unavailable.' }
+                $fixtureTree = (($tree -join "`n") | git hash-object --stdin).Trim()
+                if ($LASTEXITCODE -ne 0) { throw 'Rich workload hash unavailable.' }
+                $sdk = (dotnet --version).Trim()
+                if ($LASTEXITCODE -ne 0) { throw 'Resolved SDK unavailable.' }
+                $runtimes = @(dotnet --list-runtimes | ForEach-Object { $_ -replace ' \[.*\]$', '' })
+                if ($LASTEXITCODE -ne 0 -or !$runtimes.Count) { throw 'Resolved runtimes unavailable.' }
+                $state.configuration = @{
+                    workload = 'OrgExplorer.Desktop.Smoke'; testTree = $testTree; fixtureTree = $fixtureTree
+                    sdk = $sdk; runtimes = $runtimes; os = $executionEnvironment.os
+                    architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+                    processors = $executionEnvironment.processors; image = $executionEnvironment.image
+                    imageVersion = $executionEnvironment.imageVersion; powershell = $executionEnvironment.powershell
+                    setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
+                    display = $null; native = $null; observationSeconds = $ObservationSeconds
+                }
+            } catch { $state.configurationErrors += "Rich comparison configuration unavailable: $($_.Exception.Message)" }
+        }
         Write-Host "$Label`: revision $($state.revision); tracked changes $($state.dirty); shared ceiling $ceilingSeconds s."
         if ($ObservationSeconds -gt $ceilingSeconds) {
             Write-Host "DIAGNOSTIC ONLY: observation window $ObservationSeconds s; the 660-second verification verdict is unchanged and this invocation cannot pass."
@@ -206,6 +231,20 @@ function Invoke-ScaleSuite(
         if ($state.outcome -ne 'timed_out') { $state.outcome = 'failure' }
         $state.failure = $_.Exception.Message
     } finally {
+        if ($Suite -ceq 'ui-scale' -and $null -ne $state.configuration) {
+            try {
+                $display = Join-Path $run 'display.json'
+                if (Test-Path -LiteralPath $display) {
+                    $state.configuration.display = Get-Content -LiteralPath $display -Raw | ConvertFrom-Json -AsHashtable
+                } else { $state.configurationErrors += 'Actual rich display metadata unavailable.' }
+                $handoff = if ($Selection.worker -ceq 'prefix') { Join-Path $run 'handoff\handoff.json' } else { Join-Path $run 'handoff-received.json' }
+                if (Test-Path -LiteralPath $handoff) {
+                    $binding = (Get-Content -LiteralPath $handoff -Raw | ConvertFrom-Json -AsHashtable).binding
+                    $state.configuration.native = @{ version = $binding.nativeVersion; sourceId = $binding.nativeSourceId
+                        loadedSha256 = $binding.loadedNativeSha256 }
+                } else { $state.configurationErrors += 'Actual loaded native handoff binding unavailable.' }
+            } catch { $state.configurationErrors += "Rich configuration evidence rejected: $($_.Exception.Message)" }
+        }
         $state.phase = 'cleanup'
         $state.activeCommand = $null
         $state.activePhase = $null

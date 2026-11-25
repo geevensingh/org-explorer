@@ -19,6 +19,7 @@ $resultsName = if ($partition) { "$Lane-$partition" } else { $Lane }
 $results = Join-Path $root ".ci-results\$resultsName"
 New-Item -ItemType Directory -Path $results -Force | Out-Null
 $steps = [System.Collections.Generic.List[object]]::new()
+$companionSteps = [System.Collections.Generic.List[object]]::new()
 $index = 0
 $artifactBuild = Join-Path $results 'build'
 $ceilingSeconds = if ($Lane -eq 'core') { 300 } `
@@ -41,13 +42,13 @@ if ($Lane -in @('core', 'filesystem')) {
     })) { Remove-Item -LiteralPath $file.FullName -Force }
 }
 
-function Invoke-CiCompanion([string]$Name, [scriptblock]$Action) {
+function Invoke-CiCompanion([string]$Name, [scriptblock]$Action, $Results = $steps) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $phaseStarted = [DateTimeOffset]::UtcNow
     $passed = $false
     try { & $Action; $passed = $true }
     finally {
-        $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
+        $Results.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
             status = if ($passed) { 'Passed' } else { 'Failed' }
             startedAt = $phaseStarted.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O') })
     }
@@ -109,6 +110,7 @@ try {
             Invoke-CiCompanion 'CiRunner.Tests.ps1' { & "$root\tests\CiRunner.Tests.ps1" }
             Invoke-CiCompanion 'FilesystemHealth.Tests.ps1' { & "$root\tests\FilesystemHealth.Tests.ps1" }
             Invoke-CiCompanion 'LaneHealth.Tests.ps1' { & "$root\tests\LaneHealth.Tests.ps1" }
+            Invoke-CiCompanion 'MixedHealth.Tests.ps1' { & "$root\tests\MixedHealth.Tests.ps1" }
             Invoke-CiCompanion 'ImplementationBaseline.Tests.ps1' { & "$root\tests\ImplementationBaseline.Tests.ps1" }
             Invoke-CiCompanion 'DocumentationHandoff.Tests.ps1' { & "$root\tests\DocumentationHandoff.Tests.ps1" }
             Invoke-CiCompanion 'DraftDiscard.Tests.ps1' { & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll') }
@@ -171,13 +173,19 @@ try {
             if ($runDesktopContracts) {
                 Invoke-BudgetedDotnet release-isolation @('publish', 'src\OrgExplorer.Desktop', '-c', 'Release', '--no-restore',
                     '-o', (Join-Path $results 'product-check'))
-                & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
-                    -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
-                & "$root\tests\ApplicationIcon.Tests.ps1" -Executable (Join-Path $results 'product-check\OrgExplorer.Desktop.exe')
-                $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
-                if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
-                    throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
-                }
+                Invoke-CiCompanion 'Update.Trust.Tests.ps1' {
+                    & "$root\tests\Update.Trust.Tests.ps1" -Assembly (Join-Path $results 'product-check\OrgExplorer.Desktop.dll') `
+                        -Configuration "$root\src\OrgExplorer.Desktop\update-trust.json"
+                } -Results $companionSteps
+                Invoke-CiCompanion 'ApplicationIcon.Tests.ps1' {
+                    & "$root\tests\ApplicationIcon.Tests.ps1" -Executable (Join-Path $results 'product-check\OrgExplorer.Desktop.exe')
+                } -Results $companionSteps
+                Invoke-CiCompanion 'product-output-isolation' {
+                    $files = Get-ChildItem (Join-Path $results 'product-check') -Recurse -File
+                    if ($files | Where-Object { $_.FullName -match '(?i)fixtures|test-workspaces|OrgExplorer\.(Core\.Tests|Persistence\.Tests|Desktop\.Smoke)|ScaleFixture' }) {
+                        throw 'Fictitious fixtures or test assemblies leaked into the product publish output.'
+                    }
+                } -Results $companionSteps
             }
         }
     }
@@ -222,9 +230,10 @@ try {
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
         }
     }
-    if ($Lane -eq 'core') {
-        $testTree = git rev-parse --verify HEAD:tests/OrgExplorer.Core.Tests 2>$null
-        if ($LASTEXITCODE -ne 0) { $testTree = $null; $configurationErrors += 'Core test-tree identity unavailable.' }
+    if ($Lane -in @('core', 'desktop', 'high-resolution')) {
+        $workload = if ($Lane -eq 'core') { 'OrgExplorer.Core.Tests' } else { 'OrgExplorer.Desktop.Smoke' }
+        $testTree = git rev-parse --verify "HEAD:tests/$workload" 2>$null
+        if ($LASTEXITCODE -ne 0) { $testTree = $null; $configurationErrors += 'Selected test-tree identity unavailable.' }
         $tree = @(git ls-tree -r HEAD -- tests eng Directory.Build.props Directory.Build.targets)
         $fixtureTree = ($tree -join "`n") | git hash-object --stdin
         if ($LASTEXITCODE -ne 0) { $fixtureTree = $null; $configurationErrors += 'Core workload identity unavailable.' }
@@ -233,12 +242,21 @@ try {
         $runtimes = @(dotnet --list-runtimes | ForEach-Object { $_ -replace ' \[.*\]$', '' })
         if ($LASTEXITCODE -ne 0) { $runtimes = @(); $configurationErrors += 'Resolved runtimes unavailable.' }
         $configuration = @{
-            workload = 'OrgExplorer.Core.Tests'; testTree = $testTree; fixtureTree = $fixtureTree
+            workload = $workload; testTree = $testTree; fixtureTree = $fixtureTree
             sdk = $sdk; runtimes = $runtimes; os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
             architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
             processors = [Environment]::ProcessorCount; image = $env:ImageOS; imageVersion = $env:ImageVersion
             powershell = $PSVersionTable.PSVersion.ToString()
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
+        }
+        if ($Lane -ne 'core') {
+            $display = Join-Path $results 'display.json'
+            $configuration.display = $null
+            if (Test-Path -LiteralPath $display) {
+                try { $configuration.display = Get-Content -LiteralPath $display -Raw | ConvertFrom-Json -AsHashtable }
+                catch { $configurationErrors += "Display configuration rejected: $($_.Exception.Message)" }
+            } else { $configurationErrors += 'Actual display prerequisite configuration unavailable.' }
+            $configuration.controlledEffects = if ($Lane -eq 'desktop') { 'ephemeral-update-fixture' } else { 'production' }
         }
     }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
@@ -250,8 +268,10 @@ try {
             runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { 'local' }
             runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { 'local' }
             complete = $complete; ceilingSeconds = $ceilingSeconds; executionSeconds = $elapsed
-            steps = @($steps.ToArray())
-        } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $results 'execution.json')
+            startedAt = $started.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O')
+            configuration = $configuration; configurationErrors = $configurationErrors
+            steps = @($steps.ToArray()); companionSteps = @($companionSteps.ToArray())
+        } | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $results 'execution.json')
     }
     if ($Lane -in @('core', 'filesystem')) {
         $outcome = if ($complete) { 'success' } `
