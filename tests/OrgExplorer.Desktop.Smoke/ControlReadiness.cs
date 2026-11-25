@@ -34,6 +34,9 @@ internal static class ControlReadiness
         awaitState(() => isReady(isCompact()));
     }
 
+    internal static string AwaitReading(Func<string> read, string expected, Action<Func<bool>> awaitState) =>
+        AwaitControl(read, text => text.Contains(expected), awaitState);
+
     internal static void AssertCollapsed(IEnumerable<string> sections, Func<string, bool> isCollapsed,
         Action<Func<bool>> awaitState)
     {

@@ -7,6 +7,34 @@ public sealed class ControlReadinessTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Historical_reading_retains_the_successful_text_observation_without_an_unguarded_second_lookup()
+    {
+        var observations = 0;
+        var text = ControlReadiness.AwaitReading(
+            () => ++observations switch
+            {
+                1 => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading"),
+                2 => "Original direct - preserved frozen writing",
+                _ => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading")
+            }, "Original direct", AwaitReady);
+        Assert.Equal("Original direct - preserved frozen writing", text);
+        Assert.DoesNotContain("Later writing", text);
+        Assert.Equal(2, observations);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Wrong_or_permanently_missing_Historical_reading_still_fails_the_existing_bounded_observation()
+    {
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitReading(
+            () => throw new InvalidOperationException("Missing actual UI control: HistoricalTeamReading"),
+            "Original direct", AwaitReady));
+        Assert.Throws<TimeoutException>(() => ControlReadiness.AwaitReading(
+            () => "Later writing", "Original direct", AwaitReady));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Search_result_discovery_waits_for_the_queried_note_instead_of_missing_or_stale_profile_rows()
     {
         var observations = 0;

@@ -39,6 +39,8 @@ internal static partial class Program
             Await(() => Status(window).Contains("applied"));
             AssertAutomaticImportContext(window, Path.Combine(root, "app-settings", "workspace-settings.json"));
             ReturnToPeople(window);
+            if (responsive) Click(window, "OpenPeople");
+            Find(window, "SearchQuery").SetFocus();
             Await(() => CurrentPersonEmail(window) == "alex@example.com" && Value(window, "SearchQuery") == "browse" &&
                 Find(window, "SearchCount").Current.Name == "People found: 40 — local profiles and notes");
             AssertQueryHighlight(window, "browse01@example.com");
@@ -535,9 +537,9 @@ internal static partial class Program
     private static void AssertSearchReading(AutomationElement window, string expected, string? absent = null,
         string readingId = "PersonNoteReading")
     {
-        Await(() => ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern))
-            .DocumentRange.GetText(-1).Contains(expected));
-        var text = ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1);
+        var text = ControlReadiness.AwaitReading(
+            () => ((TextPattern)Find(window, readingId).GetCurrentPattern(TextPattern.Pattern)).DocumentRange.GetText(-1),
+            expected, Await);
         if (absent is not null && text.Contains(absent)) throw new InvalidOperationException("Search opened later writing in frozen context.");
     }
 }

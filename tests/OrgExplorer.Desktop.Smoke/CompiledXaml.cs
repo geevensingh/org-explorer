@@ -228,6 +228,8 @@ internal static partial class Program
                     VerifyHostedOrdinaryFixtureStateContracts(type, Path.Combine(settings, "os")));
                 HarnessRuntime.Run("compiled-current-search-storage", () =>
                     VerifyCurrentSearchStorage(type, Path.Combine(settings, "cs")));
+                HarnessRuntime.Run("compiled-automatic-people-reading", () =>
+                    VerifyAutomaticPeopleReading(type, Path.Combine(settings, "pr")));
                 HarnessRuntime.Run("compiled-note-read-demand", () =>
                     VerifyNoteReadDemand(type, Path.Combine(settings, "nd")));
                 HarnessRuntime.Run("compiled-actual39-functional", () =>
@@ -2098,6 +2100,64 @@ internal static partial class Program
             throw new InvalidOperationException("Empty-reading scroll proof must remain invisible without a native main-window handle.");
     }
 
+    private static void VerifyAutomaticPeopleReading(Type windowType, string root)
+    {
+        var path = Path.Combine(root, "automatic-reading");
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            var records = """
+                {"email":"anchor@example.com","displayName":"Z ancestor","managerEmail":null},
+                {"email":"casey@example.com","displayName":"Casey","managerEmail":"anchor@example.com"},
+                {"email":"avery@example.com","displayName":"Avery","managerEmail":"casey@example.com"},
+                {"email":"second@example.com","displayName":"Second","managerEmail":"casey@example.com"},
+                """ + string.Join(",", Enumerable.Range(0, 24).Select(i =>
+                    $$"""{"email":"context{{i:00}}@example.com","displayName":"A context {{i:00}}","managerEmail":null}"""));
+            if (!seed.OpenWorkspace(path) || !seed.ApplyImport(seed.PreviewImport(SearchImport(records, 902)).Id))
+                throw new InvalidOperationException(seed.Status);
+        }
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [ApplicationWorkflow.CreateFileBacked(), (Func<Window, string?>)(_ => path)], null)!;
+        T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
+        try
+        {
+            Control<Button>("OpenSettingsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Control<Button>("OpenWorkspaceButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => Control<TextBlock>("WorkflowActivity").Text == "Ready" &&
+                Control<TextBlock>("Email").Text == "casey@example.com");
+            var content = (FrameworkElement)window.Content;
+            content.Measure(new Size(1100, 736));
+            content.Arrange(new Rect(0, 0, 1100, 736));
+            content.UpdateLayout();
+            var settled = false;
+            window.Dispatcher.BeginInvoke(() => settled = true, DispatcherPriority.ContextIdle);
+            PumpUntil(() => settled);
+            content.UpdateLayout();
+            var tree = Control<TreeView>("PeopleList");
+            var row = VisualDescendants(tree).OfType<TreeViewItem>().Single(item =>
+                item.DataContext is ReportingNode { Person.Email: "casey@example.com" });
+            var peer = UIElementAutomationPeer.CreatePeerForElement(row);
+            var headerPeer = (UIElementAutomationPeer)(peer.GetChildren() ?? []).Single(child =>
+                child.GetAutomationControlType() == AutomationControlType.Text);
+            var header = (FrameworkElement)headerPeer.Owner;
+            var viewport = tree.TransformToAncestor(content).TransformBounds(new Rect(tree.RenderSize));
+            var headerBounds = header.TransformToAncestor(content).TransformBounds(new Rect(header.RenderSize));
+            var headerCenter = new Point(headerBounds.Left + headerBounds.Width / 2, headerBounds.Top + headerBounds.Height / 2);
+            if (peer.GetName() != "Casey (casey@example.com); Directory name: Casey" ||
+                peer.GetPattern(PatternInterface.SelectionItem) is not ISelectionItemProvider { IsSelected: true } ||
+                headerPeer.GetName() != "Casey" || !viewport.Contains(headerCenter) ||
+                headerBounds.Top < viewport.Top || headerBounds.Bottom > viewport.Bottom ||
+                Control<Button>("EditProfileButton").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("Automatic opening did not expose the exact selected Person's reading profile and viewport-visible header.");
+            var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == "anchor@example.com");
+            if (tree.ItemContainerGenerator.ContainerFromItem(ancestor) is not TreeViewItem { IsExpanded: true })
+                throw new InvalidOperationException("Automatic opening did not expand the selected Manager's ancestor.");
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Automatic-reading verification cannot create a native window.");
+            Console.WriteLine("PASS: actual compiled automatic opening exposes the exact reading Person, selected named header and expanded ancestor within the no-window viewport.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
     private static void VerifyPeopleSearchRestoration(Window window, string settings)
     {
         var folder = Path.Combine(settings, "responsive-browsing");
@@ -2152,6 +2212,8 @@ internal static partial class Program
         void Enter(UIElement target) => Press(target, Key.Enter);
         var queryField = Control<TextBox>("SearchQuery");
         var queryResults = Control<ListBox>("SearchResults");
+        if (Control<TextBlock>("Email").Text != "alex@example.com")
+            throw new InvalidOperationException("The populated search fixture did not open its automatic root Person.");
         queryField.Text = "browse";
         PumpUntil(() => queryResults.Items.Count == 40);
         FocusManager.SetFocusedElement(window, queryField);
@@ -2165,11 +2227,12 @@ internal static partial class Program
         queryField.Text = "unmatched-query";
         PumpUntil(() => queryResults.Items.Count == 0);
         Enter(queryField);
-        if (queryResults.SelectedItem is not null || queryField.Text != "unmatched-query" || Control<TextBlock>("Email").Text != "")
+        if (queryResults.SelectedItem is not null || queryField.Text != "unmatched-query" ||
+            Control<TextBlock>("Email").Text != "alex@example.com")
             throw new InvalidOperationException("No-result query Enter must not activate a stale Person or dismiss search.");
         queryField.Text = "orchid";
         PumpUntil(() => queryResults.Items.Cast<PersonSearchResult>().Any(r => r.Matches.Any(m => m.NoteId == noteId)));
-        if (Control<TextBlock>("Email").Text != "" ||
+        if (Control<TextBlock>("Email").Text != "alex@example.com" ||
             Control<ListBox>("SearchResults").SelectedItem is not PersonSearchResult { Person.Email: "avery@example.com" })
             throw new InvalidOperationException("The first Person must be highlighted without opening a profile.");
         Enter(Control<TextBox>("SearchQuery"));

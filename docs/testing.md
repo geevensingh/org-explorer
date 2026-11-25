@@ -251,6 +251,17 @@ or search. The profile fixture places a qualifying Manager behind offscreen
 single-report ancestor context. These assertions do not realize, expand or scroll
 the expected row themselves. Existing scenario selections, full responsive
 matrices and budgets remain; compiled invisible checks are not hosted evidence.
+The clickable target is the rendered header text, not an expanded TreeViewItem's
+whole-subtree centre. The latter can lie below the viewport while the entire
+selected header is visible. The compiled automatic-opening case exercises this
+same late-branch layout and actual named/selected header without a native window;
+the hosted check remains responsible for screen coordinates and clickable points.
+After Import, the search journey deliberately resumes compact People and focuses
+the unchanged query before its existing highlight/geometry/focus assertions.
+It does not assume that clicking Back to People is a query-field focus gesture.
+Reading checks retain the successful text observation for both required and
+forbidden writing, rather than making an unguarded second UIA lookup after
+readiness. Runner cases preserve the same bounded missing/wrong-text failures.
 Blocked Workspace replacement is distinct from an attempted open failure. The
 compiled Retry action must still reconcile the current local store without
 reopening or creating the blocked destination or resetting the current view.
@@ -1941,6 +1952,12 @@ real-store regressions for diagnosis; they remain included in the complete
 handlers or UI Automation. The desktop lane runs this additional regression
 within its existing budget. Actual Tab/context-menu Copy and Import-only discard
 remain in the representative hosted profile journey.
+`--verify-inherited-note-mode` and `--verify-people-opening` isolate the existing
+inherited Edit/Read and automatic-opening cases; both remain in the complete
+profile-refresh selection. The inherited fixture creates and saves its subject
+through the real compiled New-note action before invalid editing, rather than
+assuming a synthetic selection of an already automatically selected Person
+loads a note created directly through the workflow.
 The same invisible-control regression exercises all ordinary facts, labelled
 missing-value slots, long identity/facts, matching photo/initials footprints, full editing of an empty field and Cancel,
 and Settings-to-Import rejection retaining independent failed Person-note writing

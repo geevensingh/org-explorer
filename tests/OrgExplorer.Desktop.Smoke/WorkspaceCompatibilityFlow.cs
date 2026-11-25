@@ -298,7 +298,7 @@ internal static partial class Program
             var header = text.Current.BoundingRectangle;
             return !header.IsEmpty && header.Left >= viewport.Left && header.Left < viewport.Right &&
                 header.Top >= viewport.Top && header.Bottom <= viewport.Bottom &&
-                row.TryGetClickablePoint(out var point) && tree.Current.BoundingRectangle.Contains(point);
+                text.TryGetClickablePoint(out var point) && tree.Current.BoundingRectangle.Contains(point);
         });
         foreach (var emailOfAncestor in ancestors)
         {
