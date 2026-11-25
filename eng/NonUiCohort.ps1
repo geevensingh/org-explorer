@@ -148,6 +148,9 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         $Record.cohortId -cne "$($Record.revision)-$($Record.cohortRunId)-$($Record.cohortRunAttempt)" -or
         $Path -cne "performance-cohorts/$($Record.revision)/$($Record.cohortRunId)/$($Record.cohortRunAttempt).json" -or
         $Record.mode -cne 'observation' -or $Record.promotion -cne 'disabled' -or
+        $Record.validation -cnotin @('success', 'rejected') -or
+        $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive') -or
+        $Record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconsistent', 'inconclusive', 'TEST-eligible') -or
         $Record.richScaleAcceptance -cne 'not-executed' -or
         $Record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'TEST-non-ui-range-v1') -or
         $Record.authority -cnotin @('trusted-main-push', 'pilot-observation')) { throw 'Invalid non-UI cohort schema/provenance.' }
@@ -255,6 +258,7 @@ function Get-NonUiCohortRecordTypes {
             Validate = {
                 param($record, $path)
                 if ($record.policyVersion -cne 'non-ui-cohort-observation-v1' -or $record.authority -cne 'trusted-main-push' -or
+                    $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive') -or
                     (@($record.samples).Count -ne 3 -and
                         !(@($record.samples).Count -eq 5 -and $record.unexpectedExecutions -and $record.validation -ceq 'rejected'))) {
                     throw 'Live history cannot accept TEST-policy or manual pilot cohorts.'
@@ -271,6 +275,7 @@ function Set-NonUiCohortComparison($Record, $History) {
     if ($keys.Count -ne 1 -or $null -eq $keys[0] -or $Record.validation -cne 'success') { return }
     $prior = @($History.records | Where-Object {
         $_.ContainsKey('recordType') -and $_.recordType -ceq 'performance-cohort' -and
+        $_.authority -ceq 'trusted-main-push' -and $_.policyVersion -ceq 'non-ui-cohort-observation-v1' -and
         $_.revision -cne $Record.revision -and $_.validation -ceq 'success' -and
         @($_.samples | Where-Object { $_.seriesKey -cne $keys[0] }).Count -eq 0
     } | Sort-Object @{ Expression = { [DateTimeOffset]$_.observedAt }; Descending = $true })

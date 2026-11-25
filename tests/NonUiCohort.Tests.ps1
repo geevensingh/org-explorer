@@ -12,7 +12,12 @@ $run = @{
 $names = @('Core and view models', 'Real filesystem persistence', 'Actual Windows desktop smoke (people)',
     'Actual Windows desktop smoke (workspace)', 'High-resolution Windows smoke (reading)',
     'High-resolution Windows smoke (context)', 'CI')
-$jobs = @($names | ForEach-Object { @{ name = $_; status = 'completed'; conclusion = 'success' } })
+$jobId = 1000
+$jobs = @(foreach ($name in $names) {
+    $jobId++
+    @{ id = $jobId; name = $name; status = 'completed'; conclusion = 'success'; steps = @()
+        started_at = '2026-11-25T10:00:00Z'; completed_at = '2026-11-25T10:03:00Z' }
+})
 $latest = $run.Clone(); $latest.run_attempt = 2; $latest.conclusion = 'failure'
 $global:NonUiCohortFixture = @{ run = $run; latest = $latest; jobs = $jobs; revision = $revision }
 $cohortId = "$revision-99-1"
@@ -55,6 +60,9 @@ function gh {
         }
         '/actions/runs/99/artifacts\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ artifacts = $global:NonUiCohortFixture.artifacts }) -Depth 10; return
+        }
+        '/actions/runs/42/artifacts\?per_page=100$' {
+            ConvertTo-Json -InputObject @(@{ artifacts = @() }) -Depth 10; return
         }
         default { throw "Unexpected cohort GitHub operation: $($args -join ' ')" }
     }
@@ -211,7 +219,7 @@ try {
     Assert ($substituted.samples[1].evidence.state -ceq 'rejected' -and $substituted.validation -ceq 'rejected' -and
         $substituted.metrics.executionSeconds.count -eq 3) 'A substituted raw percentile passed or dropped genuine execution timing.'
     $timingSnapshot | Set-Content -LiteralPath $profileFile
-    for ($number = 4; $number -le 5; $number++) {
+    foreach ($number in $testRecord.extraSamples) {
         $sourceDirectory = $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-3"]
         $nextDirectory = Join-Path $fixture "sample-$number"
         Copy-Item -LiteralPath $sourceDirectory -Destination $nextDirectory -Recurse
@@ -290,6 +298,13 @@ try {
     $savedBlob = (git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim()
     Assert ($saved.metrics.executionSeconds.median -eq 150 -and $saved.samples.Count -eq 3 -and
         $saved.samples[1].measurements.profile.samplesMs.Count -eq 21 -and $saved.promotion -ceq 'disabled') 'Real history lost complete independent numeric inputs or promoted the cohort.'
+    & "$root\eng\Invoke-LaneHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-core') `
+        -HistoryRemote $remote -AllowLocalFixture -Publish
+    & "$root\eng\Invoke-FilesystemHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-filesystem') `
+        -HistoryRemote $remote -AllowLocalFixture -Publish
+    $paths = @(git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data)
+    Assert ($paths -ccontains $path -and $paths -ccontains 'lanes/42/1/core.json' -and
+        $paths -ccontains 'filesystem/42/1.json') 'Mixed public core/filesystem readers rejected or overwrote the trusted cohort namespace.'
     $observerRemote = Join-Path $fixture 'observer.git'
     git init --bare --quiet $observerRemote
     $planName = 'non-ui-cohort-plan-99-1'
@@ -360,6 +375,21 @@ try {
             -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $refusedWork -Publish -AllowLocalFixture -HistoryRemote $refusedRemote
     } 'Publication failure was reported as durable success.'
     Assert ((Get-Content -LiteralPath (Join-Path $refusedWork 'summary.md') -Raw).Contains('History publication: FAILED')) 'Publication error is not visible at the public summary seam.'
+    $badHistory = Join-Path $fixture 'bad-history'
+    git clone --quiet --branch ci-health-data $remote $badHistory
+    $badPath = Join-Path $badHistory "performance-cohorts\$revision\99\1.json"
+    $bad = Get-Content -LiteralPath $badPath -Raw | ConvertFrom-Json -AsHashtable
+    $bad.timingHealth = 'green'
+    $bad | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $badPath
+    git -C $badHistory add performance-cohorts
+    git -C $badHistory -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Malformed uncalibrated health fixture'
+    git -C $badHistory push --quiet
+    $badWork = Join-Path $fixture 'bad-observation'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $badWork -ReadHistory -AllowLocalFixture -HistoryRemote $remote
+    } 'Malformed uncalibrated green history was accepted by the real registered validator.'
+    Assert ((Get-Content -LiteralPath (Join-Path $badWork 'summary.md') -Raw).Contains('History read failed')) 'Malformed history failure was silently hidden.'
     Write-Host "PASS: $checks public non-UI cohort checks."
 } finally {
     Remove-Variable -Name NonUiCohortFixture -Scope Global
