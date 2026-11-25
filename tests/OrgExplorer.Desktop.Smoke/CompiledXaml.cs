@@ -2877,6 +2877,26 @@ internal static partial class Program
             !model.PeopleNavigation.OverlayOpen || model.ProfileEdit != retainedProfile ||
             Control<TextBlock>("Email").Text != "avery@example.com")
             throw new InvalidOperationException("A retained real WPF data-item expansion provider navigated or dismissed compact People after recursive collapse.");
+        command.Execute("morgan@example.com", container);
+        Layout(700, 500);
+        var disclosure = (ToggleButton)container.Template.FindName("Expander", container);
+        var disclosureProvider = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(disclosure)
+            .GetPattern(PatternInterface.Toggle);
+        var ordinaryRequests = 0;
+        TreeItemRealization.PrepareMenuBranch(() => container.IsExpanded, input =>
+        {
+            if (input == TreeItemRealization.MenuBranchInput.ExpandCollapseProvider)
+            {
+                ordinaryRequests++;
+                retainedProvider.Expand();
+            }
+            else disclosureProvider.Toggle();
+        }, condition => PumpUntil(condition));
+        Layout(700, 500);
+        if (disclosure.Focusable || ordinaryRequests != 0 || !container.IsExpanded ||
+            model.PeopleNavigation.SelectedEmail != "avery@example.com" || !model.PeopleNavigation.OverlayOpen ||
+            model.ProfileEdit != retainedProfile || Control<TextBlock>("Email").Text != "avery@example.com")
+            throw new InvalidOperationException("Menu preparation must use the real non-focusable disclosure binding, not ordinary provider expansion/navigation.");
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
         Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse subtree, hidden/recycled expansion reset, search restoration and exact independent profile/note writing.");

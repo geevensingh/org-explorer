@@ -68,14 +68,22 @@ The reporting-header request replays actual horizontally clipped UI Automation
 bounds from run `45688751967` through the shared runner seam. It chooses a
 physical pixel inside the visible header content, not the disclosure arrow or
 the descendant-inclusive TreeItem box; an offscreen header still fails without
-scroll/click replay. Native re-expansion retains its original action count,
-condition and 20-second deadline. `TREE-MENU-EXPANSION` records bounded fresh
-row/profile/panel/focus observations and the retained provider state before and
-after that request, with a failure capture if necessary. Diagnostic refusal is
-reported separately without replacing the original failure. These non-atomic
-observations are not proof of a focus/provider cause. The invisible real
-data-item-provider replay covers logical compact collapse/re-expansion, not
-native popup/focus cleanup or exoneration of the hosted context failure.
+scroll/click replay. Run `45693688714` captured both new menu journeys changing
+from Avery/open People to a Manager/closed People at the ordinary external
+expansion request boundary. That navigation-capable provider is not a menu
+presentation command. Menu fixture preparation now uses the existing disclosure
+arrow once only when the fresh branch is collapsed, including initial setup and
+final fixture restoration. Already expanded state is observed without toggling;
+unreached state still fails without replaying input. The same full matrices,
+menu/writing/focus/visibility assertions and 20-second observation deadline remain.
+Runner cases replay the captured external effects through the actual preparation
+input-selection seam; the compiled contract also uses the actual non-focusable
+disclosure Toggle binding. Ordinary provider behavior is unchanged.
+`TREE-MENU-EXPANSION` retains bounded fresh row/profile/panel/focus observations,
+the request input and provider state, and a failure capture if necessary.
+Diagnostic refusal is separate and does not replace the original failure.
+These non-atomic observations and invisible checks do not establish native
+popup/focus acceptance or a defect inside the ordinary Windows provider.
 
 ## Placement
 
