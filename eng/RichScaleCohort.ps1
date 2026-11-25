@@ -107,7 +107,8 @@ function Read-RichCohortSample($Sample, [string]$Directory, [string]$Revision, [
                         } elseif ($report.suite -cne 'ui-scale' -or $report.verificationMode -cne 'isolated-workers' -or
                             $report.outcome -cne 'success') { throw 'Original strict union did not pass.' }
                         if ($workerJobs.Count -eq 1 -and $workerJobs[0].status -ceq 'completed' -and $workerJobs[0].conclusion -ceq 'success') {
-                            $part.validation = 'success'
+                            if ($part.jobId -gt 0 -and $part.runnerId -gt 0) { $part.validation = 'success' }
+                            else { $Sample.diagnostics += "Rich $worker lacks a real hosted worker/job identity." }
                         }
                     } catch {
                         $part.evidence.state = 'rejected'
@@ -146,7 +147,10 @@ function Assert-RichCohortSample($Sample, $Record, $Seen) {
             if ($null -ne $part[$field]) {
                 if ($field -eq 'invocationId') {
                     if ($part[$field] -cnotmatch '^[0-9a-f]{32}$') { throw 'Invalid rich invocation identity.' }
-                } else { Assert-HealthNumber $part[$field] "rich $field" }
+                } else {
+                    Assert-HealthNumber $part[$field] "rich $field"
+                    if ($Sample.validation -ceq 'success' -and $part[$field] -le 0) { throw 'Complete rich evidence lacks a real hosted worker/job.' }
+                }
                 $key = "$field-$($part[$field])"
                 if ($Seen.ContainsKey($key) -and $Sample.validation -ceq 'success') { throw "Independent rich sample $($Sample.number) $worker reused $key." }
                 $Seen[$key] = $true

@@ -202,9 +202,10 @@ try {
     $global:NonUiCohortFixture.evidence[$tailName] = $originalTail
     $richPrefixPath = Join-Path $richFixtures[2].prefix 'result.json'
     $richPrefixOriginal = Get-Content $richPrefixPath -Raw
-    foreach ($defect in @('attempt', 'diagnostic', 'budget', 'cancelled', 'skipped', 'missing-tail', 'during-typing', 'invalid-p95')) {
+    foreach ($defect in @('attempt', 'diagnostic', 'budget', 'cancelled', 'skipped', 'missing-tail', 'during-typing', 'invalid-p95', 'no-worker')) {
         $changed = $richPrefixOriginal | ConvertFrom-Json -AsHashtable
         $changedJob = @($richJobs | Where-Object { $_.name -ceq 'Rich cohort prefix (2)' })[0]
+        $originalRunnerId = $changedJob.runner_id
         $notePath = Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-background-export.json"
         $noteOriginal = Get-Content $notePath -Raw
         switch ($defect) {
@@ -213,6 +214,7 @@ try {
             'budget' { $changed.executionSeconds = 660.001 }
             'cancelled' { $changedJob.conclusion = 'cancelled' }
             'skipped' { $changedJob.conclusion = 'skipped' }
+            'no-worker' { $changedJob.runner_id = 0 }
             'missing-tail' { $global:NonUiCohortFixture.artifacts = @($richArtifacts | Where-Object { $_.name -cne $tailName }) }
             { $_ -in @('during-typing', 'invalid-p95') } {
                 $note = $noteOriginal | ConvertFrom-Json -AsHashtable
@@ -235,6 +237,7 @@ try {
         $richPrefixOriginal | Set-Content (Join-Path $richFixtures[2].prefix "$($changed.runDirectory)\result.json")
         $noteOriginal | Set-Content $notePath
         $changedJob.conclusion = 'success'
+        $changedJob.runner_id = $originalRunnerId
         $global:NonUiCohortFixture.artifacts = $richArtifacts
     }
     $richPolicyWork = Join-Path $fixture 'rich-policy'
