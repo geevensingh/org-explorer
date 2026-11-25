@@ -104,7 +104,7 @@ public sealed partial class ApplicationWorkflow
                     "Discard the draft before editing the delivered value.");
                 return null;
             }
-            if (!EditPersonTextCore(basis.Email, field, value)) return null;
+            if (!EditPersonTextCore(basis.Email, field, value, clearMatchingDirectoryName: true)) return null;
             lock (profileDraftGate)
             {
                 var key = (basis.Email.ToLowerInvariant(), field);
@@ -135,7 +135,7 @@ public sealed partial class ApplicationWorkflow
         Status = "Person text entry cancelled. Independent writing and storage errors are retained.";
     }
 
-    private bool EditPersonTextCore(string email, PersonTextField field, string? value)
+    private bool EditPersonTextCore(string email, PersonTextField field, string? value, bool clearMatchingDirectoryName = false)
     {
         if (workspace is null || !people.TryGetValue(email, out var person)) return Fail("Open a Person first.");
         try
@@ -143,6 +143,10 @@ public sealed partial class ApplicationWorkflow
             if (!Enum.IsDefined(field)) throw new FormatException("Choose a supported textual Person field; email is not editable.");
             var property = TextFields.Single(f => f.Field == field).Property;
             var validated = ValidateText(JsonSerializer.SerializeToElement(value), field, $"{person.Email}.{property}");
+            if (clearMatchingDirectoryName && field == PersonTextField.PreferredName &&
+                validated is not null && person.DirectoryName is not null &&
+                string.Equals(validated.Trim(), person.DirectoryName.Trim(), StringComparison.OrdinalIgnoreCase))
+                validated = null;
             var proposed = new Dictionary<string, PersonProfile>(people, StringComparer.OrdinalIgnoreCase)
             { [person.Email] = WithText(person, field, validated) };
             var history = CaptureLocalHistory(person, proposed[person.Email], property);

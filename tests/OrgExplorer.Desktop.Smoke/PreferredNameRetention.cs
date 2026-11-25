@@ -186,6 +186,10 @@ internal static partial class Program
         using var fixture = new PreferredRetentionWindow(windowType, Path.Combine(settings, "preferred-clean-return"));
         fixture.Select("avery@example.com");
         fixture.Click("EditPreferredNameButton");
+        if (fixture.Control<TextBox>("PreferredName").Text != "Avery" ||
+            !fixture.Control<Button>("SavePreferredNameButton").IsEnabled ||
+            !fixture.Control<Button>("CancelPreferredNameButton").IsEnabled || !fixture.Model.CanSafelyClose)
+            throw new InvalidOperationException("A fresh Preferred-name entry must show the Directory name without retaining or submitting it.");
         fixture.Control<TextBox>("PreferredName").Text = "Changed but not submitted";
         fixture.Control<TextBox>("PreferredName").Text = "";
         fixture.Select("casey@example.com");
@@ -194,7 +198,66 @@ internal static partial class Program
             fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not null ||
             fixture.Control<FrameworkElement>("PreferredNameEditorPanel").Visibility != Visibility.Collapsed)
             throw new InvalidOperationException("Changing then restoring the original Preferred name retained false unsaved writing after browsing.");
+        var editor = fixture.Control<TextBox>("PreferredName");
+        var panel = fixture.Control<FrameworkElement>("PreferredNameEditorPanel");
+        (string? Directory, string? Preferred, string Displayed, string? Saved)[] defaults =
+        [
+            ("Avery", null, "Avery", null),
+            ("Avery", "  My AVERY  ", "  My AVERY  ", "  My AVERY  "),
+            (" Avery ", "aVeRy", "aVeRy", null),
+            (null, null, "", null),
+            (null, "My Avery", "My Avery", "My Avery")
+        ];
+        foreach (var (directory, preferred, displayed, saved) in defaults)
+        {
+            if (!fixture.Model.EditPersonText("avery@example.com", PersonTextField.DirectoryName, directory) ||
+                !fixture.Model.EditPreferredName("avery@example.com", preferred))
+                throw new InvalidOperationException(fixture.Model.Status);
+            fixture.Select("casey@example.com");
+            fixture.Select("avery@example.com");
+            var basis = fixture.Model.GetRelationships("avery@example.com")!.Person;
+            fixture.Click("EditPreferredNameButton");
+            if (editor.Text != displayed || !editor.IsEnabled ||
+                !fixture.Control<Button>("SavePreferredNameButton").IsEnabled ||
+                !fixture.Control<Button>("CancelPreferredNameButton").IsEnabled ||
+                fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName) is not null ||
+                !fixture.Model.CanSafelyClose)
+                throw new InvalidOperationException(
+                    $"Fresh entry did not preserve Preferred/Directory/empty precedence without retaining writing. " +
+                    $"Directory='{directory}', Preferred='{preferred}', expected='{displayed}', actual='{editor.Text}', " +
+                    $"input={editor.IsEnabled}, Save={fixture.Control<Button>("SavePreferredNameButton").IsEnabled}, " +
+                    $"Cancel={fixture.Control<Button>("CancelPreferredNameButton").IsEnabled}, safeClose={fixture.Model.CanSafelyClose}, " +
+                    $"draft={fixture.Model.GetPersonTextDraft(basis.Email, PersonTextField.PreferredName)}, status={fixture.Model.Status}");
+            using (var reading = OpenSmokeWorkspace(fixture.Path))
+                if (reading.GetRelationships(basis.Email)!.Person != basis)
+                    throw new InvalidOperationException("Opening the default submitted or cleared a saved name.");
+            fixture.Click("CancelPreferredNameButton");
+            using (var reading = OpenSmokeWorkspace(fixture.Path))
+                if (reading.GetRelationships(basis.Email)!.Person != basis || panel.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("Cancelling the untouched default changed saved information.");
+            fixture.Click("EditPreferredNameButton");
+            fixture.Click("SavePreferredNameButton");
+            fixture.AwaitIdle();
+            using (var reading = OpenSmokeWorkspace(fixture.Path))
+                if (reading.GetRelationships(basis.Email)!.Person != basis with { PreferredName = saved } ||
+                    panel.Visibility != Visibility.Collapsed || !fixture.Model.CanSafelyClose)
+                    throw new InvalidOperationException("Explicit default Save did not durably preserve or clear the expected name.");
+        }
+        fixture.Click("EditPreferredNameButton");
+        editor.Text = "  Exact retained writing  ";
+        var retained = fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)!;
+        fixture.Select("casey@example.com");
+        if (!fixture.Model.EditPersonText("avery@example.com", PersonTextField.DirectoryName, "Changed Directory name"))
+            throw new InvalidOperationException(fixture.Model.Status);
+        fixture.Select("avery@example.com");
+        if (editor.Text != "  Exact retained writing  " ||
+            fixture.Model.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) != retained ||
+            !fixture.Control<Button>("SavePreferredNameButton").IsEnabled ||
+            !fixture.Control<Button>("CancelPreferredNameButton").IsEnabled)
+            throw new InvalidOperationException("A newer Directory name replaced retained text, owner or its original immutable base.");
+        fixture.Click("CancelPreferredNameButton");
         Console.WriteLine("PASS: actual compiled clean Preferred-name return retires unsaved retention without Save or Cancel.");
+        Console.WriteLine("PASS: compiled Preferred/Directory/empty defaults, untouched Cancel and explicit Save reopen durably; Directory changes never reseed retained writing.");
     }
 
     private static void VerifyPreferredNameOriginalDuringReturn(Type windowType, string settings)
@@ -438,15 +501,15 @@ internal static partial class Program
             if (!cancel && !newerWhilePending)
             {
                 Invoke("EditPreferredNameButton");
-                editor.Text = "Stale rejected writing";
+                editor.Text = "  aVeRy  ";
                 using (var external = OpenSmokeWorkspace(path))
                     if (!external.EditPreferredName("avery@example.com", "Genuinely external name"))
                         throw new InvalidOperationException(external.Status);
                 Invoke("SavePreferredNameButton");
                 PumpUntil(() => Control<Button>("OpenWorkspaceButton").IsEnabled);
-                if (panel.Visibility != Visibility.Visible || editor.Text != "Stale rejected writing" ||
+                if (panel.Visibility != Visibility.Visible || editor.Text != "  aVeRy  " ||
                     workflow.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName) is not
-                        { Value: "Stale rejected writing", Basis.PreferredName: "Newer explicit name", Error: { } error } ||
+                        { Value: "  aVeRy  ", Basis.PreferredName: "Newer explicit name", Error: { } error } ||
                     !error.Contains("changed externally", StringComparison.Ordinal) ||
                     Control<TextBlock>("PreferredNameError").Visibility != Visibility.Visible || workflow.CanSafelyClose)
                     throw new InvalidOperationException("A genuinely changed external base was accepted or its rejected writing/error was lost.");

@@ -314,8 +314,6 @@ checks, Manager/history behavior, and independence from note/quick-action writin
 
 The small pencil beside the primary name opens a compact single-purpose editor.
 
-Approved follow-up behavior; implementation is pending:
-
 A new entry starts with the existing Preferred name, otherwise the Directory
 name, otherwise empty. Restore retained drafts without replacing their text
 with either saved name. Opening the editor does not assign a Preferred name.

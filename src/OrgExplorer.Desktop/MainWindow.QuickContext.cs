@@ -69,7 +69,9 @@ public partial class MainWindow
         preferredNameDirty = retained is not null && retained.Value != retained.Basis.PreferredName;
         preferredNameSaveError = retained?.Error;
         loading = true;
-        PreferredName.Text = retained is null ? preferredNameBasis.PreferredName ?? "" : retained.Value ?? "";
+        PreferredName.Text = retained is null
+            ? preferredNameBasis.PreferredName ?? preferredNameBasis.DirectoryName ?? ""
+            : retained.Value ?? "";
         loading = false;
         SetPreferredNameEditing(true);
         if (IsVisible)
