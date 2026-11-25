@@ -231,7 +231,7 @@ public partial class MainWindow : Window
     }
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (loading || e.NewValue is not ReportingNode node) return;
+        if (loading || changingTreePresentation || e.NewValue is not ReportingNode node) return;
         // Realizing the tree can echo a Person already accepted by search.
         if (string.Equals(selectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(workflow.PeopleNavigation.SelectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase))
@@ -399,6 +399,7 @@ public partial class MainWindow : Window
             context = context.Manager is { } manager ? workflow.GetRelationships(manager.Email) : null;
         }
         RestoreRealizedTreeState(PeopleList);
+        RememberPeopleBrowsing();
     }
     private void RestoreRealizedTreeState(ItemsControl parent)
     {
@@ -409,7 +410,7 @@ public partial class MainWindow : Window
                 if (current.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
                 {
                     RestoreTreeItem(container, null!);
-                    if (container.IsExpanded) parents.Push(container);
+                    parents.Push(container);
                 }
     }
     private void RestoreTreeItem(object sender, RoutedEventArgs e)
@@ -431,11 +432,21 @@ public partial class MainWindow : Window
     }
     private void ExpandPerson(object sender, RoutedEventArgs e)
     {
-        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Add(node.Person.Email);
+        if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+        {
+            expandedPeople.Add(node.Person.Email);
+            RememberPeopleBrowsing();
+        }
     }
     private void CollapsePerson(object sender, RoutedEventArgs e)
     {
-        if (!loading && e.OriginalSource is TreeViewItem { DataContext: ReportingNode node }) expandedPeople.Remove(node.Person.Email);
+        if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
+            e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
+        {
+            expandedPeople.Remove(node.Person.Email);
+            RememberPeopleBrowsing();
+        }
     }
     private void EditPersonPhoto(string? localPath)
     {

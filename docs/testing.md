@@ -38,6 +38,32 @@ after that request, a genuinely interior position establishes the recorded row
 baseline; an unchanged endpoint still fails. The later exact-row restoration
 check, not the requested percentage, proves that browsing was preserved.
 
+Reporting-tree Collapse subtree cases extend the public
+`WorkspaceViewModel.GetPeopleTreeActions` / `ExecutePeopleTreeAction` and
+`PeopleNavigation` seams with real branching and 1,024-level imported graphs,
+hidden remembered expansion, leaf/unavailable no-ops and independent failed
+Person/Team-note and profile writing. The existing invisible tree-presentation
+contract exercises the actual row menu's routed command/placement-target
+bindings, right-button selection suppression, current/recycled expansion reset
+and search restoration. It also retains exact independent profile/note drafts.
+The focused non-UI selector below runs this same contract; it remains included
+in the existing full `--verify-profile-refresh` companion check:
+
+```powershell
+dotnet run --project tests\OrgExplorer.Desktop.Smoke -c Release --no-build -- `
+  src\OrgExplorer.Desktop\bin\Release\net10.0-windows\OrgExplorer.Desktop.exe --verify-tree-presentation
+```
+
+The existing responsive reading and inline-profile size matrices additionally
+exercise actual right-click, Apps and Shift+F10 targeting, omitted/empty menus,
+target visibility, hidden-focus recovery versus preserved unrelated focus,
+search-clear retention and compact-overlay preservation. The responsive draft
+journey also keeps independent failed Person/Team-note writing during a tree
+action with a dirty profile. These are hosted-only native assertions; invisible
+compiled checks do not prove popup or keyboard-focus acceptance. The remaining
+Expand subtree and Collapse other branches slices are not implemented or
+claimed by this coverage.
+
 ## Placement
 
 | Category | Observes | Examples and limits |

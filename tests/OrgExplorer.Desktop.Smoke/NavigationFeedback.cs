@@ -141,6 +141,8 @@ internal static partial class Program
                 if (responsive && kind == "Person") AssertProtectedPeopleOverlay(window);
                 BeginProfileEditing(window);
                 Set(window, "DirectoryNameEditor", "Discard this profile only");
+                if (responsive)
+                    AssertReportingTreeMenu(window, "casey@example.com", "avery@example.com", $"retained-{kind.ToLowerInvariant()}-and-profile");
                 SetSettingsVisible(window, true);
                 Click(window, "OpenImport");
                 Click(ProfileLeaveWindow(window), "DiscardProfileBeforeLeaving");

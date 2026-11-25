@@ -60,11 +60,14 @@ internal static partial class Program
     private static int VerifyCompiledXaml(string executable, bool verifyProfileRefresh = false, bool verifyUpdateYield = false,
         bool verifyLegacySaveFeedback = false, bool verifySnapshotAdoption = false, bool verifyExit = false,
         bool verifyExitStartup = false, bool verifyProfileNoteRefresh = false, bool verifyPreferredNameRetention = false,
-        bool verifyPreferredSnapshotDeferral = false)
+        bool verifyPreferredSnapshotDeferral = false, bool verifyTreePresentation = false)
     {
         AssertDisplayInterop();
         VerifyProfileCaptureStateNames();
-        if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention || verifyPreferredSnapshotDeferral) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback ||
+            verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention ||
+            verifyPreferredSnapshotDeferral || verifyTreePresentation)
+            Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
         var resolver = new AssemblyDependencyResolver(assemblyPath);
@@ -81,7 +84,9 @@ internal static partial class Program
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
             application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention || verifyPreferredSnapshotDeferral)
+            if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback ||
+                verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention ||
+                verifyPreferredSnapshotDeferral || verifyTreePresentation)
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var type = assembly.GetType("OrgExplorer.Desktop.MainWindow", throwOnError: true)!;
             Func<Window, string?> chooseFolder = _ => CompiledWorkspaceChoices.Dequeue();
@@ -202,6 +207,13 @@ internal static partial class Program
                 HarnessRuntime.Run("compiled-legacy-save-feedback", () => VerifyLegacySaveFeedback(type, settings, chooseFolder));
             if (verifyProfileRefresh || verifyPreferredNameRetention)
                 HarnessRuntime.Run("compiled-preferred-name-retention", () => VerifyPreferredNameRetention(type, settings, chooseFolder));
+            if (verifyProfileRefresh || verifyTreePresentation)
+            {
+                var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
+                try { VerifyTreePresentation(treeWindow, settings); }
+                finally { ClosePublishedCompiledWindow(treeWindow); }
+            }
             if (verifyProfileRefresh)
             {
                 HarnessRuntime.Run("compiled-cutover-publication", () =>
@@ -243,10 +255,6 @@ internal static partial class Program
                 HarnessRuntime.Run("compiled-current1eee-note-contexts", () =>
                     VerifyCurrent1eeeNoteContracts(type, Path.Combine(settings, "nc")));
                 HarnessRuntime.Run("compiled-copy", () => VerifyProfileCopyControls(type, settings));
-                var treeWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
-                try { VerifyTreePresentation(treeWindow, settings); }
-                finally { ClosePublishedCompiledWindow(treeWindow); }
                 var unavailableNameWindow = (Window)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
                     [ApplicationWorkflow.CreateFileBacked(), chooseFolder], null)!;
                 try { VerifyPreferredNameSnapshotDeferral(unavailableNameWindow, settings); }
@@ -2669,10 +2677,10 @@ internal static partial class Program
                 throw new InvalidOperationException("Tree presentation fixture failed: " + seed.Status);
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         var root = (FrameworkElement)window.Content;
-        void Layout()
+        void Layout(double width = 1100, double height = 900)
         {
-            root.Measure(new Size(1100, 900));
-            root.Arrange(new Rect(0, 0, 1100, 900));
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Tree measurements must not show a window or create its native handle.");
@@ -2759,9 +2767,94 @@ internal static partial class Program
         if (Control<TextBlock>("Email").Text != "avery@example.com" ||
             ((TextBox)notes.FindName("NoteTitle")).Text != "")
             throw new InvalidOperationException("Returning through the tree lost the original Person's exact failed draft.");
+        Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Control<TextBox>("OfficeNumber").Text = "  Compiled independent profile writing\r\n";
+        container.IsExpanded = true;
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        child.IsExpanded = true;
+        siblingContainer.IsExpanded = true;
+        Layout();
+        var model = (WorkspaceViewModel)tree.DataContext;
+        var beforeAction = model.PeopleNavigation.SelectedEmail;
+        var profileDraft = model.ProfileEdit;
+        var noteDraft = model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id);
+        var beforeError = model.OperationError;
+        var rightClick = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+            { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent };
+        container.RaiseEvent(rightClick);
+        if (!rightClick.Handled || model.PeopleNavigation.SelectedEmail != beforeAction)
+            throw new InvalidOperationException("Reporting-row right-click must bypass ordinary focus/selection navigation.");
+        var menu = container.ContextMenu;
+        if (menu is null || menu.Items.OfType<MenuItem>().SingleOrDefault() is not { Header: "Collapse subtree" } collapse ||
+            collapse.Command is not RoutedCommand command)
+            throw new InvalidOperationException("The compiled reporting-row menu must contain only the routed Collapse subtree action.");
+        menu.PlacementTarget = container;
+        System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandParameterProperty)?.UpdateTarget();
+        System.Windows.Data.BindingOperations.GetBindingExpression(collapse, MenuItem.CommandTargetProperty)?.UpdateTarget();
+        if (!Equals(collapse.CommandParameter, "morgan@example.com") ||
+            collapse.CommandTarget != container || !command.CanExecute(collapse.CommandParameter, container))
+            throw new InvalidOperationException("The real compiled tree command must target its placement row, not the open profile.");
+        command.Execute(collapse.CommandParameter, container);
+        Layout();
+        if (container.IsExpanded || child.IsExpanded || !siblingContainer.IsExpanded ||
+            model.PeopleNavigation.SelectedEmail != beforeAction || Control<TextBlock>("Email").Text != beforeAction ||
+            model.PeopleNavigation.ExpandedPeople.Contains("morgan@example.com") ||
+            model.PeopleNavigation.ExpandedPeople.Contains("avery@example.com"))
+            throw new InvalidOperationException("Recursive compiled collapse must reset logical/current rows while retaining the hidden profile and unrelated expansion.");
+        if (model.ProfileEdit != profileDraft ||
+            model.GetRetainedNoteDraft(NoteScope.Person, model.PersonNotesView.SelectedNote!.Id) != noteDraft ||
+            model.OperationError != beforeError || Control<TextBox>("OfficeNumber").Text != "  Compiled independent profile writing\r\n" ||
+            ((TextBox)notes.FindName("NoteTitle")).Text != "" || model.CanSafelyClose)
+            throw new InvalidOperationException("The compiled tree command submitted or replaced independent profile/note writing or cleared its error.");
+        Layout(700, 500);
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        if (!model.PeopleNavigation.OverlayOpen || container.IsExpanded || child.IsExpanded || !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("Compact People restoration resurrected recursively reset expansion.");
+        Layout();
+        if (container.IsExpanded || child.IsExpanded || !siblingContainer.IsExpanded || model.ProfileEdit != profileDraft)
+            throw new InvalidOperationException("Returning to wide People resurrected expansion or replaced retained writing.");
+        Control<TextBox>("SearchQuery").Text = "casey";
+        Control<Button>("ClearSearchButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();
+        if (container.IsExpanded || !siblingContainer.IsExpanded)
+            throw new InvalidOperationException("Search-clear resurrected recursively reset expansion.");
+        container.IsExpanded = true;
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        if (child.IsExpanded)
+            throw new InvalidOperationException("Later realization restored old nested expansion after recursive collapse.");
+        child.DataContext = sibling;
+        if (!child.IsExpanded)
+            throw new InvalidOperationException("A recycled row did not adopt the next Person's remembered expansion.");
+        child.DataContext = manager.Reports.Single();
+        if (child.IsExpanded)
+            throw new InvalidOperationException("A recycled row resurrected the recursively reset Person's expansion.");
+        if (command.CanExecute("alex@example.com", child))
+            throw new InvalidOperationException("A leaf must not expose a no-op Collapse subtree command.");
         ((Button)notes.FindName("DiscardButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        PumpUntil(() => ((WorkspaceViewModel)tree.DataContext).CanSafelyClose);
-        Console.WriteLine("PASS: real tree selection expands only immediate reports, retains manual collapse/other branches, reveals search destinations and preserves failed drafts through browsing.");
+        Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => model.CanSafelyClose);
+        ((ISelectionItemProvider)UIElementAutomationPeer.CreatePeerForElement(siblingContainer)
+            .GetPattern(PatternInterface.SelectionItem)).Select();
+        container.IsExpanded = true;
+        Layout();
+        child = (TreeViewItem)container.ItemContainerGenerator.ContainerFromItem(manager.Reports.Single());
+        child.IsExpanded = true;
+        ((IExpandCollapseProvider)UIElementAutomationPeer.CreatePeerForElement(container)
+            .GetPattern(PatternInterface.ExpandCollapse)).Collapse();
+        Layout();
+        if (!child.IsExpanded || !model.PeopleNavigation.ExpandedPeople.Contains("avery@example.com") ||
+            model.PeopleNavigation.ExpandedPeople.Contains("morgan@example.com") ||
+            !command.CanExecute("morgan@example.com", container))
+            throw new InvalidOperationException("Ordinary disclosure collapse must retain actionable hidden nested expansion.");
+        command.Execute("morgan@example.com", container);
+        Layout();
+        if (child.IsExpanded || model.PeopleNavigation.ExpandedPeople.Contains("avery@example.com") ||
+            model.PeopleNavigation.SelectedEmail != "casey@example.com")
+            throw new InvalidOperationException("Recursive collapse failed to clear hidden nested expansion without navigating the unrelated profile.");
+        Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse subtree, hidden/recycled expansion reset, search restoration and exact independent profile/note writing.");
     }
 
     private static void VerifyReportsVisibility(Window window, string settings)
