@@ -8,7 +8,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-. "$PSScriptRoot\FilesystemHealth.ps1"
+. "$PSScriptRoot\LaneHealth.ps1"
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 $run = Invoke-HealthApi "actions/runs/$RunId/attempts/$RunAttempt"
 if ($run.id -ne $RunId -or $run.run_attempt -ne $RunAttempt -or
@@ -60,7 +60,8 @@ if ($artifacts.Count -eq 1) {
 $history = $null
 $historyError = $null
 try {
-    $history = Open-HealthHistory (Join-Path $WorkingDirectory 'history.git') $HistoryRemote -AllowLocalFixture:$AllowLocalFixture
+    $history = Open-HealthHistory (Join-Path $WorkingDirectory 'history.git') $HistoryRemote `
+        -AllowLocalFixture:$AllowLocalFixture -RecordTypes (Get-LaneHealthRecordTypes)
 } catch { $historyError = $_; $diagnostics += "History read failed: $($_.Exception.Message)" }
 $validation = switch -CaseSensitive ($jobs[0].conclusion) {
     'success' { if ($null -eq $measurement) { 'incomplete' } else { $measurement.validation } }
@@ -97,7 +98,7 @@ $record = [ordered]@{
 if ($null -ne $history) { Set-FilesystemComparison $record $history }
 $record.reliability = $null
 if ($null -ne $history) {
-    $attempts = @($history.records) + @($record)
+    $attempts = @($history.records | Where-Object { !$_.Contains('recordType') -and $_.lane -ceq 'filesystem' }) + @($record)
     $record.reliability = [ordered]@{ attempts = $attempts.Count }
     foreach ($outcome in @('success', 'failure', 'incomplete', 'cancelled', 'skipped')) {
         $record.reliability[$outcome] = @($attempts | Where-Object { $_.validation -ceq $outcome }).Count

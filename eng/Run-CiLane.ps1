@@ -28,17 +28,29 @@ $updateFixture = $null
 $previousUpdateFixture = $env:ORG_EXPLORER_UPDATE_FIXTURE
 $complete = $false
 $executionFailure = $null
-if ($partition -or $Lane -eq 'filesystem') {
+if ($partition -or $Lane -in @('core', 'filesystem')) {
     $executionRevision = git rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or ($env:GITHUB_SHA -and $executionRevision -cne $env:GITHUB_SHA)) {
         $executionKind = if ($Lane -eq 'filesystem') { 'Filesystem' } else { 'Desktop' }
         throw "$executionKind execution does not match the dispatched candidate."
     }
 }
-if ($Lane -eq 'filesystem') {
+if ($Lane -in @('core', 'filesystem')) {
     foreach ($file in @(Get-ChildItem -LiteralPath $results -File | Where-Object {
         $_.Extension -ceq '.trx' -or $_.Name -cin @('execution.json', 'timing.json')
     })) { Remove-Item -LiteralPath $file.FullName -Force }
+}
+
+function Invoke-CiCompanion([string]$Name, [scriptblock]$Action) {
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $phaseStarted = [DateTimeOffset]::UtcNow
+    $passed = $false
+    try { & $Action; $passed = $true }
+    finally {
+        $steps.Add(@{ name = $Name; seconds = $timer.Elapsed.TotalSeconds
+            status = if ($passed) { 'Passed' } else { 'Failed' }
+            startedAt = $phaseStarted.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O') })
+    }
 }
 
 function Invoke-BudgetedDotnet([string] $Name, [string[]] $Arguments) {
@@ -93,24 +105,25 @@ try {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Core.Tests', '--locked-mode')
             Invoke-BudgetedDotnet test @('test', 'tests\OrgExplorer.Core.Tests', '-c', 'Release', '--no-restore', '--logger', 'trx',
                 '--results-directory', '.ci-results\core')
-            & "$root\tests\CiGate.Tests.ps1"
-            & "$root\tests\CiRunner.Tests.ps1"
-            & "$root\tests\FilesystemHealth.Tests.ps1"
-            & "$root\tests\ImplementationBaseline.Tests.ps1"
-            & "$root\tests\DocumentationHandoff.Tests.ps1"
-            & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll')
-            & "$root\tests\Performance.Tests.ps1"
-            & "$root\tests\NonUiCohort.Tests.ps1"
-            & "$root\tests\DesktopResults.Tests.ps1"
-            & "$root\tests\UiScale.Tests.ps1"
-            & "$root\tests\Release.Tests.ps1"
-            & "$root\tests\Release.Gates.Tests.ps1"
-            & "$root\tests\Release.Publication.Tests.ps1"
-            & "$root\tests\Release.Renewal.Tests.ps1"
-            & "$root\tests\Release.Workflow.Tests.ps1"
-            & "$root\tests\Release.Payload.Tests.ps1"
-            & "$root\tests\Update.TrustLifetime.Tests.ps1"
-            & "$root\tests\ApplicationIcon.Tests.ps1"
+            Invoke-CiCompanion 'CiGate.Tests.ps1' { & "$root\tests\CiGate.Tests.ps1" }
+            Invoke-CiCompanion 'CiRunner.Tests.ps1' { & "$root\tests\CiRunner.Tests.ps1" }
+            Invoke-CiCompanion 'FilesystemHealth.Tests.ps1' { & "$root\tests\FilesystemHealth.Tests.ps1" }
+            Invoke-CiCompanion 'LaneHealth.Tests.ps1' { & "$root\tests\LaneHealth.Tests.ps1" }
+            Invoke-CiCompanion 'ImplementationBaseline.Tests.ps1' { & "$root\tests\ImplementationBaseline.Tests.ps1" }
+            Invoke-CiCompanion 'DocumentationHandoff.Tests.ps1' { & "$root\tests\DocumentationHandoff.Tests.ps1" }
+            Invoke-CiCompanion 'DraftDiscard.Tests.ps1' { & "$root\tests\DraftDiscard.Tests.ps1" -Assembly (Join-Path $artifactBuild 'bin\OrgExplorer.Core.Tests\release\OrgExplorer.Core.Tests.dll') }
+            Invoke-CiCompanion 'Performance.Tests.ps1' { & "$root\tests\Performance.Tests.ps1" }
+            Invoke-CiCompanion 'NonUiCohort.Tests.ps1' { & "$root\tests\NonUiCohort.Tests.ps1" }
+            Invoke-CiCompanion 'DesktopResults.Tests.ps1' { & "$root\tests\DesktopResults.Tests.ps1" }
+            Invoke-CiCompanion 'UiScale.Tests.ps1' { & "$root\tests\UiScale.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Tests.ps1' { & "$root\tests\Release.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Gates.Tests.ps1' { & "$root\tests\Release.Gates.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Publication.Tests.ps1' { & "$root\tests\Release.Publication.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Renewal.Tests.ps1' { & "$root\tests\Release.Renewal.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Workflow.Tests.ps1' { & "$root\tests\Release.Workflow.Tests.ps1" }
+            Invoke-CiCompanion 'Release.Payload.Tests.ps1' { & "$root\tests\Release.Payload.Tests.ps1" }
+            Invoke-CiCompanion 'Update.TrustLifetime.Tests.ps1' { & "$root\tests\Update.TrustLifetime.Tests.ps1" }
+            Invoke-CiCompanion 'ApplicationIcon.Tests.ps1' { & "$root\tests\ApplicationIcon.Tests.ps1" }
         }
         filesystem {
             Invoke-BudgetedDotnet restore @('restore', 'tests\OrgExplorer.Persistence.Tests', '--locked-mode')
@@ -209,6 +222,25 @@ try {
             setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
         }
     }
+    if ($Lane -eq 'core') {
+        $testTree = git rev-parse --verify HEAD:tests/OrgExplorer.Core.Tests 2>$null
+        if ($LASTEXITCODE -ne 0) { $testTree = $null; $configurationErrors += 'Core test-tree identity unavailable.' }
+        $tree = @(git ls-tree -r HEAD -- tests eng Directory.Build.props Directory.Build.targets)
+        $fixtureTree = ($tree -join "`n") | git hash-object --stdin
+        if ($LASTEXITCODE -ne 0) { $fixtureTree = $null; $configurationErrors += 'Core workload identity unavailable.' }
+        $sdk = dotnet --version
+        if ($LASTEXITCODE -ne 0) { $sdk = $null; $configurationErrors += 'Resolved SDK unavailable.' }
+        $runtimes = @(dotnet --list-runtimes | ForEach-Object { $_ -replace ' \[.*\]$', '' })
+        if ($LASTEXITCODE -ne 0) { $runtimes = @(); $configurationErrors += 'Resolved runtimes unavailable.' }
+        $configuration = @{
+            workload = 'OrgExplorer.Core.Tests'; testTree = $testTree; fixtureTree = $fixtureTree
+            sdk = $sdk; runtimes = $runtimes; os = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+            architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            processors = [Environment]::ProcessorCount; image = $env:ImageOS; imageVersion = $env:ImageVersion
+            powershell = $PSVersionTable.PSVersion.ToString()
+            setup = 'locked-restore;isolated-build;setup-and-cleanup-included'
+        }
+    }
     $elapsed = ([DateTimeOffset]::UtcNow - $started).TotalSeconds
     @{ lane = $Lane; startedAt = $started.ToString('O'); executionSeconds = $elapsed; targetSeconds = 300;
         ceilingSeconds = $ceilingSeconds; steps = @($steps.ToArray()); queuesIncluded = $false; cdIncluded = $false } |
@@ -221,7 +253,7 @@ try {
             steps = @($steps.ToArray())
         } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $results 'execution.json')
     }
-    if ($Lane -eq 'filesystem') {
+    if ($Lane -in @('core', 'filesystem')) {
         $outcome = if ($complete) { 'success' } `
             elseif ($executionFailure -ceq 'The lane budget (including setup) is exhausted.' -or
                 @($steps | Where-Object { $_.outcome -ceq 'timed_out' }).Count) { 'timed_out' } else { 'failure' }
@@ -230,7 +262,7 @@ try {
             runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { 'local' }
             startedAt = $started.ToString('O'); finishedAt = [DateTimeOffset]::UtcNow.ToString('O')
             complete = $complete; outcome = $outcome; error = $executionFailure
-            policyVersion = 'filesystem-original-v1'; selector = 'Category!=Performance'
+            policyVersion = "$Lane-original-v1"; selector = if ($Lane -eq 'core') { 'all' } else { 'Category!=Performance' }
             ceilingSeconds = $ceilingSeconds; targetSeconds = 300; executionSeconds = $elapsed
             steps = @($steps.ToArray()); configuration = $configuration; configurationErrors = $configurationErrors
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $results 'execution.json')

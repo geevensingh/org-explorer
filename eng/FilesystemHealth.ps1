@@ -126,6 +126,29 @@ function Assert-HealthRecord($Record, [string]$Path) {
     }
 }
 
+function Get-HealthRecordPath($Record, [hashtable]$RecordTypes = @{}) {
+    if ($Record.Contains('recordType')) {
+        if (!$RecordTypes.ContainsKey($Record.recordType)) { throw 'Unregistered health record type.' }
+        $type = $RecordTypes[$Record.recordType]
+        $path = & $type.GetPath $Record
+        Assert-RegisteredHealthRecord $Record $path $type
+        return $path
+    }
+    $path = "filesystem/$($Record.runId)/$($Record.runAttempt).json"
+    Assert-HealthRecord $Record $path
+    return $path
+}
+
+function Assert-RegisteredHealthRecord($Record, [string]$Path, $Type) {
+    if ($Type.PathPattern -isnot [string] -or !$Type.PathPattern.StartsWith('^') -or
+        !$Type.PathPattern.EndsWith('$') -or $Type.GetPath -isnot [scriptblock] -or
+        $Type.Validate -isnot [scriptblock] -or $Path -cnotmatch $Type.PathPattern -or
+        $Path -cne (& $Type.GetPath $Record)) {
+        throw 'Invalid registered health namespace/identity.'
+    }
+    & $Type.Validate $Record $Path
+}
+
 function Get-FilesystemMeasurement([string]$Directory, $Run) {
     $execution = Get-Content -LiteralPath (Join-Path $Directory 'execution.json') -Raw |
         ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
@@ -218,7 +241,8 @@ function Get-HealthSeriesKey($Execution) {
         }
     }
     if ($Execution.configuration.testTree -cnotmatch '^[0-9a-f]{40}$' -or $Execution.configuration.fixtureTree -cnotmatch '^[0-9a-f]{40}$' -or
-        $Execution.configuration.workload -cne 'OrgExplorer.Persistence.Tests') { throw 'Invalid filesystem workload identity.' }
+        $Execution.configuration.workload -cnotin @('OrgExplorer.Persistence.Tests', 'OrgExplorer.Core.Tests',
+            'OrgExplorer.Desktop.Smoke')) { throw 'Invalid validation workload identity.' }
     Assert-HealthNumber $Execution.configuration.processors 'processors'
     if ($Execution.configuration.processors -le 0 -or
         $Execution.configuration.runtimes -isnot [Collections.IList] -or !$Execution.configuration.runtimes.Count -or
@@ -238,14 +262,15 @@ function Set-FilesystemComparison($Record, $History) {
         $Record.timingHealth = 'inconclusive'
         return
     }
-    $compatible = @($History.records | Where-Object {
+    $prior = @($History.records | Where-Object { !$_.Contains('recordType') -and $_.lane -ceq 'filesystem' })
+    $compatible = @($prior | Where-Object {
         $_.validation -ceq 'success' -and $_.seriesKey -ceq $Record.seriesKey -and
         $_.revision -cne $Record.revision -and $_.measurements.executionSeconds -le 660
     } | Sort-Object @{ Expression = { [DateTimeOffset]$_.measuredAt }; Descending = $true },
         @{ Expression = { [long]$_.runId }; Descending = $true },
         @{ Expression = { [int]$_.runAttempt }; Descending = $true })
     if (!$compatible.Count) {
-        $Record.timingHealth = if ($History.records.Count) { 'inconclusive' } else { 'unbaselined' }
+        $Record.timingHealth = if ($prior.Count) { 'inconclusive' } else { 'unbaselined' }
         $Record.diagnostics += 'No prior compatible non-self observation is available. This is not a release prerequisite.'
         return
     }
@@ -273,7 +298,8 @@ function Set-FilesystemComparison($Record, $History) {
     } else { $null }
 }
 
-function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowLocalFixture) {
+function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowLocalFixture,
+    [hashtable]$RecordTypes = @{}) {
     if (!$AllowLocalFixture -and $Remote -cne "https://github.com/$FilesystemHealthRepository.git") {
         throw 'Authoritative history requires this repository HTTPS remote; local remotes are isolated fixtures only.'
     }
@@ -296,21 +322,28 @@ function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowL
         foreach ($entry in @((Invoke-HealthGit $Directory @('ls-tree', '-r', $tip)) -split "`n")) {
             if ($entry -cnotmatch '^100644 blob [0-9a-f]{40}\t(?<path>.*)$') { throw 'History must contain regular JSON data files, not links or executable entries.' }
             $path = $Matches.path
-            if ($path -cnotmatch '^filesystem/[1-9][0-9]*/[1-9][0-9]*\.json$') { throw 'Unexpected data-branch content; history is data, never executable code.' }
             $record = Invoke-HealthGit $Directory @('show', "${tip}:$path") | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
-            Assert-HealthRecord $record $path
+            if ($path -cmatch '^filesystem/[1-9][0-9]*/[1-9][0-9]*\.json$') {
+                Assert-HealthRecord $record $path
+            } else {
+                $matches = @($RecordTypes.Keys | Where-Object { $path -cmatch $RecordTypes[$_].PathPattern })
+                if ($matches.Count -ne 1 -or $record.recordType -cne $matches[0]) {
+                    throw 'Unexpected data-branch content; only trusted controller registrations can validate it.'
+                }
+                Assert-RegisteredHealthRecord $record $path $RecordTypes[$matches[0]]
+            }
             $records += $record
         }
     }
-    return @{ directory = $Directory; tip = $tip; records = $records; remote = $Remote; localFixture = [bool]$AllowLocalFixture }
+    return @{ directory = $Directory; tip = $tip; records = $records; remote = $Remote
+        localFixture = [bool]$AllowLocalFixture; recordTypes = $RecordTypes }
 }
 
 function Publish-HealthRecord($History, $Record) {
     if ($Record.authority -cne 'trusted-main-push') { throw 'PR, fork and manual candidate artifacts cannot authorize history writes.' }
-    $path = "filesystem/$($Record.runId)/$($Record.runAttempt).json"
-    Assert-HealthRecord $Record $path
+    $path = Get-HealthRecordPath $Record $History.recordTypes
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $existing = @($History.records | Where-Object { $_.runId -ceq $Record.runId -and $_.runAttempt -ceq $Record.runAttempt })
+        $existing = @($History.records | Where-Object { (Get-HealthRecordPath $_ $History.recordTypes) -ceq $path })
         if ($existing.Count) {
             throw 'This attempt is already recorded. Immutable history cannot be overwritten by a rerun of the observer.'
         }
@@ -322,7 +355,7 @@ function Publish-HealthRecord($History, $Record) {
         $tree = Invoke-HealthGit $directory @('write-tree')
         $arguments = @('-c', 'user.name=CI observation', '-c', 'user.email=ci-observation@users.noreply.github.com', 'commit-tree', $tree)
         if ($History.tip) { $arguments += @('-p', $History.tip) }
-        $commit = Invoke-HealthGit $directory $arguments "Record filesystem $($Record.runId)/$($Record.runAttempt)`n`nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
+        $commit = Invoke-HealthGit $directory $arguments "Record $path`n`nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
         try {
             $null = Invoke-HealthGit $directory @('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
                 'push', '--quiet', 'origin', "${commit}:refs/heads/$FilesystemHealthBranch")
@@ -330,12 +363,12 @@ function Publish-HealthRecord($History, $Record) {
         } catch {
             $pushError = $_
             $retryDirectory = Join-Path (Split-Path $History.directory -Parent) ('h-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.git')
-            $updated = Open-HealthHistory $retryDirectory $History.remote -AllowLocalFixture:$History.localFixture
+            $updated = Open-HealthHistory $retryDirectory $History.remote -AllowLocalFixture:$History.localFixture -RecordTypes $History.recordTypes
             if ($updated.tip -ceq $History.tip) { throw $pushError }
             if ($History.tip) {
                 $null = Invoke-HealthGit $updated.directory @('merge-base', '--is-ancestor', $History.tip, $updated.tip)
             }
-            $same = @($updated.records | Where-Object { $_.runId -ceq $Record.runId -and $_.runAttempt -ceq $Record.runAttempt })
+            $same = @($updated.records | Where-Object { (Get-HealthRecordPath $_ $updated.recordTypes) -ceq $path })
             if ($same.Count) {
                 $savedBlob = Invoke-HealthGit $updated.directory @('rev-parse', "$($updated.tip):$path")
                 if ($savedBlob -ceq $blob) { return $updated.tip }
