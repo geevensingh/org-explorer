@@ -128,6 +128,20 @@ through `SavePersonTextDraft`; typing, blur, navigation, Settings and generic
 update/close draining do not submit it. `DiscardPersonTextDraft` cancels only
 that field's unsaved failure, never other fields, profile sessions, quick actions,
 notes, Import, local recovery or retained synchronization divergence.
+Fresh compact entries display Preferred name, otherwise Directory name, otherwise
+empty, without retaining or publishing that default. Explicit Save/Enter captures
+the submitted text and original base before asynchronous work begins, so an
+untouched default survives pending or rejected submission and owner browsing.
+Explicit submissions remain retained even when their text equals the original
+Preferred name; only unsubmitted original-value typing is retired as clean.
+Save/Enter clears a valid
+name equivalent to the current accepted Directory name, ignoring capitalization
+and outer whitespace only; distinct text retains its exact storage behavior.
+Public Person-text cases cover the matching/missing-name matrix, meaningful
+internal spacing/spelling/accent differences, current Directory-name changes and
+independent writing. Real-folder cases reopen custom names, equivalent clears,
+later Directory headings and private context, and keep original-base failures and
+retries stale even when the submitted name would otherwise clear.
 Changed-field delivery rejects save/retry;
 other-field delivery is retained, and success returns the exact saved base for
 newer typing rather than rereading a possibly newer provider revision.
@@ -1297,6 +1311,12 @@ entry and retain its exact writing/error without overwriting external data.
 These checks use the existing bounded dispatcher/commit observations and never
 show a window or create a native main-window handle; they are not hosted
 interaction or latency acceptance.
+The untouched-default regression holds the actual local read to check submitted
+retention before completion, then browses A-B-A after a same-field rejection.
+Both an unset Preferred name and an existing Directory-equivalent Preferred name
+retain the explicit submission without retaining an untouched editor on opening.
+Exact submitted text, original base and the retained failure remain available
+for stale retry until deliberate cancellation; reopening preserves external data.
 
 `--verify-preferred-name-snapshot-deferral` isolates the full profile-refresh
 selection's compiled incoming-archival/Preferred-name deferral case, including
@@ -2015,13 +2035,17 @@ and deliberate collapse. Search/clear reveals the accepted selected branch;
 failed note writing rejects another selection without expanding that destination.
 These are compiled wiring/measurement checks, not rendered acceptance.
 The same invisible regression drives the actual Preferred-name Save/Cancel
-controls: typing does not publish; failed Save retains
+controls: fresh Preferred/Directory/empty defaults and untouched cancellation
+leave saved names unchanged, explicit defaults reopen with the expected clear or
+preserved name, and Directory-name changes cannot reseed retained text or its base.
+Typing does not publish; failed Save retains
 its input/local error across an unrelated Favorite success; Save retry retains
 the original base across external delivery, and deliberate cancellation permits
 a new entry against the delivered value. Real held profile/note publication
 proves that cancellation closes without blocking behind admitted I/O, cannot
 revoke it or permit premature close, and newer input waits for another explicit
-Save. The Popup is never opened while the window is invisible. Its actual
+Save, including when the admitted submission clears an equivalent name.
+The Popup is never opened while the window is invisible. Its actual
 discovery, focus and physical Enter/Escape/outside-click behavior remain hosted
 proof, not an inference from these controls.
 The existing native profile journey also focuses the failure Details header,
@@ -2217,8 +2241,10 @@ verifies native current-mode and monitor bounds at 1024 x 768 / 32 bpp / 96 DPI
 without changing its display. They cover:
 
 - `profile-journey`: preview/apply/rejection, Manager/report identity, preferred/directory
-  binding, readable Preferred name and one-click Add/Edit, explicit Save and
-  physical Enter, retained inline validation failure, Cancel/Escape/outside-click
+  binding, readable Preferred name and one-click Add/Edit, exact popup defaults
+  and focus, physical Save of the unchanged Directory default and physical Enter
+  clearing an equivalent existing name, retained inline validation failure,
+  Cancel/Escape/outside-click of untouched defaults and distinct writing
   dismissal without mutation, popup discovery/focus and uniquely named normal,
   failure and dismissal captures,
   quiet chrome and Settings keyboard entry/focus, anchored photo/identity bounds,
