@@ -27,7 +27,8 @@ internal static partial class Program
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
              {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
              {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
-             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+             {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -282,13 +283,16 @@ internal static partial class Program
             Await(() => Find(window, "Preview").Current.Name.Contains("0009C") &&
                 Find(window, "Preview").Current.Name.Contains("(clear)"));
             AssertGroupedImportDisclosure(window, "avery@example.com", "2 changes",
-                ["Department: Research → (clear)", "Office number: 007B → 0009C"]);
+                "Department: Research → (clear); Office number: 007B → 0009C",
+                ["Department: Research → (clear)", "Office number: 007B → 0009C"], allowCountFallback: true);
             var reviewedUpdate = File.ReadAllText(import);
             File.WriteAllText(import, reviewedUpdate.Replace("\"department\":null", "\"department\":null,\"archived\":true"));
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);
             AssertGroupedImportDisclosure(window, "avery@example.com", "Archive; 3 changes",
-                ["Archive: Current → Archived; retain profile and local context"]);
+                "Department: Research → (clear); Office number: 007B → 0009C; Archive: Current → Archived; retain profile and local context",
+                ["Archive: Current → Archived; retain profile and local context"], allowCountFallback: true);
+            ExerciseAdaptiveImportReview(window, workspace, import);
             File.WriteAllText(import, reviewedUpdate);
             Click(window, "PreviewImport");
             Await(() => Find(window, "ApplyImport").Current.IsEnabled);

@@ -16,11 +16,17 @@
                 AutomationProperties.AutomationId="{Binding AutomationId}"
                 AutomationProperties.Name="{Binding AccessibleSummary}">
         <Expander.Header>
-          <DockPanel LastChildFill="True" ToolTip="{Binding AccessibleSummary}">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Margin="12,0,0,0"
-                       TextWrapping="NoWrap"/>
-            <TextBlock Text="{Binding Email}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-          </DockPanel>
+          <local:ImportReviewHeader LastChildFill="True" ToolTip="{Binding AccessibleSummary}"
+                                    Summary="{Binding Summary}" InlineSummary="{Binding InlineSummary}">
+            <TextBox DockPanel.Dock="Right" Margin="12,0,0,0" IsReadOnly="True"
+                     TextWrapping="NoWrap" BorderThickness="0" Background="Transparent" Padding="0"
+                     Focusable="False" IsTabStop="False" IsHitTestVisible="False"
+                     AutomationProperties.AutomationId="ImportSummary" AutomationProperties.Name="Person changes"/>
+            <TextBox Text="{Binding Email, Mode=OneWay}" IsReadOnly="True"
+                     TextWrapping="NoWrap" BorderThickness="0" Background="Transparent" Padding="0"
+                     Focusable="False" IsTabStop="False" IsHitTestVisible="False"
+                     AutomationProperties.AutomationId="ImportIdentity" AutomationProperties.Name="Person email"/>
+          </local:ImportReviewHeader>
         </Expander.Header>
         <StackPanel Margin="24,8,8,12">
           <TextBox Text="{Binding Email, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
@@ -30,7 +36,9 @@
           <ItemsControl ItemsSource="{Binding Details}">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <TextBox Text="{Binding Mode=OneWay}" TextWrapping="Wrap" Margin="0,0,0,6"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
+                         AutomationProperties.AutomationId="ImportDetail" AutomationProperties.Name="{Binding}"/>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>

@@ -70,9 +70,18 @@ distinct lifecycle/preference actions, full long values, clears and exact replay
 Existing history and photo cases retain same-value Observations and meaningful
 Photo-clear outcomes. The invisible compiled Import-path Enter contract checks
 one initially collapsed native disclosure and complete inline expansion without
-changing saved bytes. The hosted profile journey separately checks rendered Add,
-two-change and Archive/count entries, full expanded details and Space-key
-disclosure. Neither the in-memory nor compiled checks are hosted WPF evidence.
+changing saved bytes. Its narrow `--verify-import-review` selector also drives
+the actual compiled controls through 1100/700/1100 widths, checking native text
+layout, inline/count/restoration, long/multiline/many differences and explicit
+Add/Archive/Reactivate fallback. It uses the same public preview and compiled
+contract as the full profile-refresh selection; it does not open a native window.
+The hosted profile journey separately checks every collapsed identity/summary
+character's actual TextPattern rectangle on one line, complete expanded text,
+unchanged typography, Space-key disclosure and 1000/700/1000 width transitions
+on the established 96-DPI disposable desktop. Long/multiline values, many fields
+and lifecycle fallback retain full details and unchanged saved bytes. Native
+read-only text providers support those character checks; a one-line outer box
+alone is not evidence. Neither in-memory nor compiled checks are hosted WPF evidence.
 
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
