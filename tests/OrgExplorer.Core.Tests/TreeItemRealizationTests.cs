@@ -7,6 +7,70 @@ public sealed class TreeItemRealizationTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Initially_shown_archived_list_is_hidden_for_real_menu_checks_and_restored_once()
+    {
+        var archivedShown = true;
+        var inputs = new List<bool>();
+        void Toggle()
+        {
+            archivedShown = !archivedShown;
+            inputs.Add(archivedShown);
+        }
+        var initiallyShown = TreeItemRealization.PrepareArchivedListForMenu(() => archivedShown,
+            Toggle, () => !archivedShown, AwaitProvider);
+
+        TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command, () => { }, () =>
+        {
+            // Run45707651375's shown archived list left the real reporting viewport Empty.
+            if (archivedShown) throw new InvalidOperationException("Collapse subtree lost its target row.");
+        });
+        TreeItemRealization.RestoreArchivedListAfterMenu(initiallyShown, () => archivedShown, Toggle, AwaitProvider);
+
+        Assert.True(initiallyShown);
+        Assert.True(archivedShown);
+        Assert.Equal([false, true], inputs);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Initially_hidden_archived_list_needs_no_setup_or_restoration_input()
+    {
+        var inputs = 0;
+        var initiallyShown = TreeItemRealization.PrepareArchivedListForMenu(() => false,
+            () => inputs++, () => true, AwaitProvider);
+        TreeItemRealization.RestoreArchivedListAfterMenu(initiallyShown, () => false, () => inputs++, AwaitProvider);
+
+        Assert.False(initiallyShown);
+        Assert.Equal(0, inputs);
+    }
+
+    [Theory]
+    [Trait("Category", "Runner")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Failed_archived_preparation_does_not_retry_a_hide_or_repair_the_view(bool hideObserved)
+    {
+        var shown = true;
+        var inputs = 0;
+        Assert.Throws<TimeoutException>(() => TreeItemRealization.PrepareArchivedListForMenu(() => shown,
+            () => { inputs++; if (hideObserved) shown = false; }, () => false, AwaitProvider));
+
+        Assert.Equal(1, inputs);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Unexpected_archived_visibility_during_a_menu_is_rejected_without_a_repair_toggle()
+    {
+        var inputs = 0;
+        Assert.Throws<InvalidOperationException>(() =>
+            TreeItemRealization.RestoreArchivedListAfterMenu(true, () => true, () => inputs++, AwaitProvider));
+
+        Assert.Equal(0, inputs);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Menu_target_visibility_does_not_constrain_later_ordinary_fixture_restoration()
     {
         var contentChecks = 0;

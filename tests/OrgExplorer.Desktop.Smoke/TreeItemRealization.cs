@@ -5,6 +5,24 @@ internal static class TreeItemRealization
     internal enum MenuBranchInput { ExpandCollapseProvider, DisclosureArrow }
     internal enum MenuRetentionBoundary { Command, OrdinaryFixtureRestoration }
 
+    internal static bool PrepareArchivedListForMenu(Func<bool> isShown, Action toggle,
+        Func<bool> treeReady, Action<Func<bool>> awaitState)
+    {
+        var initiallyShown = isShown();
+        if (initiallyShown) toggle();
+        awaitState(() => !isShown() && treeReady());
+        return initiallyShown;
+    }
+
+    internal static void RestoreArchivedListAfterMenu(bool initiallyShown, Func<bool> isShown,
+        Action toggle, Action<Func<bool>> awaitState)
+    {
+        if (isShown())
+            throw new InvalidOperationException("The archived list changed during the menu fixture; no restoration input was replayed.");
+        if (initiallyShown) toggle();
+        awaitState(() => isShown() == initiallyShown);
+    }
+
     internal static void AssertMenuRetention(MenuRetentionBoundary boundary,
         Action assertContentRetained, Action assertTargetVisible)
     {

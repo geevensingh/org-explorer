@@ -2672,7 +2672,11 @@ internal static partial class Program
                  {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"},
                  {"email":"alex@example.com","displayName":"Alex","managerEmail":"avery@example.com"},
                  {"email":"casey@example.com","displayName":"Casey","managerEmail":null},
-                 {"email":"jordan@example.com","displayName":"Jordan","managerEmail":"casey@example.com"}]}
+                 {"email":"jordan@example.com","displayName":"Jordan","managerEmail":"casey@example.com"},
+                 {"email":"archived-a@example.com","displayName":"Archived A","managerEmail":null,"archived":true},
+                 {"email":"archived-b@example.com","displayName":"Archived B","managerEmail":null,"archived":true},
+                 {"email":"archived-c@example.com","displayName":"Archived C","managerEmail":null,"archived":true},
+                 {"email":"archived-d@example.com","displayName":"Archived D","managerEmail":null,"archived":true}]}
                 """).Id))
                 throw new InvalidOperationException("Tree presentation fixture failed: " + seed.Status);
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
@@ -2897,6 +2901,44 @@ internal static partial class Program
             model.PeopleNavigation.SelectedEmail != "avery@example.com" || !model.PeopleNavigation.OverlayOpen ||
             model.ProfileEdit != retainedProfile || Control<TextBlock>("Email").Text != "avery@example.com")
             throw new InvalidOperationException("Menu preparation must use the real non-focusable disclosure binding, not ordinary provider expansion/navigation.");
+        Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => model.CanSafelyClose);
+        Control<CheckBox>("ShowArchivedPeople").IsChecked = true;
+        Layout(700, 500);
+        var archivedList = Control<ListBox>("ArchivedPeopleList");
+        var archivedPerson = archivedList.Items.Cast<PersonProfile>().Single(person => person.Email == "archived-a@example.com");
+        archivedList.SelectedItem = archivedPerson;
+        Control<Button>("EditProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Control<TextBox>("OfficeNumber").Text = "  Exact archived-profile fixture writing\r\n";
+        var archivedDraft = model.ProfileEdit;
+        Layout(700, 500);
+        Control<Button>("OpenPeopleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout(700, 500);
+        var archiveToggle = (IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(Control<CheckBox>("ShowArchivedPeople"))
+            .GetPattern(PatternInterface.Toggle);
+        var archiveInputs = 0;
+        bool ArchiveShown() => Control<CheckBox>("ShowArchivedPeople").IsChecked == true;
+        void ToggleArchive() { archiveInputs++; archiveToggle.Toggle(); }
+        var archiveInitiallyShown = TreeItemRealization.PrepareArchivedListForMenu(ArchiveShown, ToggleArchive, () =>
+        {
+            Layout(700, 500);
+            return tree.ActualHeight > 0;
+        }, condition => PumpUntil(condition));
+        Layout(700, 500);
+        container = (TreeViewItem)tree.ItemContainerGenerator.ContainerFromItem(manager);
+        command.Execute("morgan@example.com", container);
+        Layout(700, 500);
+        if (!archiveInitiallyShown || archiveInputs != 1 || ArchiveShown() || container.IsExpanded ||
+            model.PeopleNavigation.SelectedEmail != archivedPerson.Email || !model.PeopleNavigation.OverlayOpen ||
+            model.ProfileEdit != archivedDraft || Control<TextBox>("OfficeNumber").Text != "  Exact archived-profile fixture writing\r\n")
+            throw new InvalidOperationException("The real archived-list fixture hide/menu action lost its archived profile/draft or changed its input count.");
+        TreeItemRealization.RestoreArchivedListAfterMenu(archiveInitiallyShown, ArchiveShown, ToggleArchive,
+            condition => PumpUntil(condition));
+        Layout(700, 500);
+        if (!ArchiveShown() || archiveInputs != 2 || model.ProfileEdit != archivedDraft ||
+            model.PeopleNavigation.SelectedEmail != archivedPerson.Email || !model.PeopleNavigation.OverlayOpen ||
+            Control<TextBox>("OfficeNumber").Text != "  Exact archived-profile fixture writing\r\n")
+            throw new InvalidOperationException("The real archived-list restoration changed its captured mode, profile/draft or open People panel.");
         Control<Button>("CancelProfileButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         PumpUntil(() => model.CanSafelyClose);
         Console.WriteLine("PASS: real tree selection/disclosure, non-navigating routed Collapse subtree, hidden/recycled expansion reset, search restoration and exact independent profile/note writing.");

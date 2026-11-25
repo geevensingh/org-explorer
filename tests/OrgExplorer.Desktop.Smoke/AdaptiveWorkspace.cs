@@ -618,6 +618,16 @@ internal static partial class Program
         }
         var before = Snapshot();
         EnsurePeopleBrowsing(window);
+        bool ArchivedListShown() => ((TogglePattern)Find(window, "ShowArchivedPeople")
+            .GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == ToggleState.On;
+        void ToggleArchivedList() => ((TogglePattern)Find(window, "ShowArchivedPeople")
+            .GetCurrentPattern(TogglePattern.Pattern)).Toggle();
+        var archivedInitiallyShown = TreeItemRealization.PrepareArchivedListForMenu(ArchivedListShown, ToggleArchivedList, () =>
+        {
+            var tree = Find(window, "People");
+            var bounds = tree.Current.BoundingRectangle;
+            return !tree.Current.IsOffscreen && !bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0;
+        }, Await);
         var treeScroll = (ScrollPattern)Find(window, "People").GetCurrentPattern(ScrollPattern.Pattern);
         ControlReadiness.ScrollToTopIfScrollable(() => treeScroll.Current.VerticallyScrollable,
             () => treeScroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
@@ -811,6 +821,10 @@ internal static partial class Program
             throw new InvalidOperationException($"Search-clear resurrected recursively reset tree expansion at {state}.");
         AssertRetained();
         ReexpandForMenu("restore-fixture", TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration);
+        TreeItemRealization.RestoreArchivedListAfterMenu(archivedInitiallyShown, ArchivedListShown, ToggleArchivedList, Await);
+        if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
+            !IsVisible(window, "PeopleNavigation") || compact && !IsVisible(window, "ClosePeople"))
+            throw new InvalidOperationException($"Archived-list fixture restoration changed the profile/writing or closed People at {state}.");
         if (compact && !panelWasOpen)
         {
             Click(window, "ClosePeople");
