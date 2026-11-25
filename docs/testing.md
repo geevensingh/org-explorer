@@ -50,7 +50,7 @@ check, not the requested percentage, proves that browsing was preserved.
 | UI scale | Real WPF at the full rich population | Tree realization/scrolling, large-population search/navigation, actual photo/Markdown rendering and responsive Settings while real load/mutation is pending. Neither smaller fixtures nor view-model substitutes prove these risks. |
 | Runner / CI contract | Observable execution and saved result contracts | Named results, sequential isolation, failure diagnostics, required selection, deadlines, required-lane failure matrix and product-output isolation. |
 
-## Workspace, Import and update contracts
+**Workspace, Import and update contracts:**
 
 - When changing Create/Open, startup restoration, Settings or exit, read [opening and exit](testing/workspace-opening-exit.md).
 - When changing local SQLite, WAL readers, receipts or crash reconciliation, read [storage and recovery](testing/workspace-storage-recovery.md).
