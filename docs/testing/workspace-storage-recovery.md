@@ -73,10 +73,7 @@ never routes reconciliation through the ordinary local-save admission queue.
 Both note containers also remain enabled for exact owned-note selection/Read
 and inherited-context expansion; their mutation controls stay disabled while
 the same reconciliation is held.
-Following an inherited owner link to that same retained Team note preserves its
-stored Edit mode and exact draft; a deliberately selected Read mode stays Read.
-The actual compiled link and public navigation cases cover both choices without
-implicit saving, while clean inherited-note destinations retain ordinary Read.
+For inherited retained-owner mode preservation, read [note reading and context](note-reading-context.md#read-and-edit-presentation).
 
 ## Crash boundaries, receipt leases and explicit recovery
 
