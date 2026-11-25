@@ -5,6 +5,55 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class TreeItemRealizationTests
 {
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Menu_target_visibility_does_not_constrain_later_ordinary_fixture_restoration()
+    {
+        var contentChecks = 0;
+        var targetChecks = 0;
+        var targetTop = 479d;
+        void CheckTarget()
+        {
+            targetChecks++;
+            // Run45698927097 kept the command target at479, then ordinary cleanup moved it to461.
+            if (targetTop < 478 || targetTop + 20 > 570)
+                throw new InvalidOperationException("Collapse subtree lost its target row.");
+        }
+        TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command,
+            () => contentChecks++, CheckTarget);
+        targetTop = 461;
+
+        TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration,
+            () => contentChecks++, CheckTarget);
+
+        Assert.Equal(2, contentChecks);
+        Assert.Equal(1, targetChecks);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void A_command_target_outside_the_viewport_still_fails_retention()
+    {
+        var targetTop = 461d;
+        Assert.Throws<InvalidOperationException>(() =>
+            TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.Command, () => { }, () =>
+            {
+                if (targetTop < 478 || targetTop + 20 > 570)
+                    throw new InvalidOperationException("Collapse subtree lost its target row.");
+            }));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Ordinary_fixture_restoration_still_rejects_lost_writing_or_panel_state()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            TreeItemRealization.AssertMenuRetention(TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration,
+                () => throw new InvalidOperationException("Retained writing or People panel changed."), () => { }));
+
+        Assert.Equal("Retained writing or People panel changed.", error.Message);
+    }
+
     [Theory]
     [Trait("Category", "Runner")]
     [InlineData("morgan@example.com")]

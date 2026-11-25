@@ -642,15 +642,20 @@ internal static partial class Program
             mouse_event(8, 0, 0, 0, 0);
             mouse_event(16, 0, 0, 0, 0);
         }
-        void AssertRetained()
+        void AssertRetained(TreeItemRealization.MenuRetentionBoundary boundary = TreeItemRealization.MenuRetentionBoundary.Command)
         {
-            if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
-                !IsVisible(window, "People") || compact && !IsVisible(window, "ClosePeople"))
-                throw new InvalidOperationException($"A tree presentation action changed the profile/writing or dismissed compact People at {state}.");
-            var bounds = Row(managerEmail).Current.BoundingRectangle;
-            var viewport = Find(window, "People").Current.BoundingRectangle;
-            if (Row(managerEmail).Current.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
-                throw new InvalidOperationException($"Collapse subtree lost its target row at {state}.");
+            TreeItemRealization.AssertMenuRetention(boundary, () =>
+            {
+                if (CurrentPersonEmail(window) != owner || !before.SequenceEqual(Snapshot()) ||
+                    !IsVisible(window, "People") || compact && !IsVisible(window, "ClosePeople"))
+                    throw new InvalidOperationException($"A tree presentation action changed the profile/writing or dismissed compact People at {state}.");
+            }, () =>
+            {
+                var bounds = Row(managerEmail).Current.BoundingRectangle;
+                var viewport = Find(window, "People").Current.BoundingRectangle;
+                if (Row(managerEmail).Current.IsOffscreen || bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
+                    throw new InvalidOperationException($"Collapse subtree lost its target row at {state}.");
+            });
         }
         void AssertNoMenu()
         {
@@ -721,7 +726,8 @@ internal static partial class Program
                 Console.Error.WriteLine($"TREE-MENU-EXPANSION-DIAGNOSTIC-FAULT state={state}; phase={phase}; boundary={boundary}; {error}");
             }
         }
-        void ReexpandForMenu(string phase)
+        void ReexpandForMenu(string phase,
+            TreeItemRealization.MenuRetentionBoundary retentionBoundary = TreeItemRealization.MenuRetentionBoundary.Command)
         {
             ObserveExpansion(phase, "before-request");
             try
@@ -753,7 +759,7 @@ internal static partial class Program
                     }, Await);
                 ObserveExpansion(phase, requested ? "prepared-state" : "already-expanded",
                     requested ? TreeItemRealization.MenuBranchInput.DisclosureArrow.ToString() : null);
-                AssertRetained();
+                AssertRetained(retentionBoundary);
             }
             catch (Exception error) when (error is TimeoutException or ElementNotAvailableException or InvalidOperationException or COMException)
             {
@@ -804,7 +810,7 @@ internal static partial class Program
         if (Expansion(managerEmail).Current.ExpandCollapseState != ExpandCollapseState.Collapsed)
             throw new InvalidOperationException($"Search-clear resurrected recursively reset tree expansion at {state}.");
         AssertRetained();
-        ReexpandForMenu("restore-fixture");
+        ReexpandForMenu("restore-fixture", TreeItemRealization.MenuRetentionBoundary.OrdinaryFixtureRestoration);
         if (compact && !panelWasOpen)
         {
             Click(window, "ClosePeople");
