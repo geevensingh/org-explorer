@@ -5,11 +5,16 @@ param(
     [Parameter(Mandatory)][string]$WorkingDirectory,
     [switch]$AllowLocalFixture,
     [switch]$Publish,
-    [switch]$PublishObservations
+    [switch]$PublishObservations,
+    [switch]$TimingPolicyPreview
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . "$PSScriptRoot\LaneHealth.ps1"
+. "$PSScriptRoot\TimingPolicy.ps1"
+if ($TimingPolicyPreview -and ($Publish -or $PublishObservations)) {
+    throw 'Unapproved timing policy previews cannot write qualified or observational history.'
+}
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 $run = Invoke-HealthApi "actions/runs/$RunId/attempts/$RunAttempt"
 if ($run.id -ne $RunId -or $run.run_attempt -ne $RunAttempt -or $run.status -cne 'completed' -or
@@ -130,6 +135,7 @@ foreach ($descriptor in $descriptors) {
         historySnapshot = if ($history) { $history.tip } else { $null }; evidence = $evidence
     }
     if ($history) { Set-LaneHealthComparison $record $history }
+    if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history }
     $records += $record
 }
 ConvertTo-Json -InputObject @($records) -Depth 30 | Set-Content (Join-Path $WorkingDirectory 'records.json')
@@ -142,6 +148,9 @@ elseif ($Publish -or $PublishObservations) {
     } catch { $errorRecord = $_; $publication = "FAILED: $($_.Exception.Message)" }
 }
 $summary = Format-LaneHealth $records $publication
+if ($TimingPolicyPreview) {
+    foreach ($record in $records) { $summary += Format-TimingPolicyPreview $record.policyPreview }
+}
 $summary | Set-Content (Join-Path $WorkingDirectory 'summary.md')
 if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content $env:GITHUB_STEP_SUMMARY }
 if ($errorRecord) { throw $errorRecord }

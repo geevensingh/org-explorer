@@ -147,13 +147,20 @@ try {
     }
     $summaryWork = Join-Path $fixture 'summary'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
-        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $summaryWork
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $summaryWork -TimingPolicyPreview
     $record = Get-Content -LiteralPath (Join-Path $summaryWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
     Assert ($record.samples.Count -eq 3 -and $record.reliability.success -eq 3 -and $record.reliability.attempts -eq 3) 'A complete cohort lost independent executions.'
     Assert ($record.metrics.executionSeconds.median -eq 150 -and $record.metrics.executionSeconds.minimum -eq 120 -and
         $record.metrics.executionSeconds.maximum -eq 180 -and $record.metrics.executionSeconds.range -eq 60) 'Cohort median/range do not preserve independent values.'
     Assert ($record.eligibility -ceq 'pending-calibration' -and $record.promotion -ceq 'disabled' -and
         $record.richScaleAcceptance -ceq 'not-executed' -and $record.extraSamples.Count -eq 0) 'Observation-only non-UI evidence claimed approved full-scale acceptance.'
+    Assert ($record.policyPreview.version -ceq 'ci-timing-preview-v1' -and
+        $record.policyPreview.mode -ceq 'observation' -and !$record.policyPreview.blocking -and
+        $record.policyPreview.currentValidation -ceq 'success' -and
+        $record.policyPreview.metrics.executionSeconds.health -ceq 'unbaselined' -and
+        $record.policyPreview.promotion -ceq 'disabled' -and
+        (Get-Content (Join-Path $summaryWork 'summary.md') -Raw).Contains('approval pending')) `
+        'Public policy preview invented a reference, changed validation or acquired gate/promotion authority.'
     . "$PSScriptRoot\UiScaleUnionFixture.ps1"
     $nonUiJobs = $global:NonUiCohortFixture.sampleJobs
     $nonUiArtifacts = $global:NonUiCohortFixture.artifacts
@@ -386,7 +393,9 @@ try {
     $unexpectedRich = Get-Content (Join-Path $unexpectedRichWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
     Assert ($unexpectedRich.samples.Count -eq 5 -and $unexpectedRich.unexpectedExecutions -and
         $unexpectedRich.validation -ceq 'rejected' -and $unexpectedRich.extraSamples.Count -eq 0) 'Unrequested rich executions were ignored to manufacture three greens.'
-    $global:NonUiCohortFixture.sampleJobs = $fiveNonUiJobs
+    $global:NonUiCohortFixture.sampleJobs = @($fiveNonUiJobs | ForEach-Object {
+        $job = $_.Clone(); $job.conclusion = 'success'; $job
+    })
     $global:NonUiCohortFixture.artifacts = $fiveNonUiArtifacts
     $global:NonUiCohortFixture.sampleJobs[4].conclusion = 'failure'
     $extraWork = Join-Path $fixture 'unexpected-extra'
@@ -452,6 +461,72 @@ try {
         $richSaved.samples[2].rich.prefix.notes.'background-export'.localDurability.samplesMs.Count -eq 21 -and
         $richSaved.samples[2].rich.receipt.head -ceq $richSaved.samples[2].rich.handoff.head -and $richSaved.promotion -ceq 'disabled') `
         'Shared immutable history lost exact rich proof/raw inputs or mixed legacy non-UI into full acceptance.'
+    $prefixPeer = Join-Path $fixture 'prefix-reference'
+    git clone --quiet --branch ci-health-data $remote $prefixPeer
+    $prefixReferenceJson = ($richSaved | ConvertTo-Json -Depth 30).Replace($revision, ('d' * 40)).
+        Replace('"99"', '"89"').Replace('-99-1', '-89-1').Replace('/runs/99/', '/runs/89/')
+    foreach ($sample in $richSaved.samples) {
+        foreach ($part in @($sample, $sample.rich.prefix, $sample.rich.tail, $sample.rich.union)) {
+            $prefixReferenceJson = $prefixReferenceJson.Replace($part.invocationId, [guid]::NewGuid().ToString('N'))
+        }
+    }
+    $prefixReference = $prefixReferenceJson | ConvertFrom-Json -AsHashtable
+    $prefixReference.observedAt = [DateTimeOffset]::UtcNow.AddHours(-1).ToString('O')
+    for ($index = 0; $index -lt 3; $index++) {
+        $sample = $prefixReference.samples[$index]
+        foreach ($part in @($sample, $sample.rich.prefix, $sample.rich.tail, $sample.rich.union)) {
+            $part.jobId += 4000; $part.runnerId += 4000
+        }
+        $sample.rich.prefix.report.executionSeconds = @(620, 630, 640)[$index]
+        $sample.rich.prefix.report.startedAt = [DateTimeOffset]::UtcNow.AddHours(-2).ToString('O')
+        $sample.rich.prefix.report.completedAt = ([DateTimeOffset]$sample.rich.prefix.report.startedAt).
+            AddSeconds($sample.rich.prefix.report.executionSeconds).ToString('O')
+    }
+    $prefixReference.metrics.'prefix-executionSeconds' = @{
+        count = 3; unavailable = 0; median = 630; minimum = 620; maximum = 640; range = 20
+    }
+    $prefixReferenceDirectory = Join-Path $prefixPeer "rich-scale-cohorts\$($prefixReference.revision)\89"
+    New-Item -ItemType Directory -Path $prefixReferenceDirectory -Force | Out-Null
+    $prefixReference | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $prefixReferenceDirectory '1.json')
+    git -C $prefixPeer add rich-scale-cohorts
+    git -C $prefixPeer -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Complete compatible prefix reference fixture'
+    git -C $prefixPeer push --quiet
+    $cutoffReports = @{}
+    for ($number = 1; $number -le 3; $number++) {
+        $cutoffReports[$number] = Get-Content (Join-Path $richFixtures[$number].prefix 'result.json') -Raw
+    }
+    try {
+        foreach ($seconds in @(659, 661)) {
+            for ($number = 1; $number -le 3; $number++) {
+                $data = $cutoffReports[$number] | ConvertFrom-Json -AsHashtable
+                $data.executionSeconds = $seconds
+                $data.startedAt = [DateTimeOffset]::UtcNow.AddHours(-1).ToString('O')
+                $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($seconds).ToString('O')
+                $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $richFixtures[$number].prefix 'result.json')
+                $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $richFixtures[$number].prefix "$($data.runDirectory)\result.json")
+            }
+            $cutoffWork = Join-Path $fixture "old-cutoff-$seconds"
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $cutoffWork -RichScale `
+                -ReadHistory -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+            $cutoff = Get-Content (Join-Path $cutoffWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+            $expectedValidation = if ($seconds -eq 659) { 'success' } else { 'rejected' }
+            $expectedSuggestionCount = if ($seconds -eq 659) { 2 } else { 0 }
+            Assert ($cutoff.validation -ceq $expectedValidation -and
+                $cutoff.policyPreview.metrics.'prefix-executionSeconds'.health -ceq 'yellow' -and
+                $cutoff.policyPreview.metrics.'prefix-executionSeconds'.limit -eq 900 -and
+                !$cutoff.policyPreview.blocking -and $cutoff.policyPreview.additionalSamples.Count -eq $expectedSuggestionCount -and
+                $cutoff.extraSamples.Count -eq 0 -and
+                $cutoff.promotion -ceq 'disabled') `
+                'A self reference or old cutoff fabricated different relative health, extra runs or changed original acceptance.'
+        }
+    } finally {
+        for ($number = 1; $number -le 3; $number++) {
+            $data = $cutoffReports[$number] | ConvertFrom-Json -AsHashtable
+            $cutoffReports[$number] | Set-Content (Join-Path $richFixtures[$number].prefix 'result.json')
+            $cutoffReports[$number] | Set-Content (Join-Path $richFixtures[$number].prefix "$($data.runDirectory)\result.json")
+        }
+    }
     $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
     $global:NonUiCohortFixture.artifacts = $nonUiArtifacts
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 42 -RunAttempt 1 -WorkingDirectory (Join-Path $fixture 'mixed-core') `
@@ -516,10 +591,135 @@ try {
     git -C $peer push --quiet
     $comparisonWork = Join-Path $fixture 'comparison'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
-        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $comparisonWork -ReadHistory -AllowLocalFixture -HistoryRemote $remote
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $comparisonWork -ReadHistory -AllowLocalFixture -HistoryRemote $remote `
+        -TimingPolicyPreview
     $comparison = Get-Content -LiteralPath (Join-Path $comparisonWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
     Assert ($comparison.reference.revision -ceq $prior.revision -and $comparison.reference.medianSeconds -eq 120 -and
         $comparison.reference.deltaSeconds -eq 30 -and $comparison.reference.evidenceState -ceq 'expired-or-unavailable') 'Pinned comparison self-baselined or lost compact values after artifact expiry.'
+    Assert ($comparison.policyPreview.metrics.executionSeconds.health -ceq 'yellow' -and
+        $comparison.policyPreview.metrics.executionSeconds.reference.revision -ceq $prior.revision -and
+        $comparison.policyPreview.metrics.executionSeconds.reference.maximum -eq 130 -and
+        $comparison.policyPreview.metrics.executionSeconds.reference.range -eq 20 -and
+        $comparison.policyPreview.additionalSamples.Count -eq 2 -and
+        $comparison.policyPreview.additionalSamples[0] -eq 4 -and !$comparison.policyPreview.blocking -and
+        $comparison.validation -ceq 'success') 'Observed variation became a blocker, self-comparison or unbounded retry.'
+    $previewReports = @{}
+    for ($number = 1; $number -le 5; $number++) {
+        $previewReports[$number] = Get-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json') -Raw
+    }
+    try {
+        $global:NonUiCohortFixture.sampleJobs = $fiveNonUiJobs
+        $global:NonUiCohortFixture.artifacts = $fiveNonUiArtifacts
+        for ($number = 1; $number -le 5; $number++) {
+            $data = $previewReports[$number] | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = 199 + $number
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+        }
+        $slowWork = Join-Path $fixture 'supported-slowdown'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $slowWork -ExpectedSamples 5 `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+        $slow = Get-Content (Join-Path $slowWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($slow.policyPreview.metrics.executionSeconds.health -ceq 'red' -and
+            $slow.policyPreview.metrics.executionSeconds.seriousRegression -and !$slow.policyPreview.blocking -and
+            $slow.policyPreview.additionalSamples.Count -eq 0 -and $slow.validation -ceq 'success' -and
+            $slow.promotion -ceq 'disabled') 'Five separated complete measurements did not preview serious deterioration without activating a gate.'
+        Assert ($slow.policyPreview.metrics.'profile-p95-ms'.health -ceq 'inconclusive' -and
+            !$slow.policyPreview.metrics.'profile-p95-ms'.seriousRegression) `
+            'A zero-range reference was treated as a calibrated noise floor or comparative green.'
+        for ($number = 1; $number -le 5; $number++) {
+            $data = $previewReports[$number] | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = @(111, 120, 129, 160, 100)[$number - 1]
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+        }
+        $noisyWork = Join-Path $fixture 'five-remains-variable'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $noisyWork -ExpectedSamples 5 `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+        $noisy = Get-Content (Join-Path $noisyWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($noisy.policyPreview.metrics.executionSeconds.health -ceq 'yellow' -and
+            !$noisy.policyPreview.metrics.executionSeconds.seriousRegression -and
+            $noisy.policyPreview.eligibility -ceq 'inconclusive' -and
+            $noisy.policyPreview.additionalSamples.Count -eq 0 -and $noisy.validation -ceq 'success') `
+            'Five still-variable observations manufactured a serious regression or another collection extension.'
+        $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
+        $global:NonUiCohortFixture.artifacts = $nonUiArtifacts
+        for ($number = 1; $number -le 3; $number++) {
+            $data = $previewReports[$number] | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = @(639, 640, 641)[$number - 1]
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+        }
+        $headroomWork = Join-Path $fixture 'low-headroom'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $headroomWork -ReadHistory `
+            -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+        $headroom = Get-Content (Join-Path $headroomWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($headroom.policyPreview.metrics.executionSeconds.lowHeadroom -and
+            $headroom.policyPreview.metrics.executionSeconds.headroom -eq 19 -and
+            $headroom.policyPreview.metrics.executionSeconds.health -ceq 'yellow' -and
+            !$headroom.policyPreview.blocking -and $headroom.validation -ceq 'success') `
+            'One observed reference-range of remaining headroom was hidden or changed current acceptance.'
+        foreach ($case in @(
+            @{ name = 'normal-variation'; seconds = @(111, 120, 129); health = 'green'; suggestions = 0 },
+            @{ name = 'single-slight-slowdown'; seconds = @(111, 120, 131); health = 'yellow'; suggestions = 2 }
+        )) {
+            for ($number = 1; $number -le 3; $number++) {
+                $data = $previewReports[$number] | ConvertFrom-Json -AsHashtable
+                $data.executionSeconds = $case.seconds[$number - 1]
+                $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+                $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+            }
+            $caseWork = Join-Path $fixture $case.name
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $caseWork -ReadHistory `
+                -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+            $caseResult = Get-Content (Join-Path $caseWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+            Assert ($caseResult.policyPreview.metrics.executionSeconds.health -ceq $case.health -and
+                !$caseResult.policyPreview.metrics.executionSeconds.seriousRegression -and
+                $caseResult.policyPreview.additionalSamples.Count -eq $case.suggestions -and
+                $caseResult.validation -ceq 'success' -and !$caseResult.policyPreview.blocking) `
+                'Ordinary variation or one slightly slow execution acquired a serious blocking regression.'
+        }
+        foreach ($outcome in @('cancelled', 'skipped', 'timed_out')) {
+            $global:NonUiCohortFixture.sampleJobs[1].conclusion = $outcome
+            $incompleteWork = Join-Path $fixture "preview-$outcome"
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $incompleteWork -ReadHistory `
+                -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+            $incomplete = Get-Content (Join-Path $incompleteWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+            Assert ($incomplete.validation -ceq 'rejected' -and
+                $incomplete.policyPreview.metrics.executionSeconds.health -ceq 'inconclusive' -and
+                $incomplete.policyPreview.additionalSamples.Count -eq 0 -and
+                $incomplete.samples[1].jobOutcome -ceq $outcome -and !$incomplete.policyPreview.blocking) `
+                'Unfinished or cancelled verification fabricated comparative green or a replacement attempt.'
+        }
+        $global:NonUiCohortFixture.sampleJobs[1].conclusion = 'success'
+    } finally {
+        for ($number = 1; $number -le 5; $number++) {
+            $previewReports[$number] | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+        }
+        $global:NonUiCohortFixture.sampleJobs = $nonUiJobs
+        $global:NonUiCohortFixture.artifacts = $observerArtifacts
+    }
+    $hardReport = $previewReports[1] | ConvertFrom-Json -AsHashtable
+    $hardFile = Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-1"] "$($hardReport.runDirectory)\scale-measurements.log"
+    $hardOriginal = Get-Content $hardFile -Raw
+    try {
+        $hardOriginal.Replace('800', '1000.1') | Set-Content $hardFile
+        $hardWork = Join-Path $fixture 'hard-policy-preview'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $hardWork -ReadHistory `
+            -AllowLocalFixture -HistoryRemote $remote -TimingPolicyPreview
+        $hard = Get-Content (Join-Path $hardWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($hard.validation -ceq 'rejected' -and $hard.reliability.failure -eq 1 -and
+            $hard.policyPreview.metrics.'profile-p95-ms'.health -ceq 'red' -and
+            !$hard.policyPreview.metrics.'profile-p95-ms'.seriousRegression -and
+            $hard.policyPreview.additionalSamples.Count -eq 0 -and !$hard.policyPreview.blocking) `
+            'A cohort median erased an individual1000ms product violation or relative preview activated a gate.'
+    } finally { $hardOriginal | Set-Content $hardFile }
     $planWork = Join-Path $fixture 'already-observed'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory $planWork -CheckHistory -AllowLocalFixture -HistoryRemote $remote

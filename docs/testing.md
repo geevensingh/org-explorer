@@ -50,6 +50,17 @@ finishes later. Diagnostic artifacts cannot accept a candidate or supply a
 baseline; there is no diagnostic tail/union or production publication. This
 capture is separately approved, not approval of numerical timing policy.
 
+The #130 `TimingPolicyPreview` switch on the existing cohort/all-lane observer
+CLIs emits read-only `policyPreview` records and summary Markdown. It preserves
+the source validation, policies, individual attempts and canonical history.
+Preview plus publication/planning is rejected; sample4/5 suggestions are data,
+not dispatches. Public contracts use real validators and isolated Git with only
+external GitHub/hosted effects faked, including complete659/661s observations,
+noise, low headroom, serious five-execution separation, hard failures and
+incomplete/no-reference states. See the
+[versioned proposal](ci-timing-policy-proposal.md), whose numerical approval is
+still pending. These fixture checks do not establish hosted speed or rollout.
+
 | Category | Observes | Examples and limits |
 |---|---|---|
 | Workflow / view model | The real shared `IApplicationWorkflow` and observable `WorkspaceViewModel`, primarily in memory | Identity, every textual field, import omission/null/false, whole graphs, inheritance, frozen context, dates, query permutations, favorite state and safe-close errors. In-memory success is not durability or WPF evidence. |

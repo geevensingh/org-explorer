@@ -54,10 +54,11 @@ function gh {
         default { throw "Unexpected endpoint: $($arguments[1])" }
     }
 }
-function Observe([switch]$Publish, [switch]$PublishObservations) {
+function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$TimingPolicyPreview) {
     $work = Join-Path $fixture ('o-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 51 -RunAttempt $run.run_attempt -HistoryRemote $remote `
-        -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations
+        -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations `
+        -TimingPolicyPreview:$TimingPolicyPreview
     return @{
         records = @(Get-Content (Join-Path $work 'records.json') -Raw | ConvertFrom-Json -AsHashtable)
         summary = Get-Content (Join-Path $work 'summary.md') -Raw
@@ -99,6 +100,13 @@ try {
         $saved.measurements.steps[2].name -ceq 'CiGate.Tests.ps1') 'Core lost complete runner/companion evidence.'
     Assert ($saved.timingHealth -ceq 'unbaselined' -and $null -eq $saved.reference -and
         $observed.summary.Contains('Core and view models') -and $observed.summary.Contains('observation only')) 'Core invented comparative health.'
+    $lanePreview = Observe -TimingPolicyPreview
+    Assert ($lanePreview.records[0].policyPreview.currentValidation -ceq 'success' -and
+        $lanePreview.records[0].policyPreview.metrics.executionSeconds.health -ceq 'unbaselined' -and
+        !$lanePreview.records[0].policyPreview.blocking -and
+        $lanePreview.summary.Contains('ci-timing-preview-v1') -and
+        [int](git --git-dir=$remote rev-list --count refs/heads/ci-health-data) -eq $publicationCount) `
+        'One lane observation acquired a comparative baseline, rewrote history or changed its enforced verdict.'
     $execution.executionSeconds = 667.61; $execution.finishedAt = '2026-11-25T10:11:07.6100000Z'
     $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $core 'execution.json')
     $overBudget = Observe

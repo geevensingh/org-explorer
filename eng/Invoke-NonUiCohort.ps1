@@ -13,6 +13,7 @@ param(
     [switch]$AllowLocalFixture,
     [switch]$CheckHistory,
     [switch]$ReadHistory,
+    [switch]$TimingPolicyPreview,
     [switch]$Publish,
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git'
 )
@@ -21,15 +22,19 @@ Set-StrictMode -Version Latest
 . "$PSScriptRoot\FilesystemHealth.ps1"
 . "$PSScriptRoot\ReleaseGitHub.ps1"
 . "$PSScriptRoot\NonUiCohort.ps1"
+. "$PSScriptRoot\TimingPolicy.ps1"
 $ReleaseRepository = $FilesystemHealthRepository
 New-Item -ItemType Directory -Path $WorkingDirectory -Force | Out-Null
 if ($Publish -and ($Pilot -or $null -ne $TestPolicy)) { throw 'Manual pilot/TEST policy cannot publish authoritative live history.' }
+if ($TimingPolicyPreview -and ($Publish -or $Stage -cne 'Summarize')) {
+    throw 'Unapproved policy previews are read-only summaries, never collection or canonical history writes.'
+}
 if ($null -ne $TestPolicy) {
     if (!$AllowLocalFixture -or $TestPolicy.version -cne $(if ($RichScale) { 'TEST-rich-range-v2' } else { 'TEST-non-ui-range-v1' })) {
         throw 'Explicit TEST policy is allowed only at the isolated fixture boundary, never live calibration.'
     }
     Assert-HealthNumber $TestPolicy.maximumRangeSeconds 'TEST maximumRangeSeconds'
-} elseif ($ExpectedSamples -eq 5) { throw 'Live extension eligibility/noise policy is pending calibration; five samples cannot be invented.' }
+} elseif ($ExpectedSamples -eq 5 -and !$TimingPolicyPreview) { throw 'Live extension eligibility/noise policy is pending calibration; five samples cannot be invented.' }
 $run = Invoke-HealthApi "actions/runs/$CiRunId/attempts/$CiRunAttempt"
 if ($run.id -ne $CiRunId -or $run.run_attempt -ne $CiRunAttempt) {
     throw 'Required CI run/attempt identity differs from the collection request.'
@@ -227,6 +232,7 @@ $record = [ordered]@{
 }
 if ($null -ne $history) { Set-NonUiCohortComparison $record $history }
 Assert-NonUiCohortRecord $record (Get-NonUiCohortPath $record)
+if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history }
 $record | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'record.json')
 $publication = 'read-only observation'
 $publicationError = $null
@@ -236,6 +242,7 @@ elseif ($Publish) {
     catch { $publicationError = $_; $publication = "FAILED: $($_.Exception.Message)" }
 }
 $summary = Format-NonUiCohort $record $publication
+if ($TimingPolicyPreview) { $summary += Format-TimingPolicyPreview $record.policyPreview }
 $summary | Set-Content -LiteralPath (Join-Path $WorkingDirectory 'summary.md')
 if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY }
 if ($null -ne $historyError) { throw $historyError }
