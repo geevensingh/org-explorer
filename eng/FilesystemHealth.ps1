@@ -262,14 +262,15 @@ function Set-FilesystemComparison($Record, $History) {
         $Record.timingHealth = 'inconclusive'
         return
     }
-    $compatible = @($History.records | Where-Object {
+    $prior = @($History.records | Where-Object { !$_.Contains('recordType') -and $_.lane -ceq 'filesystem' })
+    $compatible = @($prior | Where-Object {
         $_.validation -ceq 'success' -and $_.seriesKey -ceq $Record.seriesKey -and
         $_.revision -cne $Record.revision -and $_.measurements.executionSeconds -le 660
     } | Sort-Object @{ Expression = { [DateTimeOffset]$_.measuredAt }; Descending = $true },
         @{ Expression = { [long]$_.runId }; Descending = $true },
         @{ Expression = { [int]$_.runAttempt }; Descending = $true })
     if (!$compatible.Count) {
-        $Record.timingHealth = if ($History.records.Count) { 'inconclusive' } else { 'unbaselined' }
+        $Record.timingHealth = if ($prior.Count) { 'inconclusive' } else { 'unbaselined' }
         $Record.diagnostics += 'No prior compatible non-self observation is available. This is not a release prerequisite.'
         return
     }
