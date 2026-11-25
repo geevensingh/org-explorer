@@ -1,8 +1,8 @@
-name: Filesystem timing observations
+name: Validation lane observations
 
 on:
   workflow_run:
-    workflows: [Continuous integration]
+    workflows: [Continuous integration, Scale verification, Isolated Windows installer, Product release, Product release rehearsal]
     types: [completed]
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   observation:
-    if: ${{ github.event.workflow_run.event != 'push' || github.event.workflow_run.head_branch != 'main' || github.event.workflow_run.head_repository.full_name != github.repository }}
+    if: ${{ !contains(fromJSON('["push","schedule","workflow_run"]'), github.event.workflow_run.event) || github.event.workflow_run.head_branch != 'main' || github.event.workflow_run.head_repository.full_name != github.repository }}
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -26,18 +26,18 @@ jobs:
           OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         shell: pwsh
         run: |
-          .\eng\Invoke-FilesystemHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\filesystem-health
+          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: filesystem-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: lane-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           retention-days: 30
           path: |
-            .ci-results/filesystem-health/record.json
-            .ci-results/filesystem-health/summary.md
+            .ci-results/lane-health/records.json
+            .ci-results/lane-health/summary.md
 
   history:
-    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    if: ${{ contains(fromJSON('["push","schedule","workflow_run"]'), github.event.workflow_run.event) && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: windows-latest
     timeout-minutes: 5
     permissions:
@@ -55,12 +55,12 @@ jobs:
           OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         shell: pwsh
         run: |
-          .\eng\Invoke-FilesystemHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\filesystem-health -Publish
+          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health -Publish
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: filesystem-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          name: lane-observation-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
           retention-days: 30
           path: |
-            .ci-results/filesystem-health/record.json
-            .ci-results/filesystem-health/summary.md
+            .ci-results/lane-health/records.json
+            .ci-results/lane-health/summary.md

@@ -229,7 +229,41 @@ function Read-FilesystemTests([string]$Directory) {
     $tests.summary = $xml.TestRun.ResultSummary.outcome
     $tests.failedNames = @($results | Where-Object { $_.outcome -ceq 'Failed' } | ForEach-Object { $_.testName })
     $tests.skippedNames = @($results | Where-Object { $_.outcome -ceq 'NotExecuted' } | ForEach-Object { $_.testName })
+    $workloads = @{}
+    foreach ($result in $results) {
+        $name = if ($result.testName -cmatch '^OrgExplorer\.(Core|Persistence)\.Tests\.(?<workload>[A-Za-z0-9_]+)\.') {
+            $Matches.workload
+        } else { 'unclassified' }
+        if (!$workloads.ContainsKey($name)) {
+            $workloads[$name] = @{ name = $name; total = 0; passed = 0; failed = 0; skipped = 0
+                seconds = 0.0; unavailableDurations = 0
+                durationScope = 'sum of test-case durations; can overlap, not lane wall time or internal-operation latency' }
+        }
+        $group = $workloads[$name]
+        $group.total++
+        switch -CaseSensitive ($result.outcome) {
+            'Passed' { $group.passed++ }
+            'Failed' { $group.failed++ }
+            'NotExecuted' { $group.skipped++ }
+        }
+        $duration = [TimeSpan]::Zero
+        if ([TimeSpan]::TryParse($result.GetAttribute('duration'), [Globalization.CultureInfo]::InvariantCulture, [ref]$duration) -and
+            $duration.TotalSeconds -ge 0) { $group.seconds += $duration.TotalSeconds }
+        else { $group.unavailableDurations++ }
+    }
+    foreach ($group in $workloads.Values) { if ($group.unavailableDurations -gt 0) { $group.seconds = $null } }
+    $tests.workloads = @($workloads.Values | Sort-Object name)
     return $tests
+}
+
+function ConvertTo-HealthCanonicalValue($Value) {
+    if ($Value -is [Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | Sort-Object -CaseSensitive)) { $ordered[$key] = ConvertTo-HealthCanonicalValue $Value[$key] }
+        return $ordered
+    }
+    if ($Value -is [Collections.IList]) { return ,@($Value | ForEach-Object { ConvertTo-HealthCanonicalValue $_ }) }
+    return $Value
 }
 
 function Get-HealthSeriesKey($Execution) {
@@ -251,7 +285,7 @@ function Get-HealthSeriesKey($Execution) {
     }
     $ordered = [ordered]@{ policy = $Execution.policyVersion; selector = $Execution.selector }
     foreach ($key in @($Execution.configuration.Keys | Sort-Object -CaseSensitive)) {
-        $ordered[$key] = $Execution.configuration[$key]
+        $ordered[$key] = ConvertTo-HealthCanonicalValue $Execution.configuration[$key]
     }
     $bytes = [Text.Encoding]::UTF8.GetBytes(($ordered | ConvertTo-Json -Compress -Depth 10))
     return [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($bytes))
@@ -340,25 +374,43 @@ function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowL
 }
 
 function Publish-HealthRecord($History, $Record) {
-    if ($Record.authority -cne 'trusted-main-push') { throw 'PR, fork and manual candidate artifacts cannot authorize history writes.' }
-    $path = Get-HealthRecordPath $Record $History.recordTypes
+    return Publish-HealthRecords $History @($Record)
+}
+
+function Publish-HealthRecords($History, $Records) {
+    if (!@($Records).Count) { throw 'History publication requires nonempty records.' }
+    $callerHistory = $History
+    $pending = @{}
+    foreach ($record in $Records) {
+        if ($record.authority -cne 'trusted-main-push') { throw 'PR, fork and manual candidate artifacts cannot authorize history writes.' }
+        $path = Get-HealthRecordPath $record $History.recordTypes
+        if ($pending.ContainsKey($path)) { throw 'Duplicate namespace/attempt in publication batch.' }
+        $pending[$path] = $record
+    }
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $existing = @($History.records | Where-Object { (Get-HealthRecordPath $_ $History.recordTypes) -ceq $path })
+        $existing = @($History.records | Where-Object { $pending.ContainsKey((Get-HealthRecordPath $_ $History.recordTypes)) })
         if ($existing.Count) {
             throw 'This attempt is already recorded. Immutable history cannot be overwritten by a rerun of the observer.'
         }
         $directory = $History.directory
         $null = Invoke-HealthGit $directory @('read-tree', '--empty')
         if ($History.tip) { $null = Invoke-HealthGit $directory @('read-tree', $History.tip) }
-        $blob = Invoke-HealthGit $directory @('hash-object', '-w', '--stdin') ($Record | ConvertTo-Json -Depth 30)
-        $null = Invoke-HealthGit $directory @('update-index', '--add', '--cacheinfo', "100644,$blob,$path")
+        $blobs = @{}
+        foreach ($path in @($pending.Keys | Sort-Object -CaseSensitive)) {
+            $blob = Invoke-HealthGit $directory @('hash-object', '-w', '--stdin') ($pending[$path] | ConvertTo-Json -Depth 30)
+            $blobs[$path] = $blob
+            $null = Invoke-HealthGit $directory @('update-index', '--add', '--cacheinfo', "100644,$blob,$path")
+        }
         $tree = Invoke-HealthGit $directory @('write-tree')
         $arguments = @('-c', 'user.name=CI observation', '-c', 'user.email=ci-observation@users.noreply.github.com', 'commit-tree', $tree)
         if ($History.tip) { $arguments += @('-p', $History.tip) }
-        $commit = Invoke-HealthGit $directory $arguments "Record $path`n`nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
+        $commit = Invoke-HealthGit $directory $arguments "Record $($pending.Keys -join ', ')`n`nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>"
         try {
             $null = Invoke-HealthGit $directory @('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
                 'push', '--quiet', 'origin', "${commit}:refs/heads/$FilesystemHealthBranch")
+            $callerHistory.directory = $History.directory
+            $callerHistory.tip = $commit
+            $callerHistory.records = @($History.records) + @($pending.Values)
             return $commit
         } catch {
             $pushError = $_
@@ -368,11 +420,18 @@ function Publish-HealthRecord($History, $Record) {
             if ($History.tip) {
                 $null = Invoke-HealthGit $updated.directory @('merge-base', '--is-ancestor', $History.tip, $updated.tip)
             }
-            $same = @($updated.records | Where-Object { (Get-HealthRecordPath $_ $updated.recordTypes) -ceq $path })
-            if ($same.Count) {
+            $same = @($updated.records | Where-Object { $pending.ContainsKey((Get-HealthRecordPath $_ $updated.recordTypes)) })
+            foreach ($saved in $same) {
+                $path = Get-HealthRecordPath $saved $updated.recordTypes
                 $savedBlob = Invoke-HealthGit $updated.directory @('rev-parse', "$($updated.tip):$path")
-                if ($savedBlob -ceq $blob) { return $updated.tip }
-                throw 'Concurrent publication recorded different data for the same attempt; no overwrite is allowed.'
+                if ($savedBlob -cne $blobs[$path]) { throw 'Concurrent publication recorded different data for the same attempt; no overwrite is allowed.' }
+                $pending.Remove($path)
+            }
+            if (!$pending.Count) {
+                $callerHistory.directory = $updated.directory
+                $callerHistory.tip = $updated.tip
+                $callerHistory.records = $updated.records
+                return $updated.tip
             }
             $History = $updated
         }

@@ -85,6 +85,27 @@ function Get-UiScaleWorkerResult([string] $Directory, [string] $Worker, [string]
     return @{ report = $report; run = $run }
 }
 
+function Read-UiScaleEvidenceIdentity([string]$Run, [string]$Name, [string]$Revision,
+    [string]$RunId, [string]$RunAttempt, [switch]$AsHashtable) {
+    $text = Get-Content (Join-Path $Run $Name) -Raw
+    $data = if ($AsHashtable) { $text | ConvertFrom-Json -AsHashtable -DateKind String } else { $text | ConvertFrom-Json }
+    if ($data.revision -cne $Revision -or $data.runId -cne $RunId -or $data.runAttempt -cne $RunAttempt -or
+        $data.productExeSha256 -cnotmatch '^[0-9A-F]{64}$' -or $data.productAssemblySha256 -cnotmatch '^[0-9A-F]{64}$') {
+        throw 'Rich evidence is not from the same actual candidate/product/run/attempt.'
+    }
+    return $data
+}
+
+function Read-UiScaleEvidence([string]$Run, [string]$Name, [string]$Revision,
+    [string]$RunId, [string]$RunAttempt, $Binding, [switch]$AsHashtable) {
+    $data = Read-UiScaleEvidenceIdentity $Run $Name $Revision $RunId $RunAttempt -AsHashtable:$AsHashtable
+    if ($data.productExeSha256 -cne $Binding.productFiles.'OrgExplorer.Desktop.exe' -or
+        $data.productAssemblySha256 -cne $Binding.productFiles.'OrgExplorer.Desktop.dll') {
+        throw 'Rich evidence is not from the same actual candidate/product/run/attempt.'
+    }
+    return $data
+}
+
 function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory, [string] $Revision,
     [string] $RunId, [string] $RunAttempt) {
     $prefix = Get-UiScaleWorkerResult $PrefixDirectory prefix $Revision $RunId $RunAttempt
@@ -129,20 +150,17 @@ function Assert-UiScaleUnion([string] $PrefixDirectory, [string] $TailDirectory,
         }
     }
     $bundle = Split-Path $handoffPath -Parent
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    if ($handoff.workspaceId -cnotmatch $guidPattern -or $handoff.head -cnotmatch $guidPattern) {
+        throw 'Logical snapshot identities must be GUIDs, never filesystem paths.'
+    }
     if ($handoff.snapshotFile -cne "$($handoff.workspaceId)-$($handoff.head).oesnapshot" -or
         (Get-FileHash (Join-Path $bundle $handoff.snapshotFile)).Hash -cne $handoff.snapshotSha256 -or
         (Get-FileHash (Join-Path $bundle 'preferences.json')).Hash -cne $handoff.preferencesSha256) {
         throw 'The actual logical snapshot/preferences bytes differ from the validated handoff.'
     }
     function Read-Evidence([string] $Run, [string] $Name) {
-        $data = Get-Content (Join-Path $Run $Name) -Raw | ConvertFrom-Json
-        if ($data.revision -cne $Revision -or $data.runId -cne $RunId -or $data.runAttempt -cne $RunAttempt -or
-            $data.productExeSha256 -cnotmatch '^[0-9A-F]{64}$' -or $data.productAssemblySha256 -cnotmatch '^[0-9A-F]{64}$' -or
-            $data.productExeSha256 -cne $handoff.binding.productFiles.'OrgExplorer.Desktop.exe' -or
-            $data.productAssemblySha256 -cne $handoff.binding.productFiles.'OrgExplorer.Desktop.dll') {
-            throw 'Rich evidence is not from the same actual candidate/product/run/attempt.'
-        }
-        return $data
+        return Read-UiScaleEvidence $Run $Name $Revision $RunId $RunAttempt $handoff.binding
     }
     function Assert-Samples($Samples, [int] $Count) {
         if (@($Samples).Count -ne $Count -or @($Samples | Where-Object {

@@ -38,7 +38,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: core-timings
+          name: core-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/core/*.json
             .ci-results/core/*.log
@@ -90,6 +91,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: desktop-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/desktop-${{ matrix.partition }}/*.json
             .ci-results/desktop-${{ matrix.partition }}/*.log
@@ -117,6 +119,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: high-resolution-${{ matrix.partition }}-attempt-${{ github.run_attempt }}
+          retention-days: 30
           path: |
             .ci-results/high-resolution-${{ matrix.partition }}/*.json
             .ci-results/high-resolution-${{ matrix.partition }}/*.log

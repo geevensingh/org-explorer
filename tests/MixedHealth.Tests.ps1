@@ -46,7 +46,8 @@ function Run-Observation([string]$Lane, [int]$Attempt) {
             powershell = '7.6.10'; setup = 'locked-restore;isolated-build;setup-and-cleanup-included' }
         steps = @($steps | ForEach-Object { @{ name = $_; seconds = 1; status = 'Passed' } })
     } | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $evidence 'execution.json')
-    '<TestRun><Results><UnitTestResult testName="Real.saved_result" outcome="Passed" /></Results><ResultSummary outcome="Completed"><Counters total="1" executed="1" passed="1" failed="0" notExecuted="0" /></ResultSummary></TestRun>' |
+    $test = if ($Lane -ceq 'core') { 'OrgExplorer.Core.Tests.OrgExportTests.Producer_retains_attempts' } else { 'OrgExplorer.Persistence.Tests.WorkspaceReadLifetimeTests.Readers_keep_durable_writing' }
+    "<TestRun><Results><UnitTestResult testName=`"$test`" outcome=`"Passed`" duration=`"00:00:00.5000000`" /></Results><ResultSummary outcome=`"Completed`"><Counters total=`"1`" executed=`"1`" passed=`"1`" failed=`"0`" notExecuted=`"0`" /></ResultSummary></TestRun>" |
         Set-Content (Join-Path $evidence 'result.trx')
     $work = Join-Path $fixture "$Lane-$Attempt"
     $script = if ($Lane -ceq 'core') { 'Invoke-LaneHealth.ps1' } else { 'Invoke-FilesystemHealth.ps1' }
@@ -65,6 +66,10 @@ try {
     }
     $filesystem = (git --git-dir=$remote show refs/heads/ci-health-data:filesystem/71/2.json) -join "`n" | ConvertFrom-Json -AsHashtable
     if ($filesystem.reliability.attempts -ne 2 -or $filesystem.reliability.success -ne 2) { throw 'Filesystem reliability counted other lane records.' }
+    if ($filesystem.tests.workloads[0].name -cne 'WorkspaceReadLifetimeTests' -or
+        $filesystem.tests.workloads[0].passed -ne 1 -or $filesystem.tests.workloads[0].seconds -ne .5) {
+        throw 'Nested concurrent-reader coverage or actual test-case duration was lost.'
+    }
     $tip = git --git-dir=$remote rev-parse refs/heads/ci-health-data
     $rejected = $false
     try { Run-Observation filesystem 2 } catch { $rejected = $true }

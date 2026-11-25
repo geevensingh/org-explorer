@@ -64,6 +64,7 @@ jobs:
         if: ${{ always() }}
         with:
           name: secret-free-release-evidence-${{ inputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 30
           if-no-files-found: error
           path: |
             .artifacts/release-verification/result.json
