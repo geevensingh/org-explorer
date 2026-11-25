@@ -43,6 +43,10 @@ Do not mix warnings, errors, or repeated omission/evidence explanations into the
 Person-change list. Collapsing entries or the final section must not hide
 diagnostics or batch status.
 
+Bound diagnostics in their own keyboard-scrollable reading area, preserving
+every message while leaving impact counts and usable Person review space at
+compact sizes.
+
 Partition people into the main list and final section while preserving import-file
 order within each. Use email as the primary identity. Keep field ordering
 consistent with the existing review order; do not introduce alphabetical or
@@ -108,6 +112,10 @@ Long or multiline values may wrap in expanded details. Preserve the distinctions
 among omitted values, explicit clears, and supplied values. Keep Manager, Photo,
 archive/reactivation, and Favorite outcomes explicit; do not invent a file-path
 comparison for a Photo change or clear.
+
+Use pixel scrolling with recycling virtualization so a value taller than the
+review viewport can be scrolled through to its final characters and the fields
+that follow it.
 
 For a new Person, identify the Add action and show supplied initial values on
 expansion. These are a new Person's baseline, not differences from an existing

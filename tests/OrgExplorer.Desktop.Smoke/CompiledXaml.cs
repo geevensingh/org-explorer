@@ -1344,7 +1344,7 @@ internal static partial class Program
         root.Arrange(new Rect(0, 0, 1100, 900));
         root.UpdateLayout();
         var impact = window.FindName("ImportImpactText") as TextBlock;
-        var diagnostics = (TextBlock)window.FindName("ImportDiagnostics");
+        var diagnostics = (TextBox)window.FindName("ImportDiagnostics");
         if (impact is null || impact.Visibility != Visibility.Visible ||
             impact.Text != "People added: 0; Existing people changed: 1; No Person changes: 2")
             throw new InvalidOperationException("The compiled Import must show complete zero-inclusive batch impact above the Person list.");
@@ -1486,6 +1486,8 @@ internal static partial class Program
             }
             AssertWorkspaceBytes(folder, before);
         }
+        VerifyTallImportDetail(window, import);
+        VerifyManyImportDiagnostics(window, folder, import);
         AssertWorkspaceBytes(folder, before);
         var back = LogicalDescendants((DependencyObject)window.FindName("ImportPanel")).OfType<Button>()
             .Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "BackToPeople");
@@ -1494,6 +1496,99 @@ internal static partial class Program
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
         Console.WriteLine("PASS: compiled Import-path Enter shows complete impact, ordered identity-only unchanged disclosure, independent accessible warnings and whole-batch errors while preserving saved Workspace bytes.");
         Console.WriteLine("PASS: invisible compiled Import-path Enter retains one native disclosure, complete details and Workspace bytes; actual text layout selects inline/count/inline across 1100/700/1100 widths. Hosted rendering is separate.");
+    }
+
+    private static void VerifyTallImportDetail(Window window, string import)
+    {
+        var multiline = string.Join("\n", Enumerable.Range(1, 80).Select(line => $"Floor {line:00} complete value")) +
+            "\nFinal building characters";
+        File.WriteAllText(import, $$"""
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000075",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}},"officeNumber":"FINAL-0099","officeState":"WA"}]}
+            """);
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        var root = (FrameworkElement)window.Content;
+        root.Measure(new Size(700, 700));
+        root.Arrange(new Rect(0, 0, 700, 700));
+        root.UpdateLayout();
+        var review = (ListBox)window.FindName("PreviewText");
+        var disclosure = VisualDescendants(review).OfType<Expander>().Single();
+        disclosure.IsExpanded = true;
+        root.UpdateLayout();
+        var building = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text.StartsWith("Office building:", StringComparison.Ordinal));
+        var number = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text == "Office number: 007B → FINAL-0099");
+        var state = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
+            text.Text == "Office state: (none) → WA");
+        var scroll = VisualDescendants(review).OfType<ScrollViewer>().First();
+        var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+        if (building.Text != "Office building: (none) → " + multiline ||
+            building.ActualHeight <= viewport.ActualHeight)
+            throw new InvalidOperationException("Tall Import regression must contain a complete valid value taller than the actual review viewport.");
+        scroll.ScrollToEnd();
+        window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+        var visible = viewport.TransformToAncestor(root).TransformBounds(new Rect(viewport.RenderSize));
+        foreach (var text in new[] { building, number, state })
+        {
+            var character = text.GetRectFromCharacterIndex(text.Text.Length - 1);
+            character.Union(text.GetRectFromCharacterIndex(text.Text.Length - 1, trailingEdge: true));
+            var final = text.TransformToAncestor(root).TransformBounds(character);
+            if (final.IsEmpty || final.Width <= 0 || final.Height <= 0 || !visible.Contains(final))
+                throw new InvalidOperationException($"Scrolling the tall Import detail must expose its final characters and subsequent field: text={text.Text[^24..]}; glyph={final}; viewport={visible}; offset={scroll.VerticalOffset}.");
+        }
+        Console.WriteLine("PASS: compiled review scroll exposes a viewport-taller multiline value's final characters and the following fields without a native window.");
+    }
+
+    private static void VerifyManyImportDiagnostics(Window window, string folder, string import)
+    {
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000076",
+             "observedAt":"2026-10-02T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery","managerEmail":null,
+              "department":"Research","officeCountry":"Canada","officeNumber":"FINAL-0099"},
+             {"email":"zara@example.com","displayName":"Zara","managerEmail":null},
+             {"email":"header-archived@example.com","displayName":"Archived example","managerEmail":null,"archived":true}]}
+            """);
+        string expected;
+        using (var workflow = OpenSmokeWorkspace(folder))
+        {
+            var preview = workflow.PreviewImportFile(import);
+            if (!preview.CanApply || preview.Warnings.Count != 10)
+                throw new InvalidOperationException("Diagnostics regression must supply ten real older-evidence warnings from a valid whole batch.");
+            expected = string.Join("\n", preview.Errors.Concat(preview.Warnings).Concat(preview.Messages));
+        }
+        ((Button)window.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        PumpUntil(() => ((Button)window.FindName("ApplyButton")).IsEnabled);
+        var root = (FrameworkElement)window.Content;
+        foreach (var height in new[] { 700, 500 })
+        {
+            root.Measure(new Size(700, height));
+            root.Arrange(new Rect(0, 0, 700, height));
+            root.UpdateLayout();
+            var diagnostics = (FrameworkElement)window.FindName("ImportDiagnostics");
+            var impact = (TextBlock)window.FindName("ImportImpactText");
+            var review = (ListBox)window.FindName("PreviewText");
+            var bounds = diagnostics.TransformToAncestor(root).TransformBounds(new Rect(diagnostics.RenderSize));
+            var counts = impact.TransformToAncestor(root).TransformBounds(new Rect(impact.RenderSize));
+            var list = review.TransformToAncestor(root).TransformBounds(new Rect(review.RenderSize));
+            if (UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetName() != expected ||
+                counts.IsEmpty || counts.Bottom > height || bounds.Bottom > counts.Top ||
+                list.Height < 72 || list.Bottom > height)
+                throw new InvalidOperationException($"Many wrapping Import diagnostics must retain every message and usable counts/list space at 700x{height}: diagnostics={bounds}; counts={counts}; list={list}.");
+            var scrolling = UIElementAutomationPeer.CreatePeerForElement(diagnostics)?.GetPattern(PatternInterface.Scroll) as IScrollProvider;
+            if (scrolling is null || !scrolling.VerticallyScrollable)
+                throw new InvalidOperationException("All Import diagnostics must be independently scrollable rather than clipped or hidden by Person disclosures.");
+            scrolling.SetScrollPercent(-1, 100);
+            window.Dispatcher.Invoke(root.UpdateLayout, DispatcherPriority.ContextIdle);
+            var reading = (TextBox)diagnostics;
+            var glyph = reading.GetRectFromCharacterIndex(reading.Text.Length - 1);
+            if (reading.Text != expected || glyph.IsEmpty || glyph.Top < 0 || glyph.Bottom > reading.ActualHeight)
+                throw new InvalidOperationException("Independent diagnostics scrolling must expose the final warning characters without suppressing any messages.");
+        }
+        Console.WriteLine("PASS: ten complete wrapping diagnostics scroll independently while impact and usable Person review remain inside 700x700/500 compiled layouts.");
     }
 
     private static void VerifyRejectedPickerChoice(Window window, string folder, string preferences)

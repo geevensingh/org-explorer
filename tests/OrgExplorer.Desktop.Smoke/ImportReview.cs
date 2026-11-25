@@ -10,6 +10,14 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static partial class Program
 {
+    private static void SetImportDisclosure(AutomationElement header, ExpandCollapsePattern disclosure,
+        ExpandCollapseState expected)
+    {
+        header.SetFocus();
+        PressCopyKey(0x20);
+        Await(() => disclosure.Current.ExpandCollapseState == expected);
+    }
+
     private static void AssertImportBatchImpact(AutomationElement window, string totals, string? actions = null)
     {
         var impact = Find(window, "ImportImpact").Current;
@@ -34,9 +42,7 @@ internal static partial class Program
         var header = section.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.IsKeyboardFocusableProperty, true))
             ?? throw new InvalidOperationException("The final Import section lacks a native keyboard-accessible header.");
-        header.SetFocus();
-        PressCopyKey(0x20);
-        Await(() => disclosure.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Expanded);
         var list = Find(window, "ImportUnchangedIdentities");
         var entries = list.FindAll(TreeScope.Children,
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
@@ -46,9 +52,7 @@ internal static partial class Program
             throw new InvalidOperationException("No-Person-changes expansion must render only ordered email identities, without Person/evidence disclosures.");
         if (diagnostic is not null) AssertImportDiagnostic(window, diagnostic);
         CaptureVisualEvidence(window, "import-unchanged-identities");
-        header.SetFocus();
-        PressCopyKey(0x20);
-        Await(() => disclosure.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Collapsed);
         if (diagnostic is not null) AssertImportDiagnostic(window, diagnostic);
     }
 
@@ -100,9 +104,7 @@ internal static partial class Program
         var header = entry.FindFirst(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.IsKeyboardFocusableProperty, true))
             ?? throw new InvalidOperationException("The rendered Person disclosure has no keyboard-accessible header.");
-        header.SetFocus();
-        PressCopyKey(0x20);
-        Await(() => disclosure.Current.ExpandCollapseState == ExpandCollapseState.Expanded);
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Expanded);
         foreach (var detail in details)
         {
             var value = entry.FindFirst(TreeScope.Descendants,
@@ -116,9 +118,7 @@ internal static partial class Program
             throw new InvalidOperationException("Expanding a Person duplicated its top-level review entry.");
         CaptureVisualEvidence(window, "import-expanded-" +
             (capture ?? (accessibleSummary == "Add" ? "addition" : accessibleSummary.StartsWith("Archive") ? "archive" : "differences")));
-        header.SetFocus();
-        PressCopyKey(0x20);
-        Await(() => disclosure.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Collapsed);
     }
 
     private static void AssertCollapsedImportLine(AutomationElement window, AutomationElement entry, string email,
@@ -138,7 +138,7 @@ internal static partial class Program
     }
 
     private static Rect AssertImportCharacters(AutomationElement window, AutomationElement value, string expected,
-        Rect viewport, bool singleLine)
+        Rect viewport, bool singleLine, string? visibleText = null)
     {
         if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var pattern))
             throw new InvalidOperationException("Import reading has no native TextPattern: " + expected);
@@ -148,7 +148,10 @@ internal static partial class Program
             !Equals(document.GetAttributeValue(TextPattern.FontNameAttribute), "Segoe UI") ||
             !Equals(document.GetAttributeValue(TextPattern.FontSizeAttribute), 10.5d))
             throw new InvalidOperationException("Import reading lost complete values or changed typography: " + actual);
-        var cursor = document.Clone();
+        var cursor = visibleText is null ? document.Clone() :
+            document.FindText(visibleText, false, false)
+                ?? throw new InvalidOperationException("Import text lost its requested visible range: " + visibleText);
+        if (visibleText is not null) actual = visibleText;
         cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
         var line = Rect.Empty;
         var scale = DpiScale(window);
@@ -270,8 +273,120 @@ internal static partial class Program
                 ["Reactivate: Archived → Current reporting tree"], capture: "adaptive-reactivate");
             AssertGroupedImportDisclosure(window, "new.reference@example.com", "Add",
                 ["Directory name: New reference"], capture: "adaptive-add");
+            ExerciseTallImportDetail(window, workspace, import);
+            ExerciseManyImportDiagnostics(window, workspace, import);
             AssertWorkspaceBytes(workspace, before);
         }
         finally { ResizeWindow(window, originalBounds.Width / scale, originalBounds.Height / scale); }
+    }
+
+    private static void ExerciseTallImportDetail(AutomationElement window, string workspace, string import)
+    {
+        const string tail = "Final building characters";
+        var multiline = string.Join("\n", Enumerable.Range(1, 80).Select(line => $"Floor {line:00} complete value")) +
+            "\n" + tail;
+        File.WriteAllText(import, $$"""
+            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000091",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"avery@example.com","officeBuilding":{{JsonSerializer.Serialize(multiline)}},"officeNumber":"FINAL-0099","officeState":"WA"}]}
+            """);
+        using (var workflow = OpenSmokeWorkspace(workspace))
+        {
+            var preview = workflow.PreviewImportFile(import);
+            if (!preview.CanApply || preview.People.Single().Changes.Count != 3)
+                throw new InvalidOperationException("The viewport-taller multiline fixture must be a valid three-change public preview.");
+        }
+        ResizeWindow(window, 700, 700);
+        Click(window, "PreviewImport");
+        Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+        var review = Find(window, "Preview");
+        var entry = Find(window, "ImportPerson:avery@example.com");
+        AssertCollapsedImportLine(window, entry, "avery@example.com", "3 changes");
+        var disclosure = (ExpandCollapsePattern)entry.GetCurrentPattern(ExpandCollapsePattern.Pattern);
+        var header = entry.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.IsKeyboardFocusableProperty, true))
+            ?? throw new InvalidOperationException("Tall Import entry lacks a native keyboard disclosure.");
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Expanded);
+        var buildingText = "Office building: (none) → " + multiline;
+        var building = entry.FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.NameProperty, buildingText))
+            ?? throw new InvalidOperationException("Tall Import lost the complete multiline value.");
+        if (building.Current.BoundingRectangle.Height <= review.Current.BoundingRectangle.Height)
+            throw new InvalidOperationException("Native regression must lay out a multiline value taller than the actual review viewport.");
+        AssertImportCharacters(window, building, buildingText, review.Current.BoundingRectangle,
+            singleLine: false, visibleText: "Floor 01 complete value");
+        var scroll = (ScrollPattern)review.GetCurrentPattern(ScrollPattern.Pattern);
+        if (!scroll.Current.VerticallyScrollable)
+            throw new InvalidOperationException("Viewport-taller Import details have no native scrolling.");
+        scroll.SetScrollPercent(ScrollPattern.NoScroll, 100);
+        Await(() => scroll.Current.VerticalScrollPercent == 100);
+        AssertImportCharacters(window, building, buildingText, review.Current.BoundingRectangle,
+            singleLine: false, visibleText: tail);
+        foreach (var next in new[] { "Office number: 007B → FINAL-0099", "Office state: (none) → WA" })
+        {
+            var field = entry.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.NameProperty, next))
+                ?? throw new InvalidOperationException("A field after the tall value is missing.");
+            AssertImportCharacters(window, field, next, review.Current.BoundingRectangle, singleLine: false);
+        }
+        CaptureVisualEvidence(window, "import-tall-value-end-and-next-fields");
+        scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
+        Await(() => scroll.Current.VerticalScrollPercent == 0);
+        SetImportDisclosure(header, disclosure, ExpandCollapseState.Collapsed);
+    }
+
+    private static void ExerciseManyImportDiagnostics(AutomationElement window, string workspace, string import)
+    {
+        File.WriteAllText(import, """
+            {"schemaVersion":1,"batchId":"10000000-0000-4000-8000-000000000092",
+             "observedAt":"2026-10-02T17:00:00Z","people":[
+             {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"FINAL-0099",
+              "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada","managerEmail":"morgan@example.com"},
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"},
+             {"email":"archived.reference@example.com","displayName":"Archived reference","managerEmail":null,"archived":true}]}
+            """);
+        string expected;
+        string first;
+        string last;
+        using (var workflow = OpenSmokeWorkspace(workspace))
+        {
+            var preview = workflow.PreviewImportFile(import);
+            if (!preview.CanApply || preview.Warnings.Count != 16 ||
+                preview.Impact is not { PeopleAdded: 0, ExistingPeopleChanged: 1, NoPersonChanges: 4 })
+                throw new InvalidOperationException("The native many-diagnostics fixture must contain sixteen real older-evidence warnings and one changed Person.");
+            expected = string.Join("\n", preview.Errors.Concat(preview.Warnings).Concat(preview.Messages));
+            first = preview.Warnings.First();
+            last = preview.Warnings.Last();
+        }
+        Click(window, "PreviewImport");
+        Await(() => Find(window, "ApplyImport").Current.IsEnabled);
+        foreach (var height in new[] { 700, 500 })
+        {
+            ResizeWindow(window, 700, height);
+            var diagnostics = Find(window, "ImportDiagnostics");
+            var scroll = (ScrollPattern)diagnostics.GetCurrentPattern(ScrollPattern.Pattern);
+            if (!diagnostics.Current.IsKeyboardFocusable || !scroll.Current.VerticallyScrollable ||
+                Find(window, "Preview").Current.BoundingRectangle.Height < 72 * DpiScale(window))
+                throw new InvalidOperationException("Many diagnostics must be independently keyboard-scrollable without consuming usable Person review space.");
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 4");
+            AssertImportDiagnostic(window, expected);
+            foreach (var (key, percent, visible) in new[] { ((byte)0x24, 0d, first), ((byte)0x23, 100d, last) })
+            {
+                diagnostics.SetFocus();
+                keybd_event(0x11, 0, 0, 0);
+                try { PressCopyKey(key); }
+                finally { keybd_event(0x11, 0, 2, 0); }
+                Await(() => scroll.Current.VerticalScrollPercent == percent);
+                AssertImportCharacters(window, diagnostics, expected, diagnostics.Current.BoundingRectangle,
+                    singleLine: false, visibleText: visible);
+            }
+            CaptureVisualEvidence(window, "import-many-diagnostics-end-" + height);
+            AssertGroupedImportDisclosure(window, "avery@example.com", "1 change",
+                ["Office number: 007B → FINAL-0099"], capture: "many-diagnostics-person-" + height);
+            AssertImportBatchImpact(window, "People added: 0; Existing people changed: 1; No Person changes: 4");
+            AssertImportDiagnostic(window, expected);
+        }
     }
 }

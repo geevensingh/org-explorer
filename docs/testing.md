@@ -93,6 +93,21 @@ alone is not evidence. The hosted journey also checks impact counts, identity-on
 unchanged expansion, independent warnings/error/replay status and ordinary
 zero-change explanation. Neither in-memory nor compiled checks are hosted WPF evidence.
 
+The same compiled Import selector checks an 81-line valid value taller than the
+700x700 review viewport: scrolling to the end must expose its final character
+and the subsequent Office number and Office state fields. Ten real wrapping
+older-evidence warnings must remain complete and independently scrollable at
+700x700 and 700x500, with visible impact and at least three ordinary row-heights
+(72 DIPs) of Person review space. The hosted profile journey adds actual
+per-character TextPattern rectangles for the tall value's final line and both
+following fields. It also uses single Ctrl+Home/Ctrl+End actions on sixteen
+wrapping diagnostics to observe complete first/last warnings, visible counts
+and usable review space at both compact heights, followed by Space-key Person
+expansion/collapse. These assertions and their named captures need the existing
+isolated hosted desktop; compiled checks do not prove native input or pixels.
+The shared disclosure helper makes one focus request and one Space action per
+transition and only observes afterward; it does not retry actions.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled
