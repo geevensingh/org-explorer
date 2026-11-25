@@ -165,7 +165,7 @@ jobs:
       - name: Resume actual validated logical snapshot in a fresh physical store
         run: .\eng\Run-UiScale.ps1 -ExpectedRevision $env:TESTED_REVISION -Worker tail -PrefixResultsDirectory .ci-results\ui-scale-prefix -ResultsDirectory .ci-results\ui-scale-tail -ExtendedObservation:([bool]::Parse($env:EXTENDED_OBSERVATION))
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && !inputs.non_ui_cohort_pilot }}
+        if: ${{ always() }}
         with:
           name: ${{ inputs.extended_observation && 'diagnostic-' || '' }}ui-scale-tail-${{ env.TESTED_REVISION || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
@@ -176,7 +176,7 @@ jobs:
   ui-scale:
     name: Complete scale acceptance union
     needs: [non-ui-performance, ui-scale-prefix, ui-scale-tail]
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.non_ui_cohort_pilot }}
     runs-on: windows-latest
     timeout-minutes: 13
     steps:

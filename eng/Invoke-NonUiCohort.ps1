@@ -82,6 +82,7 @@ if ($collection.id -ne $CohortRunId -or $collection.run_attempt -ne $CohortRunAt
     throw 'Only the authenticated trusted collection workflow or explicit read-only pilot can collect samples.'
 }
 if ($Pilot -and $collection.head_sha -cne $Revision) { throw 'A pilot must execute its explicitly selected trusted controller revision, never arbitrary candidate code.' }
+if ($Publish -and $collection.status -cne 'completed') { throw 'An in-progress cohort cannot seal immutable authoritative history.' }
 $cohortId = "$Revision-$CohortRunId-$CohortRunAttempt"
 $pages = Invoke-HealthApi "actions/runs/$CohortRunId/attempts/$CohortRunAttempt/jobs?per_page=100" @('--paginate', '--slurp')
 $jobs = @($pages | ForEach-Object { $_.jobs })
@@ -93,7 +94,7 @@ for ($number = 1; $number -le $ExpectedSamples; $number++) {
     $matches = @($jobs | Where-Object { $_.name -cmatch "(^| / )Non-UI cohort sample \($number\)$" })
     $sample = [ordered]@{
         number = $number; jobId = $null; runnerId = $null; invocationId = $null; jobOutcome = 'missing'
-        runnerOutcome = 'unavailable'; validation = 'incomplete'; measurements = $null; tests = $null
+        runnerOutcome = 'unavailable'; runnerFailure = $null; validation = 'incomplete'; measurements = $null; tests = $null
         seriesKey = $null; configuration = $null; diagnostics = @()
         evidence = @{ state = 'missing'; artifactId = $null; digest = $null; expiresAt = $null
             url = "https://github.com/$FilesystemHealthRepository/actions/runs/$CohortRunId/attempts/$CohortRunAttempt" }
@@ -172,6 +173,8 @@ $record = [ordered]@{
     revision = $Revision; cohortId = $cohortId; cohortRunId = [string]$CohortRunId; cohortRunAttempt = [string]$CohortRunAttempt
     ciRevision = $run.head_sha; ciRunId = [string]$CiRunId; ciRunAttempt = [string]$CiRunAttempt
     controllerRevision = $collection.head_sha; observedAt = [DateTimeOffset]::UtcNow.ToString('O')
+    collectionStatus = $collection.status
+    collectionOutcome = if ($collection.ContainsKey('conclusion')) { $collection.conclusion } else { 'unavailable' }
     authority = if ($Pilot) { 'pilot-observation' } else { 'trusted-main-push' }
     mode = 'observation'; promotion = 'disabled'; richScaleAcceptance = 'not-executed'
     policyVersion = if ($null -eq $TestPolicy) { 'non-ui-cohort-observation-v1' } else { $TestPolicy.version }

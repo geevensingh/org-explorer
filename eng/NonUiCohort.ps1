@@ -10,6 +10,9 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     [string]$RunId, [string]$RunAttempt) {
     $report = Get-Content -LiteralPath (Join-Path $Directory 'result.json') -Raw |
         ConvertFrom-Json -AsHashtable -DateKind String -Depth 20
+    foreach ($field in @('schemaVersion', 'sample', 'ceilingSeconds', 'observationSeconds')) {
+        Assert-HealthNumber $report[$field] $field
+    }
     if ($report.schemaVersion -ne 1 -or $report.suite -cne 'non-ui-performance' -or
         $report.revision -cne $Revision -or $report.expectedRevision -cne $Revision -or
         $report.cohortId -cne $CohortId -or $report.sample -ne $Sample.number -or
@@ -31,9 +34,11 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     }
     $Sample.invocationId = $report.invocationId
     $Sample.runnerOutcome = $report.outcome
+    $Sample.runnerFailure = if ($report.ContainsKey('failure')) { $report.failure } else { $null }
     $Sample.configuration = $report.configuration
     $Sample.measurements = [ordered]@{ executionSeconds = $report.executionSeconds; phasesMs = @{}; profile = $null
-        steps = $report.steps; headroomSeconds = 660 - $report.executionSeconds }
+        steps = $report.steps; headroomSeconds = 660 - $report.executionSeconds
+        startedAt = $report.startedAt; completedAt = $report.completedAt }
     try {
         $Sample.seriesKey = Get-HealthSeriesKey @{
             policyVersion = 'non-ui-original-v1'; selector = $PerformanceFilter; configuration = $report.configuration
@@ -52,6 +57,7 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
     try {
         $Sample.tests = Read-FilesystemTests $runDirectory
         Assert-PerformanceResults $runDirectory
+        $Sample.tests.requiredNames = @($PerformanceTests)
     } catch { $testsError = $_; $Sample.diagnostics += "Required TRX rejected: $($_.Exception.Message)" }
     $timingFile = Join-Path $runDirectory 'scale-measurements.log'
     if (Test-Path -LiteralPath $timingFile -PathType Leaf) {
@@ -85,7 +91,9 @@ function Read-NonUiCohortSample($Sample, [string]$Directory, [string]$Revision, 
         $null -eq $testsError -and $Sample.measurements.phasesMs.Count -eq $NonUiCohortPhases.Count -and
         !@($Sample.measurements.phasesMs.Values | Where-Object { $_.outcome -cne 'Passed' }).Count -and
         $null -ne $Sample.measurements.profile
-    if ($report.executionSeconds -gt 660 -or
+    if ($report.outcome -ceq 'timed_out' -and $report.observedOutcome -cne 'success') {
+        $Sample.validation = 'incomplete'; $Sample.diagnostics += 'Execution was interrupted before complete acceptance.'
+    } elseif ($report.executionSeconds -gt 660 -or
         ($null -ne $Sample.measurements.profile -and $Sample.measurements.profile.p95Ms -gt 1000)) {
         $Sample.validation = 'failure'; $Sample.diagnostics += 'Original per-execution hard acceptance limit exceeded.'
     } elseif ($report.outcome -ceq 'failure' -or ($null -ne $Sample.tests -and $Sample.tests.failed -gt 0)) {
@@ -133,6 +141,7 @@ function Get-NonUiCohortMetrics($Samples) {
 }
 
 function Assert-NonUiCohortRecord($Record, [string]$Path) {
+    Assert-HealthNumber $Record.schemaVersion 'cohort schemaVersion'
     if ($Record.schemaVersion -ne 1 -or $Record.recordType -cne 'performance-cohort' -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.cohortRunId -cnotmatch '^[1-9][0-9]*$' -or $Record.cohortRunAttempt -cnotmatch '^[1-9][0-9]*$' -or
@@ -159,6 +168,12 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
             $sample.validation -cnotin @('success', 'failure', 'incomplete', 'cancelled', 'skipped')) { throw 'Invalid cohort sample order/outcome.' }
         foreach ($field in @('jobId', 'runnerId', 'invocationId')) {
             if ($null -ne $sample[$field]) {
+                if ($field -ceq 'invocationId') {
+                    if ($sample[$field] -cnotmatch '^[0-9a-f]{32}$') { throw 'Invalid historical independent invocation identity.' }
+                } else {
+                    Assert-HealthNumber $sample[$field] $field
+                    if ($sample.validation -ceq 'success' -and $sample[$field] -le 0) { throw 'Complete hosted execution lacks a real independent worker/job.' }
+                }
                 $key = "$field-$($sample[$field])"
                 if ($seen.ContainsKey($key) -and $sample.validation -ceq 'success') { throw "Independent cohort executions reused $field." }
                 $seen[$key] = $true
@@ -166,6 +181,13 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         }
         if ($null -ne $sample.measurements) {
             Assert-HealthNumber $sample.measurements.executionSeconds 'executionSeconds'
+            Assert-HealthDate $sample.measurements.startedAt 'execution startedAt'
+            if ($null -ne $sample.measurements.completedAt) {
+                Assert-HealthDate $sample.measurements.completedAt 'execution completedAt'
+                if ([DateTimeOffset]$sample.measurements.completedAt -lt [DateTimeOffset]$sample.measurements.startedAt) {
+                    throw 'Historical execution clocks are reversed.'
+                }
+            }
             if ($sample.measurements.headroomSeconds -ne 660 - $sample.measurements.executionSeconds) { throw 'Cohort headroom differs from the original policy.' }
             foreach ($step in $sample.measurements.steps) { Assert-HealthNumber $step.seconds 'command seconds' }
             foreach ($phase in $sample.measurements.phasesMs.Values) { Assert-HealthNumber $phase.value 'phase ms' }
@@ -181,7 +203,10 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
             $null -eq $sample.measurements.profile -or $sample.measurements.profile.p95Ms -gt 1000 -or
             $sample.measurements.phasesMs.Count -ne $NonUiCohortPhases.Count -or
             $null -eq $sample.tests -or $sample.tests.total -ne 1 -or $sample.tests.passed -ne 1 -or
-            $sample.tests.failed -ne 0 -or $sample.tests.notExecuted -ne 0)) { throw 'Historical successful execution lacks original complete acceptance.' }
+            $sample.tests.failed -ne 0 -or $sample.tests.notExecuted -ne 0 -or
+            @($sample.tests.requiredNames).Count -ne 1 -or $sample.tests.requiredNames[0] -cne $PerformanceTests[0])) {
+            throw 'Historical successful execution lacks original complete acceptance.'
+        }
         if ($sample.evidence.state -cnotin @('missing', 'available', 'unavailable', 'expired', 'rejected') -or
             $sample.evidence.url -cne "https://github.com/$FilesystemHealthRepository/actions/runs/$($Record.cohortRunId)/attempts/$($Record.cohortRunAttempt)") {
             throw 'Invalid retained sample evidence.'
@@ -191,6 +216,7 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
                 policyVersion = 'non-ui-original-v1'; selector = $PerformanceFilter; configuration = $sample.configuration
             })) { throw 'Historical configuration/series key differs.' }
         }
+        if ($null -ne $sample.evidence.expiresAt) { Assert-HealthDate $sample.evidence.expiresAt 'evidence expiry' }
     }
     $expected = Get-NonUiCohortMetrics $Record.samples
     if ($expected.Count -ne $Record.metrics.Count) { throw 'Cohort metric selection differs from the individual attempts.' }
@@ -208,6 +234,16 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
             ($Record.validation -ceq 'success' -and $Record.reliability.success -ne $Record.samples.Count)) {
             throw 'Cohort validation averages away an original failed/missing attempt.'
         }
+        if ($null -ne $Record.reference) {
+            if ($Record.reference.kind -cne 'prior-compatible-non-ui-cohort-observation' -or
+                $Record.reference.revision -cnotmatch '^[0-9a-f]{40}$' -or
+                $Record.reference.revision -ceq $Record.revision) { throw 'Invalid/self-referencing cohort comparison.' }
+            foreach ($field in @('ageSeconds', 'medianSeconds')) { Assert-HealthNumber $Record.reference[$field] "reference.$field" }
+            Assert-HealthNumber $Record.reference.deltaSeconds 'reference.deltaSeconds' -AllowNegative
+            if ($Record.reference.deltaSeconds -ne $Record.metrics.executionSeconds.median - $Record.reference.medianSeconds) {
+                throw 'Historical cohort comparison inputs disagree.'
+            }
+        }
     }
 }
 
@@ -218,7 +254,8 @@ function Get-NonUiCohortRecordTypes {
             GetPath = { param($record) "performance-cohorts/$($record.revision)/$($record.cohortRunId)/$($record.cohortRunAttempt).json" }
             Validate = {
                 param($record, $path)
-                if ($record.policyVersion -cne 'non-ui-cohort-observation-v1' -or $record.authority -cne 'trusted-main-push') {
+                if ($record.policyVersion -cne 'non-ui-cohort-observation-v1' -or $record.authority -cne 'trusted-main-push' -or
+                    @($record.samples).Count -ne 3) {
                     throw 'Live history cannot accept TEST-policy or manual pilot cohorts.'
                 }
                 Assert-NonUiCohortRecord $record $path
@@ -258,6 +295,7 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         ''
         "Candidate: ``$($Record.revision)``; cohort ``$($Record.cohortId)``."
         "Validation: **$($Record.validation)**; timing: **$($Record.timingHealth)**; eligibility: **$($Record.eligibility)**."
+        "Original collection workflow: $($Record.collectionStatus) / $($Record.collectionOutcome). This summary describes NON-UI samples, not full scale/release acceptance."
         "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **not executed**."
         'Original 660-second setup/workload/cleanup budget and 1,000-ms profile p95 hard limit remain enforced.'
         ''
@@ -270,6 +308,7 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         ''
         foreach ($sample in $Record.samples) {
             foreach ($detail in $sample.diagnostics) { "Sample $($sample.number): $([Net.WebUtility]::HtmlEncode($detail))" }
+            if ($null -ne $sample.runnerFailure) { "Sample $($sample.number) original runner failure: $([Net.WebUtility]::HtmlEncode($sample.runnerFailure))" }
         }
         '| Metric | Median | Minimum | Maximum | Range | Measured / unavailable attempts |'
         '|---|---:|---:|---:|---:|---|'

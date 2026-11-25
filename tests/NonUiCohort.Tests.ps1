@@ -49,8 +49,8 @@ function gh {
             ConvertTo-Json -InputObject @(@{ jobs = $global:NonUiCohortFixture.jobs }) -Depth 10; return
         }
         '/git/ref/heads/main$' { @{ object = @{ sha = $global:NonUiCohortFixture.revision } } | ConvertTo-Json; return }
-        '/actions/runs/99/attempts/1$' { $global:NonUiCohortFixture.collection | ConvertTo-Json -Depth 10; return }
-        '/actions/runs/99/attempts/1/jobs\?per_page=100$' {
+        '/actions/runs/99/attempts/[1-9][0-9]*$' { $global:NonUiCohortFixture.collection | ConvertTo-Json -Depth 10; return }
+        '/actions/runs/99/attempts/[1-9][0-9]*/jobs\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ jobs = $global:NonUiCohortFixture.sampleJobs }) -Depth 10; return
         }
         '/actions/runs/99/artifacts\?per_page=100$' {
@@ -260,6 +260,77 @@ try {
             $terminal.runAttempt -ceq '1' -and $terminal.outcome -ceq 'timed_out' -and
             $terminal.steps.Count -eq 0 -and $terminal.executionSeconds -ge 700) 'Real runner lost independent failed-attempt identity or setup budget accounting.'
     } finally { $env:SCALE_STARTED_AT = $previousStarted }
+    $remote = Join-Path $fixture 'history.git'
+    git init --bare --quiet $remote
+    $global:NonUiCohortFixture.collection.status = 'completed'
+    $global:NonUiCohortFixture.collection.conclusion = 'success'
+    $publicationWork = Join-Path $fixture 'publication'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $publicationWork -Publish -AllowLocalFixture -HistoryRemote $remote
+    $path = "performance-cohorts/$revision/99/1.json"
+    $saved = (git --git-dir=$remote show "refs/heads/ci-health-data:$path") -join "`n" | ConvertFrom-Json -AsHashtable
+    $savedBlob = (git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim()
+    Assert ($saved.metrics.executionSeconds.median -eq 150 -and $saved.samples.Count -eq 3 -and
+        $saved.samples[1].measurements.profile.samplesMs.Count -eq 21 -and $saved.promotion -ceq 'disabled') 'Real history lost complete independent numeric inputs or promoted the cohort.'
+    $peer = Join-Path $fixture 'peer'
+    git clone --quiet --branch ci-health-data $remote $peer
+    $prior = ($saved | ConvertTo-Json -Depth 30) | ConvertFrom-Json -AsHashtable
+    $prior.revision = 'c' * 40; $prior.ciRevision = $prior.revision; $prior.ciRunId = '40'
+    $prior.cohortRunId = '88'; $prior.cohortId = "$($prior.revision)-88-1"
+    $prior.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-30).ToString('O')
+    for ($index = 0; $index -lt 3; $index++) {
+        $prior.samples[$index].measurements.executionSeconds = @(110, 120, 130)[$index]
+        $prior.samples[$index].measurements.headroomSeconds = @(550, 540, 530)[$index]
+        $prior.samples[$index].invocationId = [guid]::NewGuid().ToString('N')
+        $prior.samples[$index].jobId = 500 + $index; $prior.samples[$index].runnerId = 600 + $index
+        $prior.samples[$index].evidence.url = 'https://github.com/geevensingh/org-explorer/actions/runs/88/attempts/1'
+        $prior.samples[$index].evidence.expiresAt = '2026-11-20T00:00:00Z'
+    }
+    $prior.metrics.executionSeconds.median = 120; $prior.metrics.executionSeconds.minimum = 110
+    $prior.metrics.executionSeconds.maximum = 130; $prior.metrics.executionSeconds.range = 20
+    $priorDirectory = Join-Path $peer "performance-cohorts\$($prior.revision)\88"
+    New-Item -ItemType Directory -Path $priorDirectory -Force | Out-Null
+    $prior | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $priorDirectory '1.json')
+    git -C $peer add performance-cohorts
+    git -C $peer -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Prior complete observation fixture'
+    git -C $peer push --quiet
+    $comparisonWork = Join-Path $fixture 'comparison'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $comparisonWork -ReadHistory -AllowLocalFixture -HistoryRemote $remote
+    $comparison = Get-Content -LiteralPath (Join-Path $comparisonWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert ($comparison.reference.revision -ceq $prior.revision -and $comparison.reference.medianSeconds -eq 120 -and
+        $comparison.reference.deltaSeconds -eq 30 -and $comparison.reference.evidenceState -ceq 'expired-or-unavailable') 'Pinned comparison self-baselined or lost compact values after artifact expiry.'
+    $planWork = Join-Path $fixture 'already-observed'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 100 -CohortRunAttempt 1 -WorkingDirectory $planWork -CheckHistory -AllowLocalFixture -HistoryRemote $remote
+    $duplicatePlan = Get-Content -LiteralPath (Join-Path $planWork 'plan.json') -Raw | ConvertFrom-Json -AsHashtable
+    Assert (!$duplicatePlan.collect) 'Already observed main revision started an unbounded retry cohort.'
+    $jobSnapshot = $global:NonUiCohortFixture.sampleJobs
+    $global:NonUiCohortFixture.collection.run_attempt = 2
+    $global:NonUiCohortFixture.collection.conclusion = 'cancelled'
+    $global:NonUiCohortFixture.sampleJobs = @(1..3 | ForEach-Object {
+        @{ id = 700 + $_; name = "Non-UI cohort sample ($_)"; status = 'completed'; conclusion = 'cancelled'; runner_id = 0 }
+    })
+    $cancelledWork = Join-Path $fixture 'cancelled-history'
+    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+        -CohortRunId 99 -CohortRunAttempt 2 -WorkingDirectory $cancelledWork -Publish -AllowLocalFixture -HistoryRemote $remote
+    $cancelled = (git --git-dir=$remote show "refs/heads/ci-health-data:performance-cohorts/$revision/99/2.json") -join "`n" |
+        ConvertFrom-Json -AsHashtable
+    Assert ($cancelled.reliability.cancelled -eq 3 -and $cancelled.samples.Count -eq 3 -and
+        $cancelled.metrics.Count -eq 0 -and $cancelled.collectionOutcome -ceq 'cancelled') 'Cancelled independent attempts were dropped or fabricated after earlier greens.'
+    Assert ((git --git-dir=$remote rev-parse "refs/heads/ci-health-data:$path").Trim() -ceq $savedBlob) 'A later cancellation rewrote the earlier cohort.'
+    $global:NonUiCohortFixture.collection.run_attempt = 1
+    $global:NonUiCohortFixture.collection.conclusion = 'success'
+    $global:NonUiCohortFixture.sampleJobs = $jobSnapshot
+    $refusedRemote = Join-Path $fixture 'refused.git'
+    git init --bare --quiet $refusedRemote
+    "#!/bin/sh`nexit 1" | Set-Content -LiteralPath (Join-Path $refusedRemote 'hooks\pre-receive') -Encoding utf8NoBOM
+    $refusedWork = Join-Path $fixture 'refused'
+    Rejects {
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $refusedWork -Publish -AllowLocalFixture -HistoryRemote $refusedRemote
+    } 'Publication failure was reported as durable success.'
+    Assert ((Get-Content -LiteralPath (Join-Path $refusedWork 'summary.md') -Raw).Contains('History publication: FAILED')) 'Publication error is not visible at the public summary seam.'
     Write-Host "PASS: $checks public non-UI cohort checks."
 } finally {
     Remove-Variable -Name NonUiCohortFixture -Scope Global
