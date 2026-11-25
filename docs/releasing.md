@@ -110,17 +110,31 @@ and bytes if main advances in that network interval. The serialization applies
 to this workflow, not an owner concurrently editing GitHub Releases. Owners
 must not manually move tags, replace assets or alter latest during publication.
 
-Future app release descriptions begin with a distinct `Source commit: <subject>`
-paragraph, followed by the existing exact source SHA, trusted CI, fresh complete
-scale-verification run, asset-provenance reference and signing explanation. The
-subject comes from Git at the exact authorized source SHA in local release
-history, not the checkout's HEAD or the full commit message. An inline code span
-keeps Unicode and Markdown-significant punctuation literal, including embedded
-backticks, mentions and emoji syntax. Only that final commit's subject is shown,
-even when several commits accumulated; it is not an
-exhaustive changelog. Missing history, an empty subject or control characters
-stop publication explicitly before any tag or draft is created. Historical
-release descriptions and metadata-renewal descriptions are not changed.
+Future app release descriptions begin with **Changes since the last successful
+release**. They list every first-parent mainline commit subject, chronologically,
+from the authenticated last published app source (exclusive) through the exact
+authorized candidate (inclusive). Each entry links to its exact commit; a full
+comparison link pins both source SHAs. Failed drafts/prereleases and intervening
+metadata renewals never replace that original app baseline. Subjects are not
+ranked or filtered by keywords or changed files: an earlier substantial product
+change remains visible alongside its follow-up. First-parent history shows
+squash/merge subjects without duplicating side-branch WIP commits.
+
+A first product publication explicitly says there is no previous successful app
+release and lists the complete mainline history through its candidate, without
+inventing a comparison baseline. A separate **Technical provenance** section
+retains `Source commit: <subject>` for the exact final candidate, plus the existing
+source SHA, trusted CI, fresh complete scale-verification run, asset-provenance
+reference and signing explanation. Subjects come from local Git at these exact
+sources, never the checkout's HEAD, full commit bodies or fetched PR descriptions.
+Padded inline code spans keep every subject's Unicode and Markdown-significant
+punctuation literal, including embedded backticks, mentions and emoji syntax.
+
+Missing or shallow history, a non-ancestor/off-first-parent app baseline, an
+empty range, or any empty/control-character subject stops publication explicitly
+before any tag or draft is created. The process never manufactures a range or
+silently drops an unusable entry. Historical release descriptions and
+metadata-renewal descriptions are not changed.
 
 Only a completely uploaded, verified **draft** becomes public/latest. Assets:
 

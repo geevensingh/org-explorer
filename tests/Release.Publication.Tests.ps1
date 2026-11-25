@@ -6,14 +6,18 @@ $history = "$fixture-history"
 New-Item $fixture, $history -ItemType Directory -Force | Out-Null
 git -C $history init --quiet
 $candidateMessage = 'Ship café 🚀 *bold* _notes_ [link](https://example.invalid) `code` ``ticks`` <b> & &#65; \ #64 @owner :smile: ~done~ ! |'
-foreach ($message in @('Previously released source', 'Earlier unpublished change',
+$storageMessage = 'Make Workspace saves durable without blocking Person browsing (#119) café `notes` @owner'
+foreach ($message in @('Previously released source', 'Make update-org startup, resume, and reporting turnkey (#115)',
+    $storageMessage,
     "$candidateMessage`n`nPrivate candidate body must not enter the description.",
     'Adjacent newer revision must not enter the description')) {
     git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m $message
     if ($LASTEXITCODE -ne 0) { throw 'Publication source fixture commit failed.' }
 }
 $candidate = (git -C $history rev-parse HEAD~1).Trim()
-$previousSource = (git -C $history rev-parse HEAD~3).Trim()
+$storageSource = (git -C $history rev-parse HEAD~2).Trim()
+$startupSource = (git -C $history rev-parse HEAD~3).Trim()
+$previousSource = (git -C $history rev-parse HEAD~4).Trim()
 $checks = 0
 function Assert([bool]$Condition, [string]$Reason) { if (!$Condition) { throw $Reason }; $script:checks++ }
 function Rejects([scriptblock]$Action, [string]$Reason) {
@@ -100,7 +104,7 @@ function gh {
             @{ workflow_runs = if ($script:missingCurrentCi) { @() } else { @($script:run) } } | ConvertTo-Json -Depth 10 -Compress; return
         }
         '/git/ref/heads/main$' { @{ object = @{ sha = $script:main } } | ConvertTo-Json -Compress; return }
-        '/git/ref/tags/v0.0.9$' { @{ object = @{ sha = $previousSource; type = 'commit' } } | ConvertTo-Json -Compress; return }
+        '/git/ref/tags/(v0.0.9|metadata-v0.0.9-45-1)$' { @{ object = @{ sha = $previousSource; type = 'commit' } } | ConvertTo-Json -Compress; return }
         '/git/ref/tags/(v0.1.0|metadata-v0.1.0-[0-9]+-[0-9]+)$' { @{ object = @{ sha = $candidate; type = 'commit' } } | ConvertTo-Json -Compress; return }
         '/git/refs$' {
             Assert ($method -eq 'POST') 'Tags must be created, never force-updated.'
@@ -286,7 +290,26 @@ try {
         Assert (($effects -join ',') -ceq 'tag,draft,upload,publish') 'Publish only a complete verified draft, with immutable exact-source tag and latest updated last.'
         $expectedProvenance = "Exact source: $candidate. Trusted CI: 42. Fresh complete scale verification: 43. See release-provenance.json for immutable asset hashes. Project-key authenticated updates; not Windows publisher signing."
         $expectedSubject = '``` Ship café 🚀 *bold* _notes_ [link](https://example.invalid) `code` ``ticks`` <b> & &#65; \ #64 @owner :smile: ~done~ ! | ```'
-        Assert ($createdBody -ceq "Source commit: $expectedSubject`n`n$expectedProvenance") 'The description must begin with only the exact candidate subject as literal Unicode/Markdown text, not its body or another commit, followed by unchanged provenance.'
+        $expectedPendingChanges = @(
+            "- [$($startupSource.Substring(0, 7))](https://github.com/geevensingh/org-explorer/commit/$startupSource) " + '` Make update-org startup, resume, and reporting turnkey (#115) `'
+            "- [$($storageSource.Substring(0, 7))](https://github.com/geevensingh/org-explorer/commit/$storageSource) " + '`` Make Workspace saves durable without blocking Person browsing (#119) café `notes` @owner ``'
+            "- [$($candidate.Substring(0, 7))](https://github.com/geevensingh/org-explorer/commit/$candidate) $expectedSubject"
+        ) -join "`n"
+        $expectedFirstChanges = @(
+            '## Changes since the last successful release'
+            ''
+            'First product release; no previous successful app release.'
+            ''
+            "- [$($previousSource.Substring(0, 7))](https://github.com/geevensingh/org-explorer/commit/$previousSource) " + '` Previously released source `'
+            $expectedPendingChanges
+            ''
+            '## Technical provenance'
+            ''
+            "Source commit: $expectedSubject"
+            ''
+            $expectedProvenance
+        ) -join "`n"
+        Assert ($createdBody -ceq $expectedFirstChanges) 'A first product publication must explicitly identify the absence of a previous successful app release and list its complete mainline history through the exact candidate, without inventing a comparison baseline.'
         $releases = @(@{ id = 1; draft = $false; prerelease = $false; published_at = '2026-11-09T00:00:00Z'
             tag_name = 'v0.0.9'; assets = @(@{ name = 'release-provenance.json'; id = 7 }) })
         $assetResponse = @{ schemaVersion = 1; sourceSha = $previousSource; tag = 'v0.0.9'; version = '0.0.9'; ciRunId = 40; verificationRunId = 41 } | ConvertTo-Json
@@ -294,10 +317,90 @@ try {
         Update-FixtureProvenance -Plan $plan
         $effects.Clear(); $draft = $false
         Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
-        Assert ($createdBody -ceq "Source commit: $expectedSubject`n`n$expectedProvenance") 'Multiple commits since the preceding app source must still display only the final candidate subject, never a multi-commit changelog.'
+        $expectedChanges = @(
+            '## Changes since the last successful release'
+            ''
+            "Since [v0.0.9](https://github.com/geevensingh/org-explorer/releases/tag/v0.0.9). [Full comparison](https://github.com/geevensingh/org-explorer/compare/$previousSource...$candidate)."
+            ''
+            $expectedPendingChanges
+            ''
+            '## Technical provenance'
+            ''
+        ) -join "`n"
+        Assert ($createdBody -ceq "$expectedChanges`nSource commit: $expectedSubject`n`n$expectedProvenance") 'The description must cover all three pending mainline changes chronologically, including durable Workspace saves, with literal subjects, exact-source links and unchanged technical provenance; released history, newer HEAD and private bodies must not enter it.'
+        $previousRelease = $releases[0]
+        $previousRelease.assets[0].digest = 'sha256:' + ('b' * 64)
+        $renewalProvenanceResponse = @{
+            schemaVersion = 1; kind = 'metadata-renewal'; sourceSha = $previousSource; tag = 'v0.0.9'; version = '0.0.9'
+            ciRunId = 40; verificationRunId = 45; publicationTag = 'metadata-v0.0.9-45-1'
+            originalReleaseId = 1; originalProvenanceSha256 = 'b' * 64; controllerSha = $storageSource; controllerCiRunId = 42
+        } | ConvertTo-Json
+        $releases = @($previousRelease,
+            @{ id = 2; draft = $false; prerelease = $false; published_at = '2026-11-10T00:00:00Z'
+                tag_name = 'metadata-v0.0.9-45-1'; assets = @(@{ name = 'release-provenance.json'; id = 9 }) },
+            @{ id = 3; draft = $true; prerelease = $false; published_at = '2026-11-11T00:00:00Z'; tag_name = 'v0.1.0'; assets = @() },
+            @{ id = 4; draft = $false; prerelease = $true; published_at = '2026-11-12T00:00:00Z'; tag_name = 'v0.1.1'; assets = @() })
+        $lastApp = Get-LastSuccessfulRelease
+        $plan.lastSourceSha = $lastApp.sourceSha; $plan.lastTag = $lastApp.tag
+        Update-FixtureProvenance -Plan $plan
+        $effects.Clear(); $draft = $false
+        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        Assert ($lastApp.sourceSha -ceq $previousSource -and $lastApp.tag -ceq 'v0.0.9' -and
+            $createdBody -ceq "$expectedChanges`nSource commit: $expectedSubject`n`n$expectedProvenance") 'Later failed drafts, prereleases and authenticated metadata renewal must not truncate cumulative changes at a failed source or the renewal controller; the original published app source remains the baseline.'
+        $releases = @($previousRelease)
+        $savedCandidate = $candidate
+        $savedPreviousSource = $previousSource
+        $tree = (git -C $history rev-parse "$candidate^{tree}").Trim()
+        $sideSource = (git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit-tree $tree -p $previousSource -m 'WIP implementation must not be duplicated').Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'Side-history fixture commit failed.' }
+        $candidate = (git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit-tree $tree -p $candidate -p $sideSource -m 'Merge reviewed work (#122)').Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'Mainline merge fixture commit failed.' }
+        $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
+        Update-FixtureProvenance -Plan $plan
+        $effects.Clear(); $draft = $false
+        Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        Assert ($createdBody.Contains($expectedPendingChanges) -and
+            $createdBody.Contains("- [$($candidate.Substring(0, 7))](https://github.com/geevensingh/org-explorer/commit/$candidate) " + '` Merge reviewed work (#122) `') -and
+            $createdBody.Contains("/compare/$previousSource...$candidate") -and
+            [regex]::Matches($createdBody, '(?m)^- ').Count -eq 4 -and
+            !$createdBody.Contains($sideSource) -and !$createdBody.Contains('WIP implementation')) 'Mainline merge subjects must cover the release without duplicating side-branch work-in-progress commits.'
+        $previousSource = $sideSource
+        $plan.lastSourceSha = $sideSource
+        $assetResponse = @{ schemaVersion = 1; sourceSha = $sideSource; tag = 'v0.0.9'; version = '0.0.9'; ciRunId = 40; verificationRunId = 41 } | ConvertTo-Json
+        Update-FixtureProvenance -Plan $plan
+        $effects.Clear(); $draft = $false
+        $rangeError = $null
+        try {
+            Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        } catch { $rangeError = $_.Exception.Message }
+        Assert ($rangeError -match 'first-parent' -and $effects.Count -eq 0 -and !$draft) 'An authenticated app source on a side parent, rather than the candidate mainline, must fail explicitly before tag or draft creation instead of manufacturing a misleading range.'
+        foreach ($invalidBaseline in @(('f' * 40), (git -C $history rev-parse HEAD).Trim(), $candidate)) {
+            $previousSource = $invalidBaseline; $plan.lastSourceSha = $invalidBaseline
+            $assetResponse = @{ schemaVersion = 1; sourceSha = $invalidBaseline; tag = 'v0.0.9'; version = '0.0.9'; ciRunId = 40; verificationRunId = 41 } | ConvertTo-Json
+            Update-FixtureProvenance -Plan $plan
+            $effects.Clear(); $draft = $false
+            $rangeError = $null
+            try {
+                Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+            } catch { $rangeError = $_.Exception.Message }
+            Assert ($rangeError -match 'changes since the last successful release|No mainline changes' -and
+                $effects.Count -eq 0 -and !$draft) 'Missing, non-ancestor and empty comparison histories must fail explicitly before tag or draft creation, never substitute HEAD or another baseline.'
+        }
+        $candidate = $savedCandidate; $previousSource = $savedPreviousSource
+        $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
         $releases = @(); $plan.lastSourceSha = ''; $plan.lastTag = ''
         Update-FixtureProvenance -Plan $plan
         $effects.Clear(); $draft = $false
+        $shallowHistory = "$fixture-shallow"
+        git clone --quiet --no-local --depth 2 $history $shallowHistory
+        if ($LASTEXITCODE -ne 0) { throw 'Shallow publication history fixture failed.' }
+        Assert ((git -C $shallowHistory rev-parse --is-shallow-repository) -ceq 'true') 'The missing-history regression must use a genuinely shallow clone.'
+        $rangeError = $null
+        try {
+            Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $shallowHistory
+        } catch { $rangeError = $_.Exception.Message }
+        Assert ($rangeError -match 'shallow' -and $effects.Count -eq 0 -and !$draft) 'A first publication with incomplete shallow history must fail explicitly before tag or draft creation, never present its truncated history as complete.'
+        Remove-Item $shallowHistory -Recurse -Force
         $unavailableHistory = "$fixture-unavailable"
         git init --quiet $unavailableHistory
         $subjectError = $null
@@ -319,6 +422,17 @@ try {
             } catch { $subjectError = $_.Exception.Message }
             Assert ($subjectError -match 'source commit subject' -and $effects.Count -eq 0 -and !$draft) 'An empty or control-character Git subject must fail explicitly before tag or draft creation, never publish an unusable label or placeholder.'
         }
+        git -C $history -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m 'Valid candidate after unusable unpublished subjects'
+        if ($LASTEXITCODE -ne 0) { throw 'Valid-subject follow-up fixture commit failed.' }
+        $candidate = (git -C $history rev-parse HEAD).Trim()
+        $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
+        Update-FixtureProvenance -Plan $plan
+        $subjectError = $null
+        try {
+            Publish-Release -Plan $plan -ReleaseDirectory $fixture -CiRunId 42 -Key $key -KeyId test-active -Root $history
+        } catch { $subjectError = $_.Exception.Message }
+        Assert ($subjectError -match 'Unusable source commit subject' -and !$subjectError.Contains($candidate) -and
+            $effects.Count -eq 0 -and !$draft) 'An unusable earlier mainline subject must block publication even when the exact candidate subject is valid; silently dropping a pending change is not a complete description.'
         $candidate = $savedCandidate; $plan.sourceSha = $candidate; $main = $candidate; $run.head_sha = $candidate
         Update-FixtureProvenance -Plan $plan
         Remove-Item "$fixture\org-explorer-update.win-x64.json", "$fixture\release-provenance.json"
@@ -432,4 +546,5 @@ try {
     if (Test-Path "$fixture-renewal") { Remove-Item "$fixture-renewal" -Recurse -Force }
     if (Test-Path "$fixture-source") { Remove-Item "$fixture-source" -Recurse -Force }
     if (Test-Path "$fixture-unavailable") { Remove-Item "$fixture-unavailable" -Recurse -Force }
+    if (Test-Path "$fixture-shallow") { Remove-Item "$fixture-shallow" -Recurse -Force }
 }

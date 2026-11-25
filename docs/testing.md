@@ -2977,6 +2977,14 @@ Core CI also runs the non-UI `Release*.Tests.ps1` contracts: real temporary Git
 history, controlled ephemeral cryptography, exact suite evidence, archive
 isolation and fake external GitHub publication effects. They never call a real
 publication endpoint, open WPF or run an installer.
+Publication descriptions are observed through the real `Publish-Release` draft
+body at that fake GitHub boundary. Real Git fixtures cover three accumulated
+mainline changes (including the earlier durable Workspace-save change), literal
+Unicode/Markdown subjects, a candidate older than checkout HEAD, and merged work
+without WIP duplicates. They also cover an explicit first publication, unchanged
+technical/renewal descriptions, failed/metadata publications retaining the
+original app baseline, and pre-tag refusal of missing, shallow, non-ancestor,
+off-first-parent, empty or unusable-subject history.
 The core runner-category signer interoperability test also invokes the real
 PowerShell signer with an ephemeral key and feeds its exact envelope to the real
 `UpdateChecker`, checking pinned bytes and mutation rejection without network IO.
