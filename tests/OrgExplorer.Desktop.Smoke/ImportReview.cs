@@ -108,7 +108,10 @@ internal static partial class Program
         foreach (var detail in details)
         {
             var value = entry.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.NameProperty, detail));
+                new AndCondition(
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportDetail"),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(AutomationElement.NameProperty, detail)));
             if (value is null || value.Current.IsOffscreen || value.Current.BoundingRectangle.IsEmpty)
                 throw new InvalidOperationException("Expanded import detail is missing or not rendered: " + detail);
             AssertImportCharacters(window, value, detail, review.Current.BoundingRectangle, singleLine: false);
@@ -309,7 +312,10 @@ internal static partial class Program
         SetImportDisclosure(header, disclosure, ExpandCollapseState.Expanded);
         var buildingText = "Office building: (none) → " + multiline;
         var building = entry.FindFirst(TreeScope.Descendants,
-            new PropertyCondition(AutomationElement.NameProperty, buildingText))
+            new AndCondition(
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportDetail"),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                new PropertyCondition(AutomationElement.NameProperty, buildingText)))
             ?? throw new InvalidOperationException("Tall Import lost the complete multiline value.");
         if (building.Current.BoundingRectangle.Height <= review.Current.BoundingRectangle.Height)
             throw new InvalidOperationException("Native regression must lay out a multiline value taller than the actual review viewport.");
@@ -325,7 +331,10 @@ internal static partial class Program
         foreach (var next in new[] { "Office number: 007B → FINAL-0099", "Office state: (none) → WA" })
         {
             var field = entry.FindFirst(TreeScope.Descendants,
-                new PropertyCondition(AutomationElement.NameProperty, next))
+                new AndCondition(
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "ImportDetail"),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(AutomationElement.NameProperty, next)))
                 ?? throw new InvalidOperationException("A field after the tall value is missing.");
             AssertImportCharacters(window, field, next, review.Current.BoundingRectangle, singleLine: false);
         }

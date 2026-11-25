@@ -108,6 +108,19 @@ isolated hosted desktop; compiled checks do not prove native input or pixels.
 The shared disclosure helper makes one focus request and one Space action per
 transition and only observes afterward; it does not retry actions.
 
+Import detail discovery matches the real `ImportDetail` Edit control and exact
+full value, not only its Name: the enclosing ItemsControl data-item peer exposes
+the same Name but no TextPattern. The compiled review walks that actual nested
+automation peer tree and requires the selected text provider's complete
+payload. `--verify-import-review-reused` provides a tight non-UI loop through the
+full profile-refresh fixture's Settings/folder rejection and Import path, including
+its retained `Juniper` building baseline. It uses the same assertions as the full
+`--verify-profile-refresh` command, rather than recreating a fresh shallow window.
+Expected before-values distinguish that known fixture from the standalone fixture's
+absent building; exact full before/after, wrapping and final-character assertions
+remain. The diagnostics cap leaves room for nonzero action counts at 700x500 as
+well as the existing 72-DIP minimum review-space check.
+
 The collector workflow cases cross the same public helper/compiled-CLI seam:
 atomic standing-policy startup, serial/two-worker leasing, exact prepared
 requests, original lookup timestamps, stopped-worker handoff, compact sampled

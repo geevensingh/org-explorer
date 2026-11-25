@@ -818,7 +818,7 @@ internal static partial class Program
     }
 
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher,
-        bool noteRefreshOnly = false, bool compactIdentityOnly = false)
+        bool noteRefreshOnly = false, bool compactIdentityOnly = false, bool importReviewOnly = false)
     {
         var folder = Path.Combine(settings, "workspace");
         using (var seed = ApplicationWorkflow.CreateFileBacked())
@@ -862,7 +862,8 @@ internal static partial class Program
         if (!noteRefreshOnly)
         {
             VerifyRejectedPickerChoice(window, folder, preferences);
-            VerifyImportPreviewKey(window, folder);
+            VerifyImportPreviewKey(window, folder, archivedBuildingBefore: "Juniper");
+            if (importReviewOnly) return;
             Invoke("OpenSettingsButton");
             if (Control<FrameworkElement>("ExplorerPanel").Visibility != Visibility.Collapsed ||
                 Control<FrameworkElement>("ImportPanel").Visibility != Visibility.Collapsed ||
@@ -1316,7 +1317,23 @@ internal static partial class Program
         finally { ClosePublishedCompiledWindow(window); }
     }
 
-    private static void VerifyImportPreviewKey(Window window, string folder)
+    private static void VerifyCompiledReusedImportReview(Type windowType, string root)
+    {
+        using var publisher = new HeldNotePublisher();
+        var window = (Window)Activator.CreateInstance(windowType, BindingFlags.Instance | BindingFlags.NonPublic,
+            null, [ApplicationWorkflow.CreateFileBacked(),
+                (Func<Window, string?>)(_ => CompiledWorkspaceChoices.Dequeue())], null)!;
+        try
+        {
+            VerifySettingsFocus(window);
+            VerifyProfileSaveRefresh(window, root, publisher, importReviewOnly: true);
+            if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                throw new InvalidOperationException("Reused Import review must not show a window or create a native handle.");
+        }
+        finally { ClosePublishedCompiledWindow(window); }
+    }
+
+    private static void VerifyImportPreviewKey(Window window, string folder, string archivedBuildingBefore = "(none)")
     {
         var before = WorkspaceFixtures.Bytes(folder);
         var import = Path.Combine(Path.GetDirectoryName(folder)!, "enter-preview.json");
@@ -1480,12 +1497,14 @@ internal static partial class Program
                 var building = VisualDescendants(disclosure).OfType<TextBox>().Single(text =>
                     text.Text.StartsWith("Office building:", StringComparison.Ordinal));
                 var value = person.Contains("North floor", StringComparison.Ordinal) ? "North floor\nSouth floor" : longValue;
-                if (building.Text != "Office building: (none) → " + value || building.TextWrapping != TextWrapping.Wrap ||
+                var beforeBuilding = email == "header-archived@example.com" ? archivedBuildingBefore : "(none)";
+                if (building.Text != $"Office building: {beforeBuilding} → " + value || building.TextWrapping != TextWrapping.Wrap ||
                     building.GetRectFromCharacterIndex(building.Text.Length - 1).IsEmpty)
-                    throw new InvalidOperationException("Expanded review lost the full long/multiline supplied value.");
+                    throw new InvalidOperationException($"Expanded review lost the full long/multiline supplied value: email={email}; expected=Office building: {beforeBuilding} → {value}; actual={building.Text}; wrap={building.TextWrapping}; final={building.GetRectFromCharacterIndex(building.Text.Length - 1)}.");
             }
             AssertWorkspaceBytes(folder, before);
         }
+        VerifyCompiledImportDetailPeer(disclosure, "Directory name: New reference");
         VerifyTallImportDetail(window, import);
         VerifyManyImportDiagnostics(window, folder, import);
         AssertWorkspaceBytes(folder, before);
@@ -1496,6 +1515,25 @@ internal static partial class Program
             throw new InvalidOperationException("Leaving the preview retained an applicable unreviewed Import.");
         Console.WriteLine("PASS: compiled Import-path Enter shows complete impact, ordered identity-only unchanged disclosure, independent accessible warnings and whole-batch errors while preserving saved Workspace bytes.");
         Console.WriteLine("PASS: invisible compiled Import-path Enter retains one native disclosure, complete details and Workspace bytes; actual text layout selects inline/count/inline across 1100/700/1100 widths. Hosted rendering is separate.");
+    }
+
+    private static void VerifyCompiledImportDetailPeer(Expander disclosure, string expected)
+    {
+        AutomationPeer? FindPeer(AutomationPeer peer)
+        {
+            foreach (var child in peer.GetChildren() ?? [])
+            {
+                if (child.GetName() == expected && child.GetAutomationId() == "ImportDetail" &&
+                    child.GetAutomationControlType() == AutomationControlType.Edit) return child;
+                if (FindPeer(child) is { } found) return found;
+            }
+            return null;
+        }
+        var selected = FindPeer(UIElementAutomationPeer.CreatePeerForElement(disclosure))
+            ?? throw new InvalidOperationException("Compiled Import detail is missing from the actual nested automation peer tree.");
+        if (selected.GetPattern(PatternInterface.Text) is not ITextProvider text ||
+            text.DocumentRange.GetText(-1) != expected)
+            throw new InvalidOperationException($"Import reading has no native TextPattern: {expected}; selectedPeer={selected.GetType().Name}; controlType={selected.GetAutomationControlType()}; automationId={selected.GetAutomationId()}.");
     }
 
     private static void VerifyTallImportDetail(Window window, string import)

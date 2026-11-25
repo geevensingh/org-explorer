@@ -54,6 +54,8 @@ internal static partial class Program
                 return VerifyHostedCutoverContracts(executable, VerifyImportRecoveryAdmission);
             if (args.Length == 2 && args[1] == "--verify-import-review")
                 return VerifyHostedCutoverContracts(executable, VerifyCompiledImportReview);
+            if (args.Length == 2 && args[1] == "--verify-import-review-reused")
+                return VerifyHostedCutoverContracts(executable, VerifyCompiledReusedImportReview);
             if (args.Length == 2 && args[1] == "--diagnose-rich-navigation")
                 return VerifyHostedCutoverContracts(executable, DiagnoseCompiledRichNavigation);
             if (args.Length == 2 && args[1] == "--verify-manager-choice-demand")
