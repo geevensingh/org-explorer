@@ -2,6 +2,23 @@ namespace OrgExplorer.Desktop.Smoke;
 
 internal static class TreeItemRealization
 {
+    internal static (double X, double Y) ReportingHeaderPoint(
+        (double Left, double Top, double Width, double Height) row,
+        (double Left, double Top, double Width, double Height) viewport, double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0) throw new ArgumentOutOfRangeException(nameof(scale));
+        var left = Math.Max(row.Left + 22 * scale, viewport.Left);
+        var right = Math.Min(row.Left + row.Width, viewport.Left + viewport.Width);
+        var top = Math.Max(row.Top, viewport.Top);
+        // A TreeItem's bounds include its descendants; only the first row is the target header.
+        var bottom = Math.Min(row.Top + Math.Min(row.Height, 28 * scale), viewport.Top + viewport.Height);
+        var x = Math.Floor((left + right) / 2);
+        var y = Math.Floor((top + bottom) / 2);
+        if (!double.IsFinite(x) || !double.IsFinite(y) || x < left || x >= right || y < top || y >= bottom)
+            throw new InvalidOperationException($"The reporting row header has no visible content pixel: row={row}; viewport={viewport}; scale={scale}.");
+        return (x, y);
+    }
+
     internal static bool IsBrowsingPositionRestored(BrowsingPosition original, BrowsingPosition current) =>
         original.Rows.Count > 0 && original.Rows.All(expected => current.Rows.Any(actual =>
             string.Equals(expected.Email, actual.Email, StringComparison.OrdinalIgnoreCase) &&

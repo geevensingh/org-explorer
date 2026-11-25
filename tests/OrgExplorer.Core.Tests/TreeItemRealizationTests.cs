@@ -7,6 +7,33 @@ public sealed class TreeItemRealizationTests
 {
     [Fact]
     [Trait("Category", "Runner")]
+    public void Reporting_header_request_uses_the_visible_header_when_native_browsing_is_horizontally_scrolled()
+    {
+        // UI Automation bounds from run 45688751967, reading attempt 1 at 96 DPI.
+        var point = TreeItemRealization.ReportingHeaderPoint((71, 416, 588, 56), (112, 359, 340, 185), 1);
+
+        Assert.Equal((282d, 430d), point);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void Reporting_header_request_respects_DPI_and_vertical_clipping_without_targeting_a_descendant()
+    {
+        var point = TreeItemRealization.ReportingHeaderPoint((100, 100, 500, 400), (150, 130, 320, 100), 1.5);
+
+        Assert.Equal((310d, 136d), point);
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
+    public void An_offscreen_header_cannot_be_substituted_with_visible_descendants()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            TreeItemRealization.ReportingHeaderPoint((100, 300, 500, 400), (112, 359, 340, 185), 1));
+    }
+
+    [Fact]
+    [Trait("Category", "Runner")]
     public void Restored_rows_keep_their_positions_when_a_larger_viewport_exposes_another_row()
     {
         var original = new TreeItemRealization.BrowsingPosition(70,

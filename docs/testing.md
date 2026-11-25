@@ -64,6 +64,19 @@ compiled checks do not prove popup or keyboard-focus acceptance. The remaining
 Expand subtree and Collapse other branches slices are not implemented or
 claimed by this coverage.
 
+The reporting-header request replays actual horizontally clipped UI Automation
+bounds from run `45688751967` through the shared runner seam. It chooses a
+physical pixel inside the visible header content, not the disclosure arrow or
+the descendant-inclusive TreeItem box; an offscreen header still fails without
+scroll/click replay. Native re-expansion retains its original action count,
+condition and 20-second deadline. `TREE-MENU-EXPANSION` records bounded fresh
+row/profile/panel/focus observations and the retained provider state before and
+after that request, with a failure capture if necessary. Diagnostic refusal is
+reported separately without replacing the original failure. These non-atomic
+observations are not proof of a focus/provider cause. The invisible real
+data-item-provider replay covers logical compact collapse/re-expansion, not
+native popup/focus cleanup or exoneration of the hosted context failure.
+
 ## Placement
 
 | Category | Observes | Examples and limits |
