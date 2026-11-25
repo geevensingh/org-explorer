@@ -4,7 +4,8 @@ param(
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
     [Parameter(Mandatory)][string]$WorkingDirectory,
     [switch]$AllowLocalFixture,
-    [switch]$Publish
+    [switch]$Publish,
+    [switch]$PublishObservations
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,9 +18,18 @@ if ($run.id -ne $RunId -or $run.run_attempt -ne $RunAttempt -or $run.status -cne
         '.github/workflows/release.yml', '.github/workflows/release-verification.yml')) {
     throw 'Completed exact supported workflow run/attempt required.'
 }
-$trusted = $run.head_branch -ceq 'main' -and $run.head_repository.full_name -ceq $FilesystemHealthRepository -and
-    $run.event -cin @('push', 'schedule', 'workflow_run')
+$sourceRepository = if ($run.head_repository -and $run.head_repository.ContainsKey('full_name')) { $run.head_repository.full_name } else { 'unavailable' }
+$sourceBranch = if ($run.head_branch) { $run.head_branch } else { 'unavailable' }
+$trusted = Test-QualifiedHealthSource $run.event $sourceBranch $sourceRepository
+if ($Publish -and $PublishObservations) { throw 'Choose qualified or baseline-ineligible publication, never both.' }
 if ($Publish -and !$trusted) { throw 'Candidate/manual/fork data cannot authorize history publication.' }
+if ($PublishObservations) {
+    if ($trusted) { throw 'Qualified main sources use qualified history, not the ineligible namespace.' }
+    Assert-HealthObservationController -AllowLocalFixture:$AllowLocalFixture
+}
+$writerRevision = git -C (Split-Path $PSScriptRoot -Parent) rev-parse HEAD 2>$null
+$writerRevisionError = $null
+if ($LASTEXITCODE -ne 0) { $writerRevision = $null; $writerRevisionError = 'Writer revision unavailable; code provenance is incomplete.' }
 $pages = Invoke-HealthApi "actions/runs/$RunId/attempts/$RunAttempt/jobs?per_page=100" @('--paginate', '--slurp')
 $jobs = @($pages | ForEach-Object { $_.jobs })
 $pages = Invoke-HealthApi "actions/runs/$RunId/artifacts?per_page=100" @('--paginate', '--slurp')
@@ -55,6 +65,7 @@ $historyError = $null
 try {
     $history = Open-HealthHistory (Join-Path $WorkingDirectory 'history.git') $HistoryRemote `
         -AllowLocalFixture:$AllowLocalFixture -RecordTypes (Get-LaneHealthRecordTypes)
+    $history.observationWriterAuthorized = [bool]$PublishObservations
 } catch { $historyError = $_ }
 $records = @()
 foreach ($descriptor in $descriptors) {
@@ -62,6 +73,7 @@ foreach ($descriptor in $descriptors) {
     $download = $downloads[$descriptor.lane]
     $evidence = $download.evidence
     $diagnostics = @($download.diagnostics)
+    if ($writerRevisionError) { $diagnostics += $writerRevisionError }
     $measurement = $null
     if ($descriptor.kind -cne 'controller' -and $evidence.state -ceq 'available') {
         try {
@@ -88,12 +100,17 @@ foreach ($descriptor in $descriptors) {
         catch { $diagnostics += "Comparison unavailable: $($_.Exception.Message)" }
     }
     $record = [ordered]@{
-        schemaVersion = 2; recordType = 'lane-health'; repository = $FilesystemHealthRepository; lane = $descriptor.lane
+        schemaVersion = 2; recordType = if ($trusted) { 'lane-health' } else { 'lane-observation' }
+        repository = $FilesystemHealthRepository; lane = $descriptor.lane
         revision = if ($measurement -and $measurement.ContainsKey('revision')) { $measurement.revision } else { $download.candidate }
         controllerRevision = $run.head_sha; runId = [string]$RunId; runAttempt = [string]$RunAttempt
+        writerRevision = $writerRevision
+        writerRunId = if ($env:GITHUB_ACTIONS -ceq 'true') { $env:GITHUB_RUN_ID } else { $null }
+        writerScope = if ($AllowLocalFixture) { 'isolated fixture' } elseif ($env:GITHUB_ACTIONS -ceq 'true') { 'workflow controller' } else { 'local CLI' }
         candidateState = if ($measurement) { 'validated-runner-binding' } else { 'source-run-identity-only; runner identity unverified' }
-        authority = if ($trusted) { 'trusted-main-push' } else { 'untrusted-observation' }
-        sourceEvent = $run.event; sourceBranch = $run.head_branch; sourceRepository = $run.head_repository.full_name
+        authority = if ($trusted) { 'trusted-main-push' } elseif ($PublishObservations) { 'trusted-controller-observation' } else { 'untrusted-observation' }
+        baselineEligible = $false; comparisonInputEligible = [bool]$trusted
+        sourceEvent = $run.event; sourceBranch = $sourceBranch; sourceRepository = $sourceRepository
         workflowPath = $run.path; jobId = $job.id; jobName = $job.name; jobOutcome = $job.conclusion
         observedAt = [DateTimeOffset]::UtcNow.ToString('O'); hosted = Get-HostedHealth $job
         measuredAt = if ($measurement) { $measurement.measuredAt } else { $null }
@@ -115,7 +132,7 @@ ConvertTo-Json -InputObject @($records) -Depth 30 | Set-Content (Join-Path $Work
 $publication = 'read-only observation'
 $errorRecord = $null
 if ($historyError) { $publication = 'FAILED: history read'; $errorRecord = $historyError }
-elseif ($Publish) {
+elseif ($Publish -or $PublishObservations) {
     try {
         $publication = Publish-HealthRecords $history $records
     } catch { $errorRecord = $_; $publication = "FAILED: $($_.Exception.Message)" }

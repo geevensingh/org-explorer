@@ -14,6 +14,9 @@ jobs:
     if: ${{ !contains(fromJSON('["push","schedule","workflow_run"]'), github.event.workflow_run.event) || github.event.workflow_run.head_branch != 'main' || github.event.workflow_run.head_repository.full_name != github.repository }}
     runs-on: windows-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,9 +27,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
           OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEALTH_CONTROLLER_REVISION: ${{ github.workflow_sha }}
         shell: pwsh
         run: |
-          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health
+          .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health -PublishObservations
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
@@ -53,6 +57,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OBSERVED_RUN_ID: ${{ github.event.workflow_run.id }}
           OBSERVED_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEALTH_CONTROLLER_REVISION: ${{ github.workflow_sha }}
         shell: pwsh
         run: |
           .\eng\Invoke-LaneHealth.ps1 -RunId ([long]$env:OBSERVED_RUN_ID) -RunAttempt ([int]$env:OBSERVED_ATTEMPT) -WorkingDirectory .ci-results\lane-health -Publish

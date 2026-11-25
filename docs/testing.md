@@ -1874,10 +1874,13 @@ CI retains filesystem JSON/log/TRX evidence for 30 days in
 runs after CI completes; it is not a dependency of `CI`, scale or release.
 Its code comes from the trusted controller's `github.workflow_sha`, never the
 observed candidate or its artifact. It reads only data from the source attempt.
-PR/manual/fork observations are read-only and retained as 30-day summary
-artifacts; only authenticated repository `main` push attempts can append
-authoritative compact history to `ci-health-data`; the extended observer also
-handles repository-main scheduled scale and release-controller attempts.
+Candidate PR/manual/fork code remains read-only. Under the
+[maintainer's observation-history checkpoint](https://github.com/geevensingh/org-explorer/issues/127#issuecomment-7173207158),
+the authenticated trusted controller also retains these attempts in a separate
+baseline-ineligible namespace on `ci-health-data`. Qualified main observations
+include authenticated repository main pushes, scheduled scale and release
+controllers; canonical baseline qualification remains main-only and separately
+calibrated.
 Failed, cancelled, skipped
 and interrupted main attempts remain beside successes. Source run/attempt and
 artifact bindings are verified again by the public collector.
@@ -1885,7 +1888,8 @@ artifact bindings are verified again by the public collector.
 `Invoke-FilesystemHealth.ps1` saves `record.json` and `summary.md` in its explicit
 working directory and appends the summary to the observer's GitHub step summary.
 The dedicated data branch retains the legacy `filesystem/<runId>/<attempt>.json`
-records and versioned `lanes/<runId>/<attempt>/<lane>.json` records, not executable
+records, qualified `lanes/<runId>/<attempt>/<lane>.json` records and ineligible
+`observations/<runId>/<attempt>/<lane>.json` records, not executable
 files, release metadata or product commits. A non-force Git
 append preserves the pinned history snapshot and comparison across up to three
 concurrent-update reconciliation attempts. Duplicate attempts are immutable;
@@ -1969,10 +1973,18 @@ explicit observer failures without changing original CI/release verdicts.
 
 CI and scale JSON/log/TRX/native evidence and secret-free rehearsal artifacts
 have explicit 30-day retention; installer evidence keeps seven days.
-PR/manual/fork observations remain read-only summary artifacts. In particular,
-the installer has no main-push trigger: its PR/manual results do not acquire
-authoritative main-history access. Trusted main observations retain compact
-numeric/provenance records after raw expiry. Reference availability is retained
+The controller retains PR/manual/fork attempts, including the installer's
+path-filtered/manual runs, in `observations/`, with `baselineEligible=false` and
+`comparisonInputEligible=false`. It derives source eligibility from authenticated
+run provenance, never an artifact claim. Only the trusted controller receives
+write credentials; `-PublishObservations` verifies its repository-main
+`workflow_run`, committed clean code and pinned workflow SHA before writing.
+The normal public CLI remains read-only unless the appropriate publication mode
+is explicitly selected. The legacy filesystem CLI cannot grant PR/fork authority.
+Qualified main observations alone can provide prior comparison inputs; no
+single lane record becomes a canonical baseline before calibration/cohort
+qualification. Both namespaces retain compact numeric/provenance records after
+raw expiry. Reference availability is retained
 metadata plus expiry, not a new download or fresh release acceptance.
 
 Summaries separate validation, timing observation, original policy/metric
@@ -1987,7 +1999,9 @@ They drive representative complete/broken artifacts through the public CLI,
 real validators and isolated Git: missing compiled companions, stale metrics,
 interrupted prefix measurements, absent actual handoff, installer trust/platform
 limits, skipped release clocks, failed/cancelled/rerun history, non-self
-comparison, atomic publication, malformed series and immutable mixed history.
+comparison, atomic publication, malformed series and immutable mixed history,
+source-derived ineligible publication, forged artifact eligibility, nonexecution
+and exclusion of PR/manual observations from comparison/baseline inputs.
 These fixtures establish result contracts, not hosted speed, Windows 11 client
 coverage, real desktop acceptance or production publication.
 

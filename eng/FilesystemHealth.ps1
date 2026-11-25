@@ -332,6 +332,40 @@ function Set-FilesystemComparison($Record, $History) {
     } else { $null }
 }
 
+function Read-HealthHistoryJson([string]$Directory, [string]$Tip, [string[]]$Paths) {
+    if (!('HealthHistoryJson' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.Json;
+public static class HealthHistoryJson {
+    public static string[] Split(string text) {
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(text),
+            new JsonReaderOptions { AllowMultipleValues = true, MaxDepth = 30 });
+        var values = new List<string>();
+        while (reader.Read()) {
+            using var document = JsonDocument.ParseValue(ref reader);
+            values.Add(document.RootElement.GetRawText());
+        }
+        return values.ToArray();
+    }
+}
+'@
+    }
+    $records = @()
+    for ($offset = 0; $offset -lt $Paths.Count; $offset += 64) {
+        $last = [Math]::Min($offset + 63, $Paths.Count - 1)
+        $chunk = @($Paths[$offset..$last])
+        $objects = @($chunk | ForEach-Object { "${Tip}:$_" })
+        $text = Invoke-HealthGit $Directory (@('--no-pager', 'show') + $objects)
+        $json = @([HealthHistoryJson]::Split($text))
+        if ($json.Count -ne $chunk.Count) { throw 'History blob/JSON cardinality disagrees.' }
+        foreach ($value in $json) { $records += ($value | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30) }
+    }
+    return $records
+}
+
 function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowLocalFixture,
     [hashtable]$RecordTypes = @{}) {
     if (!$AllowLocalFixture -and $Remote -cne "https://github.com/$FilesystemHealthRepository.git") {
@@ -353,10 +387,15 @@ function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowL
         $null = Invoke-HealthGit $Directory @('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
             'fetch', '--quiet', 'origin', "refs/heads/${FilesystemHealthBranch}:refs/heads/history")
         $tip = Invoke-HealthGit $Directory @('rev-parse', 'refs/heads/history')
+        $paths = @()
         foreach ($entry in @((Invoke-HealthGit $Directory @('ls-tree', '-r', $tip)) -split "`n")) {
             if ($entry -cnotmatch '^100644 blob [0-9a-f]{40}\t(?<path>.*)$') { throw 'History must contain regular JSON data files, not links or executable entries.' }
-            $path = $Matches.path
-            $record = Invoke-HealthGit $Directory @('show', "${tip}:$path") | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
+            $paths += $Matches.path
+        }
+        $parsed = @(Read-HealthHistoryJson $Directory $tip $paths)
+        for ($index = 0; $index -lt $paths.Count; $index++) {
+            $path = $paths[$index]
+            $record = $parsed[$index]
             if ($path -cmatch '^filesystem/[1-9][0-9]*/[1-9][0-9]*\.json$') {
                 Assert-HealthRecord $record $path
             } else {
@@ -370,7 +409,7 @@ function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowL
         }
     }
     return @{ directory = $Directory; tip = $tip; records = $records; remote = $Remote
-        localFixture = [bool]$AllowLocalFixture; recordTypes = $RecordTypes }
+        localFixture = [bool]$AllowLocalFixture; recordTypes = $RecordTypes; observationWriterAuthorized = $false }
 }
 
 function Publish-HealthRecord($History, $Record) {
@@ -382,7 +421,11 @@ function Publish-HealthRecords($History, $Records) {
     $callerHistory = $History
     $pending = @{}
     foreach ($record in $Records) {
-        if ($record.authority -cne 'trusted-main-push') { throw 'PR, fork and manual candidate artifacts cannot authorize history writes.' }
+        if ($record.authority -cne 'trusted-main-push' -and
+            ($record.authority -cne 'trusted-controller-observation' -or $record.recordType -cne 'lane-observation' -or
+                !$History.observationWriterAuthorized)) {
+            throw 'PR, fork and manual candidate artifacts cannot authorize history writes.'
+        }
         $path = Get-HealthRecordPath $record $History.recordTypes
         if ($pending.ContainsKey($path)) { throw 'Duplicate namespace/attempt in publication batch.' }
         $pending[$path] = $record
@@ -396,10 +439,29 @@ function Publish-HealthRecords($History, $Records) {
         $null = Invoke-HealthGit $directory @('read-tree', '--empty')
         if ($History.tip) { $null = Invoke-HealthGit $directory @('read-tree', $History.tip) }
         $blobs = @{}
-        foreach ($path in @($pending.Keys | Sort-Object -CaseSensitive)) {
-            $blob = Invoke-HealthGit $directory @('hash-object', '-w', '--stdin') ($pending[$path] | ConvertTo-Json -Depth 30)
-            $blobs[$path] = $blob
-            $null = Invoke-HealthGit $directory @('update-index', '--add', '--cacheinfo', "100644,$blob,$path")
+        $paths = @($pending.Keys | Sort-Object -CaseSensitive)
+        $inputDirectory = Join-Path $directory 'record-inputs'
+        New-Item -ItemType Directory -Path $inputDirectory -Force | Out-Null
+        $files = @()
+        try {
+            for ($index = 0; $index -lt $paths.Count; $index++) {
+                $file = Join-Path $inputDirectory "$index.json"
+                [IO.File]::WriteAllText($file, ($pending[$paths[$index]] | ConvertTo-Json -Depth 30) + [Environment]::NewLine,
+                    [Text.UTF8Encoding]::new($false))
+                $files += $file
+            }
+            $hashes = (Invoke-HealthGit $directory @('hash-object', '-w', '--stdin-paths') ($files -join "`n")) -split "`n"
+            if ($hashes.Count -ne $paths.Count -or @($hashes | Where-Object { $_ -cnotmatch '^[0-9a-f]{40}$' }).Count) {
+                throw 'History batch blob count/identity disagrees.'
+            }
+            $update = @('update-index', '--add')
+            for ($index = 0; $index -lt $paths.Count; $index++) {
+                $blobs[$paths[$index]] = $hashes[$index]
+                $update += @('--cacheinfo', "100644,$($hashes[$index]),$($paths[$index])")
+            }
+            $null = Invoke-HealthGit $directory $update
+        } finally {
+            foreach ($file in $files) { Remove-Item -LiteralPath $file -Force }
         }
         $tree = Invoke-HealthGit $directory @('write-tree')
         $arguments = @('-c', 'user.name=CI observation', '-c', 'user.email=ci-observation@users.noreply.github.com', 'commit-tree', $tree)
@@ -416,6 +478,7 @@ function Publish-HealthRecords($History, $Records) {
             $pushError = $_
             $retryDirectory = Join-Path (Split-Path $History.directory -Parent) ('h-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.git')
             $updated = Open-HealthHistory $retryDirectory $History.remote -AllowLocalFixture:$History.localFixture -RecordTypes $History.recordTypes
+            $updated.observationWriterAuthorized = $History.observationWriterAuthorized
             if ($updated.tip -ceq $History.tip) { throw $pushError }
             if ($History.tip) {
                 $null = Invoke-HealthGit $updated.directory @('merge-base', '--is-ancestor', $History.tip, $updated.tip)

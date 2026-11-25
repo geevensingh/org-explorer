@@ -50,13 +50,14 @@ function gh {
         '/actions/runs/51/artifacts\?per_page=100$' {
             ConvertTo-Json -InputObject @(@{ artifacts = $global:LaneHealthFixture.artifacts }) -Depth 10 -Compress; return
         }
+        '/actions/runs/999$' { $global:LaneHealthFixture.controller | ConvertTo-Json -Depth 10 -Compress; return }
         default { throw "Unexpected endpoint: $($arguments[1])" }
     }
 }
-function Observe([switch]$Publish) {
+function Observe([switch]$Publish, [switch]$PublishObservations) {
     $work = Join-Path $fixture ('o-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     & "$root\eng\Invoke-LaneHealth.ps1" -RunId 51 -RunAttempt $run.run_attempt -HistoryRemote $remote `
-        -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish
+        -AllowLocalFixture -WorkingDirectory $work -Publish:$Publish -PublishObservations:$PublishObservations
     return @{
         records = @(Get-Content (Join-Path $work 'records.json') -Raw | ConvertFrom-Json -AsHashtable)
         summary = Get-Content (Join-Path $work 'summary.md') -Raw
@@ -90,6 +91,8 @@ try {
     $observed = Observe -Publish
     $publicationCount = [int](git --git-dir=$remote rev-list --count refs/heads/ci-health-data)
     Assert ($publicationCount -eq 1) 'One observed attempt was not published atomically as one immutable history append.'
+    $publishedPaths = @(git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data)
+    Assert ($publishedPaths.Count -eq $observed.records.Count) 'Atomic publication omitted a lane record.'
     $saved = (git --git-dir=$remote show refs/heads/ci-health-data:lanes/51/1/core.json) -join "`n" | ConvertFrom-Json -AsHashtable
     Assert ($saved.validation -ceq 'success' -and $saved.measurements.executionSeconds -eq 120 -and
         $saved.measurements.headroomSeconds -eq 180 -and $saved.tests.total -eq 1 -and
@@ -306,6 +309,53 @@ try {
         $cancelledCore.reliability.attempts -eq 4 -and $cancelledCore.reliability.failureRatePercent -eq 25) 'Cancellation fabricated measurements or normalized all-attempt reliability.'
     $run.event = 'pull_request'; $run.head_repository.full_name = 'attacker/fork'
     Rejects { Observe -Publish } 'A fork acquired authoritative history access.'
+    $run.run_attempt = 5; $run.head_branch = 'feature'; $run.head_sha = '1' * 40; $coreJob.conclusion = 'success'
+    $fifthCore = Join-Path $evidence 'core-attempt-5'
+    Copy-Item -LiteralPath $core -Destination $fifthCore -Recurse
+    $execution.revision = $run.head_sha; $execution.runAttempt = '5'; $execution.complete = $true
+    $execution.outcome = 'success'; $execution.executionSeconds = 120; $execution.finishedAt = '2026-11-25T10:02:40Z'
+    $execution.baselineEligible = $true; $execution.comparisonInputEligible = $true
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $fifthCore 'execution.json')
+    "'candidate code must not execute' | Set-Content '$fixture\candidate-executed.txt'" |
+        Set-Content (Join-Path $fifthCore 'candidate.ps1')
+    $coreArtifact.name = 'core-attempt-5'; $coreArtifact.workflow_run.head_sha = $run.head_sha
+    $global:LaneHealthFixture.artifacts = @($coreArtifact)
+    $unqualified = Observe -PublishObservations
+    $unqualifiedCore = @($unqualified.records | Where-Object { $_.lane -ceq 'core' })[0]
+    $savedUnqualified = (git --git-dir=$remote show refs/heads/ci-health-data:observations/51/5/core.json) -join "`n" | ConvertFrom-Json -AsHashtable
+    Assert (!$savedUnqualified.baselineEligible -and !$savedUnqualified.comparisonInputEligible -and
+        $savedUnqualified.authority -ceq 'trusted-controller-observation' -and
+        $savedUnqualified.validation -ceq 'success' -and !(Test-Path (Join-Path $fixture 'candidate-executed.txt'))) 'Candidate eligibility claims acquired authority or executable access.'
+    Assert ($unqualified.summary.Contains('baseline-ineligible') -and $unqualifiedCore.reference.revision -ceq ('f' * 40)) 'Separate observation eligibility or a qualified reference was lost.'
+    $oldEnvironment = @{}
+    foreach ($name in @('GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'HEALTH_CONTROLLER_REVISION')) {
+        $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+    }
+    try {
+        $env:GITHUB_ACTIONS = 'true'; $env:GITHUB_REPOSITORY = 'geevensingh/org-explorer'
+        $env:GITHUB_RUN_ID = '999'; $env:HEALTH_CONTROLLER_REVISION = (git -C $root rev-parse HEAD).Trim()
+        $global:LaneHealthFixture.controller = @{ path = '.github/workflows/ci.yml'; event = 'pull_request'
+            head_branch = 'feature'; head_sha = $env:HEALTH_CONTROLLER_REVISION; head_repository = @{ full_name = 'attacker/fork' } }
+        $before = (git --git-dir=$remote rev-parse refs/heads/ci-health-data).Trim()
+        Rejects {
+            & "$root\eng\Invoke-LaneHealth.ps1" -RunId 51 -RunAttempt 5 -HistoryRemote $remote `
+                -WorkingDirectory (Join-Path $fixture 'unauthorized-controller') -PublishObservations
+        } 'Candidate/fork code impersonated the trusted observation writer.'
+        Assert ((git --git-dir=$remote rev-parse refs/heads/ci-health-data).Trim() -ceq $before) 'Rejected controller altered durable history.'
+    } finally {
+        foreach ($name in $oldEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name]) }
+    }
+    $run.event = 'push'; $run.head_repository.full_name = 'geevensingh/org-explorer'; $run.head_branch = 'main'
+    $run.run_attempt = 6; $run.head_sha = '2' * 40
+    $sixthCore = Join-Path $evidence 'core-attempt-6'
+    Copy-Item -LiteralPath $core -Destination $sixthCore -Recurse
+    $execution.revision = $run.head_sha; $execution.runAttempt = '6'; $execution.executionSeconds = 130
+    $execution | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $sixthCore 'execution.json')
+    $coreArtifact.name = 'core-attempt-6'; $coreArtifact.workflow_run.head_sha = $run.head_sha
+    $qualified = Observe -Publish
+    $qualifiedCore = @($qualified.records | Where-Object { $_.lane -ceq 'core' })[0]
+    Assert ($qualifiedCore.comparisonInputEligible -and !$qualifiedCore.baselineEligible -and
+        $qualifiedCore.reference.revision -ceq ('f' * 40) -and $qualifiedCore.reference.revision -cne ('1' * 40)) 'A PR observation became a comparison/baseline input.'
     $run.event = 'push'; $run.head_repository.full_name = 'geevensingh/org-explorer'
     $badHistory = Join-Path $fixture 'bad-history'
     git clone --quiet --branch ci-health-data $remote $badHistory

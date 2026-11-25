@@ -96,6 +96,37 @@ function Get-LaneHealthRecordTypes {
             GetPath = { param($record) "lanes/$($record.runId)/$($record.runAttempt)/$($record.lane).json" }
             Validate = { param($record, $path) Assert-LaneHealthRecord $record $path }
         }
+        'lane-observation' = @{
+            PathPattern = '^observations/[1-9][0-9]*/[1-9][0-9]*/[a-z][a-z0-9-]*\.json$'
+            GetPath = { param($record) "observations/$($record.runId)/$($record.runAttempt)/$($record.lane).json" }
+            Validate = { param($record, $path) Assert-LaneHealthRecord $record $path }
+        }
+    }
+}
+
+function Test-QualifiedHealthSource([string]$Event, [string]$Branch, [string]$Repository) {
+    return $Event -cin @('push', 'schedule', 'workflow_run') -and $Branch -ceq 'main' -and
+        $Repository -ceq $FilesystemHealthRepository
+}
+
+function Assert-HealthObservationController([switch]$AllowLocalFixture) {
+    if ($AllowLocalFixture) { return }
+    if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne $FilesystemHealthRepository -or
+        $env:GITHUB_RUN_ID -cnotmatch '^[1-9][0-9]*$' -or
+        $env:HEALTH_CONTROLLER_REVISION -cnotmatch '^[0-9a-f]{40}$') {
+        throw 'Observation publication requires the authenticated trusted workflow controller, not candidate credentials.'
+    }
+    $controller = Invoke-HealthApi "actions/runs/$($env:GITHUB_RUN_ID)"
+    $root = Split-Path $PSScriptRoot -Parent
+    $revision = git -C $root rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'Trusted controller checkout identity unavailable.' }
+    $changed = @(git -C $root status --porcelain --untracked-files=no)
+    if ($LASTEXITCODE -ne 0 -or $revision -cne $env:HEALTH_CONTROLLER_REVISION -or
+        $changed.Count -ne 0 -or
+        $controller.path -cne '.github/workflows/lane-health.yml' -or $controller.event -cne 'workflow_run' -or
+        $controller.head_branch -cne 'main' -or $controller.head_repository.full_name -cne $FilesystemHealthRepository -or
+        $controller.head_sha -cne $env:HEALTH_CONTROLLER_REVISION) {
+        throw 'Observation writer code/provenance is not the trusted main controller.'
     }
 }
 
@@ -106,24 +137,30 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
         'policyVersion', 'originalPolicy', 'verificationScope')) {
         if ($Record[$name] -isnot [string] -or [string]::IsNullOrWhiteSpace($Record[$name])) { throw "Invalid lane text field: $name" }
     }
+    $qualified = Test-QualifiedHealthSource $Record.sourceEvent $Record.sourceBranch $Record.sourceRepository
+    $observation = $Record.recordType -ceq 'lane-observation'
+    $namespace = if ($observation) { 'observations' } else { 'lanes' }
     $lanePattern = '^(core|filesystem|desktop-(people|workspace)|high-resolution-(reading|context)|ci|optional-(scale|rehearsal)|release-(plan|publish)|renewal-(plan|publish)|installer|(?:optional-)?rehearsal-package|(?:(?:optional-scale|optional-rehearsal-scale|scale|renewal-scale)-)?(?:non-ui-performance|ui-scale(?:-prefix|-tail)?)|unmapped-[1-9][0-9]*)$'
-    if ($Record.schemaVersion -ne 2 -or $Record.recordType -cne 'lane-health' -or
+    if ($Record.schemaVersion -ne 2 -or $Record.recordType -cnotin @('lane-health', 'lane-observation') -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.controllerRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.lane -cnotmatch $lanePattern -or
         $Record.runId -cnotmatch '^[1-9][0-9]*$' -or $Record.runAttempt -cnotmatch '^[1-9][0-9]*$' -or
-        $Record.authority -cne 'trusted-main-push' -or $Record.sourceBranch -cne 'main' -or
-        $Record.sourceRepository -cne $FilesystemHealthRepository -or
-        $Record.sourceEvent -cnotin @('push', 'schedule', 'workflow_run') -or
+        ($observation -and ($qualified -or $Record.authority -cne 'trusted-controller-observation')) -or
+        (!$observation -and (!$qualified -or $Record.authority -cne 'trusted-main-push')) -or
+        $Record.baselineEligible -isnot [bool] -or $Record.baselineEligible -or
+        $Record.comparisonInputEligible -isnot [bool] -or $Record.comparisonInputEligible -ne $qualified -or
+        $Record.sourceEvent -cnotin @('push', 'schedule', 'workflow_run', 'pull_request', 'workflow_dispatch') -or
         $Record.workflowPath -cnotin @('.github/workflows/ci.yml', '.github/workflows/scale-verification.yml',
             '.github/workflows/installer-verification.yml', '.github/workflows/release.yml',
             '.github/workflows/release-verification.yml') -or
         $Record.validation -cnotin @('success', 'failure', 'incomplete', 'cancelled', 'skipped') -or
         $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive') -or
         $Record.policyVersion -cne 'lane-observation-v2' -or
-        $Path -cne "lanes/$($Record.runId)/$($Record.runAttempt)/$($Record.lane).json") {
+        $Path -cne "$namespace/$($Record.runId)/$($Record.runAttempt)/$($Record.lane).json") {
         throw 'Invalid durable lane observation schema/provenance.'
     }
     Assert-HealthDate $Record.observedAt 'observedAt'
+    if ($null -ne $Record.writerRevision -and $Record.writerRevision -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid writer revision.' }
     if ($Record.seriesKey -ne $null) {
         $measurement = @{ configuration = $Record.configuration; originalPolicy = $Record.originalPolicy
             selector = $Record.selector; measuredAt = $Record.measuredAt }
@@ -581,6 +618,8 @@ function Set-LaneHealthComparison($Record, $History) {
             validation = $_.validation; executionSeconds = if ($_.measurements) { $_.measurements.executionSeconds } else { $null } } })
     if ($null -eq $Record.seriesKey -or $null -eq $Record.measurements) { return }
     $compatible = @($attempts | Where-Object { $_.seriesKey -ceq $Record.seriesKey -and
+        (($_.Contains('comparisonInputEligible') -and $_.comparisonInputEligible) -or
+            (!$_.Contains('recordType') -and $_.authority -ceq 'trusted-main-push')) -and
         $_.validation -ceq 'success' -and $_.revision -cne $Record.revision -and
         $null -ne $_.measurements -and [DateTimeOffset]$_.measuredAt -le [DateTimeOffset]$Record.observedAt } |
         Sort-Object measuredAt -Descending)
@@ -619,6 +658,8 @@ function Format-LaneHealth($Records, [string]$Publication) {
             "Validation: **$($record.validation)**; timing: **$($record.timingHealth)**; original job: **$($record.jobOutcome)**.",
             "Candidate: ``$($record.revision)``; controller: ``$($record.controllerRevision)``; run/attempt: $($record.runId)/$($record.runAttempt).",
             "Candidate evidence: $($record.candidateState).",
+            "Observer code: ``$($record.writerRevision)`` ($($record.writerScope)); source workflow revision is recorded separately.",
+            "History eligibility: $(if ($record.comparisonInputEligible) { 'qualified main observation; canonical baseline eligibility remains pending calibration' } else { 'baseline-ineligible PR/manual/fork observation; never a comparison input' }).",
             "Policy: ``$($record.originalPolicy)``; scope: $($record.verificationScope).",
             '| Measurement / phase | Value | Reference | Change |', '|---|---:|---:|---:|')
         if ($record.measurements) {
