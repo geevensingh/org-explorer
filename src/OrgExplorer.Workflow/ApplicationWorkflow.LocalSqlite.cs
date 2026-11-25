@@ -98,6 +98,7 @@ public sealed partial class ApplicationWorkflow
             command.ExecuteNonQuery();
             CreateLocalNoteSchema(command);
             CreateLocalProfileSchema(command);
+            WriteLocalFavoriteOrder(command, []);
             transaction.Commit();
         }
         if (!File.Exists(Path.Combine(workspace!, SqliteDiscriminator)) ||
@@ -112,6 +113,7 @@ public sealed partial class ApplicationWorkflow
         var contexts = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         var historical = new Dictionary<string, List<HistoricalTeamContext>>(StringComparer.OrdinalIgnoreCase);
         var loadedPhotos = new Dictionary<string, byte[]>();
+        IReadOnlyList<string>? loadedFavorites;
         string committedRevision;
         int version;
         using var readObservation = fileObserver is null ? null : new LocalReadSnapshotObservation(fileObserver);
@@ -150,6 +152,7 @@ public sealed partial class ApplicationWorkflow
                         throw new FormatException("Unsupported or inconsistent local Person data. Nothing is partially opened.");
                 }
             ValidateGraph(loaded);
+            loadedFavorites = ReadLocalFavoriteOrder(command, loaded);
             command.CommandText = "SELECT email, history FROM profile_history;";
             using (var histories = command.ExecuteReader())
                 while (histories.Read())
@@ -279,6 +282,13 @@ public sealed partial class ApplicationWorkflow
                 "No ordinary write was attempted. Browsing remains available. Explicitly reconcile local storage before editing. " +
                 error.Message);
         }
+        if (loadedFavorites is null)
+        {
+            if (!walReady) throw new IOException("Legacy Favorites ordering requires healthy local storage before initialization.");
+            loadedFavorites = Array.AsReadOnly(loaded.Values.Where(person => person.IsFavorite)
+                .OrderBy(person => person.Heading).Select(person => person.Email).ToArray());
+            committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
+        }
         people = loaded;
         batches = accepted;
         profileHistory = history;
@@ -289,6 +299,7 @@ public sealed partial class ApplicationWorkflow
         teamNoteConfirmations = confirmations;
         teamContextRevisions = contexts;
         photos = loadedPhotos;
+        favoriteOrder = loadedFavorites;
         InvalidateProjections();
         workspaceCurrent = true;
         compatibility = new(WorkspaceCompatibilityState.Compatible,
@@ -363,6 +374,7 @@ public sealed partial class ApplicationWorkflow
             if (reader.GetString(1) != revision)
                 throw new IOException("Local Workspace changed. Reopen to reconcile the note before retrying.");
         }
+        ValidateStoredFavoriteOrder(command);
         ValidateNoteDraft(scope, metadata.Id);
         ValidateNoteMetadata(metadata, scope, people, "Local note");
         using var evidence = BeginLocalWrite();
@@ -385,7 +397,7 @@ public sealed partial class ApplicationWorkflow
         Dictionary<string, AcceptedBatch> accepted, Dictionary<string, byte[]> proposedPhotos,
         Dictionary<string, PersonHistory> history, Dictionary<string, Guid> nextContexts,
         Dictionary<string, List<HistoricalTeamContext>> nextHistorical, string operation,
-        IReadOnlyList<PhotoResource>? resources)
+        IReadOnlyList<PhotoResource>? resources, IReadOnlyList<string> nextFavorites)
     {
         if (Synchronization.Diverged) return Fail("Edits are paused for preserved divergent Workspace versions.");
         try
@@ -406,7 +418,9 @@ public sealed partial class ApplicationWorkflow
                 if (reader.GetString(1) != revision)
                     throw new IOException("Local Workspace changed. Reopen to reconcile before retrying.");
             }
+            ValidateStoredFavoriteOrder(command);
             ValidateGraph(proposed);
+            ValidateFavoriteOrder(nextFavorites, proposed);
             foreach (var person in proposed.Values) ValidateProfileHistory(history[person.Email], person);
             foreach (var reference in RequiredPhotos(proposed, history, nextHistorical))
                 if (!proposedPhotos.ContainsKey(reference))
@@ -478,6 +492,7 @@ public sealed partial class ApplicationWorkflow
             }
             if (resources is not null && !PhotoResourcesUnchanged(resources))
                 throw new IOException("Required photo changed while saving. Nothing saved; retain the draft and choose the intended image again.");
+            WriteLocalFavoriteOrder(command, nextFavorites);
             var next = AdvanceLocalRevision(command, 3, evidence.Intent.NextRevision);
             CommitLocalWrite(transaction, evidence);
             AcceptLocalRevision(next);

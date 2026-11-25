@@ -599,7 +599,9 @@
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
           <TextBlock x:Name="FavoriteCount" AutomationProperties.AutomationId="FavoriteCount" Text="Favorites: 0" FontWeight="SemiBold" Margin="0,8,0,4"/>
           <ListBox x:Name="FavoritesList" AutomationProperties.AutomationId="Favorites" AutomationProperties.Name="Favorites" MaxHeight="90"
-                   SelectionChanged="SelectFavoritePerson" Background="Transparent" BorderThickness="0">
+                   SelectionChanged="SelectFavoritePerson" Background="Transparent" BorderThickness="0"
+                   AllowDrop="True" PreviewDragOver="ShowFavoriteDrop" PreviewDragLeave="LeaveFavoriteDrop"
+                   PreviewDrop="CompleteFavoriteDrop">
             <ListBox.ItemContainerStyle>
               <Style TargetType="ListBoxItem" BasedOn="{StaticResource NavigationRow}">
                 <Setter Property="AutomationProperties.AutomationId" Value="{Binding Person.Email}"/>
@@ -610,6 +612,22 @@
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <StackPanel Orientation="Horizontal">
+                  <Thumb Width="20" Height="20" Margin="0,0,6,0" Focusable="False" Cursor="SizeAll"
+                         AutomationProperties.AutomationId="FavoriteDragHandle"
+                         AutomationProperties.Name="Drag favorite to rearrange"
+                         ToolTip="Drag to rearrange Favorites"
+                         PreviewMouseLeftButtonDown="BeginFavoriteHandle"
+                         PreviewMouseMove="MoveFavoriteHandle"
+                         PreviewMouseLeftButtonUp="ReleaseFavoriteHandle">
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent">
+                          <TextBlock Text="&#xE784;" FontFamily="Segoe Fluent Icons" Foreground="{StaticResource MutedBrush}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
                   <TextBlock Text="&#xE735;" FontFamily="Segoe Fluent Icons" Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0"/>
                   <TextBlock Text="{Binding Person.Heading}" MaxHeight="20"/>
                   <TextBlock Text=" (Archived)" Foreground="{StaticResource MutedBrush}">

@@ -598,6 +598,20 @@ public sealed partial class ApplicationWorkflow
             """;
         command.ExecuteNonQuery();
         Put("people", data.People);
+        // Interchange-1 has membership, not custom order. Initialize its local projection
+        // inside the same adoption transaction without creating another revision.
+        var incomingPeople = new Dictionary<string, PersonProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in data.People)
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(row.Value) is not System.Text.Json.Nodes.JsonObject json)
+                throw new FormatException("Invalid snapshot Person record.");
+            json.Add("schemaVersion", 2);
+            var person = ReadPersonRecord(JsonSerializer.SerializeToElement(json));
+            if (!row.Key.Equals(person.Email, StringComparison.OrdinalIgnoreCase) || !incomingPeople.TryAdd(person.Email, person))
+                throw new FormatException("Unknown or duplicate snapshot Person identity.");
+        }
+        WriteLocalFavoriteOrder(command, Array.AsReadOnly(incomingPeople.Values.Where(person => person.IsFavorite)
+            .OrderBy(person => person.Heading).Select(person => person.Email).ToArray()));
         Put("profile_history", data.History);
         Put("accepted_batches", data.AcceptedImports);
         foreach (var note in data.Notes)
@@ -676,6 +690,7 @@ public sealed partial class ApplicationWorkflow
             {
                 var accepted = candidate.Workflow;
                 people = accepted.people;
+                favoriteOrder = accepted.favoriteOrder;
                 batches = accepted.batches;
                 profileHistory = accepted.profileHistory;
                 historicalTeamContexts = accepted.historicalTeamContexts;

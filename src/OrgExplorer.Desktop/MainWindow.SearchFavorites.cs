@@ -1,8 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using OrgExplorer.Workflow;
 
 namespace OrgExplorer.Desktop;
@@ -10,6 +12,163 @@ namespace OrgExplorer.Desktop;
 public partial class MainWindow
 {
     private sealed record FavoriteRow(PersonProfile Person, string Label);
+    private sealed record FavoriteDrag(string Email, string? WorkspacePath, Guid? WorkspaceId);
+    private Thumb? favoriteDragHandle;
+    private Point favoriteDragStart;
+    private FavoriteDrag? activeFavoriteDrag;
+    private Point? favoriteDropPoint;
+    private FavoriteInsertionAdorner? favoriteInsertion;
+    private readonly DispatcherTimer favoriteScrollTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
+
+    private sealed class FavoriteInsertionAdorner(UIElement owner, Brush brush) : Adorner(owner)
+    {
+        public double Position { get; set; }
+        protected override void OnRender(DrawingContext drawingContext) =>
+            drawingContext.DrawLine(new Pen(brush, 2), new Point(0, Position),
+                new Point(AdornedElement.RenderSize.Width, Position));
+    }
+
+    private bool CanDragFavorites => !workPending && CanEditCurrentWorkspace && workflow.PeopleNavigation.IsBrowsing;
+
+    private void BeginFavoriteHandle(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Thumb handle || handle.DataContext is not FavoriteRow || !CanDragFavorites) return;
+        favoriteDragHandle = handle;
+        favoriteDragStart = e.GetPosition(FavoritesList);
+        handle.CaptureMouse();
+    }
+
+    private void ReleaseFavoriteHandle(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        favoriteDragHandle?.ReleaseMouseCapture();
+        favoriteDragHandle = null;
+    }
+
+    private void MoveFavoriteHandle(object sender, MouseEventArgs e)
+    {
+        if (favoriteDragHandle is not { IsMouseCaptured: true, DataContext: FavoriteRow row } handle ||
+            e.LeftButton != MouseButtonState.Pressed || !CanDragFavorites) return;
+        e.Handled = true;
+        var point = e.GetPosition(FavoritesList);
+        if (Math.Abs(point.X - favoriteDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(point.Y - favoriteDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        handle.ReleaseMouseCapture();
+        favoriteDragHandle = null;
+        var drag = activeFavoriteDrag = new(row.Person.Email, workflow.Compatibility.WorkspacePath,
+            workflow.Synchronization.WorkspaceId);
+        favoriteScrollTimer.Tick += ScrollFavoriteDrag;
+        favoriteScrollTimer.Start();
+        try { DragDrop.DoDragDrop(handle, drag, DragDropEffects.Move); }
+        finally
+        {
+            favoriteScrollTimer.Stop();
+            favoriteScrollTimer.Tick -= ScrollFavoriteDrag;
+            activeFavoriteDrag = null;
+            ClearFavoriteDrop();
+        }
+    }
+
+    private bool IsCurrentFavoriteDrag(DragEventArgs e) => CanDragFavorites &&
+        activeFavoriteDrag is { } drag && drag.WorkspacePath == workflow.Compatibility.WorkspacePath &&
+        drag.WorkspaceId == workflow.Synchronization.WorkspaceId &&
+        e.Data.GetDataPresent(typeof(FavoriteDrag)) && ReferenceEquals(e.Data.GetData(typeof(FavoriteDrag)), drag);
+
+    private void ShowFavoriteDrop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        e.Effects = DragDropEffects.None;
+        if (!IsCurrentFavoriteDrag(e)) { ClearFavoriteDrop(); return; }
+        favoriteDropPoint = e.GetPosition(FavoritesList);
+        if (TryFavoriteDestination(favoriteDropPoint.Value, out _, out var marker))
+        {
+            e.Effects = DragDropEffects.Move;
+            ShowFavoriteInsertion(marker);
+        }
+        else ClearFavoriteInsertion();
+    }
+
+    private void LeaveFavoriteDrop(object sender, DragEventArgs e) => ClearFavoriteDrop();
+
+    private void ScrollFavoriteDrag(object? sender, EventArgs e)
+    {
+        if (!CanDragFavorites || favoriteDropPoint is not { } point || FindScrollViewer(FavoritesList) is not { } scroll) return;
+        if (point.Y < 16) scroll.LineUp();
+        else if (point.Y > FavoritesList.ActualHeight - 16) scroll.LineDown();
+        else return;
+        if (TryFavoriteDestination(point, out _, out var marker)) ShowFavoriteInsertion(marker);
+        else ClearFavoriteInsertion();
+    }
+
+    private bool TryFavoriteDestination(Point point, out string? beforeEmail, out double marker)
+    {
+        beforeEmail = null;
+        marker = 0;
+        if (point.X < 0 || point.Y < 0 || point.X >= FavoritesList.ActualWidth || point.Y >= FavoritesList.ActualHeight)
+            return false;
+        for (var hit = FavoritesList.InputHitTest(point) as DependencyObject;
+            hit is not null && hit != FavoritesList; hit = VisualTreeHelper.GetParent(hit))
+            if (hit is ScrollBar) return false;
+        var last = -1;
+        for (var index = 0; index < FavoritesList.Items.Count; index++)
+        {
+            if (FavoritesList.ItemContainerGenerator.ContainerFromIndex(index) is not ListBoxItem container ||
+                container.DataContext is not FavoriteRow row) continue;
+            var top = container.TranslatePoint(new Point(), FavoritesList).Y;
+            var bottom = top + container.ActualHeight;
+            if (bottom < 0 || top > FavoritesList.ActualHeight) continue;
+            last = index;
+            if (point.Y < (top + bottom) / 2)
+            {
+                beforeEmail = row.Person.Email;
+                marker = Math.Max(1, top);
+                return true;
+            }
+            marker = Math.Min(FavoritesList.ActualHeight - 1, bottom);
+        }
+        return last >= 0 && last == FavoritesList.Items.Count - 1;
+    }
+
+    private void ShowFavoriteInsertion(double position)
+    {
+        if (favoriteInsertion is null && AdornerLayer.GetAdornerLayer(FavoritesList) is { } layer)
+        {
+            favoriteInsertion = new(FavoritesList, (Brush)FindResource("AccentBrush")) { IsHitTestVisible = false };
+            layer.Add(favoriteInsertion);
+        }
+        if (favoriteInsertion is null) return;
+        favoriteInsertion.Position = position;
+        favoriteInsertion.InvalidateVisual();
+    }
+
+    private void ClearFavoriteInsertion()
+    {
+        if (favoriteInsertion is not null)
+            AdornerLayer.GetAdornerLayer(FavoritesList)?.Remove(favoriteInsertion);
+        favoriteInsertion = null;
+    }
+
+    private void ClearFavoriteDrop()
+    {
+        favoriteDropPoint = null;
+        ClearFavoriteInsertion();
+    }
+
+    private async void CompleteFavoriteDrop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        e.Effects = DragDropEffects.None;
+        if (activeFavoriteDrag is not { } drag || !IsCurrentFavoriteDrag(e) ||
+            !TryFavoriteDestination(e.GetPosition(FavoritesList), out var before, out _)) return;
+        var moving = drag.Email;
+        e.Effects = DragDropEffects.Move;
+        ClearFavoriteDrop();
+        if (await RunWorkflowAsync(() => workflow.ReorderFavorite(moving, before),
+            "Saving local Favorite arrangement...", ordinarySave: true)) RefreshPeople();
+        ShowStatus();
+    }
+
     private bool refreshingQueries;
     private readonly Dictionary<string, bool> unsavedFavorites = new(StringComparer.OrdinalIgnoreCase);
     private bool? unsavedFavorite

@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
 using Xunit;
@@ -42,6 +44,198 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
             """, 1);
         return app;
+    }
+
+    private void ChangeStoredFixture(string sql)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(folder, "workspace.sqlite"), Pooling = false
+        }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Supported_unordered_Workspace_initializes_displayed_names_and_ties_once_without_losing_private_state()
+    {
+        var app = Seed();
+        Assert.True(app.EditFavorite("avery@example.com", true));
+        Assert.True(app.EditFavorite("morgan@example.com", true));
+        Apply(app, """
+            {"email":"z-tie@example.com","displayName":"Directory Z","preferredName":"Beta","managerEmail":null,"isFavorite":true},
+            {"email":"a-tie@example.com","displayName":"Beta","managerEmail":null,"isFavorite":true},
+            {"email":"cc-fallback@example.com","displayName":"Original","managerEmail":null,"isFavorite":true}
+            """, 2);
+        Assert.True(app.EditPersonText("cc-fallback@example.com", PersonTextField.DirectoryName, null));
+        var note = app.CreatePersonNote("avery@example.com", "Private", "Exact private writing")!;
+        var history = app.GetProfileTimeline("avery@example.com")!;
+        app.Dispose();
+        ChangeStoredFixture("DROP TABLE favorite_order;");
+
+        var initialized = Open();
+        Assert.Equal(["alex@example.com", "avery@example.com", "z-tie@example.com", "a-tie@example.com",
+            "cc-fallback@example.com", "morgan@example.com"], initialized.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Exact private writing", initialized.GetPersonNotes("avery@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(JsonSerializer.Serialize(history.Changes),
+            JsonSerializer.Serialize(initialized.GetProfileTimeline("avery@example.com")!.Changes));
+        Assert.Equal(JsonSerializer.Serialize(history.Observations),
+            JsonSerializer.Serialize(initialized.GetProfileTimeline("avery@example.com")!.Observations));
+        var revision = initialized.LocalSave.CommittedRevision;
+        Assert.Equal(revision, Open().LocalSave.CommittedRevision);
+        Assert.True(initialized.ReorderFavorite("morgan@example.com", "alex@example.com"), initialized.Status);
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com", "z-tie@example.com",
+            "a-tie@example.com", "cc-fallback@example.com"], Open().FavoritePeople.Select(person => person.Email));
+    }
+
+    [Fact]
+    public void Initialized_empty_order_and_Workspace_switching_keep_later_additions_in_each_saved_sequence()
+    {
+        var app = Seed();
+        Assert.True(app.EditFavorite("alex@example.com", false));
+        app.Dispose();
+        var reopened = Open();
+        var emptyRevision = reopened.LocalSave.CommittedRevision;
+        Assert.Empty(reopened.FavoritePeople);
+        Assert.Equal(emptyRevision, Open().LocalSave.CommittedRevision);
+        Assert.True(reopened.EditFavorite("morgan@example.com", true));
+        Assert.True(reopened.EditFavorite("alex@example.com", true));
+        var alternate = Path.Combine(root, "alternate");
+        Assert.True(reopened.OpenWorkspace(alternate));
+        Apply(reopened, """
+            {"email":"alex@example.com","displayName":"Alex alternate","managerEmail":null,"isFavorite":true},
+            {"email":"morgan@example.com","displayName":"Morgan alternate","managerEmail":null,"isFavorite":true}
+            """, 8);
+        Assert.Equal(["alex@example.com", "morgan@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.True(reopened.OpenWorkspace(folder));
+        Assert.Equal(["morgan@example.com", "alex@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+    }
+
+    [Theory]
+    [InlineData("DELETE FROM favorite_order;")]
+    [InlineData("UPDATE favorite_order SET sequence='null';")]
+    [InlineData("UPDATE favorite_order SET sequence='{}';")]
+    [InlineData("UPDATE favorite_order SET sequence='[null]';")]
+    [InlineData("UPDATE favorite_order SET sequence='[]';")]
+    [InlineData("UPDATE favorite_order SET sequence='[\"alex@example.com\",\"ALEX@example.com\"]';")]
+    [InlineData("UPDATE favorite_order SET sequence='[\"unknown@example.com\"]';")]
+    [InlineData("UPDATE favorite_order SET sequence='[\"avery@example.com\"]';")]
+    [InlineData("UPDATE favorite_order SET format_version=2;")]
+    public void Malformed_or_unsupported_order_is_rejected_and_retains_the_last_valid_Favorites(string corruption)
+    {
+        var app = Seed();
+        var note = app.CreatePersonNote("avery@example.com", "Private", "Retain exact note")!;
+        ChangeStoredFixture(corruption);
+        var bytes = WorkspaceFixtures.Bytes(folder);
+
+        Assert.False(app.RefreshWorkspace());
+
+        Assert.Equal(["alex@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Retain exact note", app.GetPersonNotes("avery@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Contains("STALE", app.Status);
+        Assert.False(app.EditFavorite("avery@example.com", true));
+        Assert.False(app.ReorderFavorite("alex@example.com", null));
+        foreach (var (path, expected) in bytes) Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, path)));
+        using var rejected = ApplicationWorkflow.CreateFileBacked();
+        Assert.False(rejected.OpenWorkspace(folder));
+        Assert.Empty(rejected.FavoritePeople);
+    }
+
+    [Fact]
+    public void A_save_cannot_replace_malformed_order_that_arrived_after_the_last_validated_read()
+    {
+        var app = Seed();
+        var revision = app.LocalSave.CommittedRevision;
+        ChangeStoredFixture("UPDATE favorite_order SET sequence='[]';");
+        var bytes = WorkspaceFixtures.Bytes(folder);
+
+        Assert.False(app.EditFavorite("avery@example.com", true));
+
+        Assert.Equal(["alex@example.com"], app.FavoritePeople.Select(person => person.Email));
+        Assert.Equal(revision, app.LocalSave.CommittedRevision);
+        Assert.Contains("Favorites order", app.LocalSaveError);
+        foreach (var (path, expected) in bytes) Assert.Equal(expected, File.ReadAllBytes(Path.Combine(folder, path)));
+    }
+
+    [Fact]
+    public void Exact_Favorite_order_reopens_and_survives_profile_Save_Cancel_names_reporting_and_archival()
+    {
+        var app = Seed();
+        Assert.True(app.EditFavorite("avery@example.com", true), app.Status);
+        Assert.True(app.EditFavorite("morgan@example.com", true), app.Status);
+        Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Unsubmitted"), app.Status);
+        Assert.True(app.ReorderFavorite("morgan@example.com", "alex@example.com"), app.Status);
+        Assert.Equal("Unsubmitted", app.ProfileEdit!.Draft.OfficeNumber);
+        app.CancelProfileEdit();
+        Assert.True(app.BeginProfileEdit("avery@example.com"), app.Status);
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Committed profile"), app.Status);
+        Assert.True(app.SaveProfileEdit(), app.Status);
+        Assert.True(app.EditPreferredName("morgan@example.com", "AAA"), app.Status);
+        Assert.True(app.EditPersonText("alex@example.com", PersonTextField.DirectoryName, "ZZZ"), app.Status);
+        Assert.True(app.EditPersonManager("avery@example.com", "alex@example.com"), app.Status);
+        Assert.True(app.EditPersonArchived("morgan@example.com", true), app.Status);
+        Assert.True(app.EditPersonArchived("morgan@example.com", false), app.Status);
+        Assert.True(app.EditPersonArchived("avery@example.com", true), app.Status);
+
+        var reopened = Open();
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com"],
+            reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Committed profile", reopened.GetRelationships("avery@example.com")!.Person.OfficeNumber);
+        Assert.True(reopened.FavoritePeople[2].Archived);
+        Assert.True(reopened.EditPersonArchived("avery@example.com", false), reopened.Status);
+        var revision = reopened.LocalSave.CommittedRevision;
+        Assert.True(reopened.ReorderFavorite("morgan@example.com", "morgan@example.com"));
+        Assert.True(reopened.ReorderFavorite("morgan@example.com", "alex@example.com"));
+        Assert.True(reopened.ReorderFavorite("avery@example.com", null));
+        Assert.True(reopened.EditFavorite("morgan@example.com", true));
+        Assert.False(reopened.ReorderFavorite("unknown@example.com", null));
+        Assert.False(reopened.ReorderFavorite("morgan@example.com", "unknown@example.com"));
+        Assert.Equal(revision, reopened.LocalSave.CommittedRevision);
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com"],
+            Open().FavoritePeople.Select(person => person.Email));
+    }
+
+    [Fact]
+    public void Locked_reorder_retains_the_old_sequence_and_recovery_retry_preserves_independent_failed_and_unsaved_writing()
+    {
+        var app = (WorkspaceViewModel)Seed();
+        Assert.True(app.EditFavorite("avery@example.com", true));
+        Assert.True(app.EditFavorite("morgan@example.com", true));
+        var note = app.CreatePersonNote("morgan@example.com", "Saved note", "Original writing")!;
+        Assert.False(app.EditPersonNote(note.Id, "", "Independent failed writing"));
+        var basis = app.GetRelationships("avery@example.com")!.Person;
+        app.RetainPersonTextDraft(basis, PersonTextField.PreferredName, "Unsubmitted Preferred name");
+        Assert.True(app.BeginProfileEdit("alex@example.com"));
+        Assert.True(app.StageProfileText(PersonTextField.OfficeNumber, "Unsubmitted profile"));
+        using (WorkspaceFixtures.LockLocalStore(folder))
+        {
+            Assert.False(app.ReorderFavorite("morgan@example.com", "alex@example.com"));
+            Assert.Equal(["alex@example.com", "avery@example.com", "morgan@example.com"],
+                app.FavoritePeople.Select(person => person.Email));
+            Assert.Equal(["alex@example.com", "avery@example.com", "morgan@example.com"],
+                Open().FavoritePeople.Select(person => person.Email));
+            Assert.Contains("NOT saved", app.LocalSaveError);
+            Assert.False(app.CanSafelyClose);
+            app.CancelProfileEdit();
+            Assert.Contains("NOT saved", app.LocalSaveError);
+        }
+        Assert.True(app.ReconcileLocalSaves(), app.Status);
+        Assert.True(app.ReorderFavorite("morgan@example.com", "alex@example.com"), app.Status);
+        Assert.Equal(["morgan@example.com", "alex@example.com", "avery@example.com"],
+            Open().FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Unsubmitted Preferred name",
+            app.GetPersonTextDraft("avery@example.com", PersonTextField.PreferredName)!.Value);
+        Assert.Contains("title", app.LocalSaveError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(app.CanSafelyClose);
+        Assert.Equal("Original writing", app.GetPersonNotes("morgan@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.True(app.EditPersonNote(note.Id, "Saved after retry", "Independent failed writing"), app.Status);
+        Assert.Null(app.LocalSaveError);
+        Assert.False(app.CanSafelyClose);
+        app.DiscardPersonTextDraft(basis, PersonTextField.PreferredName);
+        Assert.True(app.CanSafelyClose, app.Status);
     }
 
     [Fact]

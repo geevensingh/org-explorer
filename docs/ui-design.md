@@ -187,12 +187,18 @@ without activating a result restores Favorites and the previous reporting-tree
 position. Successful activation instead reveals the chosen Person as described
 below.
 
-**Approved Favorites ordering design (not yet implemented):** keep one Favorites
-list with the saved sequence described in [the product design](design.md#favorites-ordering-approved-design-not-yet-implemented).
+**Favorites ordering (local slice implemented; delivery incomplete):** keep one Favorites
+list with the saved sequence described in [the product design](design.md#favorites-ordering-approved-design-delivery-incomplete).
 Reordering uses drag-and-drop from a dedicated handle; ordinary row clicks still
 open the Person's profile. Save each completed move immediately, preserving the
 previous order and reporting an error if saving fails. Dragging does not itself
 activate another profile.
+
+An insertion line marks the intended destination, and the list scrolls when a
+handle drag is held near its top or bottom. Escape or an outside drop cancels the
+move. After a local-save failure, retain the old rows and existing recovery/error
+surface; reconcile storage and deliberately drag again to retry. Native interaction
+acceptance still requires the exact-candidate hosted journey.
 
 There are no keyboard move commands, named groups, alphabetize/reset action,
 confirmation dialog, separate editing mode or order Save button. Reordering is

@@ -83,6 +83,8 @@ public sealed partial class WorkspaceViewModel : IApplicationWorkflow, INotifyPr
     public IReadOnlyList<PersonSearchResult> SearchPeople(string query) => workflow.SearchPeople(query);
     public IReadOnlyList<PersonProfile> FavoritePeople => workflow.FavoritePeople;
     public bool EditFavorite(string email, bool isFavorite) => CanSubmitLocalSave() && ObserveLocalSave(() => workflow.EditFavorite(email, isFavorite));
+    public bool ReorderFavorite(string email, string? beforeEmail) =>
+        CanSubmitLocalSave() && ObserveLocalSave(() => workflow.ReorderFavorite(email, beforeEmail));
     public IReadOnlyList<PersonProfile> ArchivedPeople => workflow.ArchivedPeople;
     public IReadOnlyList<ReportingNode> ReportingRoots => workflow.ReportingRoots;
     public PersonRelationships? GetRelationships(string email) => workflow.GetRelationships(email);

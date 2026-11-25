@@ -75,7 +75,24 @@ Import envelopes and logical fingerprints, Profile observations/changes, Person
 and Team notes, Team confirmation/context revisions, frozen Historical team
 contexts, and required photo bytes.
 
-**Approved Favorites ordering design (not yet implemented):** retain the saved
+The local Favorites slice adds `favorite_order` to SQLite format 3 without
+changing the directory-exchange or interchange-1 snapshot formats. Its single
+row has `singleton=1`, `format_version=1` and a JSON `sequence` of stable Person
+emails. An absent table denotes a supported unordered store: after complete
+validation, initialize A-Z in one evidenced local transaction. An existing table
+requires that row and the complete, valid sequence, including `[]`; missing,
+duplicate, unknown, non-Favorite or incomplete identities are rejected, never
+alphabetized as recovery. Save revalidates the stored sequence inside the same
+transaction as membership, Import or order changes. Older local Workspace
+formats remain unsupported and are not migrated.
+
+Interchange-1 still carries membership but not custom ordering. Its validated
+local projection initializes A-Z within the adoption transaction, retaining the
+incoming revision and existing complete-snapshot semantics. Exact-order
+publication/adoption remains #143; this local slice is not private-order
+portability or complete delivery of the design.
+
+**Approved Favorites ordering design (delivery incomplete):** retain the saved
 Favorite sequence as private Workspace state, using stable Person identity
 rather than displayed names. A workspace without saved ordering initializes it
 once from its existing A-Z displayed-name sequence, preserving relative order
@@ -97,7 +114,7 @@ A-Z displayed-name order, retaining input order for equal names. Existing
 Favorite omission/false and accepted-batch replay semantics remain unchanged.
 Ordinary Person export continues to exclude private Favorite status and order;
 complete-snapshot sync is distinct from that exchange. See the
-[approved product behavior](design.md#favorites-ordering-approved-design-not-yet-implemented).
+[approved product behavior](design.md#favorites-ordering-approved-design-delivery-incomplete).
 
 Explicit profile/Preferred-name Save always reads the actual SQLite head and
 format. If that revision still matches the already validated local state, Save

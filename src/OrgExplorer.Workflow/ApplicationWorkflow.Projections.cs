@@ -37,6 +37,7 @@ public sealed partial class ApplicationWorkflow
                 reportsByManager = samePopulation ? previous!.reportsByManager : null,
                 reportingSummaries = samePopulation ? previous!.reportingSummaries : null,
                 people = new(people, StringComparer.OrdinalIgnoreCase),
+                favoriteOrder = favoriteOrder,
                 personNotes = new(personNotes), teamNotes = new(teamNotes),
                 teamNoteConfirmations = new(teamNoteConfirmations),
                 teamContextRevisions = new(teamContextRevisions, StringComparer.OrdinalIgnoreCase),

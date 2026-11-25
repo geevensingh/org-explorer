@@ -112,6 +112,20 @@ internal static partial class Program
             SelectFavorite(window, "avery@example.com");
             AssertPreferredNameReading(window, "Ave Preferred", "Edit");
             Await(() => Find(window, "Email").Current.Name == "avery@example.com");
+            AssertFavoriteOrder(window, "alex@example.com", "avery@example.com");
+            DragFavoriteHandle(window, "avery@example.com", "alex@example.com", cancel: true);
+            AssertFavoriteOrder(window, "alex@example.com", "avery@example.com");
+            if (CurrentPersonEmail(window) != "avery@example.com")
+                throw new InvalidOperationException("Cancelled Favorite dragging navigated to another Person.");
+            DragFavoriteHandle(window, "avery@example.com", "alex@example.com");
+            AssertFavoriteOrder(window, "avery@example.com", "alex@example.com");
+            if (CurrentPersonEmail(window) != "avery@example.com")
+                throw new InvalidOperationException("Favorite handle dragging navigated to another Person.");
+            PrimaryClick(() => FavoriteRowElement(window, "alex@example.com"));
+            Await(() => CurrentPersonEmail(window) == "alex@example.com");
+            PrimaryClick(() => FavoriteRowElement(window, "avery@example.com"));
+            Await(() => CurrentPersonEmail(window) == "avery@example.com");
+            CaptureVisualEvidence(window, "search-manually-ordered-favorites");
             File.WriteAllText(import, SearchImport("""{"email":"avery@example.com","managerEmail":"alex@example.com"}""", 3));
             ApplyReviewedHistoryImport(window);
             QueryAndSelect(window, "cedar", "avery@example.com", "Historical", "Frozen Team note");
@@ -155,6 +169,8 @@ internal static partial class Program
             window = Window(process);
             AwaitUnavailableView(window, workspace);
             AssertWorkspaceBytes(workspace, beforeReopen);
+            EnsurePeopleBrowsing(window);
+            AssertFavoriteOrder(window, "avery@example.com", "alex@example.com");
             SelectFavorite(window, "avery@example.com");
             if (responsive)
                 Await(() => Math.Abs(RenderedPeoplePercent(window) - peopleBalance!.Value) < .5);
@@ -511,6 +527,65 @@ internal static partial class Program
             new PropertyCondition(AutomationElement.AutomationIdProperty, email))) is not null);
         ((SelectionItemPattern)result!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
         Await(() => Find(window, "Email").Current.Name == email);
+    }
+
+    private static AutomationElement FavoriteRowElement(AutomationElement window, string email) =>
+        Find(window, "Favorites").FindFirst(TreeScope.Descendants,
+            new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, email)))
+        ?? throw new InvalidOperationException("Favorite row is unavailable: " + email);
+
+    private static void AssertFavoriteOrder(AutomationElement window, params string[] expected)
+    {
+        Await(() =>
+        {
+            var rows = Find(window, "Favorites").FindAll(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+                .Cast<AutomationElement>().ToArray();
+            return rows.All(row => !row.Current.IsOffscreen) &&
+                rows.Select(row => row.Current.AutomationId).SequenceEqual(expected);
+        });
+    }
+
+    private static void DragFavoriteHandle(AutomationElement window, string moving, string before, bool cancel = false)
+    {
+        AwaitLocalWorkIdle(window);
+        EnsurePeopleBrowsing(window);
+        var start = AwaitClickablePoint(() => FavoriteRowElement(window, moving).FindFirst(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.AutomationIdProperty, "FavoriteDragHandle"))
+            ?? throw new InvalidOperationException("Dedicated Favorite drag handle is unavailable."));
+        System.Windows.Rect destination = default;
+        Await(() =>
+        {
+            var row = FavoriteRowElement(window, before);
+            destination = row.Current.BoundingRectangle;
+            return !row.Current.IsOffscreen && destination.Width > 30 && destination.Height > 6;
+        });
+        var end = new System.Windows.Point(destination.Left + destination.Width / 2, destination.Top + 2);
+        MovePointer(start);
+        mouse_event(2, 0, 0, 0, 0);
+        try
+        {
+            Thread.Sleep(100);
+            for (var step = 1; step <= 4; step++)
+            {
+                MovePointer(new(start.X + (end.X - start.X) * step / 4,
+                    start.Y + (end.Y - start.Y) * step / 4));
+                Thread.Sleep(75);
+            }
+            if (cancel) PressCopyKey(0x1B);
+        }
+        finally { mouse_event(4, 0, 0, 0, 0); }
+
+        static void MovePointer(System.Windows.Point point)
+        {
+            var width = GetSystemMetrics(0);
+            var height = GetSystemMetrics(1);
+            if (width <= 1 || height <= 1 || point.X < 0 || point.Y < 0 || point.X >= width || point.Y >= height)
+                throw new InvalidOperationException("Favorite drag point is outside the verified hosted display.");
+            mouse_event(0x8001, (uint)Math.Round(point.X * 65535 / (width - 1)),
+                (uint)Math.Round(point.Y * 65535 / (height - 1)), 0, 0);
+        }
     }
 
     private static void AssertSearchReading(AutomationElement window, string expected, string? absent = null,

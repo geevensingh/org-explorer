@@ -75,6 +75,22 @@ All source responses, native event streams, identities and images are fictitious
 Use independent expected values at the agreed public surfaces. Keep parsing,
 storage mechanics and graphs behind the shared workflow; private-method tests,
 per-record public repositories and success-only app flags are not migration seams.
+Favorites ordering extends `SearchFavoriteTests` through `ReorderFavorite(email,
+beforeEmail)`: a null destination appends; other destinations identify the next
+Favorite after removing the mover. Exact identity sequences prove all destinations,
+append/removal/re-addition, input-order ties in Import, replay, unchanged selection,
+People/search/reporting order and absence of order-only Profile evidence.
+`SearchFavoritePersistenceTests` uses real isolated SQLite Workspaces for
+one-time supported unordered initialization, initialized-empty/switching behavior,
+exact reopen, Save/Cancel and name/Manager/archive independence, malformed/future
+order refusal, commit-time revalidation, actual writer locks and recovery/retry
+retaining independent failed notes and Preferred-name drafts. These are not
+exact-order snapshot transport tests; interchange-1 remains membership-only
+until #143. The existing `search-favorites` and responsive reading journey now
+cancel and complete actual handle drags, observe the exact visible sequence and
+unchanged Person, physically click ordinary rows, and reopen that sequence.
+Compilation and invisible XAML loading do not establish those hosted interactions;
+all existing lane selections, budgets and matrices remain required.
 The bounded shared-Team-note excerpt regression measures allocations through
 real in-memory `Search` after warming its index: 64 reports share a long note,
 and one request must allocate less than 2 MiB instead of normalizing the body

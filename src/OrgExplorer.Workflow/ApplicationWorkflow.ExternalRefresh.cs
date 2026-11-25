@@ -126,6 +126,7 @@ public sealed partial class ApplicationWorkflow
     private void OpenInMemoryWorkspace()
     {
         people = new(StringComparer.OrdinalIgnoreCase);
+        favoriteOrder = [];
         batches = [];
         personNotes = [];
         teamNotes = [];

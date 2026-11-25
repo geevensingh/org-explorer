@@ -215,6 +215,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         {
             MarkCompatibilityFailure(ex);
             people.Clear();
+            favoriteOrder = [];
             batches.Clear();
             profileHistory.Clear();
             historicalTeamContexts.Clear();
@@ -392,7 +393,10 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
         var history = CaptureImportHistory(pending.Source, pending.People, appliedAt);
         var accepted = new Dictionary<string, AcceptedBatch>(batches)
         { [pending.BatchId] = new AcceptedBatch(pending.Fingerprint, pending.Source, appliedAt) };
-        if (!Save(pending.People, accepted, pending.Photos, history, resources: pending.Resources)) { pending = null; return false; }
+        var favorites = NextFavoriteOrder(pending.People, pending.Source.GetProperty("people").EnumerateArray()
+            .Select(record => pending.People[record.GetProperty("email").GetString()!]));
+        if (!Save(pending.People, accepted, pending.Photos, history, resources: pending.Resources,
+            orderedFavorites: favorites)) { pending = null; return false; }
         photos = pending.Photos;
         people = pending.People;
         batches = accepted;
@@ -465,15 +469,23 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     }
     private bool Save(Dictionary<string, PersonProfile> proposed, Dictionary<string, AcceptedBatch> accepted,
         Dictionary<string, byte[]>? proposedPhotos = null, Dictionary<string, PersonHistory>? history = null,
-        string operation = "import", IReadOnlyList<PhotoResource>? resources = null)
+        string operation = "import", IReadOnlyList<PhotoResource>? resources = null,
+        IReadOnlyList<string>? orderedFavorites = null)
     {
+        var nextFavorites = orderedFavorites ?? NextFavoriteOrder(proposed);
+        ValidateFavoriteOrder(nextFavorites, proposed);
         var nextTeamContexts = NextTeamContextRevisions(proposed);
         var nextHistoricalContexts = CaptureReportingHistory(proposed, history ?? profileHistory);
         if (localSqlite)
-            return SaveLocalSqlite(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
-                nextTeamContexts, nextHistoricalContexts, operation, resources);
+        {
+            if (!SaveLocalSqlite(proposed, accepted, proposedPhotos ?? photos, history ?? profileHistory,
+                nextTeamContexts, nextHistoricalContexts, operation, resources, nextFavorites)) return false;
+            favoriteOrder = nextFavorites;
+            return true;
+        }
         if (memory)
         {
+            favoriteOrder = nextFavorites;
             teamContextRevisions = nextTeamContexts;
             historicalTeamContexts = nextHistoricalContexts;
             failedSaves.Remove(operation);
