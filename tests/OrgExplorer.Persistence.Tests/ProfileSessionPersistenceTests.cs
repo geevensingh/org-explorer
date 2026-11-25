@@ -22,6 +22,208 @@ public sealed class ProfileSessionPersistenceTests : IDisposable
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/jP8P8/AAb+Av4jsC+eAAAAAElFTkSuQmCC");
 
     [Fact]
+    public void Reporting_counts_reopen_from_current_people_with_archived_descendants_and_private_context_retained()
+    {
+        using (var app = Open())
+        {
+            SeedReporting(app);
+            SetTeamName(app, "morgan@example.com", "Private platform");
+            Assert.NotNull(app.CreatePersonNote(Email, "Private", "# Saved context"));
+            Assert.True(app.EditFavorite(Email, true));
+            AssertReporting(app, "riley@example.com", 4, 3, 1);
+            AssertReporting(app, "morgan@example.com", 3, 2, 1);
+            Assert.True(app.EditPersonArchived("leaf@example.com", true), app.Status);
+        }
+        using (var reopened = Reopen())
+        {
+            AssertReporting(reopened, "riley@example.com", 3, 2, 1);
+            AssertReporting(reopened, "morgan@example.com", 2, 1, 1);
+            Assert.Null(reopened.GetRelationships("v-middle@example.com")!.ReportingSummary);
+            Assert.True(reopened.EditPersonArchived("v-middle@example.com", true), reopened.Status);
+            Assert.True(reopened.EditPersonArchived(Email, true), reopened.Status);
+        }
+        using var dormant = Reopen();
+        AssertReporting(dormant, "riley@example.com", 1, 1, 0);
+        Assert.Null(dormant.GetRelationships("morgan@example.com")!.ReportingSummary);
+        Assert.Null(dormant.GetRelationships("v-middle@example.com")!.ReportingSummary);
+        Assert.Equal("Private platform", dormant.GetRelationships("morgan@example.com")!.Person.TeamName);
+        Assert.Equal("# Saved context", Assert.Single(dormant.GetPersonNotes(Email)).Markdown);
+        Assert.True(dormant.GetRelationships(Email)!.Person.IsFavorite);
+        Assert.True(dormant.EditPersonArchived(Email, false), dormant.Status);
+        AssertReporting(dormant, "morgan@example.com", 1, 1, 0);
+    }
+
+    [Fact]
+    public void External_reporting_delivery_refreshes_the_selected_profile_and_ancestors_without_losing_note_writing()
+    {
+        using var source = Open();
+        SeedReporting(source);
+        const string owner = "morgan@example.com";
+        const string ancestor = "riley@example.com";
+        SetTeamName(source, ancestor, "Saved ancestor");
+        var note = source.CreatePersonNote(owner, "Private", "# Saved context")!;
+        var destination = Path.Combine(root, "reporting-receiver");
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(destination), app.Status);
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(root, "reporting-transport"));
+        Assert.True(app.NavigatePerson(owner));
+        var draft = app.BeginNoteDraft(NoteScope.Person, owner, note.Id)!;
+        app.RetainNoteDraft(draft);
+        var notifications = 0;
+        app.WorkspaceChanged += (_, _) => notifications++;
+        AssertReporting(app, owner, 3, 2, 1);
+        var review = source.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"v-middle@example.com","managerEmail":"riley@example.com"},
+             {"email":"avery@example.com","archived":true}]}
+            """);
+        Assert.True(review.CanApply, source.Status);
+        Assert.True(source.ApplyImport(review.Id), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        Assert.False(app.SyncNow());
+        AssertReporting(app, owner, 3, 2, 1);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        Assert.True(app.NavigatePerson(ancestor), app.Status);
+        Assert.True(app.NavigatePerson(owner), app.Status);
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        Assert.Equal(owner, app.PeopleNavigation.SelectedEmail);
+        Assert.Null(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.ReportingSummary);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        Assert.Equal("Saved ancestor", Assert.Single(app.GetTeamNames(owner)).Name);
+        Assert.Equal("# Saved context", Assert.Single(app.GetPersonNotes(owner)).Markdown);
+        Assert.True(source.EditPersonArchived(Email, false), source.Status);
+        Assert.True(source.EditPersonManager("v-middle@example.com", owner), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        var artifact = WorkspaceFixtures.LatestSnapshot(source);
+        var valid = File.ReadAllBytes(artifact);
+        WorkspaceFixtures.RewriteSnapshot(artifact, content =>
+            WorkspaceFixtures.EditSnapshotRow(content, "people", "v-middle@example.com",
+                person => person["managerEmail"] = "missing@example.com"));
+        Assert.False(app.SyncNow());
+        Assert.Null(app.GetRelationships(owner)!.ReportingSummary);
+        AssertReporting(app, ancestor, 3, 2, 1);
+        File.WriteAllBytes(artifact, valid);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        AssertReporting(app, app.PeopleNavigation.SelectedEmail!, 3, 2, 1);
+        AssertReporting(app, ancestor, 4, 3, 1);
+        draft = app.BeginNoteDraft(NoteScope.Person, owner, note.Id)!;
+        app.RetainNoteDraft(draft);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
+        Assert.True(notifications > 0);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(destination, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        AssertReporting(reopened, owner, 3, 2, 1);
+        AssertReporting(reopened, ancestor, 4, 3, 1);
+        Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(owner)).Markdown);
+        Assert.Equal("Saved ancestor", Assert.Single(reopened.GetTeamNames(owner)).Name);
+    }
+
+    private static void SeedReporting(WorkspaceViewModel app)
+    {
+        var review = app.PreviewImport($$"""
+            {"schemaVersion":1,"batchId":"{{Guid.NewGuid()}}","observedAt":"2026-11-02T17:00:00Z","people":[
+             {"email":"morgan@example.com","managerEmail":"riley@example.com"},
+             {"email":"v-middle@example.com","displayName":"Vendor middle","managerEmail":"morgan@example.com"},
+             {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-middle@example.com"}]}
+            """);
+        Assert.True(review.CanApply, app.Status);
+        Assert.True(app.ApplyImport(review.Id), app.Status);
+    }
+
+    private static void AssertReporting(IApplicationWorkflow app, string email, int total, int employees, int vendors)
+    {
+        var summary = Assert.IsType<ReportingSummary>(app.GetRelationships(email)!.ReportingSummary);
+        Assert.Equal(total, summary.Total);
+        Assert.Equal(new[] { ("Employees", employees), ("Vendors", vendors) },
+            summary.Categories.Select(count => (count.Category.PluralDisplayName, count.Count)));
+    }
+
+    [Fact]
+    public void Category_reopens_for_managers_and_archived_contributors_with_unrelated_private_context_intact()
+    {
+        using (var app = Open())
+        {
+            var preview = app.PreviewImport("""
+                {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000091",
+                 "observedAt":"2026-11-03T17:00:00Z","people":[
+                 {"email":"V-manager@example.com","displayName":"Employee manager","managerEmail":null},
+                 {"email":"v-contributor@example.com","displayName":"Employee","managerEmail":"V-manager@example.com"},
+                 {"email":"avery@example.com","managerEmail":"V-manager@example.com"}]}
+                """);
+            Assert.True(preview.CanApply, app.Status);
+            Assert.True(app.ApplyImport(preview.Id), app.Status);
+            SetTeamName(app, "V-manager@example.com", "Private platform");
+            Assert.NotNull(app.CreatePersonNote(Email, "Private", "# Retained context"));
+            Assert.True(app.EditFavorite(Email, true), app.Status);
+            Assert.True(app.EditPersonArchived("v-contributor@example.com", true), app.Status);
+        }
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Folder, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        foreach (var (email, category) in new[] { ("V-manager@example.com", "Vendor"),
+            ("v-contributor@example.com", "Vendor"), (Email, "Employee") })
+        {
+            Assert.True(reopened.NavigatePerson(email), reopened.Status);
+            var profile = reopened.GetRelationships(reopened.PeopleNavigation.SelectedEmail!)!;
+            Assert.Equal(email, profile.Person.Email);
+            Assert.Equal(category, profile.Category.DisplayName);
+        }
+        Assert.True(reopened.GetRelationships("v-contributor@example.com")!.Person.Archived);
+        Assert.Equal(Email, Assert.Single(reopened.GetRelationships("V-manager@example.com")!.ImportedReports).Email);
+        Assert.Equal("Private platform", Assert.Single(reopened.GetTeamNames(Email)).Name);
+        Assert.Equal("# Retained context", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.True(reopened.GetRelationships(Email)!.Person.IsFavorite);
+    }
+
+    [Fact]
+    public void Accepted_external_refresh_keeps_the_selected_category_and_retained_writing_then_navigates_to_delivered_people()
+    {
+        using var source = Open();
+        var note = source.CreatePersonNote(Email, "Private", "# Saved context")!;
+        var destination = Path.Combine(root, "category-receiver");
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(app.OpenWorkspace(destination), app.Status);
+        WorkspaceFixtures.JoinSnapshot(source, app, Path.Combine(root, "category-transport"));
+        Assert.True(app.NavigatePerson(Email), app.Status);
+        var draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
+        app.RetainNoteDraft(draft);
+        var notifications = 0;
+        app.WorkspaceChanged += (_, _) => notifications++;
+        var preview = source.PreviewImport("""
+            {"schemaVersion":1,"batchId":"39000000-0000-4000-8000-000000000092",
+             "observedAt":"2026-11-03T17:00:00Z","people":[
+             {"email":"V-delivered@example.com","displayName":"Delivered employee","managerEmail":null},
+             {"email":"avery@example.com","displayName":"v-Delivered name","managerEmail":"V-delivered@example.com"},
+             {"email":"t-delivered@example.com","displayName":"Delivered fallback","managerEmail":null,"archived":true}]}
+            """);
+        Assert.True(preview.CanApply, source.Status);
+        Assert.True(source.ApplyImport(preview.Id), source.Status);
+        Assert.True(source.SyncNow(), source.Synchronization.Error);
+        Assert.False(app.SyncNow());
+        Assert.Equal("Avery", app.GetRelationships(Email)!.Person.DirectoryName);
+        Assert.True(app.HasUnsavedNoteDraft(NoteScope.Person, note.Id));
+        app.DiscardUnsavedChanges(note.Id);
+        Assert.True(app.SyncNow(), app.Synchronization.Error);
+        var selected = app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!;
+        Assert.Equal("employee", selected.Category.Id);
+        Assert.Equal("v-Delivered name", selected.Person.DirectoryName);
+        Assert.Equal("V-delivered@example.com", selected.Manager!.Email);
+        draft = app.BeginNoteDraft(NoteScope.Person, Email, note.Id)!;
+        app.RetainNoteDraft(draft);
+        Assert.NotNull(app.SaveNoteDraft(draft, "Private", "# Retained writing"));
+        Assert.True(app.NavigatePerson("V-delivered@example.com"), app.Status);
+        Assert.Equal("Vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
+        Assert.True(app.NavigatePerson("t-delivered@example.com"), app.Status);
+        Assert.True(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Person.Archived);
+        Assert.Equal("Employee", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.DisplayName);
+        Assert.True(notifications > 0);
+        using var reopened = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(reopened.OpenWorkspace(destination, WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal("# Retained writing", Assert.Single(reopened.GetPersonNotes(Email)).Markdown);
+        Assert.Equal("vendor", reopened.GetRelationships("V-delivered@example.com")!.Category.Id);
+    }
+
+    [Fact]
     public void Rejected_local_profile_save_reports_feedback_and_retains_browsing_without_inventing_a_Workspace_change()
     {
         using var app = Open();

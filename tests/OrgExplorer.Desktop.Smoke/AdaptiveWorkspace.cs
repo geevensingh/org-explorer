@@ -155,6 +155,9 @@ internal static partial class Program
             AssertPhotoVisible(window);
             var photo = AssertPhotoCircle(window);
             NavigateToManager(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
+            AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, 1, 1, 0);
             AssertInitialsCircle(window, "M", photo);
             SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
@@ -182,22 +185,26 @@ internal static partial class Program
             if (scroll.Current.HorizontallyScrollable)
                 throw new InvalidOperationException("Ordinary adaptive profile reading requires horizontal scrolling.");
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
-            var identity = Bounds("Email");
-            var profile = Bounds("ProfileSummary");
-            var notes = Bounds("NotesPane");
+            var controls = ControlObservation.Capture(window, "Email", "ProfileSummary", "NotesPane", "ProfileScroll",
+                "DepartmentValue", "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue", "OfficeCountryValue",
+                "DirectoryName", "AliasValue", "LinkedInProfileUrlValue", "NavigateManager", "PeopleNavigation", "People");
+            var identity = controls.Bounds("Email");
+            var profile = controls.Bounds("ProfileSummary");
+            var notes = controls.Bounds("NotesPane");
+            var viewport = controls.Bounds("ProfileScroll");
             var photo = AssertPhotoCircle(window);
             if (profile.Left > notes.Left + 2 || profile.Bottom > notes.Top + 2 ||
                 Math.Abs(profile.Width - notes.Width) > 2 || notes.Width / scale < 359 ||
-                notes.Right > Bounds("ProfileScroll").Right + 1 || identity.Top >= profile.Top)
+                notes.Right > viewport.Right + 1 || identity.Top >= profile.Top)
                 throw new InvalidOperationException($"Facts must precede full-width notes below anchored identity: identity={identity}, facts={profile}, notes={notes}.");
             foreach (var id in new[] { "DepartmentValue", "OfficeBuildingValue", "OfficeNumberValue", "OfficeStateValue",
                 "OfficeCountryValue", "DirectoryName", "AliasValue", "LinkedInProfileUrlValue" })
-                if (string.IsNullOrEmpty(Find(window, id).Current.Name))
+                if (string.IsNullOrEmpty(controls[id].Cached.Name))
                     throw new InvalidOperationException($"Ordinary fact lost its populated or neutral-dash slot: {id}.");
             foreach (var id in new[] { "NavigateManager", "OfficeBuildingValue", "OfficeNumberValue" })
             {
-                var context = Bounds(id);
-                if (!Visible(id) || context.Left < photo.Right || context.Bottom > Bounds("ProfileScroll").Top)
+                var context = controls.Bounds(id);
+                if (!controls.IsVisible(id) || context.Left < photo.Right || context.Bottom > viewport.Top)
                     throw new InvalidOperationException($"Manager and Office must remain beside the photo above the scroll: {id}={context}.");
             }
             var officeOrder = window.FindAll(TreeScope.Descendants, new OrCondition(
@@ -206,9 +213,11 @@ internal static partial class Program
                 .Cast<AutomationElement>().Select(element => element.Current.AutomationId);
             if (!officeOrder.SequenceEqual(new[] { "OfficeBuildingValue", "OfficeNumberValue" }))
                 throw new InvalidOperationException("Office accessibility traversal must match its visual building/room order.");
-            if (Bounds("DepartmentValue").Top < Bounds("ProfileScroll").Top)
+            if (controls.Bounds("DepartmentValue").Top < viewport.Top)
                 throw new InvalidOperationException("Department must be a labelled fact, not unlabelled identity text.");
             AssertTeamNameReading(window, null);
+            AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, null);
             if (wide)
             {
                 if (!Visible("People") || Bounds("PeopleNavigation").Width / scale < 239 ||
@@ -255,6 +264,12 @@ internal static partial class Program
                 throw new InvalidOperationException("Adaptive navigation concealed search or Settings.");
             CaptureVisualEvidence(window, stateName);
             Console.WriteLine($"Adaptive measured: window={window.Current.BoundingRectangle}, profile={profile}, notes={notes}, wide={wide}, dpi={scale * 96}.");
+            QueryAndSelect(window, "longreading", "v-longread@example.com", "Current", "Profile:");
+            AssertPersonCategory(window, "Vendor");
+            AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
+            QueryAndSelect(window, "007b", "avery@example.com", "Current", "Profile:");
+            AssertPersonCategory(window, "Employee");
         }
         Resize(700, 500);
         AtSize(false, "reading-minimum-700-500");
@@ -420,9 +435,10 @@ internal static partial class Program
         AwaitCopyFeedbackGone(window);
         AssertWorkspaceBytes(workspace, bytes);
         var lefts = ids.Select(id => Find(window, id).Current.BoundingRectangle.Left).ToArray();
-        QueryAndSelect(window, "longreading", "longread@example.com", "Current", "Profile:");
+        QueryAndSelect(window, "longreading", "v-longread@example.com", "Current", "Profile:");
         Await(() => Value(window, "SearchQuery") == "" && IsVisible(window, "People") &&
-            Find(window, "Email").Current.Name == "longread@example.com");
+            Find(window, "Email").Current.Name == "v-longread@example.com");
+        AssertPersonCategory(window, "Vendor");
         ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
             () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
         for (var index = 0; index < ids.Length; index++)
@@ -579,30 +595,37 @@ internal static partial class Program
         Rect Bounds(string id) => Find(window, id).Current.BoundingRectangle;
         void AtSize(string state)
         {
-            var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
-                control =>
+            string? email = null;
+            var scroll = ControlReadiness.AwaitPattern(
+                () => ControlObservation.Capture(window, "ProfileScroll", "Email"),
+                observed =>
                 {
-                    var observed = control.Current;
-                    return observed.IsEnabled && !observed.IsOffscreen && !observed.BoundingRectangle.IsEmpty &&
-                        observed.BoundingRectangle.Width > 0 && observed.BoundingRectangle.Height > 0;
-                }, control => control.TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)
+                    var control = observed["ProfileScroll"].Cached;
+                    return control.IsEnabled && !control.IsOffscreen && !control.BoundingRectangle.IsEmpty &&
+                        control.BoundingRectangle.Width > 0 && control.BoundingRectangle.Height > 0 &&
+                        observed.IsVisible("Email") && !string.IsNullOrEmpty(email = observed["Email"].Cached.Name);
+                }, observed => observed["ProfileScroll"].TryGetCurrentPattern(ScrollPattern.Pattern, out var pattern)
                     ? (ScrollPattern)pattern : null, Await);
+            AssertPersonCategory(window, CompactIdentityStateCases.FirstOrDefault(identity =>
+                identity.Email == email).Category ?? "Employee");
             if (scroll.Current.HorizontallyScrollable)
                 throw new InvalidOperationException("Inline profile editing requires horizontal page scrolling.");
             if (scroll.Current.VerticallyScrollable) scroll.SetScrollPercent(ScrollPattern.NoScroll, 0);
-            var identity = Bounds("Email");
-            var save = Bounds("SaveProfile");
-            var cancel = Bounds("CancelProfile");
-            if (!IsVisible(window, "ProfileEditingState") || !IsVisible(window, "SaveProfile") ||
-                !IsVisible(window, "CancelProfile") || identity.Bottom > save.Top ||
-                Math.Max(save.Bottom, cancel.Bottom) > Bounds("ProfileScroll").Top + scale)
+            var controls = ControlObservation.Capture(window, "Email", "SaveProfile", "CancelProfile",
+                "ProfileEditingState", "ProfileScroll", "ChoosePhoto", "ClearPhoto");
+            var identity = controls.Bounds("Email");
+            var save = controls.Bounds("SaveProfile");
+            var cancel = controls.Bounds("CancelProfile");
+            if (!controls.IsVisible("ProfileEditingState") || !controls.IsVisible("SaveProfile") ||
+                !controls.IsVisible("CancelProfile") || identity.Bottom > save.Top ||
+                Math.Max(save.Bottom, cancel.Bottom) > controls.Bounds("ProfileScroll").Top + scale)
                 throw new InvalidOperationException("The contextual profile lost its anchored identity or explicit actions.");
             foreach (var id in new[] { "ChoosePhoto", "ClearPhoto" })
             {
-                var action = Find(window, id);
-                var bounds = action.Current.BoundingRectangle;
-                if (action.Current.IsOffscreen || !action.Current.IsEnabled || bounds.IsEmpty ||
-                    bounds.Bottom > Bounds("ProfileScroll").Top + scale)
+                var action = controls[id].Cached;
+                var bounds = action.BoundingRectangle;
+                if (action.IsOffscreen || !action.IsEnabled || bounds.IsEmpty ||
+                    bounds.Bottom > controls.Bounds("ProfileScroll").Top + scale)
                     throw new InvalidOperationException($"Photo editing action is inaccessible above the shared scroll: {id}={bounds}.");
             }
             var actionOrder = window.FindAll(TreeScope.Descendants, new OrCondition(
@@ -621,12 +644,13 @@ internal static partial class Program
             {
                 var editor = Find(window, id);
                 Await(() => editor.Current.HasKeyboardFocus && !editor.Current.IsOffscreen);
-                var bounds = editor.Current.BoundingRectangle;
-                var viewport = Bounds("ProfileScroll");
-                if (!editor.Current.IsKeyboardFocusable || bounds.Width / scale < 180 ||
+                var field = ControlObservation.Capture(window, id, "ProfileScroll", "Email", "SaveProfile");
+                var bounds = field.Bounds(id);
+                var viewport = field.Bounds("ProfileScroll");
+                if (!field[id].Cached.IsKeyboardFocusable || bounds.Width / scale < 180 ||
                     bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
                     bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale ||
-                    Bounds("Email") != identity || Bounds("SaveProfile") != save)
+                    field.Bounds("Email") != identity || field.Bounds("SaveProfile") != save)
                     throw new InvalidOperationException($"Inline profile field {id} is clipped or moves identity/actions at {state}: {bounds}, viewport={viewport}.");
                 if (id is not "ManagerChoice") PressCopyKey(0x09);
             }
@@ -650,6 +674,7 @@ internal static partial class Program
         {
             QueryAndSelect(window, identityState.Email, identityState.Email,
                 identityState.Archived ? "Archived" : "Current", "Profile:");
+            AssertPersonCategory(window, identityState.Category);
             if (identityState.Archived)
             {
                 ResizeWindow(window, 1100, 900);
@@ -657,6 +682,7 @@ internal static partial class Program
                 var archivedPeoplePercent = RenderedPeoplePercent(window);
                 DragDivider(window, "PeopleDivider", archivedHost.Right - 20);
                 Await(() => Math.Abs(Bounds("ProfileScroll").Width / scale - 408) < 2);
+                AssertPersonCategory(window, identityState.Category);
                 var photo = Find(window, "Photo").Current.BoundingRectangle;
                 var marker = Find(window, "PersonArchivalStatus");
                 if (marker.Current.IsOffscreen || marker.Current.Name != "Archived Person" ||
@@ -670,7 +696,7 @@ internal static partial class Program
                         action.Current.BoundingRectangle.Bottom > photo.Bottom + scale)
                         throw new InvalidOperationException("Narrow archived reading displaced an identity action: " + id);
                 }
-                CaptureVisualEvidence(window, "profile-reading-narrow-" + identityState.Email.Split('@')[0]);
+                CaptureVisualEvidence(window, PersonCaptureState("profile-reading-narrow", identityState.Email));
                 DragDivider(window, "PeopleDivider", archivedHost.Left + (archivedHost.Width - 8 * scale) * archivedPeoplePercent / 100);
                 ResizeWindow(window, 700, 500);
             }
@@ -687,7 +713,7 @@ internal static partial class Program
                         StringComparison.Ordinal) ||
                     IsVisible(window, "PersonArchivalStatus") != identityState.Archived)
                     throw new InvalidOperationException("Compact saved-name or archived identity is not bounded and accessible.");
-                AtSize("profile-inline-minimum-700-500-" + identityState.Email.Split('@')[0]);
+                AtSize(PersonCaptureState("profile-inline-minimum-700-500", identityState.Email));
             }
             finally { CancelProfileEditing(window); }
         }

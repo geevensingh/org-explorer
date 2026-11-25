@@ -212,6 +212,7 @@ internal static partial class Program
                 source.EditPersonText("casey@example.com", PersonTextField.JobTitle, "Changed manager role"));
             PublishSmokeWorkspace(window, folder);
             Await(() => Find(window, "ProfileHeading").Current.Name == "External Avery");
+            AssertPersonCategory(window, "Employee");
             AssertNoteView(window, "Person", editing: false);
             Await(() => ReadingText(window).Contains("External context"));
             SelectTeamNote(window, "Owned context");
@@ -288,6 +289,27 @@ internal static partial class Program
                 ReadSmokeTeamNote(folder, ownedId).Markdown != "# External owned Team context" ||
                 ReadSmokeTeamNote(folder, inheritedId).Markdown != "# External inherited Team context")
                 throw new InvalidOperationException("Snapshot refresh/discard changed stable note identities or writing.");
+            peer.Publish(source =>
+            {
+                var review = source.PreviewImport("""
+                    {"schemaVersion":1,"batchId":"80000000-0000-4000-8000-000000000002",
+                     "observedAt":"2026-11-02T17:00:00Z","people":[
+                     {"email":"v-report@example.com","displayName":"Vendor report","managerEmail":"avery@example.com"},
+                     {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-report@example.com"}]}
+                    """);
+                return review.CanApply && source.ApplyImport(review.Id);
+            });
+            PublishSmokeWorkspace(window, folder);
+            AssertReportingStructure(window, 2, 1, 1);
+            NavigateToManager(window, "casey@example.com");
+            AssertReportingStructure(window, 3, 2, 1);
+            OpenPerson(window, "casey@example.com");
+            AssertReportingStructure(window, 2, 1, 1);
+            peer.Publish(source => source.EditPersonArchived("leaf@example.com", true) &&
+                source.EditPersonArchived("v-report@example.com", true));
+            PublishSmokeWorkspace(window, folder);
+            Await(() => !IsVisible(window, "ReportingStructureValue"));
+            AssertReportingStructure(window, null);
             ClosePublishedWorkspace(process, folder);
             Console.WriteLine("PASS: complete snapshot delivery updates profile/notes/review/photo pixels, rejects invalid transport without losing local reading, and defers adoption until retained writing is deliberately discarded.");
         }

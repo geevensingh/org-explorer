@@ -102,10 +102,14 @@ internal static partial class Program
     }
 
     private static bool TryPhotoViewport(AutomationElement window, out Rect viewport, out string observed,
-        InitialsObservation? observation = null)
+        InitialsObservation? observation = null) =>
+        TryPhotoViewport(window, ControlObservation.Capture(window, "Photo"), out viewport, out observed, observation);
+
+    private static bool TryPhotoViewport(AutomationElement window, ControlObservation controls,
+        out Rect viewport, out string observed, InitialsObservation? observation = null)
     {
-        var photo = Find(window, "Photo");
-        var bounds = photo.Current.BoundingRectangle;
+        var photo = controls["Photo"].Cached;
+        var bounds = photo.BoundingRectangle;
         var scale = DpiScale(window);
         if (observation is not null)
         {
@@ -113,8 +117,8 @@ internal static partial class Program
             observation.ViewportScale = scale;
         }
         viewport = Rect.Empty;
-        observed = $"viewport={bounds}, offscreen={photo.Current.IsOffscreen}, scale={scale}";
-        var checkedOffscreen = photo.Current.IsOffscreen;
+        observed = $"viewport={bounds}, offscreen={photo.IsOffscreen}, scale={scale}";
+        var checkedOffscreen = photo.IsOffscreen;
         if (observation is not null) observation.CheckedViewportOffscreen = checkedOffscreen;
         if (checkedOffscreen || bounds.IsEmpty || Math.Abs(bounds.Width / scale - 144) > 1 ||
             Math.Abs(bounds.Height / scale - 144) > 1)
@@ -125,12 +129,13 @@ internal static partial class Program
 
     private static bool TryPhotoCircle(AutomationElement window, out Rect viewport, out string observed)
     {
-        if (!TryPhotoViewport(window, out viewport, out observed)) return false;
-        var image = Find(window, "PersonPhoto");
-        var bounds = image.Current.BoundingRectangle;
+        var controls = ControlObservation.Capture(window, "Photo", "PersonPhoto");
+        if (!TryPhotoViewport(window, controls, out viewport, out observed)) return false;
+        var image = controls["PersonPhoto"].Cached;
+        var bounds = image.BoundingRectangle;
         var scale = DpiScale(window);
-        observed += $"; accessible image={bounds}, offscreen={image.Current.IsOffscreen}";
-        return !image.Current.IsOffscreen && !bounds.IsEmpty &&
+        observed += $"; accessible image={bounds}, offscreen={image.IsOffscreen}";
+        return !image.IsOffscreen && !bounds.IsEmpty &&
             Math.Abs(bounds.Left - viewport.Left) <= scale && Math.Abs(bounds.Top - viewport.Top) <= scale &&
             Math.Abs(bounds.Width - viewport.Width) <= scale && Math.Abs(bounds.Height - viewport.Height) <= scale;
     }

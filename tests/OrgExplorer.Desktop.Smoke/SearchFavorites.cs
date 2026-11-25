@@ -182,7 +182,7 @@ internal static partial class Program
             {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
             {"email":"alex@example.com","displayName":"Alex","managerEmail":null,"isFavorite":true}
             """ + (responsive ? """
-            ,{"email":"longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
+            ,{"email":"v-longread@example.com","displayName":"Alexandra Reference with a deliberately long Directory name for accessible Person reading",
               "alias":"longreading","officeBuilding":"South campus research and collaboration building with a deliberately long descriptive location",
               "officeState":"A long state or province description that must wrap without shrinking the ordinary reading type",
               "managerEmail":null}
@@ -256,15 +256,21 @@ internal static partial class Program
         PressCopyKey(0x0D);
     }
 
-    private static bool OrdinarySearchProfileReady(AutomationElement window, string email, NoteScope? retainedScope = null)
+    private static readonly string[] OrdinaryProfileControls =
+        ["Email", "ProfileHeading", "SaveProfile", "PersonNoteEditTab", "PersonNoteReadTab", "TeamNoteEditTab", "TeamNoteReadTab"];
+
+    private static bool OrdinarySearchProfileReady(AutomationElement window, string email, NoteScope? retainedScope = null) =>
+        OrdinarySearchProfileReady(ControlObservation.Capture(window, OrdinaryProfileControls), email, retainedScope);
+
+    private static bool OrdinarySearchProfileReady(ControlObservation controls, string email, NoteScope? retainedScope = null)
     {
-        return Find(window, "Email").Current.Name == email && IsVisible(window, "ProfileHeading") &&
-            !IsVisible(window, "SaveProfile") &&
-            (!IsVisible(window, "PersonNoteEditTab") ||
-                ((SelectionItemPattern)Find(window, retainedScope == NoteScope.Person ? "PersonNoteEditTab" : "PersonNoteReadTab")
+        return controls["Email"].Cached.Name == email && controls.IsVisible("ProfileHeading") &&
+            !controls.IsVisible("SaveProfile") &&
+            (!controls.IsVisible("PersonNoteEditTab") ||
+                ((SelectionItemPattern)controls[retainedScope == NoteScope.Person ? "PersonNoteEditTab" : "PersonNoteReadTab"]
                     .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected) &&
-            (!IsVisible(window, "TeamNoteEditTab") ||
-                ((SelectionItemPattern)Find(window, retainedScope == NoteScope.Team ? "TeamNoteEditTab" : "TeamNoteReadTab")
+            (!controls.IsVisible("TeamNoteEditTab") ||
+                ((SelectionItemPattern)controls[retainedScope == NoteScope.Team ? "TeamNoteEditTab" : "TeamNoteReadTab"]
                     .GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected);
     }
 
@@ -374,9 +380,15 @@ internal static partial class Program
         try
         {
             ControlReadiness.AwaitSearchBrowsing(() => compact = IsVisible(window, "OpenPeople"),
-                isCompact => Value(window, "SearchQuery") == "" && OrdinarySearchProfileReady(window, email, retainedScope) &&
-                    (isCompact ? !IsVisible(window, "PeopleNavigation") && Find(window, "OpenPeople").Current.HasKeyboardFocus
-                        : IsVisible(window, "People") && IsVisible(window, "Favorites")), Await);
+                isCompact =>
+                {
+                    var controls = ControlObservation.Capture(window,
+                        [.. OrdinaryProfileControls, "SearchQuery", "PeopleNavigation", "OpenPeople", "People", "Favorites"]);
+                    return ((ValuePattern)controls["SearchQuery"].GetCurrentPattern(ValuePattern.Pattern)).Current.Value == "" &&
+                        OrdinarySearchProfileReady(controls, email, retainedScope) &&
+                        (isCompact ? !controls.IsVisible("PeopleNavigation") && controls["OpenPeople"].Cached.HasKeyboardFocus
+                            : controls.IsVisible("People") && controls.IsVisible("Favorites"));
+                }, Await);
         }
         catch (TimeoutException error)
         {

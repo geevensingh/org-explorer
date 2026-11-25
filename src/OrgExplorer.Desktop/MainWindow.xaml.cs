@@ -165,6 +165,9 @@ public partial class MainWindow : Window
         ClearPersonArchival();
         ShowProfileTimeline(null);
         ProfileHeading.Text = DirectoryName.Text = Email.Text = "";
+        PersonCategoryLabel.Text = "";
+        PersonCategoryBadge.Visibility = Visibility.Collapsed;
+        ShowReportingSummary(null);
         Manager.Content = "No Person selected";
         Manager.Tag = null;
         Manager.IsEnabled = false;
@@ -229,6 +232,10 @@ public partial class MainWindow : Window
     private void SelectPerson(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (loading || e.NewValue is not ReportingNode node) return;
+        // Realizing the tree can echo a Person already accepted by search.
+        if (string.Equals(selectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(workflow.PeopleNavigation.SelectedEmail, node.Person.Email, StringComparison.OrdinalIgnoreCase))
+            return;
         var overlay = workflow.PeopleNavigation.OverlayOpen;
         RememberPeopleBrowsing();
         if (!OpenPerson(node.Person)) RestorePersonSelection();
@@ -310,6 +317,9 @@ public partial class MainWindow : Window
             ClearPersonEditors();
             ClearPersonArchival();
             ProfileHeading.Text = "Selected Person unavailable in the current Workspace.";
+            PersonCategoryLabel.Text = "";
+            PersonCategoryBadge.Visibility = Visibility.Collapsed;
+            ShowReportingSummary(null);
             DirectoryName.Text = Email.Text = "";
             Manager.IsEnabled = false;
             Manager.Content = "Person unavailable";
@@ -324,7 +334,12 @@ public partial class MainWindow : Window
     }
     private void ShowPerson(PersonProfile person)
     {
+        var context = workflow.GetRelationships(person.Email)!;
+        person = context.Person;
         ProfileHeading.Text = person.Heading;
+        PersonCategoryLabel.Text = context.Category.DisplayName;
+        PersonCategoryBadge.Visibility = Visibility.Visible;
+        ShowReportingSummary(context.ReportingSummary);
         DirectoryName.Text = person.DirectoryName ?? "—";
         Email.Text = person.Email;
         ShowFavorite(person);
@@ -332,7 +347,6 @@ public partial class MainWindow : Window
         Photo.Show(workflow.GetPhoto(person.Email), person.Heading);
         Photo.ToolTip = person.PhotoPath is { } path ? $"Local photo: {path}" : "No local photo";
         UpdateProfileMode();
-        var context = workflow.GetRelationships(person.Email)!;
         Manager.Content = (person.Archived ? "Last stored: " : "") +
             (context.Manager is { } manager ? manager.Heading + (manager.Archived ? " — Archived" : "") : "—");
         Manager.ToolTip = context.Manager is { } known
@@ -343,6 +357,16 @@ public partial class MainWindow : Window
         ReportsList.ItemsSource = context.ImportedReports;
         ReportCount.Text = $"Imported reports: {context.ImportedReports.Count} (selected population, not a full-company count)";
         ShowProfileTimeline(person.Email);
+    }
+    private void ShowReportingSummary(ReportingSummary? summary)
+    {
+        ReportingStructureValue.Text = summary is null ? "" :
+            string.Join(", ", new[] { $"{summary.Total} total" }.Concat(
+                summary.Categories.Select(count => $"{count.Count} {count.Category.PluralDisplayName}")));
+        ReportingStructureSlot.Visibility = summary is null ? Visibility.Collapsed : Visibility.Visible;
+        // WrapPanel's fixed ItemWidth reserves space even for a collapsed child.
+        if (summary is null) FactsGrid.Children.Remove(ReportingStructureSlot);
+        else if (!FactsGrid.Children.Contains(ReportingStructureSlot)) FactsGrid.Children.Insert(1, ReportingStructureSlot);
     }
     private void NavigateManager(object sender, RoutedEventArgs e)
     {

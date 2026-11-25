@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Text;
 using OrgExplorer.Workflow;
 using OrgExplorer.TestFixtures;
 
@@ -24,7 +25,9 @@ internal static partial class Program
              {"email":"avery@example.com","displayName":"Avery Example","alias":"avery","officeNumber":"007B",
               "department":"Research","jobTitle":"Research engineer","officeCountry":"Canada",
               "managerEmail":"morgan@example.com","photoPath":"avery.png"},
-             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null}]}
+             {"email":"morgan@example.com","displayName":"Morgan Example","managerEmail":null},
+             {"email":"V-reference@example.com","displayName":"Vendor reference","managerEmail":"morgan@example.com"},
+             {"email":"v-child@example.com","displayName":"Vendor child","managerEmail":"V-reference@example.com"}]}
             """);
         var workspace = Path.Combine(root, "workspace");
         Directory.CreateDirectory(workspace);
@@ -134,9 +137,19 @@ internal static partial class Program
             Await(() => Status(window).Contains("Import applied"));
             ReturnToPeople(window);
             OpenPerson(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, null);
+            SelectTreePerson(window, "V-reference@example.com");
+            AssertPersonCategory(window, "Vendor");
+            AssertReportingStructure(window, 1, 0, 1);
+            NavigateToManager(window, "morgan@example.com");
+            AssertPersonCategory(window, "Employee");
+            AssertReportingStructure(window, 3, 1, 2);
+            SelectTreePerson(window, "avery@example.com");
             AssertPhotoVisible(window);
             AssertCompactProfile(window);
             AssertTeamNameReading(window, null);
+            AssertReportingStructure(window, null);
             AssertProfileValue(window, "OfficeNumber", "007B");
             if (Find(window, "OfficeNumberValue").Current.ControlType != ControlType.Text)
                 throw new InvalidOperationException("View mode did not expose a readable profile value.");
@@ -220,6 +233,7 @@ internal static partial class Program
             PressCopyKey(0x0D);
             Await(() => Status(window) == "Saved locally.");
             Await(() => Find(window, "ProfileHeading").Current.Name == "Ave");
+            AssertPersonCategory(window, "Employee");
             AssertPreferredNameReading(window, "Ave", "Edit");
             foreach (var dismissal in new[] { "cancel", "escape", "outside" })
             {
@@ -304,6 +318,7 @@ internal static partial class Program
             AssertPhotoVisible(window);
             NavigateToManager(window, "morgan@example.com");
             AssertTeamNamePath(window, "Platform", "Platform");
+            AssertReportingStructure(window, 3, 1, 2);
             SelectTreePerson(window, "avery@example.com");
             ExercisePhotoPresentation(window, root);
             Click(window, "EditPreferredName");
@@ -323,6 +338,27 @@ internal static partial class Program
         Await(() => Find(window, "DirectoryNameEditor").Current.IsEnabled &&
             !Find(window, "DirectoryNameEditor").Current.IsOffscreen &&
             Find(window, "DirectoryNameEditor").Current.HasKeyboardFocus);
+    }
+
+    private static void AssertPersonCategory(AutomationElement window, string expected)
+    {
+        var controls = ControlReadiness.AwaitControl(
+            () => ControlObservation.Capture(window, "PersonCategoryLabel", "ProfileHeading", "Photo", "ProfileScroll"),
+            observed => observed.IsVisible("PersonCategoryLabel") &&
+                observed["PersonCategoryLabel"].Cached.Name == $"Person category: {expected}", Await);
+        var current = controls["PersonCategoryLabel"].Cached;
+        var badge = current.BoundingRectangle;
+        var heading = controls.Bounds("ProfileHeading");
+        var photo = controls.Bounds("Photo");
+        var scale = DpiScale(window);
+        if (current.ControlType != ControlType.Text || !current.IsKeyboardFocusable ||
+            !current.HelpText.Contains("classification", StringComparison.Ordinal) ||
+            !current.HelpText.Contains("not verified", StringComparison.Ordinal) ||
+            badge.IsEmpty || badge.Width <= 0 || badge.Left < heading.Right - scale ||
+            badge.Top < heading.Top - scale || badge.Bottom > heading.Bottom + scale ||
+            badge.Right > controls.Bounds("ProfileScroll").Right + scale ||
+            badge.Bottom > photo.Bottom + scale)
+            throw new InvalidOperationException($"The read-only {expected} badge must be accessible and readable beside the name within anchored identity: badge={badge}, heading={heading}, photo={photo}.");
     }
 
     private static void AssertOwnedTeamNameEditing(AutomationElement window, string workspace)
@@ -375,6 +411,7 @@ internal static partial class Program
         Await(() => Find(window, "Email").Current.Name == "morgan@example.com");
         NavigateToManager(window, "rowan@example.com");
         AssertTeamNameReading(window, null);
+        AssertReportingStructure(window, 4, 2, 2);
         BeginProfileEditing(window);
         Set(window, "TeamNameEditor", "Platform");
         SaveProfileEditing(window);
@@ -426,6 +463,91 @@ internal static partial class Program
     private static void AssertTeamNameReading(AutomationElement window, string? expected)
         => AssertTeamNamePath(window, expected is null ? [] : [expected]);
 
+    private static void AssertReportingStructure(AutomationElement window, int? total, int employees = 0, int vendors = 0)
+    {
+        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
+            control => control.Current.IsEnabled && !control.Current.IsOffscreen,
+            control => (ScrollPattern)control.GetCurrentPattern(ScrollPattern.Pattern), Await);
+        ControlReadiness.ScrollToTopIfScrollable(() => scroll.Current.VerticallyScrollable,
+            () => scroll.SetScrollPercent(ScrollPattern.NoScroll, 0));
+        Await(() => !scroll.Current.VerticallyScrollable || scroll.Current.VerticalScrollPercent == 0);
+        if (total is null)
+        {
+            var absent = ControlObservation.Capture(window,
+                "ReportingStructureLabel", "ReportingStructureValue", "ReportingStructureScope");
+            if (absent.IsVisible("ReportingStructureLabel") || absent.IsVisible("ReportingStructureValue") ||
+                absent.IsVisible("ReportingStructureScope"))
+                throw new InvalidOperationException("An ineligible Person retained a visible Reporting structure fact.");
+            return;
+        }
+        var counts = $"{total} total, {employees} Employees, {vendors} Vendors";
+        Await(() =>
+        {
+            var ready = ControlObservation.Capture(window, "ReportingStructureValue", "ReportingStructureScope");
+            return ready.IsVisible("ReportingStructureValue") &&
+                ready["ReportingStructureValue"].Cached.Name == $"Reporting structure: {counts}" &&
+                ready.IsVisible("ReportingStructureScope");
+        });
+        var controls = ControlObservation.Capture(window, "ReportingStructureLabel", "ReportingStructureValue",
+            "ReportingStructureScope", "ProfileScroll", "TeamNameLabel", "DepartmentValue");
+        var label = controls["ReportingStructureLabel"];
+        var value = controls["ReportingStructureValue"];
+        var scope = controls["ReportingStructureScope"];
+        if (label.Cached.Name != "Reporting structure" || scope.Cached.Name != "Known current reports, all levels" ||
+            value.Cached.ControlType != ControlType.Edit ||
+            !value.TryGetCurrentPattern(ValuePattern.Pattern, out var readOnly) ||
+            !((ValuePattern)readOnly).Current.IsReadOnly || !value.Cached.IsKeyboardFocusable)
+            throw new InvalidOperationException("Reporting structure lost its ordinary read-only fact, full counts or exact population scope.");
+        var scale = DpiScale(window);
+        var viewport = controls.Bounds("ProfileScroll");
+        var team = controls.Bounds("TeamNameLabel");
+        var summary = label.Cached.BoundingRectangle;
+        var department = controls.Bounds("DepartmentValue");
+        bool Before(Rect first, Rect second) => first.Top < second.Top - scale ||
+            Math.Abs(first.Top - second.Top) <= scale && first.Left < second.Left - scale;
+        if (!Before(team, summary) || !Before(summary, department) ||
+            Math.Abs(team.Top - summary.Top) > scale && Math.Abs(team.Left - summary.Left) > scale)
+            throw new InvalidOperationException("Reporting structure must be the next ordinary fact immediately after Team name.");
+        foreach (var element in new[] { label, value, scope })
+        {
+            var bounds = element.Cached.BoundingRectangle;
+            if (element.Cached.IsOffscreen || bounds.IsEmpty || scroll.Current.HorizontallyScrollable ||
+                bounds.Left < viewport.Left - scale || bounds.Right > viewport.Right + scale ||
+                bounds.Top < viewport.Top - scale || bounds.Bottom > viewport.Bottom + scale)
+                throw new InvalidOperationException($"Reporting structure is clipped rather than wrapping compactly: {bounds}; viewport={viewport}.");
+        }
+        if (!value.TryGetCurrentPattern(TextPattern.Pattern, out var text) ||
+            ((TextPattern)text).DocumentRange.GetText(-1) != counts ||
+            ((TextPattern)text).DocumentRange.FindText($"{vendors} Vendors", false, false) is not { } end)
+            throw new InvalidOperationException("The final zero-inclusive category count is not actually rendered and readable.");
+        var finalCategory = $"{vendors} Vendors";
+        if (end.GetText(-1) != finalCategory)
+            throw new InvalidOperationException("The rendered reporting range lost the full final count/category.");
+        var cursor = end.Clone();
+        cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
+        for (var index = 0; index < finalCategory.Length; index++)
+        {
+            var character = cursor.Clone();
+            if (character.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1) != 1 ||
+                character.GetText(-1) != finalCategory[index].ToString())
+                throw new InvalidOperationException($"The final reporting category character {index} is missing from the real text range.");
+            var rectangles = character.GetBoundingRectangles();
+            if (rectangles.Length == 0)
+                throw new InvalidOperationException($"The final reporting category character {index} has no rendered glyph rectangle.");
+            foreach (var glyph in rectangles)
+            {
+                var bounds = value.Current.BoundingRectangle;
+                if (glyph.IsEmpty || glyph.Width <= 0 || glyph.Height <= 0 ||
+                    glyph.Left < bounds.Left - scale || glyph.Right > bounds.Right + scale ||
+                    glyph.Top < bounds.Top - scale || glyph.Bottom > bounds.Bottom + scale ||
+                    glyph.Left < viewport.Left - scale || glyph.Right > viewport.Right + scale ||
+                    glyph.Top < viewport.Top - scale || glyph.Bottom > viewport.Bottom + scale)
+                    throw new InvalidOperationException($"The final reporting category character {index} is clipped: glyph={glyph}; value={bounds}; viewport={viewport}.");
+            }
+            cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, character, TextPatternRangeEndpoint.End);
+        }
+    }
+
     private static bool IsFirstScrollingTeamName(Rect row, Rect manager, Rect viewport, double scale)
     {
         // ProfileValues' border + padding + FactSlot's top margin.
@@ -437,9 +559,8 @@ internal static partial class Program
 
     private static void AssertTeamNamePath(AutomationElement window, params string[] expected)
     {
-        AutomationElement? viewportControl = null;
         var scrollRequested = false;
-        var scroll = ControlReadiness.AwaitPattern(() => viewportControl = Find(window, "ProfileScroll"),
+        var scroll = ControlReadiness.AwaitPattern(() => Find(window, "ProfileScroll"),
             control => !control.Current.IsOffscreen && control.Current.BoundingRectangle is { Width: > 0, Height: > 0 },
             control =>
             {
@@ -453,43 +574,48 @@ internal static partial class Program
                 }
                 return !current.Current.VerticallyScrollable || current.Current.VerticalScrollPercent == 0 ? current : null;
             }, Await);
-        AutomationElement? label = null;
+        ControlObservation? reading = null;
         AutomationElement[] values = [];
         Await(() =>
         {
-            label = Find(window, "TeamNameLabel");
-            var names = Find(window, "TeamNames");
+            var observation = ControlObservation.Capture(window, "TeamNameLabel", "TeamNames",
+                "TeamNameEmpty", "TeamNameEditor", "NavigateManager", "ProfileScroll");
+            var names = observation["TeamNames"];
             var segments = names.FindAll(TreeScope.Descendants,
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"))
                 .Cast<AutomationElement>().ToArray();
-            if (label.Current.IsOffscreen || !segments.Select(segment => segment.Current.Name).SequenceEqual(expected) ||
+            if (observation["TeamNameLabel"].Cached.IsOffscreen || !segments.Select(segment => segment.Current.Name).SequenceEqual(expected) ||
                 segments.Any(segment => segment.Current.IsOffscreen))
                 return false;
-            values = expected.Length == 0 ? [Find(window, "TeamNameEmpty")] : segments;
-            return values.All(value => !value.Current.IsOffscreen) &&
+            values = expected.Length == 0 ? [observation["TeamNameEmpty"]] : segments;
+            var ready = values.All(value => !value.Current.IsOffscreen) &&
                 (expected.Length != 0 || values[0].Current.Name == "Not set");
+            if (ready) reading = observation;
+            return ready;
         });
+        var controls = reading!;
+        var label = controls["TeamNameLabel"];
         if (values.Any(value => value.Current.ControlType != ControlType.Text ||
             value.TryGetCurrentPattern(ValuePattern.Pattern, out _) ||
             (value.Current.AutomationId == "TeamNameSegment" &&
-                !value.TryGetCurrentPattern(InvokePattern.Pattern, out _))) || IsVisible(window, "TeamNameEditor"))
+                !value.TryGetCurrentPattern(InvokePattern.Pattern, out _))) || controls.IsVisible("TeamNameEditor"))
             throw new InvalidOperationException("Team-name reading became an editable field or lost its explicit empty state.");
-        var separators = Find(window, "TeamNames").FindAll(TreeScope.Descendants,
+        var separators = controls["TeamNames"].FindAll(TreeScope.Descendants,
             new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator"))
             .Cast<AutomationElement>().Where(separator => !separator.Current.IsOffscreen).ToArray();
         if (separators.Length != Math.Max(0, expected.Length - 1) ||
             separators.Any(separator => separator.Current.Name != " > " || separator.Current.IsKeyboardFocusable))
             throw new InvalidOperationException("The rendered Team-name path lost its exact read-only ' > ' separators.");
-        var renderedPath = string.Concat(Find(window, "TeamNames").FindAll(TreeScope.Descendants, new OrCondition(
+        var renderedPath = string.Concat(controls["TeamNames"].FindAll(TreeScope.Descendants, new OrCondition(
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSegment"),
                 new PropertyCondition(AutomationElement.AutomationIdProperty, "TeamNameSeparator")))
             .Cast<AutomationElement>().Where(value => !value.Current.IsOffscreen).Select(value => value.Current.Name));
         if (renderedPath != string.Join(" > ", expected))
             throw new InvalidOperationException($"The actual rendered Team-name path is out of order: '{renderedPath}'.");
-        var manager = Find(window, "NavigateManager").Current.BoundingRectangle;
-        var row = label!.Current.BoundingRectangle;
+        var manager = controls.Bounds("NavigateManager");
+        var row = label.Cached.BoundingRectangle;
         var scale = DpiScale(window);
-        var viewport = viewportControl!.Current.BoundingRectangle;
+        var viewport = controls.Bounds("ProfileScroll");
         if (!IsFirstScrollingTeamName(row, manager, viewport, scale))
             throw new InvalidOperationException($"Team name must be the first scrolling fact below anchored Manager: " +
                 $"label={row}, Manager={manager}, viewport={viewport}.");

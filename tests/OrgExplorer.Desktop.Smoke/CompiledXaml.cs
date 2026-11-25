@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
+using System.Windows.Automation.Text;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -23,12 +24,14 @@ namespace OrgExplorer.Desktop.Smoke;
 internal static partial class Program
 {
     private static readonly Queue<string?> CompiledWorkspaceChoices = new();
-    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager)[] CompactIdentityStateCases =
+    private static readonly (string Email, string DirectoryName, string? PreferredName, bool Archived, bool ArchivedManager, string Category)[] CompactIdentityStateCases =
     [
-        ("header-directory@example.com", "Avery\r\nExample", null, false, false),
-        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false),
-        ("header-archived@example.com", "Archived Example", null, true, false),
-        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true)
+        ("header-directory@example.com", "Avery\r\nExample", null, false, false, "Employee"),
+        ("header-preferred@example.com", "Preferred Directory", "Preferred\r\nPerson", false, false, "Employee"),
+        ("header-archived@example.com", "Archived Example", null, true, false, "Employee"),
+        ("header-archived-name@example.com", "Archived Directory", "Archived\r\nPreferred", true, true, "Employee"),
+        ("V-header@example.com", "Vendor\r\nExample", null, false, false, "Vendor"),
+        ("v-header-archived@example.com", "Archived Vendor", null, true, true, "Vendor")
     ];
 
     private static JsonArray CompactIdentityFixturePeople()
@@ -60,6 +63,7 @@ internal static partial class Program
         bool verifyPreferredSnapshotDeferral = false)
     {
         AssertDisplayInterop();
+        VerifyProfileCaptureStateNames();
         if (verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield || verifyLegacySaveFeedback || verifySnapshotAdoption || verifyExit || verifyExitStartup || verifyPreferredNameRetention || verifyPreferredSnapshotDeferral) Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
         using var heldPublisher = verifyProfileRefresh || verifyProfileNoteRefresh || verifyUpdateYield ? new HeldNotePublisher() : null;
         var assemblyPath = Path.ChangeExtension(executable, ".dll");
@@ -129,6 +133,11 @@ internal static partial class Program
                 !Contains(readingScroll, (DependencyObject)window.FindName("ProfileSummary")) ||
                 !Contains(readingScroll, (DependencyObject)window.FindName("NotesPane")))
                 failures.Add("Identity must stay outside the shared facts-and-notes reading scroll.");
+            if (window.FindName("PersonCategoryLabel") is not TextBlock { Focusable: true } category ||
+                !Contains((DependencyObject)window.FindName("PersonIdentity"), category) ||
+                Contains(readingScroll, category) ||
+                !System.Windows.Automation.AutomationProperties.GetHelpText(category).Contains("classification", StringComparison.Ordinal))
+                failures.Add("A read-only, accessible Person-category badge belongs beside the anchored name.");
             if (window.FindName("ProfileDivider") is not null || window.FindName("ProfileDetails") is not null)
                 failures.Add("Ordinary reading must not retain an inner divider or a More details gate.");
             if (window.FindName("ClearSearchButton") is not Button { Focusable: true } clearSearch ||
@@ -780,6 +789,34 @@ internal static partial class Program
             throw new InvalidOperationException("Open Workspace did not reach its external folder-picker boundary.");
     }
 
+    private static void VerifyProfileCaptureStateNames()
+    {
+        var records = new List<string>();
+        HarnessRuntime.Run("compiled-capture-state-names", () =>
+        {
+            var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var state in CompactIdentityStateCases)
+            {
+                var stem = PersonCaptureState("profile-inline-minimum-700-500", state.Email);
+                var names = new List<string> { stem + "-top", stem + "-manager" };
+                if (state.Archived) names.Add(PersonCaptureState("profile-reading-narrow", state.Email));
+                foreach (var name in names)
+                {
+                    ValidateVisualEvidenceState(name);
+                    if (!emitted.Add(name))
+                        throw new InvalidOperationException("Profile evidence states must remain unique: " + name);
+                }
+            }
+            return true;
+        }, write: records.Add);
+        using var result = JsonDocument.Parse(records[^1]["DIAGNOSTIC: harness-runtime ".Length..]);
+        var capture = result.RootElement.GetProperty("operations").EnumerateArray()
+            .Single(operation => operation.GetProperty("name").GetString() == "Capture");
+        if (capture.GetProperty("started").GetInt64() != 0 || capture.GetProperty("completed").GetInt64() != 0)
+            throw new InvalidOperationException("Profile evidence name validation must not report screenshot capture work.");
+        Console.WriteLine("PASS: actual profile-case capture names satisfy the strict path-safe contract and remain unique.");
+    }
+
     private static void VerifyProfileSaveRefresh(Window window, string settings, HeldNotePublisher publisher,
         bool noteRefreshOnly = false, bool compactIdentityOnly = false)
     {
@@ -843,7 +880,7 @@ internal static partial class Program
             VerifyPreferredNameEntry(window, folder, publisher);
             VerifyPhotoViewportLayout(window);
             VerifyHeaderTextAndReadingOrder(window);
-            VerifyCompactIdentityStates(window);
+            VerifyCompactIdentityStates(window, folder);
             if (compactIdentityOnly) return;
             VerifyIdentityContext(window);
             VerifyAdaptiveReadingLayout(window);
@@ -1575,7 +1612,7 @@ internal static partial class Program
         Console.WriteLine("PASS: multiline header values stay bounded without losing full text; Office automation order matches visual building/room order.");
     }
 
-    private static void VerifyCompactIdentityStates(Window window)
+    private static void VerifyCompactIdentityStates(Window window, string folder)
     {
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1645,6 +1682,23 @@ internal static partial class Program
                 failures.Add($"Compact identity lost the full saved name for {state.Email}.");
             if (heading.ActualHeight > heading.FontSize * heading.FontFamily.LineSpacing + 1)
                 failures.Add($"Compact heading adds extra lines for {state.Email}: {heading.ActualHeight}.");
+            foreach (var (width, height) in new[] { (684d, 461d), (700d, 500d), (1100d, 900d),
+                (959d, 900d), (960d, 900d), (961d, 900d), (1920d, 1040d) })
+            {
+                Layout(width, height);
+                var category = Control<TextBlock>("PersonCategoryLabel");
+                var badge = Bounds(category);
+                var name = Bounds(heading);
+                var peer = new TextBlockAutomationPeer(category);
+                if (category.Text != state.Category || peer.GetName() != $"Person category: {state.Category}" ||
+                    !category.IsDescendantOf(identity) || badge.Width <= 0 || badge.Left < name.Right - 1 ||
+                    badge.Top < name.Top - 1 || badge.Bottom > name.Bottom + 1 ||
+                    badge.Right > Bounds(identity).Right + 1 ||
+                    identity.ActualHeight > Control<FrameworkElement>("Photo").ActualHeight + 1 ||
+                    scroll.ScrollableWidth > 0)
+                    failures.Add($"Category badge must remain readable beside the full accessible name within the photo-height header at {width} for {state.Email}: badge={badge}, name={name}.");
+            }
+            Layout();
             if ((marker.Visibility == Visibility.Visible) != state.Archived ||
                 state.Archived && (marker.Text != "Archived Person" || marker.ToolTip is not string tip ||
                     !tip.Contains("retained", StringComparison.Ordinal) || !marker.IsDescendantOf(identity)))
@@ -1684,6 +1738,24 @@ internal static partial class Program
                 }
             }
             finally { Invoke("CancelProfileButton"); }
+            if (state.Email == "V-header@example.com")
+            {
+                using var provider = new SmokeSnapshotPeer(folder);
+                var workflow = (WorkspaceViewModel)Control<TreeView>("PeopleList").DataContext;
+                if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+                provider.Publish(source => source.EditPreferredName(state.Email, "Delivered Vendor") &&
+                    source.EditPersonArchived(state.Email, true));
+                if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+                PumpUntil(() => heading.Text == "Delivered Vendor" && marker.Visibility == Visibility.Visible);
+                if (Control<TextBlock>("PersonCategoryLabel").Text != "Vendor")
+                    failures.Add("Accepted external name/archival delivery left a stale selected category.");
+                provider.Publish(source => source.EditPersonArchived(state.Email, false) &&
+                    source.EditPreferredName(state.Email, null));
+                if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+                PumpUntil(() => heading.Text == fullName && marker.Visibility == Visibility.Collapsed);
+                if (new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Vendor")
+                    failures.Add("Accepted external reactivation lost the accessible selected category.");
+            }
         }
         Control<TextBox>("SearchQuery").Text = "";
         var tree = Control<TreeView>("PeopleList");
@@ -1694,7 +1766,7 @@ internal static partial class Program
         if (failures.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
         if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
             throw new InvalidOperationException("Compact identity-state checks must remain invisible without a native handle.");
-        Console.WriteLine("PASS: multiline saved names and populated archived identity retain their full values and usable dirty minimum-client editors.");
+        Console.WriteLine("PASS: Employee/Vendor badges remain accessible beside full multiline names in the anchored photo footprint across the size matrix; archived identity and dirty minimum-client editors remain usable.");
     }
 
     private static void VerifyIdentityContext(Window window)
@@ -2699,17 +2771,18 @@ internal static partial class Program
             if (!seed.OpenWorkspace(folder) || !seed.ApplyImport(seed.PreviewImport("""
                 {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000001",
                  "observedAt":"2026-11-01T17:00:00Z","people":[
-                 {"email":"morgan@example.com","displayName":"Morgan","managerEmail":null},
-                 {"email":"avery@example.com","displayName":"Avery","managerEmail":"morgan@example.com"}]}
+                {"email":"v-morgan@example.com","displayName":"Morgan","managerEmail":null},
+                {"email":"avery@example.com","displayName":"Avery","managerEmail":"v-morgan@example.com"},
+                {"email":"archived@example.com","displayName":"Archived","managerEmail":null,"archived":true}]}
                 """).Id))
                 throw new InvalidOperationException("Reports visibility fixture failed: " + seed.Status);
         T Control<T>(string name) where T : FrameworkElement => (T)window.FindName(name);
         void Invoke(string name) => Control<Button>(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var root = (FrameworkElement)window.Content;
-        void Layout(double width)
+        void Layout(double width, double height = 900)
         {
-            root.Measure(new Size(width, 900));
-            root.Arrange(new Rect(0, 0, width, 900));
+            root.Measure(new Size(width, height));
+            root.Arrange(new Rect(0, 0, width, height));
             root.UpdateLayout();
             if (window.IsVisible || new WindowInteropHelper(window).Handle != IntPtr.Zero)
                 throw new InvalidOperationException("Reports visibility checks must not show a window or create its native handle.");
@@ -2727,6 +2800,67 @@ internal static partial class Program
                 Presented(Control<TextBlock>("ReportCount")) != visible)
                 throw new InvalidOperationException($"Reports list and count must be {(visible ? "shown" : "hidden")} during {stage}.");
         }
+        void ExpectSummary(string? counts)
+        {
+            if (window.FindName("ReportingStructureSlot") is not FrameworkElement slot ||
+                window.FindName("ReportingStructureValue") is not TextBox value ||
+                window.FindName("ReportingStructureScope") is not TextBlock scope)
+                throw new InvalidOperationException("The compiled profile is missing its ordinary Reporting structure fact.");
+            if (Presented(slot) != (counts is not null) || value.Text != (counts ?? "") ||
+                counts is not null && new TextBoxAutomationPeer(value).GetName() != $"Reporting structure: {counts}" ||
+                scope.Text != "Known current reports, all levels")
+                throw new InvalidOperationException("The compiled Reporting structure fact lost counts, accessible text, scope or eligibility.");
+            if (counts is null) return;
+            var facts = Control<Panel>("FactsGrid");
+            if (facts.Children.IndexOf(slot) != 1 || !slot.IsDescendantOf(facts) ||
+                value.TextWrapping != TextWrapping.Wrap || scope.TextWrapping != TextWrapping.Wrap ||
+                value.ActualWidth <= 0 || value.ActualHeight <= 0 ||
+                value.TranslatePoint(new Point(value.ActualWidth, 0), facts).X > facts.ActualWidth + 1)
+                throw new InvalidOperationException("Reporting structure must wrap compactly immediately after the first Team-name fact.");
+            if (UIElementAutomationPeer.CreatePeerForElement(value)?.GetPattern(PatternInterface.Text) is not ITextProvider text)
+                throw new InvalidOperationException("The compiled reporting value must expose a real TextPattern provider for final-category readability.");
+            var finalCategory = counts[(counts.LastIndexOf(", ", StringComparison.Ordinal) + 2)..];
+            var finalRange = text.DocumentRange.FindText(finalCategory, false, false);
+            if (text.DocumentRange.GetText(-1) != counts || finalRange is null || finalRange.GetText(-1) != finalCategory)
+                throw new InvalidOperationException("The actual reporting TextPattern must retain the complete count and final category.");
+            var peer = UIElementAutomationPeer.CreatePeerForElement(value)!;
+            if (peer.GetPattern(PatternInterface.Value) is not IValueProvider { IsReadOnly: true } readOnly ||
+                !value.IsReadOnly || !value.Focusable || !KeyboardNavigation.GetIsTabStop(value) ||
+                value.BorderThickness != new Thickness(0) || value.Padding != new Thickness(0) ||
+                value.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                value.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled)
+                throw new InvalidOperationException("Reporting counts must remain borderless, selectable and read-only without inner scrolling.");
+            var rejected = false;
+            try { readOnly.SetValue("Attempted reporting edit"); }
+            catch (InvalidOperationException) { rejected = true; }
+            value.SelectAll();
+            if (!rejected || value.Text != counts || value.SelectedText != counts)
+                throw new InvalidOperationException("Selecting reporting counts must not permit editing their derived value.");
+            value.Select(0, 0);
+            var ordinary = new TextBlock { Text = counts, TextWrapping = TextWrapping.Wrap,
+                FontFamily = value.FontFamily, FontSize = value.FontSize };
+            ordinary.Measure(new Size(value.ActualWidth, double.PositiveInfinity));
+            if (Math.Abs(value.ActualHeight - ordinary.DesiredSize.Height) > 1)
+                throw new InvalidOperationException("Selectable reporting counts must retain the ordinary fact's content-sized line spacing.");
+            var start = counts.Length - finalCategory.Length;
+            var cursor = finalRange.Clone();
+            cursor.MoveEndpointByRange(TextPatternRangeEndpoint.End, cursor, TextPatternRangeEndpoint.Start);
+            for (var index = start; index < counts.Length; index++)
+            {
+                var character = cursor.Clone();
+                if (character.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, 1) != 1 ||
+                    character.GetText(-1) != counts[index].ToString())
+                    throw new InvalidOperationException($"The final reporting category character {index - start} is missing from the actual provider range.");
+                var leading = value.GetRectFromCharacterIndex(index);
+                var trailing = value.GetRectFromCharacterIndex(index, trailingEdge: true);
+                if (leading.IsEmpty || trailing.IsEmpty ||
+                    leading.Left < -1 || trailing.Right > value.ActualWidth + 1 ||
+                    leading.Top < -1 || leading.Bottom > value.ActualHeight + 1 ||
+                    trailing.Top < -1 || trailing.Bottom > value.ActualHeight + 1)
+                    throw new InvalidOperationException($"The final reporting category character {index - start} has clipped actual text layout.");
+                cursor.MoveEndpointByRange(TextPatternRangeEndpoint.Start, character, TextPatternRangeEndpoint.End);
+            }
+        }
         Invoke("OpenSettingsButton");
         ChooseCompiledWorkspace(window, folder);
         PumpUntil(() => Control<TextBlock>("StatusText").Text == "Local SQLite Workspace opened.");
@@ -2736,19 +2870,58 @@ internal static partial class Program
             throw new InvalidOperationException("Reports visibility must be checked in the real Person workspace, not behind Settings.");
         var tree = Control<TreeView>("PeopleList");
         var manager = tree.Items.Cast<ReportingNode>().Single();
+        void Activate(string email)
+        {
+            var query = Control<TextBox>("SearchQuery");
+            var results = Control<ListBox>("SearchResults");
+            query.Text = email;
+            PumpUntil(() => results.SelectedItem is PersonSearchResult result && result.Person.Email == email);
+            query.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
+                new UnshownInputSource { RootVisual = root }, 0, Key.Enter)
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            PumpUntil(() => query.Text == "" && Control<TextBlock>("Email").Text == email);
+            Layout(700);
+        }
+        Activate("archived@example.com");
+        ExpectSummary(null);
+        Activate("v-morgan@example.com");
+        Invoke("OpenPeopleButton");
+        Layout(700);
+        if (Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible)
+            throw new InvalidOperationException("Accepted current-after-archived search must allow opening People.");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, manager, TreeView.SelectedItemChangedEvent));
+        Layout(700);
+        if (Control<TextBlock>("Email").Text != "v-morgan@example.com" ||
+            Control<GroupBox>("PeoplePanel").Visibility != Visibility.Visible ||
+            !((WorkspaceViewModel)tree.DataContext).PeopleNavigation.OverlayOpen)
+            throw new InvalidOperationException("A delayed tree selection echo for the already accepted Person must not close the compact People overlay.");
+        Activate("v-morgan@example.com");
+        if (Control<GroupBox>("PeoplePanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Explicit search activation of the same Person must still dismiss the compact overlay.");
+        Invoke("OpenPeopleButton");
+        tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(manager, manager.Reports.Single(), TreeView.SelectedItemChangedEvent));
+        if (Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<GroupBox>("PeoplePanel").Visibility != Visibility.Collapsed)
+            throw new InvalidOperationException("Intentional tree navigation to a different Person must still dismiss the overlay and open that Person.");
         void Select(ReportingNode person)
         {
             tree.RaiseEvent(new RoutedPropertyChangedEventArgs<object>(null!, person, TreeView.SelectedItemChangedEvent));
             if (Control<TextBlock>("Email").Text != person.Person.Email)
                 throw new InvalidOperationException("The reports fixture did not navigate to its intended Person.");
+            var expectedCategory = person.Person.Email == "v-morgan@example.com" ? "Vendor" : "Employee";
+            if (Control<TextBlock>("PersonCategoryLabel").Text != expectedCategory ||
+                new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != $"Person category: {expectedCategory}")
+                throw new InvalidOperationException("Accepted report/manager navigation did not present that Person's category.");
         }
         Select(manager.Reports.Single());
         Layout(1100);
+        ExpectSummary(null);
         Expect(false, "empty wide browsing");
         Layout(700);
         Expect(false, "empty compact browsing");
         Select(manager);
         Layout(700);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
         Expect(true, "populated compact browsing");
         var viewport = Control<ScrollViewer>("PersonScroll");
         var reports = Control<ListBox>("ReportsList");
@@ -2762,6 +2935,7 @@ internal static partial class Program
             throw new InvalidOperationException("Opening People must not reflow the underlying reports or profile content.");
         Invoke("ClosePeopleButton");
         Layout(1100);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
         Expect(false, "populated wide tree browsing");
         Control<TextBox>("SearchQuery").Text = "avery";
         Expect(true, "populated wide search");
@@ -2769,10 +2943,79 @@ internal static partial class Program
         Expect(false, "return to wide tree browsing");
         Control<TextBox>("SearchQuery").Text = "avery";
         reports.SelectedItem = reports.Items.Cast<PersonProfile>().Single();
-        if (Control<TextBlock>("Email").Text != "avery@example.com")
-            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person.");
+        if (Control<TextBlock>("Email").Text != "avery@example.com" ||
+            Control<TextBlock>("PersonCategoryLabel").Text != "Employee" ||
+            new TextBlockAutomationPeer(Control<TextBlock>("PersonCategoryLabel")).GetName() != "Person category: Employee")
+            throw new InvalidOperationException("Visible report selection must still navigate to its exact Person and category.");
         Expect(false, "empty search destination");
-        Console.WriteLine("PASS: nonempty reports appear only in compact/search, empty lists and counts stay hidden, and the People overlay does not reflow the profile.");
+        ExpectSummary(null);
+        Select(manager);
+        using var provider = new SmokeSnapshotPeer(folder);
+        var workflow = (WorkspaceViewModel)tree.DataContext;
+        if (!workflow.RefreshWorkspace()) throw new InvalidOperationException(workflow.Status);
+        provider.Publish(source =>
+        {
+            var review = source.PreviewImport("""
+                {"schemaVersion":1,"batchId":"86000000-0000-4000-8000-000000000002",
+                 "observedAt":"2026-11-02T17:00:00Z","people":[
+                 {"email":"v-middle@example.com","displayName":"Vendor middle","managerEmail":"avery@example.com"},
+                 {"email":"leaf@example.com","displayName":"Leaf","managerEmail":"v-middle@example.com"},
+                 {"email":"v-solo@example.com","displayName":"Vendor root","managerEmail":null},
+                 {"email":"v-only@example.com","displayName":"Vendor only","managerEmail":"v-solo@example.com"}]}
+                """);
+            return review.CanApply && source.ApplyImport(review.Id);
+        });
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "3 total, 2 Employees, 1 Vendors");
+        if (Control<ListBox>("ReportsList").Items.Count != 1 ||
+            Control<TextBlock>("ReportCount").Text != "Imported reports: 1 (selected population, not a full-company count)")
+            throw new InvalidOperationException("All-level reporting counts replaced the separate direct-only list or count.");
+        foreach (var (width, height) in new[] { (700d, 500d), (1100d, 900d), (1920d, 900d) })
+        {
+            Layout(width, height);
+            ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            if (width == 1100)
+            {
+                var value = Control<TextBox>("ReportingStructureValue");
+                value.Text = "12000 total, 9000 Employees, 3000 Vendors";
+                root.UpdateLayout();
+                if (value.LineCount < 2)
+                    throw new InvalidOperationException("The reporting text-layout fixture must exercise actual width-dependent wrapping.");
+                ExpectSummary("12000 total, 9000 Employees, 3000 Vendors");
+                value.Text = "3 total, 2 Employees, 1 Vendors";
+                root.UpdateLayout();
+                ExpectSummary("3 total, 2 Employees, 1 Vendors");
+            }
+            var team = Control<Panel>("TeamNameContext").Children.OfType<TextBlock>().Single(value =>
+                System.Windows.Automation.AutomationProperties.GetAutomationId(value) == "TeamNameLabel");
+            Rect Bounds(FrameworkElement element) => element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+            Control<ScrollViewer>("PersonScroll").ScrollToTop();
+            root.UpdateLayout();
+            if (!IsFirstScrollingTeamName(Bounds(team), Bounds(Control<Button>("Manager")),
+                Bounds(Control<ScrollViewer>("PersonScroll")), 1))
+                throw new InvalidOperationException("Reporting counts moved Team name out of the first scrolling position.");
+        }
+        Control<ListBox>("ReportsList").SelectedItem = Control<ListBox>("ReportsList").Items.Cast<PersonProfile>()
+            .Single(person => person.Email == "avery@example.com");
+        Layout(700, 500);
+        ExpectSummary("2 total, 1 Employees, 1 Vendors");
+        if (Control<TextBlock>("Email").Text != "avery@example.com" || Control<TextBlock>("PersonCategoryLabel").Text != "Employee")
+            throw new InvalidOperationException("Direct-report navigation lost its exact destination category or reporting summary.");
+        Activate("v-solo@example.com");
+        ExpectSummary("1 total, 0 Employees, 1 Vendors");
+        Activate("v-morgan@example.com");
+        provider.Publish(source => source.EditPersonArchived("leaf@example.com", true) &&
+            source.EditPersonArchived("v-middle@example.com", true) && source.EditPersonArchived("avery@example.com", true));
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+        PumpUntil(() => Control<FrameworkElement>("ReportingStructureSlot").Visibility == Visibility.Collapsed);
+        Layout(700);
+        ExpectSummary(null);
+        provider.Publish(source => source.EditPersonArchived("avery@example.com", false));
+        if (!workflow.SyncNow()) throw new InvalidOperationException(workflow.Synchronization.Error);
+        PumpUntil(() => Control<TextBox>("ReportingStructureValue").Text == "1 total, 1 Employees, 0 Vendors");
+        Layout(1100);
+        ExpectSummary("1 total, 1 Employees, 0 Vendors");
+        Console.WriteLine("PASS: accepted-search tree echoes preserve the compact overlay; explicit same-Person activation and different-Person navigation still dismiss it; compact zero-inclusive reporting facts refresh/reappear across the size matrix, preserving Team-first geometry and direct-only report destinations.");
     }
 
     private static void VerifyFactRowSpacing(Window window)
@@ -2823,12 +3066,16 @@ internal static partial class Program
             Rect Bounds(FrameworkElement element) =>
                 element.TransformToAncestor(facts).TransformBounds(new Rect(element.RenderSize));
             var rows = slots.GroupBy(slot => Math.Round(Bounds(slot).Top, 2)).OrderBy(row => row.Key).ToArray();
-            if (slots.Length != 7 || rows[0].Count() != columns ||
+            var expectedSlots = Control<FrameworkElement>("ReportingStructureSlot").Visibility == Visibility.Visible ? 8 : 7;
+            if (slots.Length != expectedSlots || rows[0].Count() != columns ||
                 Control<TextBlock>("TeamNameEmpty").Visibility != Visibility.Visible ||
                 !Control<TextBlock>("TeamNameEmpty").IsDescendantOf(facts) ||
                 url.Text != longUrl || url.ActualHeight <= url.FontSize * 2 ||
                 slots.Any(slot => Bounds(slot).Left < 0 || Bounds(slot).Right > facts.ActualWidth + 1))
-                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP.");
+                throw new InvalidOperationException($"Facts lost their responsive columns, full wrapping or containment at {width} DIP: " +
+                    $"slots={slots.Length}/{expectedSlots}, firstRow={rows[0].Count()}/{columns}, " +
+                    $"summary={Control<FrameworkElement>("ReportingStructureSlot").Visibility}, urlHeight={url.ActualHeight}, " +
+                    $"factsWidth={facts.ActualWidth}, rowSlots={string.Join("; ", slots.Select(slot => $"{slot.Name}={Bounds(slot)}"))}.");
             for (var index = 0; index < rows.Length - 1; index++)
             {
                 var row = rows[index].ToArray();
