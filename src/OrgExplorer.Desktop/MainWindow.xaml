@@ -668,6 +668,16 @@
                           ToolTip="Add preferred name" Click="EditPreferredName"/>
                 </WrapPanel>
               </StackPanel>
+              <Border x:Name="PersonCategoryBadge" DockPanel.Dock="Right" VerticalAlignment="Center"
+                      Margin="8,0,6,0" Padding="6,2" CornerRadius="4"
+                      Background="#F6F8FA" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="1"
+                      Visibility="Collapsed">
+                <TextBlock x:Name="PersonCategoryLabel" FontSize="12" Focusable="True" KeyboardNavigation.IsTabStop="True"
+                           AutomationProperties.AutomationId="PersonCategoryLabel"
+                           AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}, StringFormat='Person category: {0}'}"
+                           AutomationProperties.HelpText="Read-only classification derived from email identity; not verified employment or payroll status."
+                           ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=(AutomationProperties.HelpText)}"/>
+              </Border>
               <TextBlock x:Name="ProfileHeading" AutomationProperties.AutomationId="ProfileHeading" FontSize="24" Focusable="True"
                          FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="64" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
             </DockPanel>
@@ -857,6 +867,18 @@
                            Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
               </StackPanel>
             </StackPanel>
+          </StackPanel>
+          <StackPanel x:Name="ReportingStructureSlot" Style="{StaticResource FactSlot}" Visibility="Collapsed"
+                      AutomationProperties.AutomationId="ReportingStructure">
+            <TextBlock Text="Reporting structure" Style="{StaticResource FactLabel}"
+                       AutomationProperties.AutomationId="ReportingStructureLabel"/>
+            <TextBox x:Name="ReportingStructureValue" TextWrapping="Wrap" IsReadOnly="True"
+                     BorderThickness="0" Padding="0" Margin="0" MinHeight="0" Background="Transparent"
+                     HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
+                       AutomationProperties.AutomationId="ReportingStructureValue"
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}, StringFormat=Reporting structure: {0}}"/>
+            <TextBlock x:Name="ReportingStructureScope" Text="Known current reports, all levels" TextWrapping="Wrap"
+                       Foreground="{StaticResource MutedBrush}" AutomationProperties.AutomationId="ReportingStructureScope"/>
           </StackPanel>
           <StackPanel x:Name="DepartmentValueRow" Style="{StaticResource FactSlot}">
             <TextBlock Text="Department" Style="{StaticResource FactLabel}"/>

@@ -5,6 +5,50 @@ namespace OrgExplorer.Core.Tests;
 
 public sealed class PersonArchivalTests
 {
+    [Fact]
+    public void Selected_category_follows_accepted_navigation_archival_and_reactivation_without_changing_identity()
+    {
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateInMemory());
+        Assert.True(app.OpenWorkspace("fictitious-category"));
+        Apply(app, Batch("""
+            {"email":"v-manager@example.com","displayName":"Manager","managerEmail":null},
+            {"email":"person@example.com","displayName":"Vendor","managerEmail":"v-manager@example.com"},
+            {"email":"V-contributor@example.com","displayName":"Employee","managerEmail":null}
+            """, 1));
+        var notifications = 0;
+        app.PropertyChanged += (_, _) => notifications++;
+        Assert.True(app.NavigatePerson("v-manager@example.com"));
+        Assert.Equal("vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        Assert.Equal("person@example.com", Assert.Single(app.GetRelationships("v-manager@example.com")!.ImportedReports).Email);
+        Assert.False(app.EditPersonArchived("v-manager@example.com", true));
+        Assert.Equal("vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+
+        Assert.True(app.NavigatePerson("person@example.com"), app.Status);
+        Assert.Equal("employee", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        Assert.True(app.EditPersonArchived("person@example.com", true), app.Status);
+        Assert.True(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Person.Archived);
+        Assert.Equal("employee", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        Assert.Empty(app.GetRelationships("v-manager@example.com")!.ImportedReports);
+        Assert.True(app.EditPersonArchived("person@example.com", false), app.Status);
+        Assert.Single(app.GetRelationships("v-manager@example.com")!.ImportedReports);
+
+        Assert.True(app.NavigatePerson("V-contributor@example.com"), app.Status);
+        Assert.True(app.EditPersonArchived("V-contributor@example.com", true), app.Status);
+        var archived = app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!;
+        Assert.Equal("V-contributor@example.com", archived.Person.Email);
+        Assert.Equal("vendor", archived.Category.Id);
+        Assert.Empty(archived.ImportedReports);
+        Apply(app, Batch("""{"email":"V-contributor@example.com","displayName":"Changed","alias":"t-alias"}""", 2));
+        Assert.Equal("vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        Assert.True(app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Person.Archived);
+        Assert.True(app.EditPersonArchived("V-contributor@example.com", false), app.Status);
+        Assert.Equal("vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        var invalid = app.PreviewImport(Batch("""{"email":"V-contributor@example.com","category":"employee"}""", 3));
+        Assert.False(invalid.CanApply);
+        Assert.Equal("vendor", app.GetRelationships(app.PeopleNavigation.SelectedEmail!)!.Category.Id);
+        Assert.True(notifications > 0);
+    }
+
     private sealed class Clock : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.Parse("2026-11-08T12:00:00Z");

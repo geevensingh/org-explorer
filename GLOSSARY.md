@@ -27,6 +27,21 @@ The person's short company handle, distinct from their full email address and
 preferred name.
 _Avoid_: Nickname, alternate email
 
+**Person category**:
+A mutually exclusive, email-identity-based classification used to describe People
+and group reporting headcounts, not verified legal employment or payroll status.
+_Avoid_: Employment status, user role
+
+**Employee**:
+A Person in the default Person category when their email identity does not
+denote any recognized category.
+_Avoid_: Non-vendor, verified employee, full-time employee
+
+**Vendor**:
+A Person whose email identity denotes vendor affiliation under the workspace's
+Person-category convention.
+_Avoid_: Directory guest, every external worker
+
 **Archived person**:
 A person excluded from ordinary current-org views whose information and personal
 context remain available.
@@ -45,6 +60,11 @@ _Avoid_: Informal team membership
 **Reporting subtree**:
 A manager together with everyone who reports directly or indirectly through them.
 _Avoid_: Permanent team
+
+**Reporting descendants**:
+Everyone who reports directly or indirectly through a manager, excluding that
+manager.
+_Avoid_: Reporting subtree, direct reports
 
 **Imported population**:
 The people available in the workspace from selected reporting subtrees and their

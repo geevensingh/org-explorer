@@ -30,7 +30,13 @@ public sealed record ImportPreview(Guid Id, bool CanApply, IReadOnlyList<string>
 }
 
 public sealed record ReportingNode(PersonProfile Person, IReadOnlyList<ReportingNode> Reports);
-public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports);
+public sealed record ReportingCategoryCount(PersonCategory Category, int Count);
+public sealed record ReportingSummary(int Total, IReadOnlyList<ReportingCategoryCount> Categories);
+public sealed record PersonRelationships(PersonProfile Person, PersonProfile? Manager, IReadOnlyList<PersonProfile> ImportedReports)
+{
+    public PersonCategory Category => PersonCategories.FromEmail(Person.Email);
+    public ReportingSummary? ReportingSummary { get; init; }
+}
 public enum WorkspaceOpenMode { OpenOrCreate, ExistingOnly }
 
 public partial interface IApplicationWorkflow : IDisposable
@@ -131,7 +137,7 @@ public sealed partial class ApplicationWorkflow : IApplicationWorkflow
     { if (queryView is { } view) return view.GetRelationships(email);
       lock (workspaceGate) return people.TryGetValue(email, out var person)
         ? new PersonRelationships(person, person.ManagerEmail is { } manager ? people.GetValueOrDefault(manager) : null,
-            ReportsOf(person.Email))
+            ReportsOf(person.Email)) { ReportingSummary = ReportingSummaryOf(person.Email) }
         : null; }
     private string statusSnapshot = "Choose a Workspace.";
     private string? operationErrorSnapshot;

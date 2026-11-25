@@ -123,6 +123,12 @@ Keep the photo/placeholder, identity, and principal actions together rather than
 stacking each into a separate full-width row. Preserve Preferred name versus
 Directory name and non-editable email identity.
 
+Show a compact, read-only Person category badge beside the name in identity,
+including on archived profiles. Initially the labels are `Employee` and `Vendor`;
+provide an accessible category label rather than relying on badge color.
+Keep the name primary and preserve the anchored header's photo footprint,
+full accessible text, and narrow-window behavior.
+
 The approved November 14 photo-size amendment (#81) specifies a permanent
 144-logical-unit circular photo or initials placeholder at every supported
 window size, with proportionally larger initials and the current centered
@@ -144,6 +150,22 @@ managers. Use `Not set` when no names apply, including on archived profiles;
 unlike other missing facts, this row does not use a dash or disappear. Eligibility
 requires at least one current, non-archived direct report in the workspace.
 A retained label is hidden and not editable while that requirement is unmet.
+
+Immediately after Team name, show a compact `Reporting structure` fact when the
+selected Person has at least one current, non-archived direct report. Use the
+ordinary facts grid, not a separate card, chart, or large-number tiles. Put Total
+and every supported category count in short inline text, initially Total,
+Employees, and Vendors, including zero counts. Only the count value uses a
+borderless, read-only selectable text control: selection and Copy are available,
+but the derived counts cannot be edited. Keep ordinary fact typography and
+content-sized spacing. Let the text wrap at narrow widths
+without reserving a separate row for each category. Add the scope hint
+`Known current reports, all levels`: counts cover imported Reporting descendants,
+exclude the selected manager, and do not establish company-directory completeness.
+Hide this fact when there are no current reports; retain the category badge.
+The existing direct-reports list and its direct-only count remain distinct.
+See [Person categories and reporting counts](design.md#person-categories-and-reporting-counts)
+for classification and population rules.
 
 All ordinary facts are exposed by default in a width-dependent, consistently
 ordered grid. Missing facts retain a labelled dash; populated values do not

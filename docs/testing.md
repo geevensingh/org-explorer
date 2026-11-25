@@ -141,6 +141,39 @@ Person More actions require confirmation before the same profile leave decision
 and apply archival/reactivation immediately through `EditPersonArchived`, not as
 profile-draft fields. Cancellation preserves the draft and saved history; Stay
 and rejected leave-save retain the owner. Profile Discard never clears note drafts.
+Person-category cases use the real workflow through
+`WorkspaceViewModel.GetRelationships`, including leading-prefix/fallback rules,
+unrelated names/titles, accepted navigation, archival/reactivation and rejection.
+Real-folder cases reopen categories and accept delivered People while retaining
+private context and note writing. The existing invisible profile-refresh contract
+checks actual Employee/Vendor badge text, accessible labels, report destinations
+and anchored geometry across its size matrix. Existing hosted profile, archival,
+external-refresh and responsive journeys assert rendered badges; invisible checks
+do not establish hosted presentation or keyboard evidence.
+Reporting-summary cases use that same public profile query for independent
+12/9/3 mixed graphs with Employee and Vendor roots, explicit single-category
+zeros, accepted moves/imports, rejection, archival/reactivation and visible-subset
+independence. The 12,000-report wide and 1,024-level deep cases prove uncapped
+counts, not either separate scale suite or a latency SLA. Real-folder cases
+reopen current counts and refresh selected profiles/ancestors while retaining
+private context and note writing. The existing invisible profile-refresh contract
+observes the ordinary zero-inclusive fact, its real read-only selectable
+TextPattern provider and final-category character layout, accessible full text,
+placement, size matrix, delivered counts and eligibility changes without a
+native window. The prior plain TextBlock had no TextPattern; source text and
+an outer control box alone cannot establish final-category glyph readability.
+Existing hosted profile, archival, external-refresh and responsive journeys
+observe every final count/category character's actual rendered text-range
+rectangles, fact text, wrapping, Team-first order and report destinations;
+those presentation and keyboard assertions require the hosted desktop lanes.
+Read-only multi-control native checks batch their requested IDs and properties
+in one fresh UI Automation observation, avoiding a full-window search for each
+field. Each readiness poll and post-action check captures again; observations
+do not survive navigation, focus/scroll changes or updates. Text-pattern, pixel,
+selection and keyboard assertions remain actual provider/desktop observations,
+with the same complete scenario selection, size matrices and execution budgets.
+Responsive editor checks acquire the displayed identity inside the existing
+readiness poll, so a transient post-resize absence cannot bypass that wait.
 File-backed profile-session cases cover complete publication and reopening,
 Cancel nonmutation, real locks and missing photos, Manager/history consistency,
 independent quick changes, same-record/different-field stale saves and retries,
@@ -1453,6 +1486,9 @@ that published result list instead of rebuilding excerpts. Bounded allocation
 cases use a warmed long-note fixture, and publication cases reject older query,
 refresh and Workspace requests. The compiled replay also sends Enter immediately
 after query input, before pumping publication, to retain single-Enter acceptance.
+Archived-to-current search also replays a delayed tree-selection echo: People
+stays open for the already accepted Person, while explicit same-Person search
+activation and different-Person tree navigation still dismiss the overlay.
 The SQLite integration additionally holds an actual explicit profile transaction
 while single-Enter search navigates away and back, distinguishing its submitted
 durable value from newer unsaved writing and the original immutable base. Both
@@ -2484,8 +2520,11 @@ Each phase carries the exact `GITHUB_SHA`, run and attempt (null when unbound
 locally), its parent/context and outcome. Fixed-size, thread-safe in-memory
 counters retain started/completed counts, total and maximum elapsed observation
 cost for existing discovery, shared native requests, waits/predicates, filtered
-note snapshots, capture/pixels and compiled copy/SQLite layout. These diagnostics
-add no per-poll writes, UIA reads/cache warming, actions or retries. Existing
+note snapshots, capture/pixels and compiled copy/SQLite layout. Capture measures
+screenshot acquisition, PNG encoding and metadata writing;
+standalone path-safe state validation records no capture operations. The existing
+invisible capture-name regression verifies that distinction without taking screenshots.
+These diagnostics add no per-poll writes, UIA reads/cache warming, actions or retries. Existing
 direct native latency requests and samples remain unchanged. Nested/inclusive
 measurements overlap and concurrent snapshots are non-atomic; these are neither
 database commit times nor replacement product latency, and nothing is subtracted
