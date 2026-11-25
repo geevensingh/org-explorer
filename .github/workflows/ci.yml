@@ -6,11 +6,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      diagnose_people_header:
-        description: Temporary diagnostic only - native profile-journey header observation, not CI acceptance
-        required: false
-        default: false
-        type: boolean
       run_scale_verification:
         description: Run separate scale verification at this dispatch commit
         required: false
@@ -28,7 +23,6 @@ permissions:
 jobs:
   core:
     name: Core and view models
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -52,7 +46,6 @@ jobs:
 
   filesystem:
     name: Real filesystem persistence
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
     runs-on: windows-latest
     timeout-minutes: 11
     steps:
@@ -76,7 +69,6 @@ jobs:
 
   desktop:
     name: Actual Windows desktop smoke (${{ matrix.partition }})
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
     runs-on: windows-latest
     timeout-minutes: 15
     strategy:
@@ -104,7 +96,6 @@ jobs:
 
   high-resolution:
     name: High-resolution Windows smoke (${{ matrix.partition }})
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
     runs-on: windows-latest
     timeout-minutes: 15
     strategy:
@@ -130,36 +121,9 @@ jobs:
             .ci-results/high-resolution-${{ matrix.partition }}/*.log
             .ci-results/high-resolution-${{ matrix.partition }}/*.png
 
-  native-header-diagnostic:
-    name: "Diagnostic only: native People header"
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header }}
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - name: Start execution budget before setup
-        run: '"LANE_STARTED_AT=$([DateTimeOffset]::UtcNow.ToString(''O''))" >> $env:GITHUB_ENV'
-      - name: Require diagnostic-only dispatch
-        if: ${{ inputs.run_scale_verification || inputs.run_release_verification }}
-        run: throw 'Native header diagnosis cannot be combined with scale or release verification.'
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-          cache: true
-          cache-dependency-path: '**/packages.lock.json'
-      - run: .\eng\Run-CiLane.ps1 desktop -InvestigateProfileJourney
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: diagnostic-people-header-attempt-${{ github.run_attempt }}
-          path: |
-            .ci-results/diagnostic-people-header/*.json
-            .ci-results/diagnostic-people-header/*.log
-            .ci-results/diagnostic-people-header/*.png
-
   ci:
     name: CI
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
+    if: ${{ always() }}
     needs: [core, filesystem, desktop, high-resolution]
     runs-on: windows-latest
     timeout-minutes: 2
@@ -188,14 +152,14 @@ jobs:
 
   scale-verification:
     name: Optional manual scale verification
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification && !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scale_verification && !inputs.run_release_verification }}
     uses: ./.github/workflows/scale-verification.yml
     with:
       revision: ${{ github.sha }}
 
   release-verification:
     name: Optional product release rehearsal
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification && !(github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release_verification }}
     permissions:
       contents: read
       actions: read

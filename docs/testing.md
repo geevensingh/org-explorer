@@ -2521,58 +2521,6 @@ not complete scale acceptance. `--high-resolution` selects only the
 three required high-resolution scenarios and is never part of default ordinary smoke.
 A targeted pass is not the complete required lane. `DESKTOP_RESULTS_DIRECTORY`
 may select a separate result directory for manual runs.
-The temporary `ci.yml` workflow-dispatch input `diagnose_people_header` defaults
-to false. When explicitly true, it runs only the existing native
-`profile-journey` investigative selector on one isolated Windows worker through
-`Run-CiLane.ps1 desktop -InvestigateProfileJourney`. It keeps the existing setup,
-restore/build, standard-display check and 900-second whole-execution budget,
-but runs no other scenarios or compiled companions. This focused scenario may
-use a normal-trust build; ordinary required jobs retain their existing test-trust
-setup and complete selections.
-
-Diagnostic dispatch skips the normal jobs, optional scale/release jobs and
-aggregate `CI`; it cannot issue a passing aggregate attestation from skipped
-lanes. Combining the diagnostic input with scale/release inputs is rejected.
-Without this explicit input, dispatch/PR/main execution is unchanged.
-Results use only `.ci-results\diagnostic-people-header` and artifact
-`diagnostic-people-header-attempt-<runAttempt>`. The usual selected-name
-`scenarios.json` remains authoritative for that one scenario; `execution.json`
-is separately labelled `diagnosticOnly=true`, lane `diagnostic-people-header`
-and scenario `profile-journey`, bound to the exact candidate/run/attempt.
-It is not complete required-lane evidence and cannot satisfy the normal
-partition collector.
-
-After integrating and pushing the diagnostic candidate, use the repository's
-account routing and dispatch the already registered workflow, for example:
-
-```powershell
-gh workflow run ci.yml --repo geevensingh/org-explorer `
-  --ref geevensingh-people-tree-fallback -f diagnose_people_header=true
-```
-
-The temporary `DEBUG-136-NATIVE-HEADER` failure record retains only the last
-values already read by the current selected-header predicate and its first
-failed subcondition: row selection, header presence/offscreen/name-empty,
-viewport/header geometry and actual click-point/provider result. It adds no
-UIA lookups, action retries, corrective scrolling, changed cadence or new
-deadline; the original exception is rethrown. No private names or writing are
-recorded. Remove this capture and dispatch route after the native cause is
-proved/fixed; diagnostic evidence is never final clean acceptance.
-The same temporary diagnostic dispatch alone compiles `RevealLifecycleFile`
-and supplies `ORG_EXPLORER_REVEAL_LIFECYCLE_FILE` under its result directory.
-Normal builds erase the partial observation calls and include neither observer
-nor recorder in the application. `reveal-lifecycle.json` is tagged
-`DEBUG-136-REVEAL-LIFECYCLE` and retains at most 16 records: the first eight
-and last eight original request/guard, realization, single BringIntoView and
-context-idle observations. It records only booleans/counters, measure/arrange
-state, target/relative geometry and scroll viewport/extent/offset, never private
-identifiers or writing. Recording is bounded in memory; one coalesced worker
-publishes snapshots after dispatcher context idle, outside the reveal action.
-Output failure is retained as bounded type/HResult evidence and a fixed stderr
-marker without replacing product outcomes; missing output is also marked in the
-diagnostic execution metadata. This adds no UIA lookups or corrective actions.
-Remove observer, recorder, partial hooks and build/dispatch routing with the other
-temporary diagnostics after native cause/fix verification.
 The full selection and `update-settings` require the prepared update fixture and
 matching test-trust build; a production-trust build cannot substitute for that
 controlled evidence. Other focused scenarios may use a normal build.

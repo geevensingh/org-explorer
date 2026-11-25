@@ -225,16 +225,12 @@ public partial class MainWindow
         }, DispatcherPriority.Loaded);
     }
 
-    partial void ObserveRevealLifecycle(string stage, int request, string? email, FrameworkElement? row, Rect? target);
-
     private void RevealSelectedPerson()
     {
-        ObserveRevealLifecycle("request-considered", peopleBrowseRequest, pendingPeopleRevealEmail, null, null);
         if (!workflow.PeopleNavigation.IsBrowsing || ExplorerPanel.Visibility != Visibility.Visible ||
             PeoplePanel.Visibility != Visibility.Visible || workflow.IsImportOpen) return;
         var email = pendingPeopleRevealEmail;
         var request = ++peopleBrowseRequest;
-        ObserveRevealLifecycle("request-queued", request, email, null, null);
         Dispatcher.BeginInvoke(() =>
         {
             if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
@@ -242,10 +238,8 @@ public partial class MainWindow
                 !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
                 ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible)
             {
-                ObserveRevealLifecycle("callback-rejected", request, email, null, null);
                 return;
             }
-            ObserveRevealLifecycle("callback-valid", request, email, null, null);
             FrameworkElement? row;
             if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
             {
@@ -264,11 +258,9 @@ public partial class MainWindow
             }
             if (row is null)
             {
-                ObserveRevealLifecycle("row-unavailable", request, email, null, null);
                 StatusText.Text = "The Person is open, but their People row could not be revealed. Reopen People to try again.";
                 return;
             }
-            ObserveRevealLifecycle("realization-complete", request, email, row, null);
             // Expanded realization can publish its scroll extent after the current layout callback.
             Dispatcher.BeginInvoke(() =>
             {
@@ -280,13 +272,10 @@ public partial class MainWindow
                         (treeRow.DataContext is not ReportingNode node ||
                             !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
                 {
-                    ObserveRevealLifecycle("bring-rejected", request, email, row, null);
                     return;
                 }
-                ObserveRevealLifecycle("bring-layout-ready", request, email, row, null);
                 // Preserve leading-edge reveal without including the expanded subtree or trailing blank width.
                 var target = new Rect(0, 0, 1, Math.Min(28, row.ActualHeight));
-                ObserveRevealLifecycle("bring-call", request, email, row, target);
                 row.BringIntoView(target);
                 if (wideWorkspace)
                 {
@@ -301,7 +290,6 @@ public partial class MainWindow
                         workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
                         ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
                         RememberPeopleBrowsing();
-                    ObserveRevealLifecycle("context-idle-result", request, email, row, target);
                 }, DispatcherPriority.ContextIdle);
             }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);

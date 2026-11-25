@@ -11,9 +11,6 @@ if (!@($runner.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserP
 if (!@($runner.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'HighResolutionPartition' }).Count) {
     throw 'CI must explicitly select an isolated high-resolution partition.'
 }
-if (!@($runner.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'InvestigateProfileJourney' }).Count) {
-    throw 'The temporary native diagnostic must explicitly select only profile-journey.'
-}
 $contractsAssignment = $runner.Find({
     param($node)
     $node -is [Management.Automation.Language.AssignmentStatementAst] -and
@@ -21,58 +18,17 @@ $contractsAssignment = $runner.Find({
 }, $true)
 if (!$contractsAssignment) { throw 'Compiled/update/release execution must be assigned explicitly.' }
 foreach ($case in @(
-    @{ lane = 'desktop'; partition = ''; diagnostic = $false; expected = $true },
-    @{ lane = 'desktop'; partition = 'people'; diagnostic = $false; expected = $false },
-    @{ lane = 'desktop'; partition = 'workspace'; diagnostic = $false; expected = $true },
-    @{ lane = 'high-resolution'; partition = ''; diagnostic = $false; expected = $false },
-    @{ lane = 'desktop'; partition = ''; diagnostic = $true; expected = $false }
+    @{ lane = 'desktop'; partition = ''; expected = $true },
+    @{ lane = 'desktop'; partition = 'people'; expected = $false },
+    @{ lane = 'desktop'; partition = 'workspace'; expected = $true },
+    @{ lane = 'high-resolution'; partition = ''; expected = $false }
 )) {
     $Lane = $case.lane
     $DesktopPartition = $case.partition
-    $InvestigateProfileJourney = $case.diagnostic
     . ([scriptblock]::Create($contractsAssignment.Extent.Text))
     if ($runDesktopContracts -ne $case.expected) { throw 'A required desktop companion command was dropped or duplicated.' }
 }
 $source = Get-Content (Join-Path $root 'eng\Run-CiLane.ps1') -Raw
-$nativeSelection = $runner.Find({
-    param($node)
-    $node -is [Management.Automation.Language.IfStatementAst] -and
-        $node.Extent.Text.Contains('$flowArguments +=') -and
-        $node.Clauses[0].Item1.Extent.Text -eq '$InvestigateProfileJourney'
-}, $true)
-if (!$nativeSelection) { throw 'Native investigation must use the existing explicit single-scenario harness selector.' }
-foreach ($case in @(
-    @{ diagnostic = $true; desktop = ''; high = ''; resolution = $false; expected = 'profile-journey' },
-    @{ diagnostic = $false; desktop = 'people'; high = ''; resolution = $false; expected = '--desktop-people' },
-    @{ diagnostic = $false; desktop = 'workspace'; high = ''; resolution = $false; expected = '--desktop-workspace' },
-    @{ diagnostic = $false; desktop = ''; high = 'reading'; resolution = $true; expected = '--high-resolution-reading' },
-    @{ diagnostic = $false; desktop = ''; high = ''; resolution = $true; expected = '--high-resolution' }
-)) {
-    $InvestigateProfileJourney = $case.diagnostic
-    $DesktopPartition = $case.desktop
-    $HighResolutionPartition = $case.high
-    $highResolution = $case.resolution
-    $flowArguments = @('app.exe')
-    . ([scriptblock]::Create($nativeSelection.Extent.Text))
-    if ($flowArguments.Count -ne 2 -or $flowArguments[1] -cne $case.expected) {
-        throw 'Diagnostic or ordinary native selection was expanded, dropped or duplicated.'
-    }
-}
-$workflow = Get-Content (Join-Path $root '.github\workflows\ci.yml') -Raw
-$diagnosticCondition = "github.event_name == 'workflow_dispatch' && inputs.diagnose_people_header"
-if ($workflow -notmatch '(?ms)^      diagnose_people_header:\r?\n.*?default: false\r?\n.*?type: boolean') {
-    throw 'Native diagnostic dispatch must default off.'
-}
-foreach ($job in @('core', 'filesystem', 'desktop', 'high-resolution', 'ci', 'scale-verification', 'release-verification')) {
-    $block = [regex]::Match($workflow, "(?ms)^  $([regex]::Escape($job)):\r?\n.*?(?=^  [a-z][a-z-]*:|\z)").Value
-    if (!$block.Contains("!($diagnosticCondition)")) {
-        throw "Diagnostic dispatch must not run or attest the ordinary $job job."
-    }
-}
-if (!$workflow.Contains("if: `${{ $diagnosticCondition }}") -or
-    !$workflow.Contains('name: diagnostic-people-header-attempt-${{ github.run_attempt }}')) {
-    throw 'Native diagnostics require their own gated worker and separate named artifact.'
-}
 foreach ($required in @("'high-resolution'", "'--prepare-high-resolution'", "'--verify-standard-display'",
     "'--high-resolution'", 'HighResolutionScenarios.json', "'--verify-update-yield'", 'ImplementationBaseline.Tests.ps1')) {
     if (!$source.Contains($required)) { throw "Required CI execution is missing $required" }
@@ -159,21 +115,6 @@ try {
         }
         if (!$rejected) { throw 'Resolution partition selection changed another lane.' }
     }
-    foreach ($case in @(
-        @{ lane = 'core'; partition = '' },
-        @{ lane = 'high-resolution'; partition = '' },
-        @{ lane = 'desktop'; partition = 'people' }
-    )) {
-        $rejected = $false
-        $arguments = @{ Lane = $case.lane; InvestigateProfileJourney = $true }
-        if ($case.partition) { $arguments.DesktopPartition = $case.partition }
-        try { & "$root\eng\Run-CiLane.ps1" @arguments }
-        catch {
-            if ($_.Exception.Message -ne 'Profile-journey investigation requires an unpartitioned ordinary desktop lane.') { throw }
-            $rejected = $true
-        }
-        if (!$rejected) { throw 'Native investigation changed a required lane selection.' }
-    }
     $fixture = Join-Path $results 'partition-fixture'
     New-Item -ItemType Directory -Path (Join-Path $fixture 'eng'), (Join-Path $fixture 'tests') -Force | Out-Null
     foreach ($name in @('Run-CiLane.ps1', 'DesktopResults.ps1')) {
@@ -203,20 +144,6 @@ try {
                 @($metadata.steps).Count -ne 0) {
                 throw 'A high-resolution partition did not retain its isolated results and expired-deadline failure.'
             }
-        }
-        $env:LANE_STARTED_AT = [DateTimeOffset]::UtcNow.AddSeconds(-901).ToString('O')
-        $rejected = $false
-        try { & (Join-Path $fixture 'eng\Run-CiLane.ps1') desktop -InvestigateProfileJourney }
-        catch {
-            if ($_.Exception.Message -ne 'The lane budget (including setup) is exhausted.') { throw }
-            $rejected = $true
-        }
-        $metadata = Get-Content -LiteralPath (Join-Path $fixture '.ci-results\diagnostic-people-header\execution.json') -Raw |
-            ConvertFrom-Json
-        if (!$rejected -or !$metadata.diagnosticOnly -or $metadata.scenario -cne 'profile-journey' -or
-            $metadata.lane -cne 'diagnostic-people-header' -or $metadata.complete -or
-            $metadata.ceilingSeconds -ne 900 -or @($metadata.steps).Count -ne 0) {
-            throw 'Diagnostic execution cannot masquerade as complete required-lane evidence.'
         }
     } finally {
         Set-Location -LiteralPath $previousDirectory

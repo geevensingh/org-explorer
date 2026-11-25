@@ -281,103 +281,32 @@ internal static partial class Program
             throw new InvalidOperationException("Automatic Import selection published a remembered destination.");
     }
 
-    private sealed class NativeHeaderFailureObservation
-    {
-        public bool? TreeOffscreen { get; set; }
-        public bool? RowFound { get; set; }
-        public bool? RowOffscreen { get; set; }
-        public bool? Selected { get; set; }
-        public bool? HeaderFound { get; set; }
-        public bool? HeaderOffscreen { get; set; }
-        public bool? HeaderNameEmpty { get; set; }
-        public string? Viewport { get; set; }
-        public string? Header { get; set; }
-        public bool? ClickPointProviderReturned { get; set; }
-        public string? ClickPoint { get; set; }
-        public string? ClickViewport { get; set; }
-        public string? FailedCondition { get; set; }
-    }
-
     private static void AssertSelectedPeopleRow(AutomationElement window, string email, params string[] ancestors)
     {
         Await(() => CurrentPersonEmail(window) == email && IsVisible(window, "Email") && IsVisible(window, "EditProfile"));
         var openedOverlay = IsVisible(window, "OpenPeople") && !IsVisible(window, "PeopleNavigation");
         if (openedOverlay) Click(window, "OpenPeople");
         AutomationElement? observedTree = null;
-        var last = new NativeHeaderFailureObservation();
-        try { ControlReadiness.AwaitSelectedHeader(() =>
+        ControlReadiness.AwaitSelectedHeader(() =>
         {
-            last = new() { FailedCondition = "tree-discovery" };
             var tree = observedTree = Find(window, "People");
-            last.FailedCondition = "row-discovery";
             var row = tree.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, email));
-            last.RowFound = row is not null;
-            last.FailedCondition = "tree-offscreen";
-            var treeOffscreen = tree.Current.IsOffscreen;
-            last.TreeOffscreen = treeOffscreen;
-            if (treeOffscreen) return null;
-            last.FailedCondition = "row-missing";
-            if (row is null) return null;
-            last.FailedCondition = "row-offscreen-read";
+            if (tree.Current.IsOffscreen || row is null) return null;
             var rowOffscreen = row.Current.IsOffscreen;
-            last.RowOffscreen = rowOffscreen;
-            last.FailedCondition = "row-not-selected";
             var selected = ((SelectionItemPattern)row.GetCurrentPattern(SelectionItemPattern.Pattern)).Current.IsSelected;
-            last.Selected = selected;
-            if (selected) last.FailedCondition = "header-discovery";
             var header = selected ? row.FindFirst(TreeScope.Children,
                 new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)) : null;
-            if (selected)
-            {
-                last.HeaderFound = header is not null;
-                last.FailedCondition = header is null ? "header-missing" : "header-observation";
-            }
             return new ControlReadiness.SelectedRowHeader<AutomationElement>(rowOffscreen, selected, header);
         }, text =>
         {
-            last.FailedCondition = "header-offscreen";
-            var headerOffscreen = text.Current.IsOffscreen;
-            last.HeaderOffscreen = headerOffscreen;
-            if (headerOffscreen) return false;
-            last.FailedCondition = "header-name-empty";
-            var nameEmpty = string.IsNullOrEmpty(text.Current.Name);
-            last.HeaderNameEmpty = nameEmpty;
-            if (nameEmpty) return false;
+            if (text.Current.IsOffscreen || string.IsNullOrEmpty(text.Current.Name)) return false;
             var tree = observedTree!;
-            last.FailedCondition = "viewport-read";
             var viewport = tree.Current.BoundingRectangle;
-            last.Viewport = viewport.ToString();
-            last.FailedCondition = "header-geometry-read";
             var header = text.Current.BoundingRectangle;
-            last.Header = header.ToString();
-            last.FailedCondition = "header-empty";
-            if (header.IsEmpty) return false;
-            last.FailedCondition = "header-left-before-viewport";
-            if (!(header.Left >= viewport.Left)) return false;
-            last.FailedCondition = "header-left-outside-viewport";
-            if (!(header.Left < viewport.Right)) return false;
-            last.FailedCondition = "header-top-before-viewport";
-            if (!(header.Top >= viewport.Top)) return false;
-            last.FailedCondition = "header-bottom-after-viewport";
-            if (!(header.Bottom <= viewport.Bottom)) return false;
-            last.FailedCondition = "click-point-provider-false";
-            var clickable = text.TryGetClickablePoint(out var point);
-            last.ClickPointProviderReturned = clickable;
-            last.ClickPoint = point.ToString();
-            if (!clickable) return false;
-            last.FailedCondition = "click-viewport-read";
-            var clickViewport = tree.Current.BoundingRectangle;
-            last.ClickViewport = clickViewport.ToString();
-            last.FailedCondition = "click-point-outside-viewport";
-            if (!clickViewport.Contains(point)) return false;
-            last.FailedCondition = null;
-            return true;
-        }, Await); }
-        catch (TimeoutException)
-        {
-            HarnessRuntime.ReportDiagnostic("DEBUG-136-NATIVE-HEADER " + System.Text.Json.JsonSerializer.Serialize(last));
-            throw;
-        }
+            return !header.IsEmpty && header.Left >= viewport.Left && header.Left < viewport.Right &&
+                header.Top >= viewport.Top && header.Bottom <= viewport.Bottom &&
+                text.TryGetClickablePoint(out var point) && tree.Current.BoundingRectangle.Contains(point);
+        }, Await);
         foreach (var emailOfAncestor in ancestors)
         {
             var ancestor = Find(window, "People").FindFirst(TreeScope.Descendants,
