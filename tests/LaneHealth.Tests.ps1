@@ -211,6 +211,36 @@ try {
     $metric = @($prefixRecord.measurements.metrics | Where-Object { $_.name -ceq 'note-durability-normal-executable' })[0]
     Assert ($metric.value -eq 500 -and $metric.samples.Count -eq 21 -and $metric.samples[-1] -eq 700) 'Rich original p95/raw sample inputs were changed.'
     $downloadedNote = Join-Path $evidence "ui-scale-prefix-$($run.head_sha)-51-1\$($rich.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-normal-executable.json"
+    $goalNoteOriginal = Get-Content $downloadedNote -Raw
+    try {
+        $goalNote = $goalNoteOriginal | ConvertFrom-Json -AsHashtable
+        $goalNote.localDurability.samplesMs = @(400) * 19 + @(1030.138, 1202.2564)
+        $goalNote.localDurability.p95Ms = 1030.138
+        $goalNote.localDurability.goalMet = $false
+        $goalNote | ConvertTo-Json -Depth 12 | Set-Content $downloadedNote
+        $goalObservation = Observe -TimingPolicyPreview
+        $goalPrefix = @($goalObservation.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]
+        $goalPreview = $goalPrefix.policyPreview.metrics.'note-durability-normal-executable'
+        Assert ($goalPreview.health -ceq 'yellow' -and $goalPreview.relativeHealth -ceq 'unbaselined' -and
+            $null -eq $goalPreview.reference -and $goalPrefix.validation -ceq 'success' -and
+            !$goalPrefix.policyPreview.blocking -and $goalPrefix.policyPreview.promotion -ceq 'disabled' -and
+            $goalObservation.summary.Contains('1030.138') -and $goalObservation.summary.Contains('1000')) `
+            'The actual1030.138ms goal miss disappeared without a comparator or changed original1050ms acceptance.'
+        $goalNote.localDurability.samplesMs = @(400) * 19 + @(1051, 1202.2564)
+        $goalNote.localDurability.p95Ms = 1051
+        $goalNote | ConvertTo-Json -Depth 12 | Set-Content $downloadedNote
+        $hardJob = @($global:LaneHealthFixture.jobs | Where-Object { $_.name -ceq 'Rich combined normal and held-export saves' })[0]
+        $hardJob.conclusion = 'failure'
+        try {
+            $hardObservation = Observe -TimingPolicyPreview
+            $hardPrefix = @($hardObservation.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]
+            $hardPreview = $hardPrefix.policyPreview.metrics.'note-durability-normal-executable'
+            Assert ($hardPreview.health -ceq 'red' -and $hardPreview.relativeHealth -ceq 'unbaselined' -and
+                $null -eq $hardPreview.reference -and $hardPreview.headroom -eq -1 -and
+                $hardPrefix.validation -ceq 'failure' -and !$hardPrefix.policyPreview.blocking) `
+                'An absolute1050ms violation was hidden by goal yellow or missing comparison evidence.'
+        } finally { $hardJob.conclusion = 'success' }
+    } finally { $goalNoteOriginal | Set-Content $downloadedNote }
     $wrongAttemptNote = Get-Content $downloadedNote -Raw | ConvertFrom-Json -AsHashtable
     $wrongAttemptNote.runAttempt = '2'
     $wrongAttemptNote | ConvertTo-Json -Depth 12 | Set-Content $downloadedNote

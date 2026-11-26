@@ -10,9 +10,24 @@ function Set-TimingPolicyPreview($Record, $History) {
             foreach ($metric in $Record.measurements.metrics) {
                 $metrics[$metric.name] = @{
                     health = 'unbaselined'; median = $metric.value; range = $null; count = 1; reference = $null
+                    relativeHealth = 'unbaselined'
                     reason = 'No independent compatible cohort for this metric.'
                 }
-                if ($metric.Contains('budgetMs') -and $metric.value -gt $metric.budgetMs) {
+                if ($metric.Contains('goalMs')) {
+                    $metrics[$metric.name].goal = $metric.goalMs
+                    $metrics[$metric.name].goalMet = $metric.value -le $metric.goalMs
+                    if ($metric.value -gt $metric.goalMs) {
+                        $metrics[$metric.name].health = 'yellow'
+                        $metrics[$metric.name].reason = "Original$($metric.goalMs)ms goal missed; relative comparison remains unbaselined."
+                    }
+                }
+                if ($metric.Contains('budgetMs') -and
+                    (!$metric.Contains('budgetEnforced') -or $metric.budgetEnforced)) {
+                    $metrics[$metric.name].limit = $metric.budgetMs
+                    $metrics[$metric.name].headroom = $metric.budgetMs - $metric.value
+                }
+                if ($metric.Contains('budgetMs') -and $metric.value -gt $metric.budgetMs -and
+                    (!$metric.Contains('budgetEnforced') -or $metric.budgetEnforced)) {
                     $metrics[$metric.name].health = 'red'
                     $metrics[$metric.name].reason = 'Original hard product limit violated; current validation remains enforced.'
                 }
@@ -41,6 +56,7 @@ function Set-TimingPolicyPreview($Record, $History) {
     $metrics = @{}
     $inconsistent = $false
     $widerRange = $false
+    $lowHeadroom = $false
     $serious = $false
     foreach ($name in $Record.metrics.Keys) {
         $metric = $Record.metrics[$name]
@@ -110,11 +126,14 @@ function Set-TimingPolicyPreview($Record, $History) {
         if ($null -ne $limit) {
             $preview.headroom = $limit - $metric.maximum
             $preview.limit = $limit
-            if ($Record.validation -ceq 'success' -and $preview.reference -and
-                $preview.headroom -le $preview.reference.range) {
+            $headroomRange = if ($preview.reference) { $preview.reference.range } else { $metric.range }
+            if ($Record.validation -ceq 'success' -and $preview.headroom -le $headroomRange) {
                 $preview.lowHeadroom = $true
+                $lowHeadroom = $true
                 if ($preview.health -cne 'red') { $preview.health = 'yellow' }
-                $preview.reason = 'Remaining headroom is no larger than one full observed reference range.'
+                $preview.reason = if ($preview.reference) {
+                    'Remaining headroom is no larger than one full observed reference range.'
+                } else { 'The observed bootstrap range spans remaining headroom; relative comparison remains unbaselined.' }
                 $inconsistent = $true
             }
         }
@@ -141,12 +160,12 @@ function Set-TimingPolicyPreview($Record, $History) {
         historySnapshot = if ($History) { $History.tip } else { $null }
         metrics = $metrics; additionalSamples = @(); eligibility = 'pending'
     }
-    if ($Record.validation -ceq 'success' -and !$Record.unexpectedExecutions -and $inconsistent -and $Record.samples.Count -eq 3) {
+    if ($Record.validation -ceq 'success' -and $key -and !$Record.unexpectedExecutions -and $inconsistent -and $Record.samples.Count -eq 3) {
         $Record.policyPreview.additionalSamples = @(4, 5)
         $Record.policyPreview.eligibility = 'extend-proposed; no dispatch authorized'
     }
     if ($serious) { $Record.policyPreview.eligibility = 'rejected-proposed-relative; current gates unchanged' }
-    elseif ($Record.samples.Count -eq 5 -and $widerRange) { $Record.policyPreview.eligibility = 'inconclusive' }
+    elseif ($Record.samples.Count -eq 5 -and ($widerRange -or $lowHeadroom)) { $Record.policyPreview.eligibility = 'inconclusive' }
     if ($Record.validation -cne 'success') { $Record.policyPreview.eligibility = 'rejected-current-validation' }
 }
 

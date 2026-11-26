@@ -1,3 +1,4 @@
+param([switch]$BootstrapPreviewOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -161,6 +162,130 @@ try {
         $record.policyPreview.promotion -ceq 'disabled' -and
         (Get-Content (Join-Path $summaryWork 'summary.md') -Raw).Contains('approval pending')) `
         'Public policy preview invented a reference, changed validation or acquired gate/promotion authority.'
+    $bootstrapReports = @{}
+    $bootstrapJobs = $global:NonUiCohortFixture.sampleJobs
+    $bootstrapArtifacts = $global:NonUiCohortFixture.artifacts
+    $bootstrapHistory = Join-Path $fixture 'bootstrap-history.git'
+    git init --bare --quiet $bootstrapHistory
+    try {
+        for ($number = 1; $number -le 3; $number++) {
+            $path = Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json'
+            $bootstrapReports[$number] = Get-Content $path -Raw
+            $data = $bootstrapReports[$number] | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = @(600, 630, 640)[$number - 1]
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content $path
+        }
+        $bootstrapWork = Join-Path $fixture 'bootstrap-headroom'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $bootstrapWork -ReadHistory `
+            -AllowLocalFixture -HistoryRemote $bootstrapHistory -TimingPolicyPreview
+        $bootstrap = Get-Content (Join-Path $bootstrapWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        $bootstrapMetric = $bootstrap.policyPreview.metrics.executionSeconds
+        Assert ($bootstrap.validation -ceq 'success' -and $bootstrapMetric.range -eq 40 -and
+            $bootstrapMetric.headroom -eq 20 -and $bootstrapMetric.lowHeadroom -and
+            $bootstrapMetric.health -ceq 'yellow' -and $bootstrapMetric.relativeHealth -ceq 'unbaselined' -and
+            $null -eq $bootstrapMetric.reference -and $null -eq $bootstrap.historySnapshot -and
+            $bootstrap.policyPreview.additionalSamples.Count -eq 2 -and
+            $bootstrap.policyPreview.additionalSamples[0] -eq 4 -and
+            $bootstrap.policyPreview.additionalSamples[1] -eq 5 -and
+            $bootstrap.extraSamples.Count -eq 0 -and !$bootstrap.policyPreview.blocking -and
+            $bootstrap.promotion -ceq 'disabled') `
+            'Bootstrap600/630/640s lost its40s range/20s headroom warning or proposed4/5 without a reference.'
+        foreach ($number in @(4, 5)) {
+            $directory = Join-Path $fixture "bootstrap-sample-$number"
+            Copy-Item -LiteralPath $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-3"] -Destination $directory -Recurse
+            $data = Get-Content (Join-Path $directory 'result.json') -Raw | ConvertFrom-Json -AsHashtable
+            $data.sample = $number; $data.invocationId = [guid]::NewGuid().ToString('N')
+            $newRun = "run-$($data.invocationId)"
+            Move-Item -LiteralPath (Join-Path $directory $data.runDirectory) -Destination (Join-Path $directory $newRun)
+            $data.runDirectory = $newRun
+            $data | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $directory 'result.json')
+            $name = "non-ui-cohort-$cohortId-sample-$number"
+            $global:NonUiCohortFixture.evidence[$name] = $directory
+            $global:NonUiCohortFixture.sampleJobs += @{ id = 100 + $number; name = "Non-UI cohort sample ($number)"
+                status = 'completed'; conclusion = 'success'; runner_id = 200 + $number }
+            $global:NonUiCohortFixture.artifacts += @{ id = 300 + $number; name = $name; expired = $false
+                expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
+                workflow_run = @{ id = 99; head_sha = $revision } }
+        }
+        for ($number = 1; $number -le 5; $number++) {
+            $path = Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json'
+            $data = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = @(656, 657, 657, 658, 658)[$number - 1]
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content $path
+        }
+        $bootstrapFiveWork = Join-Path $fixture 'bootstrap-five-headroom'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $bootstrapFiveWork -ExpectedSamples 5 `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $bootstrapHistory -TimingPolicyPreview
+        $bootstrapFive = Get-Content (Join-Path $bootstrapFiveWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        Assert ($bootstrapFive.validation -ceq 'success' -and
+            $bootstrapFive.policyPreview.metrics.executionSeconds.range -eq 2 -and
+            $bootstrapFive.policyPreview.metrics.executionSeconds.headroom -eq 2 -and
+            $bootstrapFive.policyPreview.metrics.executionSeconds.lowHeadroom -and
+            $bootstrapFive.policyPreview.eligibility -ceq 'inconclusive' -and
+            $bootstrapFive.policyPreview.additionalSamples.Count -eq 0 -and
+            $null -eq $bootstrapFive.policyPreview.metrics.executionSeconds.reference -and
+            !$bootstrapFive.policyPreview.blocking -and $bootstrapFive.promotion -ceq 'disabled') `
+            'Five complete stable bootstrap values with2s headroom stayed pending instead of final inconclusive/no reference.'
+        $headroomReference = $bootstrap | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable
+        $headroomReference.Remove('policyPreview')
+        $headroomReference.revision = 'c' * 40; $headroomReference.ciRevision = $headroomReference.revision
+        $headroomReference.controllerRevision = $headroomReference.revision; $headroomReference.ciRunId = '40'
+        $headroomReference.cohortRunId = '88'; $headroomReference.cohortId = "$($headroomReference.revision)-88-1"
+        $headroomReference.observedAt = [DateTimeOffset]::UtcNow.AddMinutes(-30).ToString('O')
+        for ($index = 0; $index -lt 3; $index++) {
+            $headroomReference.samples[$index].jobId = 500 + $index
+            $headroomReference.samples[$index].runnerId = 600 + $index
+            $headroomReference.samples[$index].invocationId = [guid]::NewGuid().ToString('N')
+            $headroomReference.samples[$index].evidence.url = 'https://github.com/geevensingh/org-explorer/actions/runs/88/attempts/1'
+        }
+        $headroomPeer = Join-Path $fixture 'bootstrap-reference'
+        git clone --quiet $bootstrapHistory $headroomPeer
+        git -C $headroomPeer checkout --quiet -b ci-health-data
+        $headroomReferenceDirectory = Join-Path $headroomPeer "performance-cohorts\$($headroomReference.revision)\88"
+        New-Item -ItemType Directory -Path $headroomReferenceDirectory -Force | Out-Null
+        $headroomReference | ConvertTo-Json -Depth 30 | Set-Content (Join-Path $headroomReferenceDirectory '1.json')
+        git -C $headroomPeer add performance-cohorts
+        git -C $headroomPeer -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet `
+            -m 'Complete independent headroom reference fixture' `
+            -m 'Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>'
+        git -C $headroomPeer push --quiet --set-upstream origin ci-health-data
+        $headroomTip = (git --git-dir=$bootstrapHistory rev-parse refs/heads/ci-health-data).Trim()
+        for ($number = 1; $number -le 5; $number++) {
+            $path = Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json'
+            $data = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+            $data.executionSeconds = @(628, 629, 630, 631, 632)[$number - 1]
+            $data.completedAt = ([DateTimeOffset]$data.startedAt).AddSeconds($data.executionSeconds).ToString('O')
+            $data | ConvertTo-Json -Depth 15 | Set-Content $path
+        }
+        $referenceFiveWork = Join-Path $fixture 'reference-five-headroom'
+        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
+            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $referenceFiveWork -ExpectedSamples 5 `
+            -ReadHistory -AllowLocalFixture -HistoryRemote $bootstrapHistory -TimingPolicyPreview
+        $referenceFive = Get-Content (Join-Path $referenceFiveWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+        $referenceFiveMetric = $referenceFive.policyPreview.metrics.executionSeconds
+        Assert ($referenceFive.validation -ceq 'success' -and $referenceFiveMetric.range -eq 4 -and
+            $referenceFiveMetric.headroom -eq 28 -and $referenceFiveMetric.lowHeadroom -and
+            $referenceFiveMetric.reference.range -eq 40 -and !$referenceFiveMetric.seriousRegression -and
+            $referenceFive.policyPreview.eligibility -ceq 'inconclusive' -and
+            $referenceFive.policyPreview.additionalSamples.Count -eq 0 -and
+            (git --git-dir=$bootstrapHistory rev-parse refs/heads/ci-health-data).Trim() -ceq $headroomTip -and
+            $referenceFiveMetric.reference.revision -ceq $headroomReference.revision) `
+            'Five complete stable values with28s headroom versus40s reference range did not retain the prior reference.'
+    } finally {
+        for ($number = 1; $number -le 3; $number++) {
+            $bootstrapReports[$number] | Set-Content (Join-Path $global:NonUiCohortFixture.evidence["non-ui-cohort-$cohortId-sample-$number"] 'result.json')
+        }
+        $global:NonUiCohortFixture.sampleJobs = $bootstrapJobs
+        $global:NonUiCohortFixture.artifacts = $bootstrapArtifacts
+    }
+    if ($BootstrapPreviewOnly) {
+        Write-Host 'PASS: public bootstrap and bounded five-execution low-headroom previews.'
+        return
+    }
     . "$PSScriptRoot\UiScaleUnionFixture.ps1"
     $nonUiJobs = $global:NonUiCohortFixture.sampleJobs
     $nonUiArtifacts = $global:NonUiCohortFixture.artifacts
