@@ -1,3 +1,4 @@
+param([switch]$ScopedPolicyOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -44,6 +45,9 @@ function gh {
     if ($arguments[0] -cne 'api') { throw 'Unexpected external operation.' }
     switch -Regex ($arguments[1]) {
         '/git/trees/[0-9a-f]{40}\?recursive=1$' {
+            if ($global:LaneHealthFixture.ContainsKey('sourceUnavailable') -and $global:LaneHealthFixture.sourceUnavailable) {
+                $global:LASTEXITCODE = 1; return
+            }
             $tree = @{ truncated = $false; tree = @() }
             if ($global:LaneHealthFixture.ContainsKey('activePolicy') -and $global:LaneHealthFixture.activePolicy) {
                 $tree.tree = @(@{ path = 'eng/timing-policy.json'; type = 'blob'; sha = 'c' * 40 })
@@ -77,6 +81,47 @@ function Observe([switch]$Publish, [switch]$PublishObservations, [switch]$Timing
     }
 }
 try {
+    if ($ScopedPolicyOnly) {
+        . "$PSScriptRoot\UiScaleUnionFixture.ps1"
+        $global:LaneHealthFixture.activePolicy = $true
+        $run.path = '.github/workflows/release.yml'; $run.event = 'workflow_run'
+        $rich = New-UiScaleUnionFixture (Join-Path $fixture 'scoped-source') $run.head_sha '51' '1' -TimingPolicyVersion ci-timing-v2
+        $path = Join-Path $rich.prefix 'result.json'
+        $report = Get-Content $path -Raw | ConvertFrom-Json
+        $report.executionSeconds = 661
+        $report.startedAt = [DateTimeOffset]::UtcNow.AddMinutes(-12).ToString('O')
+        $report.completedAt = ([DateTimeOffset]$report.startedAt).AddSeconds(661).ToString('O')
+        $report | ConvertTo-Json -Depth 12 | Set-Content $path
+        $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $rich.prefix "$($report.runDirectory)\result.json")
+        foreach ($phase in @('normal-executable', 'background-export')) {
+            $path = Join-Path $rich.prefix "$($report.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
+            $note = Get-Content $path -Raw | ConvertFrom-Json
+            $note.localDurability.samplesMs = @(400) * 19 + @(1030.138, 1600)
+            $note.localDurability.p95Ms = 1030.138; $note.localDurability.goalMet = $false
+            $note | ConvertTo-Json -Depth 12 | Set-Content $path
+        }
+        $name = "ui-scale-prefix-$($run.head_sha)-51-1"
+        Copy-Item -LiteralPath $rich.prefix -Destination (Join-Path $evidence $name) -Recurse
+        $global:LaneHealthFixture.artifacts = @(@{ id = 201; name = $name; expired = $false
+            expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('b' * 64)
+            workflow_run = @{ id = 51; head_sha = $run.head_sha } })
+        foreach ($scope in @('scale', 'renewal-scale')) {
+            $remote = Join-Path $fixture "scoped-$scope.git"
+            git init --bare --quiet $remote
+            $global:LaneHealthFixture.jobs = @(@{ id = 101; name = "$scope / Rich combined normal and held-export saves"
+                status = 'completed'; conclusion = 'success'; steps = @()
+                started_at = $report.startedAt; completed_at = $report.completedAt })
+            $result = Observe -Publish
+            $record = @($result.records | Where-Object { $_.lane -ceq "$scope-ui-scale-prefix" })[0]
+            Assert ($record.validation -ceq 'success' -and $record.timingEvaluation.health -ceq 'yellow' -and
+                !$record.timingEvaluation.blocking -and $record.measurements.executionSeconds -eq 661 -and
+                $record.measurements.ceilingSeconds -eq 900 -and
+                $record.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500) `
+                'Scoped public collection/evaluation/publication did not retain approved900s/1500ms policy.'
+        }
+        Write-Host 'PASS: scoped release/renewal prefix661s +1030ms is yellow/nonblocking and publishes under900s/1500ms.'
+        return
+    }
     $core = Join-Path $evidence 'core-attempt-1'
     New-Item -ItemType Directory -Path $core | Out-Null
     $companions = @('CiGate', 'CiRunner', 'FilesystemHealth', 'LaneHealth', 'MixedHealth', 'ImplementationBaseline',
@@ -351,6 +396,38 @@ try {
         $activePrefix.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500 -and
         $activeObservation.summary.Contains('APPROVED AND ENFORCED')) `
         'Source-bound current runner evidence failed activation or suppressed unbaselined1030ms yellow.'
+    $global:LaneHealthFixture.sourceUnavailable = $true
+    $unverified = Observe
+    $unverifiedPrefix = @($unverified.records | Where-Object { $_.lane -ceq 'ui-scale-prefix' })[0]
+    Assert ($unverifiedPrefix.validation -ceq 'incomplete' -and $null -eq $unverifiedPrefix.effectivePolicyVersion -and
+        $null -eq $unverifiedPrefix.measurements -and $unverified.summary.Contains('Source policy unverified')) `
+        'An unavailable source policy let artifact metadata grant current acceptance or lost the attempt record.'
+    $global:LaneHealthFixture.sourceUnavailable = $false
+    $scopedJobs = $global:LaneHealthFixture.jobs
+    $scopedRemote = $remote
+    $scopedPath = $run.path; $scopedEvent = $run.event
+    $prefixPath = Join-Path $evidence "ui-scale-prefix-$($run.head_sha)-51-1\result.json"
+    $scopedPrefix = Get-Content $prefixPath -Raw | ConvertFrom-Json
+    $scopedPrefix.executionSeconds = 661
+    $scopedPrefix.startedAt = [DateTimeOffset]::UtcNow.AddMinutes(-12).ToString('O')
+    $scopedPrefix.completedAt = ([DateTimeOffset]$scopedPrefix.startedAt).AddSeconds(661).ToString('O')
+    $scopedPrefix | ConvertTo-Json -Depth 12 | Set-Content $prefixPath
+    $scopedPrefix | ConvertTo-Json -Depth 12 | Set-Content (Join-Path (Split-Path $prefixPath) "$($scopedPrefix.runDirectory)\result.json")
+    foreach ($scope in @('scale', 'renewal-scale')) {
+        $remote = Join-Path $fixture "scoped-$scope.git"
+        git init --bare --quiet $remote
+        $run.path = '.github/workflows/release.yml'; $run.event = 'workflow_run'
+        $scopedJob = @{} + $amendedJob; $scopedJob.name = "$scope / Rich combined normal and held-export saves"
+        $global:LaneHealthFixture.jobs = @($scopedJob)
+        $scoped = Observe -Publish
+        $scopedRecord = @($scoped.records | Where-Object { $_.lane -ceq "$scope-ui-scale-prefix" })[0]
+        Assert ($scopedRecord.validation -ceq 'success' -and !$scopedRecord.timingEvaluation.blocking -and
+            $scopedRecord.timingEvaluation.health -ceq 'yellow' -and $scopedRecord.measurements.executionSeconds -eq 661 -and
+            $scopedRecord.measurements.ceilingSeconds -eq 900 -and
+            $scopedRecord.timingEvaluation.metrics.'note-durability-background-export'.hardLimit -eq 1500) `
+            'Scoped release/renewal names changed prefix900s safety or rich1500ms hard policy during collection/evaluation/publication.'
+    }
+    $global:LaneHealthFixture.jobs = $scopedJobs; $run.path = $scopedPath; $run.event = $scopedEvent; $remote = $scopedRemote
     $global:LaneHealthFixture.activePolicy = $false
     $run.path = '.github/workflows/installer-verification.yml'
     $run.event = 'workflow_dispatch'

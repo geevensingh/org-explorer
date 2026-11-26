@@ -1,3 +1,11 @@
+function Get-TimingLane([string]$Lane) {
+    if ($Lane -cmatch '(^|-)non-ui-performance$') { return 'non-ui-performance' }
+    if ($Lane -cmatch '(^|-)ui-scale-prefix$') { return 'ui-scale-prefix' }
+    if ($Lane -cmatch '(^|-)ui-scale-tail$') { return 'ui-scale-tail' }
+    if ($Lane -cmatch '(^|-)ui-scale$') { return 'ui-scale' }
+    return $Lane
+}
+
 function Get-ApprovedTimingPolicy(
     [ValidateSet('rich-scale-original-v1', 'ci-timing-v2')][string]$Version = 'ci-timing-v2') {
     return @{
@@ -53,7 +61,7 @@ function Set-TimingPolicyPreview($Record, $History,
                 reason = 'A single lane execution is not an independent three-to-five reference cohort.'
             }
             foreach ($metric in $Record.measurements.metrics) {
-                $richNote = $Record.lane -cin @('ui-scale-prefix', 'ui-scale') -and
+                $richNote = (Get-TimingLane $Record.lane) -cin @('ui-scale-prefix', 'ui-scale') -and
                     $metric.name -cmatch '^note-durability-(normal-executable|background-export)$'
                 $goal = if ($richNote) { 1000 } elseif ($metric.Contains('goalMs')) { $metric.goalMs } else { $null }
                 $budget = if ($richNote) { $richNoteCeiling } elseif ($metric.Contains('budgetMs') -and
@@ -285,10 +293,11 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
     $evaluation.validationBlocking = $Record.validation -cne 'success'
     if ($Record.recordType -cne 'performance-cohort' -and $Record.measurements) {
         $duration = $evaluation.metrics.executionSeconds
-        $limit = if ($Record.lane -ceq 'core') { 300 }
-            elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
-            elseif ($Record.lane -ceq 'ui-scale-prefix') { 900 }
-            elseif ($Record.lane -cin @('filesystem', 'non-ui-performance', 'ui-scale-tail')) { 660 } else { $null }
+        $lane = Get-TimingLane $Record.lane
+        $limit = if ($lane -ceq 'core') { 300 }
+            elseif ($lane -cmatch '^(desktop-|high-resolution-)') { 900 }
+            elseif ($lane -ceq 'ui-scale-prefix') { 900 }
+            elseif ($lane -cin @('filesystem', 'non-ui-performance', 'ui-scale-tail')) { 660 } else { $null }
         if ($null -ne $limit) {
             $duration.limit = $limit; $duration.headroom = $limit - $duration.median
             if ($duration.median -gt $limit) {
