@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      cleanup_file_metadata_only:
+        description: Final diagnostic with process events and read-only exact DLL metadata; no module polling/kernel retry
+        required: false
+        default: false
+        type: boolean
       prefix_only_diagnostic:
         description: One prefix-only 900s observation, 30m watchdog; nonaccepting and baseline-ineligible
         required: false
@@ -107,7 +112,7 @@ jobs:
         run: .\eng\Run-Performance.ps1 -ExpectedRevision $env:TESTED_REVISION
       - name: Trace owned process and native-image lifetime through original cleanup
         if: ${{ inputs.cleanup_lifetime_diagnostic }}
-        run: .\eng\Trace-PerformanceCleanup.ps1 -Repository $pwd.Path -ExpectedRevision $env:TESTED_REVISION -KernelEvents:([bool]::Parse('${{ inputs.cleanup_kernel_events || false }}'))
+        run: .\eng\Trace-PerformanceCleanup.ps1 -Repository $pwd.Path -ExpectedRevision $env:TESTED_REVISION -KernelEvents:([bool]::Parse('${{ inputs.cleanup_kernel_events || false }}')) -FileMetadataOnly:([bool]::Parse('${{ inputs.cleanup_file_metadata_only || false }}'))
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:

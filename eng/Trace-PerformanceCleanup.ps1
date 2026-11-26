@@ -1,4 +1,4 @@
-param([string] $Repository, [string] $ExpectedRevision, [switch] $KernelEvents)
+param([string] $Repository, [string] $ExpectedRevision, [switch] $KernelEvents, [switch] $FileMetadataOnly)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $Repository
 $results = Join-Path $Repository '.ci-results\cleanup-observed'
@@ -15,7 +15,7 @@ $kernelXml = Join-Path $results 'kernel.transient.xml'
 $kernelCount = 0
 $fileObservations = [Collections.Generic.List[object]]::new()
 function Read-OwnedFileMetadata([string] $Path, [string] $Boundary) {
-    if (!$kernel -or !$Path.StartsWith($results + '\', [StringComparison]::OrdinalIgnoreCase) -or
+    if (!('KernelCleanupTrace' -as [type]) -or !$Path.StartsWith($results + '\', [StringComparison]::OrdinalIgnoreCase) -or
         [IO.Path]::GetFileName($Path) -ine 'e_sqlite3.dll') { return }
     $record = @{ path = $Path; observedAt = [DateTimeOffset]::UtcNow.ToString('O'); boundary = $Boundary }
     try {
@@ -39,7 +39,7 @@ function Remove-Item {
     [CmdletBinding()]
     param([string[]] $Path, [string[]] $LiteralPath, [switch] $Recurse, [switch] $Force)
     $trace.Boundary("before-real-cleanup;path=$Path$LiteralPath")
-    if ($kernel) {
+    if ('KernelCleanupTrace' -as [type]) {
         foreach ($directory in @($Path) + @($LiteralPath)) {
             if ($directory) {
                 Get-ChildItem -LiteralPath $directory -Filter e_sqlite3.dll -File -Recurse |
@@ -61,11 +61,11 @@ function Remove-Item {
     $trace.Boundary("after-real-cleanup;path=$Path$LiteralPath")
 }
 try {
-    if ($KernelEvents) {
+    if ($KernelEvents -or $FileMetadataOnly) {
         Add-Type -Path (Join-Path $PSScriptRoot 'KernelCleanupTrace.cs')
-        $kernel = [KernelCleanupTrace]::new($kernelFile)
+        if (!$FileMetadataOnly) { $kernel = [KernelCleanupTrace]::new($kernelFile) }
     }
-    $trace = [OwnedCleanupTrace]::new($PID, $results, (Join-Path $results 'owned-process-images.tsv'), !$KernelEvents)
+    $trace = [OwnedCleanupTrace]::new($PID, $results, (Join-Path $results 'owned-process-images.tsv'), !($KernelEvents -or $FileMetadataOnly))
     & (Join-Path $Repository 'eng\Run-Performance.ps1') -ExpectedRevision $ExpectedRevision -ResultsDirectory $results
 } catch { $primaryFailure = $_
 } finally {
@@ -128,7 +128,8 @@ try {
     } else { $null }
     if ($elapsed -gt 660) { $diagnosticFailures.Add('Diagnostic setup, workload, original cleanup and trace finalization exceeded the original 660s budget.') }
     @{ diagnosticOnly = $true; acceptingCohort = $false; expectedRevision = $ExpectedRevision
-        kernelEvents = [bool]$KernelEvents; modulePolling = !$KernelEvents; executionIncludingDiagnosticSeconds = $elapsed
+        kernelEvents = [bool]($KernelEvents -and !$FileMetadataOnly); fileMetadataOnly = [bool]$FileMetadataOnly
+        modulePolling = !($KernelEvents -or $FileMetadataOnly); executionIncludingDiagnosticSeconds = $elapsed
         safetySeconds = 660; primaryFailure = if ($primaryFailure) { $primaryFailure.Exception.Message } else { $null }
         diagnosticFailures = @($diagnosticFailures.ToArray()); ownedNativeKernelEventCount = $kernelCount
         eventsLost = if ($kernel) { $kernel.EventsLost } else { $null }
