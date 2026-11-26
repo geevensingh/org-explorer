@@ -178,22 +178,49 @@ internal static partial class Program
         var tree = Find(window, "People");
         var root = Find(tree, ScaleFixture.Email(0));
         var rootExpansion = (ExpandCollapsePattern)root.GetCurrentPattern(ExpandCollapsePattern.Pattern);
-        var profile = Find(window, "Email");
-        var owner = profile.Current.Name;
         var query = Find(window, "SearchQuery");
-        void AssertRetained()
+        AutomationElement[] CaptureExpansion()
         {
-            var bounds = root.Current.BoundingRectangle;
-            var viewport = tree.Current.BoundingRectangle;
-            if (profile.Current.Name != owner || root.Current.IsOffscreen ||
+            using var observed = HarnessRuntime.Measure(HarnessRuntime.Work.UiaDiscovery);
+            var cache = new CacheRequest { TreeScope = TreeScope.Element };
+            foreach (var property in new[] { AutomationElement.AutomationIdProperty, AutomationElement.NameProperty,
+                AutomationElement.ItemStatusProperty, AutomationElement.IsOffscreenProperty, AutomationElement.IsEnabledProperty,
+                AutomationElement.BoundingRectangleProperty, AutomationElement.HasKeyboardFocusProperty,
+                ValuePattern.ValueProperty, ExpandCollapsePattern.ExpandCollapseStateProperty })
+                cache.Add(property);
+            AutomationElementCollection controls;
+            using (cache.Activate())
+                controls = window.FindAll(TreeScope.Descendants, new OrCondition(
+                    new[] { "Email", "People", "PeopleNavigation", "SearchQuery", "SearchResults", "SearchCount",
+                        "TreeExpansionStatus", "CancelTreeExpansion", ScaleFixture.Email(0) }
+                        .Select(id => new PropertyCondition(AutomationElement.AutomationIdProperty, id)).ToArray()));
+            return controls.Cast<AutomationElement>().ToArray();
+        }
+        AutomationElement Captured(AutomationElement[] controls, string id) =>
+            controls.FirstOrDefault(control => control.Cached.AutomationId == id) ??
+                throw new InvalidOperationException("Missing actual UI control: " + id);
+        bool Visible(AutomationElement[] controls, string id) =>
+            controls.FirstOrDefault(control => control.Cached.AutomationId == id) is { } control && !control.Cached.IsOffscreen;
+        string ExpansionText(AutomationElement[] controls) =>
+            controls.FirstOrDefault(control => control.Cached.AutomationId == "TreeExpansionStatus")?.Cached.Name ??
+                Captured(controls, "People").Cached.ItemStatus;
+        var owner = Captured(CaptureExpansion(), "Email").Cached.Name;
+        void AssertRetained(AutomationElement[]? controls = null)
+        {
+            controls ??= CaptureExpansion();
+            var row = Captured(controls, ScaleFixture.Email(0));
+            var bounds = row.Cached.BoundingRectangle;
+            var viewport = Captured(controls, "People").Cached.BoundingRectangle;
+            if (Captured(controls, "Email").Cached.Name != owner || row.Cached.IsOffscreen ||
                 bounds.Top < viewport.Top || bounds.Top + 20 > viewport.Bottom)
                 throw new InvalidOperationException("Scale subtree expansion changed the open profile or lost its command target.");
         }
-        (int People, int Branches) Progress()
+        (int People, int Branches) Progress(AutomationElement[] controls)
         {
-            var match = System.Text.RegularExpressions.Regex.Match(tree.Current.ItemStatus,
+            var text = ExpansionText(controls);
+            var match = System.Text.RegularExpressions.Regex.Match(text,
                 @"(\d+) imported People checked; (\d+) branches expanded\.");
-            if (!match.Success) throw new InvalidOperationException("The actual scale tree has no useful expansion progress: " + tree.Current.ItemStatus);
+            if (!match.Success) throw new InvalidOperationException("The actual scale tree has no useful expansion progress: " + text);
             return (int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
         }
         void Action(string label)
@@ -216,32 +243,68 @@ internal static partial class Program
         AwaitScale(() => rootExpansion.Current.ExpandCollapseState == ExpandCollapseState.Collapsed);
         AssertRetained();
         Action("Expand subtree");
-        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expanding subtree:", StringComparison.Ordinal) &&
-            Progress() is { People: > 0, Branches: > 0 });
-        var cancel = Find(window, "CancelTreeExpansion");
-        if (!cancel.Current.IsEnabled || cancel.Current.IsOffscreen)
+        AutomationElement[] frame = [];
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return ExpansionText(frame).StartsWith("Expanding subtree:", StringComparison.Ordinal) &&
+                Progress(frame) is { People: > 0, Branches: > 0 };
+        });
+        var cancel = Captured(frame, "CancelTreeExpansion");
+        if (!cancel.Cached.IsEnabled || cancel.Cached.IsOffscreen)
             throw new InvalidOperationException("Full-population expansion has no actionable native cancellation control.");
+        AssertRetained(frame);
         query.SetFocus();
         AwaitScale(() => query.Current.HasKeyboardFocus);
         if (!tree.Current.ItemStatus.StartsWith("Expanding subtree:", StringComparison.Ordinal))
             throw new InvalidOperationException("Interaction was observed only after scale expansion finished, not while work was unfinished.");
         AssertRetained();
+        ((ValuePattern)query.GetCurrentPattern(ValuePattern.Pattern)).SetValue("handle01000");
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return Captured(frame, "SearchQuery").GetCachedPropertyValue(ValuePattern.ValueProperty).Equals("handle01000") &&
+                Visible(frame, "SearchResults") && !Visible(frame, "People") &&
+                Captured(frame, "SearchCount").Cached.Name.Contains("People found: 1 ", StringComparison.Ordinal);
+        });
+        cancel = Captured(frame, "CancelTreeExpansion");
+        if (!ExpansionText(frame).StartsWith("Expanding subtree:", StringComparison.Ordinal) ||
+            Progress(frame) is not { People: > 0 and < 9900, Branches: > 0 } ||
+            !Visible(frame, "PeopleNavigation") || !Visible(frame, "TreeExpansionStatus") ||
+            cancel.Cached.IsOffscreen || !cancel.Cached.IsEnabled ||
+            !Captured(frame, "SearchQuery").Cached.HasKeyboardFocus || Captured(frame, "Email").Cached.Name != owner)
+            throw new InvalidOperationException("Actual nonempty search must expose useful progress and actionable cancellation while full-rich expansion is genuinely unfinished.");
         ((InvokePattern)cancel.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-        AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expand subtree cancelled;", StringComparison.Ordinal));
-        var partial = Progress();
-        if (partial.People is <= 0 or >= 9900 || partial.Branches <= 0 ||
-            rootExpansion.Current.ExpandCollapseState != ExpandCollapseState.Expanded)
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return ExpansionText(frame).StartsWith("Expand subtree cancelled;", StringComparison.Ordinal);
+        });
+        var partial = Progress(frame);
+        if (partial.People is <= 0 or >= 9900 || partial.Branches <= 0 || !Visible(frame, "SearchResults") ||
+            !Visible(frame, "TreeExpansionStatus") || Captured(frame, "Email").Cached.Name != owner)
             throw new InvalidOperationException("Native scale cancellation did not preserve genuine unfinished expansion.");
         var stable = Stopwatch.StartNew();
         AwaitScale(() => stable.ElapsedMilliseconds >= 200);
-        if (Progress() != partial) throw new InvalidOperationException("Expansion continued after native cancellation.");
-        AssertRetained();
+        if (Progress(CaptureExpansion()) != partial) throw new InvalidOperationException("Expansion continued after native cancellation.");
+        Click(window, "ClearSearch");
+        AwaitScale(() =>
+        {
+            frame = CaptureExpansion();
+            return Visible(frame, "People") &&
+                Captured(frame, "SearchQuery").GetCachedPropertyValue(ValuePattern.ValueProperty).Equals("");
+        });
+        if (Progress(frame) != partial || !Captured(frame, ScaleFixture.Email(0))
+            .GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty).Equals(ExpandCollapseState.Expanded))
+            throw new InvalidOperationException("Search-clear lost cancelled partial expansion.");
+        AssertRetained(frame);
         Action("Expand subtree");
         AwaitScale(() => tree.Current.ItemStatus.StartsWith("Expanded all available reporting levels:", StringComparison.Ordinal));
-        var completed = Progress();
+        frame = CaptureExpansion();
+        var completed = Progress(frame);
         if (completed.People != 9900 || completed.Branches + partial.Branches != 150)
             throw new InvalidOperationException("The actual WPF expansion truncated the 9,900 current People or 150 reporting managers.");
-        AssertRetained();
+        AssertRetained(frame);
         RightClickReportingRow(window, root, "full-population-completed");
         AutomationElement? completedMenu = null;
         AwaitScale(() => (completedMenu = ReportingMenu(window)) is not null);
@@ -272,7 +335,7 @@ internal static partial class Program
             AwaitScale(() => ((ExpandCollapsePattern)row.GetCurrentPattern(ExpandCollapsePattern.Pattern))
                 .Current.ExpandCollapseState == ExpandCollapseState.Expanded);
         }
-        Console.WriteLine("PASS: native full-rich expansion visited all 9,900 current People, restored all 150 manager rows, yielded to interaction and retained partial cancellation before resuming.");
+        Console.WriteLine("PASS: native full-rich expansion visited all 9,900 current People, restored all 150 manager rows, exposed progress/cancellation during actual nonempty search and retained partial expansion through cancellation/search-clear before resuming.");
     }
 
     private static void RunScaleMutationPrefix(string executable, string root)

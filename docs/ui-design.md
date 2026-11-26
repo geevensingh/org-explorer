@@ -236,7 +236,9 @@ layout, menu actions remain tree presentation changes, not Person destinations
 that dismiss the temporary People panel.
 
 Full-subtree expansion must keep the application responsive. If slow, expose
-progress and cancellation; cancellation retains expansion already completed
+progress and cancellation in the common People area, including while a nonempty
+query shows search results instead of the reporting tree. Search remains usable
+without implicitly cancelling expansion. Cancellation retains expansion already completed
 rather than rolling it back or claiming the whole subtree was expanded.
 
 ### Person-level search

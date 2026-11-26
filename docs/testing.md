@@ -54,6 +54,11 @@ bindings, right-button selection suppression, current/recycled expansion reset
 and search restoration. Its actual Expand subtree binding and cancellation
 button additionally exercise complete expansion, recycled rows, compact/search
 retention and ordinary disclosure interrupting unfinished recursive expansion.
+The same compiled contract enters an actual nonempty query during genuinely
+unfinished timer-driven expansion, requires progress and cancellation to remain
+presented beside search results in wide and compact People, and cancels through
+the real button while retaining exact partial expansion and independent profile
+writing. Search-clear preserves that partial state and resumability.
 It also retains exact independent profile/note drafts.
 The focused non-UI selector below runs this same contract; it remains included
 in the existing full `--verify-profile-refresh` companion check:
@@ -2757,10 +2762,15 @@ returned from normal process death:
   actual photo pixels and rendered current/frozen Markdown.
   The existing `UI-tree` phase also invokes the real Expand subtree menu at
   the complete rich population, observes useful progress and unrelated focus
-  interaction while expansion is unfinished, cancels through its actual control,
-  checks retained partial state, then resumes to all 9,900 current People and
+  interaction while expansion is unfinished, enters an actual nonempty query
+  and observes rendered search results while the same expansion remains running,
+  cancels through its still-visible control in search, checks retained partial
+  state through search-clear, then resumes to all 9,900 current People and
   150 manager rows, including the deep chain and later realization. Profile and
-  target retention are checked before deliberate distant-row observation.
+  target retention are checked at every browsing/action boundary before deliberate
+  distant-row observation. Search-time progress, controls, focus, owner and panel
+  observations share one fresh cached-UIA batch per boundary; no frame is reused
+  across input. These non-atomic caches are not native acceptance by themselves.
   This coverage remains in the same explicit scale worker/phase and deadlines;
   local public/compiled checks cannot establish its native responsiveness.
 - `scale-mutation-save-prefix`: repeated normal-executable usable Team editors,
