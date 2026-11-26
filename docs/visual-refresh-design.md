@@ -313,6 +313,20 @@ checks, Manager/history behavior, and independence from note/quick-action writin
 ### Preferred name
 
 The small pencil beside the primary name opens a compact single-purpose editor.
+
+A new entry starts with the existing Preferred name, otherwise the Directory
+name, otherwise empty. Restore retained drafts without replacing their text
+with either saved name. Opening the editor does not assign a Preferred name.
+
+When a Directory name is present, Save or Enter clears Preferred name if the
+submitted text matches the current accepted Directory name, ignoring
+capitalization and leading/trailing whitespace in both names. This applies
+both to saving the unchanged default and to replacing an existing Preferred
+name. Compare with the Directory name current at save time, not the name when
+the editor opened. Internal spacing and spelling differences remain significant.
+This comparison does not otherwise normalize stored text or change existing
+validation, immutable-base or external-change protections.
+
 Save or Enter submits the value. Do not autosave while typing or on blur.
 Only a successful save closes as a saved edit; failure retains input and shows
 the error so Save can retry.

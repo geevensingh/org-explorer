@@ -1988,6 +1988,15 @@ internal static partial class Program
                 throw new InvalidOperationException("Typing or generic draining published an unconfirmed Preferred name.");
         }
         Invoke("EditPreferredNameButton");
+        if (editor.Text != "Avery" || !editor.IsEnabled || !save.IsEnabled ||
+            !Control<Button>("CancelPreferredNameButton").IsEnabled || !workflow.CanSafelyClose)
+            throw new InvalidOperationException("The compact entry did not present an enabled, unsubmitted Directory-name default.");
+        ObserveNoAutosave();
+        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Settled();
+        if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName is not null)
+            throw new InvalidOperationException("Saving the unchanged Directory-name default created an override.");
+        Invoke("EditPreferredNameButton");
         editor.Text = "Unconfirmed entry";
         ObserveNoAutosave();
         Invoke("OpenSettingsButton");
@@ -2037,6 +2046,7 @@ internal static partial class Program
         if (panel.Visibility != Visibility.Collapsed || workflow.GetRelationships("avery@example.com")!.Person.PreferredName != "Explicit name")
             throw new InvalidOperationException("Successful explicit Save must publish and close the entry.");
         Invoke("EditPreferredNameButton");
+        if (editor.Text != "Explicit name") throw new InvalidOperationException("Existing Preferred name did not take precedence on entry.");
         editor.Clear();
         save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Settled();
@@ -2048,7 +2058,7 @@ internal static partial class Program
             publisher.Release.Reset();
             publisher.HoldNextProfile = true;
             Invoke("EditPreferredNameButton");
-            editor.Text = cancel ? "Admitted before Cancel" : "First admitted value";
+            editor.Text = cancel ? "Admitted before Cancel" : "  aVeRy  ";
             try
             {
                 save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2077,7 +2087,7 @@ internal static partial class Program
             var elapsedAfterSave = System.Diagnostics.Stopwatch.StartNew();
             PumpUntil(() => elapsedAfterSave.ElapsedMilliseconds >= 650);
             if (workflow.GetRelationships("avery@example.com")!.Person.PreferredName !=
-                (cancel ? "Admitted before Cancel" : "First admitted value"))
+                (cancel ? "Admitted before Cancel" : null))
                 throw new InvalidOperationException("Save completion dropped admitted writing or implicitly saved newer input.");
             if (cancel)
             {
