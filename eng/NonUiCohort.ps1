@@ -176,20 +176,27 @@ function Get-NonUiCohortMetrics($Samples) {
 
 function Assert-NonUiCohortRecord($Record, [string]$Path) {
     $rich = $Record.schemaVersion -eq 2
+    $automatic = $Record.mode -ceq 'automatic-baseline'
     Assert-HealthNumber $Record.schemaVersion 'cohort schemaVersion'
     if ($Record.schemaVersion -notin @(1, 2) -or $Record.recordType -cne 'performance-cohort' -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.cohortRunId -cnotmatch '^[1-9][0-9]*$' -or $Record.cohortRunAttempt -cnotmatch '^[1-9][0-9]*$' -or
         $Record.cohortId -cne "$($Record.revision)-$($Record.cohortRunId)-$($Record.cohortRunAttempt)" -or
         $Path -cne (Get-NonUiCohortPath $Record) -or
-        $Record.mode -cne 'observation' -or $Record.promotion -cne 'disabled' -or
+        $Record.mode -cnotin @('observation', 'automatic-baseline') -or
+        (!$automatic -and $Record.promotion -cne 'disabled') -or
+        ($automatic -and (!$rich -or $Record.policyVersion -cne 'ci-timing-v2' -or
+            $Record.promotion -cnotin @('eligible-after-comparison', 'retained') -or
+            $Record.bootstrapRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or
+            $Record.sourcePolicyVersion -cnotin @('rich-scale-original-v1', 'ci-timing-v2'))) -or
         $Record.validation -cnotin @('success', 'rejected') -or
-        $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive') -or
-        $Record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconsistent', 'inconclusive', 'TEST-eligible') -or
+        $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive', 'green', 'yellow', 'red') -or
+        (!$automatic -and $Record.timingHealth -cin @('green', 'yellow', 'red')) -or
+        $Record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconsistent', 'inconclusive', 'TEST-eligible', 'eligible', 'extend') -or
         (!$rich -and ($Record.richScaleAcceptance -cne 'not-executed' -or
             $Record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'TEST-non-ui-range-v1'))) -or
         ($rich -and ($Record.richScaleAcceptance -cnotin @('complete', 'rejected') -or
-            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2') -or
+            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2', 'ci-timing-v2') -or
             ($Record.validation -ceq 'success') -ne ($Record.richScaleAcceptance -ceq 'complete'))) -or
         $Record.authority -cnotin @('trusted-main-push', 'pilot-observation')) { throw 'Invalid non-UI cohort schema/provenance.' }
     if ($Record.authority -ceq 'trusted-main-push' -and $Record.ciRevision -cne $Record.revision) {
@@ -220,7 +227,10 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
                 $seen[$key] = $true
             } elseif ($sample.validation -ceq 'success') { throw "Complete execution lacks independent $field." }
         }
-        if ($rich) { Assert-RichCohortSample $sample $Record $seen }
+        if ($rich) {
+            if ($automatic) { Assert-RichCohortSample $sample $Record $seen $Record.sourcePolicyVersion }
+            else { Assert-RichCohortSample $sample $Record $seen }
+        }
         if ($null -ne $sample.measurements) {
             Assert-HealthNumber $sample.measurements.executionSeconds 'executionSeconds'
             Assert-HealthDate $sample.measurements.startedAt 'execution startedAt'
@@ -278,12 +288,15 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         throw 'Cohort validation averages away an original failed/missing attempt.'
     }
     if ($null -ne $Record.reference) {
-        if ($Record.reference.kind -cne $(if ($rich) { 'prior-compatible-rich-cohort-observation' } else { 'prior-compatible-non-ui-cohort-observation' }) -or
+        if ($Record.reference.kind -cne $(if ($automatic) { 'pinned-eligible-reference' } elseif ($rich) { 'prior-compatible-rich-cohort-observation' } else { 'prior-compatible-non-ui-cohort-observation' }) -or
             $Record.reference.revision -cnotmatch '^[0-9a-f]{40}$' -or
             $Record.reference.revision -ceq $Record.revision) { throw 'Invalid/self-referencing cohort comparison.' }
         foreach ($field in @('ageSeconds', 'medianSeconds')) { Assert-HealthNumber $Record.reference[$field] "reference.$field" }
-        Assert-HealthNumber $Record.reference.deltaSeconds 'reference.deltaSeconds' -AllowNegative
-        if ($Record.reference.deltaSeconds -ne $Record.metrics.executionSeconds.median - $Record.reference.medianSeconds) {
+        if ($Record.metrics.Contains('executionSeconds')) {
+            Assert-HealthNumber $Record.reference.deltaSeconds 'reference.deltaSeconds' -AllowNegative
+        }
+        if ($Record.metrics.Contains('executionSeconds') -and
+            $Record.reference.deltaSeconds -ne $Record.metrics.executionSeconds.median - $Record.reference.medianSeconds) {
             throw 'Historical cohort comparison inputs disagree.'
         }
     }
@@ -296,9 +309,10 @@ function Get-NonUiCohortRecordTypes {
             GetPath = { param($record) Get-NonUiCohortPath $record }
             Validate = {
                 param($record, $path)
-                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2') -or $record.authority -cne 'trusted-main-push' -or
-                    $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive') -or
-                    (@($record.samples).Count -ne 3 -and
+                $automatic = $record.mode -ceq 'automatic-baseline'
+                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2', 'ci-timing-v2') -or $record.authority -cne 'trusted-main-push' -or
+                    (!$automatic -and $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive')) -or
+                    (!$automatic -and @($record.samples).Count -ne 3 -and
                         !(@($record.samples).Count -eq 5 -and $record.unexpectedExecutions -and $record.validation -ceq 'rejected'))) {
                     throw 'Live history cannot accept TEST-policy or manual pilot cohorts.'
                 }
