@@ -186,7 +186,7 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
                 $Record.measurements.ceilingSeconds - $Record.measurements.executionSeconds) { throw 'Lane headroom disagrees.' }
             $ceiling = if ($Record.lane -ceq 'core') { 300 }
                 elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
-                elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -ceq 'ci-timing-v2') { 900 } else { 660 }
+                elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -cin @('ci-timing-v2', 'ci-timing-v3')) { 900 } else { 660 }
             if ($Record.measurements.ceilingSeconds -ne $ceiling) { throw 'Lane measurement changed an original budget.' }
         }
         foreach ($step in @($Record.measurements.steps)) {
@@ -690,7 +690,7 @@ function Set-LaneHealthComparison($Record, $History) {
 
 function Format-LaneHealth($Records, [string]$Publication) {
     $lines = @('## Validation lane observations', '',
-        'Original job/validation outcomes are preserved. Source-qualified ci-timing-v2 evaluations are shown separately; legacy timing is observation only.',
+        'Original job/validation outcomes are preserved. Source-qualified ci-timing-v2/v3 evaluations are shown separately; legacy timing is observation only.',
         'Historical records never replace fresh exact-candidate release acceptance.', '')
     foreach ($record in $Records) {
         $lines += @("### $([Net.WebUtility]::HtmlEncode($record.jobName))",

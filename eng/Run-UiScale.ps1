@@ -17,7 +17,9 @@ $root = Split-Path $PSScriptRoot -Parent
 if (!$Worker) { throw 'Select prefix or tail; complete UI-scale acceptance requires both isolated workers and Assert-UiScaleUnion.ps1.' }
 $plan = Get-UiScalePlan
 $required = @($plan.workers[$Worker])
-$policy = Get-ApprovedTimingPolicy
+$sourceRevision = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'UI-scale source revision is unavailable.' }
+$policy = Get-ApprovedTimingPolicy (Get-SourceTimingPolicyVersion $sourceRevision)
 $observation = if ($ExtendedObservation -or $Worker -ceq 'prefix') { 900 } else { 660 }
 $selection = @{ selector = "--ui-scale-$Worker"; worker = $Worker; requiredScenarios = $required
     runId = $RunId; runAttempt = $RunAttempt; completedPhases = @() }

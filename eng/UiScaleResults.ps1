@@ -55,7 +55,7 @@ function Assert-UiScaleWorkerReport($Report, [string] $Worker, [string] $Revisio
     $policy = Get-ApprovedTimingPolicy $ExpectedPolicyVersion
     $ceiling = if ($Worker -ceq 'prefix') { $policy.prefixSafetySeconds } else { $policy.tailSafetySeconds }
     $declaredPolicy = if ($Report.PSObject.Properties['policyVersion']) { $Report.policyVersion } else { 'rich-scale-original-v1' }
-    if ($declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Rich runner policy differs from the trusted source policy.' }
+    if ($declaredPolicy -isnot [string] -or $declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Rich runner policy differs from the trusted source policy.' }
     if ($CohortId -and ($CohortId -cne "$Revision-$RunId-$RunAttempt" -or $Sample -notin @(1, 2, 3, 4, 5) -or
         $report.cohortId -cne $CohortId -or $report.sample -ne $Sample)) {
         throw 'Rich worker belongs to a different cohort/sample/attempt.'
@@ -213,7 +213,7 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
         $note = Read-Evidence "note-$phase"
         $durability = $note.localDurability
         $declaredPolicy = if ($durability.PSObject.Properties['policyVersion']) { $durability.policyVersion } else { 'rich-scale-original-v1' }
-        if ($declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Raw rich-note policy differs from the trusted source policy.' }
+        if ($declaredPolicy -isnot [string] -or $declaredPolicy -cne $ExpectedPolicyVersion) { throw 'Raw rich-note policy differs from the trusted source policy.' }
         $editorP95 = Assert-Samples $note.addTeamNote.samplesMs 20
         $navigationP95 = Assert-Samples $note.personNavigation.samplesMs 42
         $durabilityP95 = Assert-Samples $durability.samplesMs 21
@@ -242,9 +242,23 @@ function Assert-UiScaleRichEvidence($Evidence, $Handoff, [string] $Revision, [st
         $profile = Read-Evidence "profile-$phase"
         $profileP95 = Assert-Samples $profile.samplesMs 21
         $null = Assert-Samples @($profile.p95Ms) 1
+        if ($profile.PSObject.Properties['policyVersion'] -and
+            ($profile.policyVersion -isnot [string] -or $profile.policyVersion -cne $ExpectedPolicyVersion)) {
+            throw 'Raw rich-profile policy differs from the trusted source policy.'
+        }
+        if ($ExpectedPolicyVersion -ceq 'ci-timing-v3') {
+            $null = Assert-Samples $profile.independentFullReopenVerificationMs 21
+            if ($profile.policyVersion -cne $ExpectedPolicyVersion -or
+                $profile.goalMs -isnot [ValueType] -or $profile.goalMs -is [bool] -or $profile.goalMs -ne 1000 -or
+                $profile.goalMet -isnot [bool] -or $profile.goalMet -ne ($profileP95 -le 1000) -or
+                $profile.budgetMs -isnot [ValueType] -or $profile.budgetMs -is [bool] -or
+                $profile.budgetEnforced -isnot [bool] -or !$profile.budgetEnforced -or $profile.timingUse -cne 'acceptance') {
+                throw 'Rich-profile v3 goal/ceiling metadata is missing or contradictory.'
+            }
+        }
         if ($profile.phase -cne $phase -or @($profile.samplesMs).Count -ne 21 -or
             @($profile.independentFullReopenVerificationMs).Count -ne 21 -or
-            $profile.budgetMs -ne 1000 -or $profile.p95Ms -ne $profileP95 -or $profileP95 -gt 1000) {
+            $profile.budgetMs -ne $policy.richProfileCeilingMs -or $profile.p95Ms -ne $profileP95 -or $profileP95 -gt $policy.richProfileCeilingMs) {
             throw 'Actual21 profile Save evidence is incomplete or nonaccepting.'
         }
     }

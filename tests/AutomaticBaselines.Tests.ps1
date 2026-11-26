@@ -1,5 +1,6 @@
 param([switch]$PlanOnly, [switch]$SmokeOnly, [string]$GateSnapshotDirectory,
-    [string]$EventVersionMetadata, [string]$EventVersionCase)
+    [string]$EventVersionMetadata, [string]$EventVersionCase,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$GatePolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -90,7 +91,7 @@ function Select-BaselineFixture([string]$Revision, [int]$CiId, [int]$CohortRun) 
     $global:BaselineFixture.jobs = @(); $global:BaselineFixture.artifacts = @()
 }
 function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Seconds, [double]$Latency,
-    [string]$ImageVersion = '20261116') {
+    [string]$ImageVersion = '20261116', [string]$TimingPolicyVersion = 'ci-timing-v2') {
     . "$PSScriptRoot\UiScaleUnionFixture.ps1"
     . "$root\eng\NonUiCohort.ps1"
     $runId = [string]$global:BaselineFixture.cohortRun
@@ -127,11 +128,11 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         percentile = 'Nearest rank: sorted sample at ceil(0.95 * count), one based.' }
     $log += 'SCALE ORDINARY-PROFILE ' + ($profile | ConvertTo-Json -Compress)
     $log | Set-Content (Join-Path $nonUi "$runName\scale-measurements.log")
-    $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number $runId '1'
+    $rich = New-RichCohortSampleFixture (Join-Path $directory 'rich') $Revision $Number $runId '1' $TimingPolicyVersion
     foreach ($worker in @('prefix', 'tail')) {
         $path = Join-Path $rich[$worker] 'result.json'
         $data = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
-        $data.policyVersion = 'ci-timing-v2'
+        $data.policyVersion = $TimingPolicyVersion
         $data.configuration.imageVersion = $ImageVersion
         if ($worker -ceq 'prefix') { $data.ceilingSeconds = 900; $data.observationSeconds = 900 }
         $data.executionSeconds = $Seconds
@@ -141,13 +142,14 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
         $profilePath = Join-Path $rich[$worker] "$($data.runDirectory)\scale-mutation-$(if ($worker -ceq 'prefix') { 'save-prefix' } else { 'delivery-tail' })-ui-sqlite-rich-profile-latency-$(if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }).json"
         $rawProfile = Get-Content $profilePath -Raw | ConvertFrom-Json -AsHashtable
         $rawProfile.samplesMs = @($Latency) * 21; $rawProfile.p95Ms = $Latency
+        if ($TimingPolicyVersion -ceq 'ci-timing-v3') { $rawProfile.goalMet = $Latency -le 1000 }
         $rawProfile | ConvertTo-Json -Depth 15 | Set-Content $profilePath
         if ($worker -ceq 'prefix') {
             foreach ($phase in @('normal-executable', 'background-export')) {
                 $notePath = Join-Path $rich.prefix "$($data.runDirectory)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"
                 $note = Get-Content $notePath -Raw | ConvertFrom-Json -AsHashtable
                 $note.localDurability.samplesMs = @($Latency) * 21; $note.localDurability.p95Ms = $Latency
-                $note.localDurability.budgetMs = 1500; $note.localDurability.policyVersion = 'ci-timing-v2'
+                $note.localDurability.budgetMs = 1500; $note.localDurability.policyVersion = $TimingPolicyVersion
                 $note.localDurability.temporaryCeiling = $false
                 $note.localDurability.goalMet = $Latency -le 1000
                 $note | ConvertTo-Json -Depth 15 | Set-Content $notePath
@@ -156,7 +158,7 @@ function New-CompleteBaselineSample([int]$Number, [string]$Revision, [double]$Se
     }
     & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
         -ExpectedRevision $Revision -RunId $runId -RunAttempt 1 -ResultsDirectory (Join-Path $directory 'active-union') `
-        -CohortId $cohortId -Sample $Number -ExpectedPolicyVersion ci-timing-v2
+        -CohortId $cohortId -Sample $Number -ExpectedPolicyVersion $TimingPolicyVersion
     $rich.union = Join-Path $directory 'active-union'
     foreach ($worker in @('non-ui', 'prefix', 'tail', 'union')) {
         $name = if ($worker -ceq 'non-ui') { "non-ui-cohort-$cohortId-sample-$Number" }
@@ -188,7 +190,7 @@ try {
             'The current producer fixture does not expose its valid non-self canonical predecessor.'
         $bundle = $metadata.sampleDirectories[0]
         $execution = New-TimingExecutionRecord (Join-Path $bundle 'non-ui') (Join-Path $bundle 'rich\prefix') `
-            (Join-Path $bundle 'rich\tail') $metadata.sourceB '102' '1'
+            (Join-Path $bundle 'rich\tail') $metadata.sourceB '102' '1' -ExpectedPolicyVersion $metadata.policyVersion
         $eventTypes = @('timing-bootstrap', 'timing-plan', 'timing-decision', 'timing-reference')
         if ($metadata.ContainsKey('eventHistoryRemote')) { $eventTypes += 'cohort-observation' }
         foreach ($type in $eventTypes) {
@@ -373,31 +375,54 @@ try {
         'Successful automatic promotion still reported observation-only disabled policy.'
     if ($GateSnapshotDirectory) {
         if (Test-Path -LiteralPath $GateSnapshotDirectory) { throw 'Fixture export must not overwrite an existing directory.' }
+        if ($GatePolicyVersion -ceq 'ci-timing-v3') {
+            '{"version":"ci-timing-v3"}' | Set-Content (Join-Path $source 'eng\timing-policy.json')
+            $null = Invoke-FixtureGit $source @('add', 'eng/timing-policy.json')
+            $second = Add-MainFixtureRevision 'Approved native-profile v3 starts a separate comparison series'
+            Select-BaselineFixture $second 42 98
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $second -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 98 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'v3-plan') -RichScale -PublishPlan `
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v3 -InitializeBootstrap
+            for ($number = 1; $number -le 3; $number++) {
+                New-CompleteBaselineSample $number $second @(148, 150, 152)[$number - 1] @(495, 500, 505)[$number - 1] -TimingPolicyVersion ci-timing-v3
+            }
+            $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
+            $v3Work = Join-Path $fixture 'v3-first-reference'
+            & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $second -CiRunId 42 -CiRunAttempt 1 `
+                -CohortRunId 98 -CohortRunAttempt 1 -WorkingDirectory $v3Work -RichScale -Publish `
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v3
+            $v3 = Get-Content (Join-Path $v3Work 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+            Assert ($v3.eligibility -ceq 'eligible' -and $v3.timingEvaluation.version -ceq 'ci-timing-v3' -and
+                $null -eq $v3.reference -and $v3.metrics.'profile-p95-ms'.median -eq 500 -and
+                $v3.samples[0].rich.prefix.profile.budgetMs -eq 1500 -and
+                $v3.samples[0].measurements.profile.budgetMs -eq 1000) `
+                'Public v3 promotion mixed policies or weakened the non-UI profile limit.'
+        }
         $gateRevision = Add-MainFixtureRevision 'Serious relative fixture without an absolute violation'
         Select-BaselineFixture $gateRevision 45 102
         & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Plan -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
             -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory (Join-Path $fixture 'gate-plan') -RichScale -PublishPlan `
-            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion $GatePolicyVersion
         for ($number = 1; $number -le 3; $number++) {
-            New-CompleteBaselineSample $number $gateRevision @(200, 202, 204)[$number - 1] @(600, 602, 604)[$number - 1]
+            New-CompleteBaselineSample $number $gateRevision @(200, 202, 204)[$number - 1] @(600, 602, 604)[$number - 1] -TimingPolicyVersion $GatePolicyVersion
         }
         $gateDecisionWork = Join-Path $fixture 'gate-decision'
         & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
             -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory $gateDecisionWork -RichScale -PublishDecision `
-            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+            -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion $GatePolicyVersion
         $gateDecision = Get-Content (Join-Path $gateDecisionWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
         Assert ($gateDecision.eligibility -ceq 'extend' -and $gateDecision.reference.revision -ceq $second -and
             ($gateDecision.extraSamples -join ',') -ceq '4,5') 'Serious fixture did not preserve a nonblocking three-run decision before bounded extension.'
         New-Item -ItemType Directory -Path $GateSnapshotDirectory -Force | Out-Null
         $runningRemote = Join-Path $GateSnapshotDirectory 'collecting.git'
         Copy-Item -LiteralPath $remote -Destination $runningRemote -Recurse
-        foreach ($number in @(4, 5)) { New-CompleteBaselineSample $number $gateRevision 202 602 }
+        foreach ($number in @(4, 5)) { New-CompleteBaselineSample $number $gateRevision 202 602 -TimingPolicyVersion $GatePolicyVersion }
         $global:BaselineFixture.status = 'completed'; $global:BaselineFixture.outcome = 'success'
         $gateWork = Join-Path $fixture 'gate-rejected'
         Rejects {
             & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $gateRevision -CiRunId 45 -CiRunAttempt 1 `
                 -CohortRunId 102 -CohortRunAttempt 1 -WorkingDirectory $gateWork -RichScale -Publish `
-                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion ci-timing-v2
+                -AllowLocalFixture -HistoryRemote $remote -ApprovedPolicyVersion $GatePolicyVersion
         } 'Five stable practically significant separated values did not block.'
         $gateRecord = Get-Content (Join-Path $gateWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
         Assert ($gateRecord.samples.Count -eq 5 -and $gateRecord.validation -ceq 'success' -and
@@ -408,7 +433,7 @@ try {
             'Serious five-run fixture changed strict acceptance, lost practical evidence or promoted the rejected candidate.'
         $after = @(& git --git-dir=$remote ls-tree -r --name-only refs/heads/ci-health-data |
             Where-Object { $_.StartsWith('timing-references/') })
-        Assert ($after.Count -eq 1) 'Serious relative rejection replaced the prior eligible reference.'
+        Assert ($after.Count -eq $(if ($GatePolicyVersion -ceq 'ci-timing-v3') { 2 } else { 1 })) 'Serious relative rejection replaced the prior eligible reference.'
         $rejectedRemote = Join-Path $GateSnapshotDirectory 'rejected.git'
         Copy-Item -LiteralPath $remote -Destination $rejectedRemote -Recurse
         $eventRemote = Join-Path $GateSnapshotDirectory 'events.git'
@@ -416,7 +441,7 @@ try {
         Rejects {
             & "$root\eng\Invoke-NonUiCohortObservation.ps1" -RunId 102 -RunAttempt 1 `
                 -WorkingDirectory (Join-Path $fixture 'event-unavailable-plan') `
-                -HistoryRemote $eventRemote -AllowLocalFixture -ApprovedPolicyVersion ci-timing-v2
+                -HistoryRemote $eventRemote -AllowLocalFixture -ApprovedPolicyVersion $GatePolicyVersion
         } 'Unavailable plan fabricated qualified collection evidence instead of retaining an ineligible event.'
         $samplePaths = @()
         for ($number = 1; $number -le 5; $number++) {
@@ -426,8 +451,8 @@ try {
         }
         @{
             schemaVersion = 1; kind = 'isolated-non-production-public-contract-fixture'; hostedMeasurement = $false
-            sourceA = $second; sourceB = $gateRevision; policyVersion = 'ci-timing-v2'
-            priorCohortId = "$second-99-1"; currentCohortId = "$gateRevision-102-1"
+            sourceA = $second; sourceB = $gateRevision; policyVersion = $GatePolicyVersion
+            priorCohortId = "$second-$(if ($GatePolicyVersion -ceq 'ci-timing-v3') { '98' } else { '99' })-1"; currentCohortId = "$gateRevision-102-1"
             seriesKey = $gateRecord.samples[0].rich.seriesKey
             runningHistoryRemote = $runningRemote; rejectedHistoryRemote = $rejectedRemote
             eventHistoryRemote = $eventRemote; sampleDirectories = $samplePaths

@@ -7,14 +7,16 @@ function Get-TimingLane([string]$Lane) {
 }
 
 function Get-ApprovedTimingPolicy(
-    [ValidateSet('rich-scale-original-v1', 'ci-timing-v2')][string]$Version = 'ci-timing-v2') {
+    [ValidateSet('rich-scale-original-v1', 'ci-timing-v2', 'ci-timing-v3')][string]$Version = 'ci-timing-v2') {
     return @{
         version = $Version
-        prefixSafetySeconds = if ($Version -ceq 'ci-timing-v2') { 900 } else { 660 }
-        prefixWatchdogMinutes = if ($Version -ceq 'ci-timing-v2') { 30 } else { 13 }
+        prefixSafetySeconds = if ($Version -cne 'rich-scale-original-v1') { 900 } else { 660 }
+        prefixWatchdogMinutes = if ($Version -cne 'rich-scale-original-v1') { 30 } else { 13 }
         tailSafetySeconds = 660
         richNoteGoalMs = 1000
-        richNoteCeilingMs = if ($Version -ceq 'ci-timing-v2') { 1500 } else { 1050 }
+        richNoteCeilingMs = if ($Version -cne 'rich-scale-original-v1') { 1500 } else { 1050 }
+        richProfileGoalMs = 1000
+        richProfileCeilingMs = if ($Version -ceq 'ci-timing-v3') { 1500 } else { 1000 }
     }
 }
 
@@ -40,17 +42,18 @@ function Get-SourceTimingPolicyVersion([string]$Revision, [switch]$Hosted, [stri
         if ($LASTEXITCODE -ne 0) { throw 'Trusted timing policy source cannot be read.' }
     }
     $policy = $text | ConvertFrom-Json -AsHashtable
-    if ($policy.Count -ne 1 -or $policy.version -cne 'ci-timing-v2') {
+    if ($policy.Count -ne 1 -or $policy.version -isnot [string] -or $policy.version -cnotin @('ci-timing-v2', 'ci-timing-v3')) {
         throw 'Unknown or amended timing policy requires explicit approval and implementation.'
     }
     return $policy.version
 }
 
 function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$PrefixDirectory, [string]$TailDirectory,
-    [string]$Revision, [string]$RunId, [string]$RunAttempt) {
+    [string]$Revision, [string]$RunId, [string]$RunAttempt,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ExpectedPolicyVersion = 'ci-timing-v2') {
     $record = @{
         schemaVersion = 2; recordType = 'verification-execution'; revision = $Revision; validation = 'success'
-        runId = $RunId; runAttempt = $RunAttempt; policyVersion = 'ci-timing-v2'
+        runId = $RunId; runAttempt = $RunAttempt; policyVersion = $ExpectedPolicyVersion
         observedAt = [DateTimeOffset]::UtcNow.ToString('O'); unexpectedExecutions = $false; measurements = $null
         samples = @(); metrics = @{}; comparisonDiagnostics = @()
         verificationScope = 'one complete exact-candidate execution; never a three-to-five collection cohort'
@@ -62,7 +65,7 @@ function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$Prefi
     $sample = @{ configuration = $null; rich = @{ seriesKey = $null } }
     foreach ($worker in @('prefix', 'tail')) {
         $directory = if ($worker -ceq 'prefix') { $PrefixDirectory } else { $TailDirectory }
-        $validated = Get-UiScaleWorkerResult $directory $worker $Revision $RunId $RunAttempt -ExpectedPolicyVersion ci-timing-v2
+        $validated = Get-UiScaleWorkerResult $directory $worker $Revision $RunId $RunAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion
         $sample.rich[$worker] = @{ run = $validated.run
             report = $validated.report | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String }
         Add-Metric "$worker-executionSeconds" $validated.report.executionSeconds
@@ -98,7 +101,7 @@ function New-TimingExecutionRecord([string]$PerformanceDirectory, [string]$Prefi
 function Set-TimingExecutionComparison($Record, $History) {
     $sample = $Record.samples[0]
     if ($null -eq $sample.configuration) { throw 'Resolved non-UI comparison configuration is unavailable.' }
-    $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample ci-timing-v2
+    $sample.rich.seriesKey = Get-RichCohortSeriesKey $sample $Record.policyVersion
     $reference = $null
     $Record.knownSeriousCohorts = @()
     if ($History -and @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' }).Count) {
@@ -107,27 +110,28 @@ function Set-TimingExecutionComparison($Record, $History) {
         $reference = Get-TimingCanonicalReference $History $sample.rich.seriesKey $candidate
         foreach ($cohort in @($History.records | Where-Object {
             $_.Contains('recordType') -and $_.recordType -ceq 'performance-cohort' -and
-            $_.policyVersion -ceq 'ci-timing-v2' -and $_.revision -ceq $Record.revision -and
+            $_.policyVersion -ceq $Record.policyVersion -and $_.revision -ceq $Record.revision -and
             $_.samples.Count -eq 5 -and $_.validation -ceq 'success' -and
             (Get-TimingCohortKey $_) -ceq $sample.rich.seriesKey
         })) {
             $copy = $cohort | ConvertTo-Json -Depth 40 | ConvertFrom-Json -AsHashtable -Depth 40 -DateKind String
             $pinned = Get-TimingPinnedReference $copy $History
-            Set-TimingPolicyEvaluation $copy $pinned $History.tip
+            Set-TimingPolicyEvaluation $copy $pinned $History.tip -PolicyVersion $Record.policyVersion
             if (@($copy.timingEvaluation.metrics.Values | Where-Object { $_.Contains('seriousRegression') -and $_.seriousRegression }).Count) {
                 $Record.knownSeriousCohorts += @{ cohortId = $copy.cohortId; evidenceUrl = $copy.samples[0].evidence.url
                     referenceRevision = $pinned.revision }
             }
         }
     }
-    Set-TimingPolicyEvaluation $Record $reference $(if ($History) { $History.tip } else { $null })
+    Set-TimingPolicyEvaluation $Record $reference $(if ($History) { $History.tip } else { $null }) -PolicyVersion $Record.policyVersion
     if ($Record.knownSeriousCohorts.Count) { $Record.timingEvaluation.blocking = $true; $Record.timingEvaluation.health = 'red' }
 }
 
 function Set-TimingPolicyPreview($Record, $History,
-    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$PolicyVersion = 'ci-timing-preview-v2',
+    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2', 'ci-timing-preview-v3')][string]$PolicyVersion = 'ci-timing-preview-v2',
     $PinnedReference = $null, [switch]$Active) {
     $richNoteCeiling = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 1050 } else { 1500 }
+    $richProfileCeiling = if ($PolicyVersion -ceq 'ci-timing-preview-v3') { 1500 } else { 1000 }
     $prefixWatchdog = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 17 } else { 30 }
     $approval = if ($PolicyVersion -ceq 'ci-timing-preview-v1') { 'pending' } else { 'approved' }
     if ($Record.recordType -cne 'performance-cohort' -and !($Active -and $Record.recordType -ceq 'verification-execution')) {
@@ -141,12 +145,16 @@ function Set-TimingPolicyPreview($Record, $History,
             foreach ($metric in $Record.measurements.metrics) {
                 $richNote = (Get-TimingLane $Record.lane) -cin @('ui-scale-prefix', 'ui-scale') -and
                     $metric.name -cmatch '^note-durability-(normal-executable|background-export)$'
+                $richProfile = $PolicyVersion -ceq 'ci-timing-preview-v3' -and
+                    (Get-TimingLane $Record.lane) -cin @('ui-scale-prefix', 'ui-scale-tail', 'ui-scale') -and
+                    $metric.name -cmatch '^profile-save-(normal-executable|background-export)$'
                 $goal = if ($richNote) { 1000 } elseif ($metric.Contains('goalMs')) { $metric.goalMs } else { $null }
                 $budget = if ($richNote) { $richNoteCeiling } elseif ($metric.Contains('budgetMs') -and
                     (!$metric.Contains('budgetEnforced') -or $metric.budgetEnforced)) { $metric.budgetMs } else { $null }
                 if ($Active -and !$richNote) {
-                    $goal = $null
-                    $budget = if ($metric.name -cmatch '^(profile-save|note-durability)(-|$)') { 1000 } else { $null }
+                    $goal = if ($richProfile) { 1000 } else { $null }
+                    $budget = if ($richProfile) { $richProfileCeiling }
+                        elseif ($metric.name -cmatch '^(profile-save|note-durability)(-|$)') { 1000 } else { $null }
                 }
                 $metrics[$metric.name] = @{
                     health = 'unbaselined'; median = $metric.value; range = $null; count = 1; reference = $null
@@ -177,7 +185,7 @@ function Set-TimingPolicyPreview($Record, $History,
         $Record.policyPreview = @{
             version = $PolicyVersion; mode = 'observation'; approval = $approval
             prefixSafetySeconds = 900; prefixWatchdogMinutes = $prefixWatchdog
-            practicalFloors = if ($PolicyVersion -ceq 'ci-timing-preview-v2') {
+            practicalFloors = if ($PolicyVersion -cne 'ci-timing-preview-v1') {
                 @{ medianIncreasePercent = 20; productLatencyIncreaseMs = 100; durationIncreaseSeconds = 30 }
             } else { $null }
             blocking = $false; promotion = 'disabled'; currentValidation = $Record.validation
@@ -254,7 +262,7 @@ function Set-TimingPolicyPreview($Record, $History,
             } elseif ($prior.range -eq 0) {
                 $preview.health = 'inconclusive'
                 $preview.reason = 'Zero observed reference range cannot establish a calibrated noise floor.'
-            } elseif ($PolicyVersion -ceq 'ci-timing-preview-v2' -and $gateable -and $prior.median -le 0) {
+            } elseif ($PolicyVersion -cne 'ci-timing-preview-v1' -and $gateable -and $prior.median -le 0) {
                 $preview.health = 'inconclusive'
                 $preview.reason = 'Reference median is zero; practical percentage significance is unavailable.'
             } else {
@@ -268,7 +276,7 @@ function Set-TimingPolicyPreview($Record, $History,
                 $absoluteFloor = if ($durationMetric) { 30 } else { 100 }
                 $practical = $PolicyVersion -ceq 'ci-timing-preview-v1' -or
                     ($null -ne $preview.deltaPercent -and $preview.deltaPercent -ge 20 -and $preview.deltaAbsolute -ge $absoluteFloor)
-                if ($gateable -and $PolicyVersion -ceq 'ci-timing-preview-v2') { $preview.practicalSignificance = $practical }
+                if ($gateable -and $PolicyVersion -cne 'ci-timing-preview-v1') { $preview.practicalSignificance = $practical }
                 if ($gateable -and $practical -and $Record.validation -ceq 'success' -and $Record.samples.Count -eq 5 -and
                     !$variable -and $metric.minimum -gt ($prior.maximum + $prior.range) -and
                     $metric.median - $prior.median -gt $prior.range) {
@@ -281,7 +289,9 @@ function Set-TimingPolicyPreview($Record, $History,
         }
         $preview.relativeHealth = $preview.health
         $richNote = $name -cmatch '^prefix-.*-localDurability-p95-ms$'
-        $hardLimit = if ($name -ceq 'profile-p95-ms' -or $name -cmatch '^(prefix|tail)-profile-p95-ms$') { 1000 }
+        $richProfile = $PolicyVersion -ceq 'ci-timing-preview-v3' -and $name -cmatch '^(prefix|tail)-profile-p95-ms$'
+        $hardLimit = if ($richProfile) { $richProfileCeiling }
+            elseif ($name -ceq 'profile-p95-ms' -or $name -cmatch '^(prefix|tail)-profile-p95-ms$') { 1000 }
             elseif ($richNote) { $richNoteCeiling } else { $null }
         $executionLimit = if ($name -cin @('executionSeconds', 'tail-executionSeconds')) { 660 }
             elseif ($name -ceq 'prefix-executionSeconds') { 900 } else { $null }
@@ -312,12 +322,12 @@ function Set-TimingPolicyPreview($Record, $History,
                 $preview.health = 'red'; $preview.seriousRegression = $false
                 $preview.reason = 'An individual policy absolute ceiling is violated; original validation and raw evidence remain unchanged.'
             }
-            if ($richNote) {
+            if ($richNote -or $richProfile) {
                 $preview.goal = 1000; $preview.goalMet = $metric.maximum -le 1000
             }
-            if ($richNote -and $metric.maximum -gt 1000 -and $metric.maximum -le $richNoteCeiling -and $preview.health -cne 'red') {
+            if (($richNote -or $richProfile) -and $metric.maximum -gt 1000 -and $metric.maximum -le $hardLimit -and $preview.health -cne 'red') {
                 $preview.health = 'yellow'
-                $preview.reason = "Policy1000ms goal missed within${richNoteCeiling}ms absolute ceiling; relative comparison remains " + $preview.relativeHealth + '.'
+                $preview.reason = "Policy1000ms goal missed within${hardLimit}ms absolute ceiling; relative comparison remains " + $preview.relativeHealth + '.'
             }
         }
         $metrics[$name] = $preview
@@ -325,7 +335,7 @@ function Set-TimingPolicyPreview($Record, $History,
     $Record.policyPreview = @{
         version = $PolicyVersion; mode = 'observation'; approval = $approval
         prefixSafetySeconds = 900; prefixWatchdogMinutes = $prefixWatchdog
-        practicalFloors = if ($PolicyVersion -ceq 'ci-timing-preview-v2') {
+        practicalFloors = if ($PolicyVersion -cne 'ci-timing-preview-v1') {
             @{ medianIncreasePercent = 20; productLatencyIncreaseMs = 100; durationIncreaseSeconds = 30 }
         } else { $null }
         blocking = $false; promotion = 'disabled'; currentValidation = $Record.validation
@@ -341,7 +351,8 @@ function Set-TimingPolicyPreview($Record, $History,
     if ($Record.validation -cne 'success') { $Record.policyPreview.eligibility = 'rejected-current-validation' }
 }
 
-function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null) {
+function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$HistoryTip = $null,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$PolicyVersion = 'ci-timing-v2') {
     if ($Record.recordType -cin @('performance-cohort', 'verification-execution')) {
         foreach ($entry in @($Record.metrics.GetEnumerator())) {
             $metric = $entry.Value
@@ -350,7 +361,7 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
             }
         }
         if ($PinnedReference) {
-            if ($PinnedReference.policyVersion -cne 'ci-timing-v2' -or
+            if ($PinnedReference.policyVersion -cne $PolicyVersion -or
                 $PinnedReference.samples.Count -notin @(3, 5)) {
                 throw 'Pinned reference is not an eligible approved-policy cohort.'
             }
@@ -362,10 +373,11 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         }
     }
     $previousPreview = if ($Record.Contains('policyPreview')) { $Record.policyPreview } else { $null }
-    Set-TimingPolicyPreview $Record $null ci-timing-preview-v2 -PinnedReference $PinnedReference -Active
+    $previewVersion = if ($PolicyVersion -ceq 'ci-timing-v3') { 'ci-timing-preview-v3' } else { 'ci-timing-preview-v2' }
+    Set-TimingPolicyPreview $Record $null $previewVersion -PinnedReference $PinnedReference -Active
     $evaluation = $Record.policyPreview
     if ($null -ne $previousPreview) { $Record.policyPreview = $previousPreview } else { $Record.Remove('policyPreview') }
-    $evaluation.version = 'ci-timing-v2'; $evaluation.mode = 'enforced'; $evaluation.approval = 'approved'
+    $evaluation.version = $PolicyVersion; $evaluation.mode = 'enforced'; $evaluation.approval = 'approved'
     $evaluation.historySnapshot = $HistoryTip
     $evaluation.promotion = 'external; never a release prerequisite'
     $evaluation.validationBlocking = $Record.validation -cne 'success'

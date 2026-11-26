@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory)][ValidateRange(1, [long]::MaxValue)][long]$RunId,
     [Parameter(Mandatory)][ValidateRange(1, [int]::MaxValue)][int]$RunAttempt,
     [Parameter(Mandatory)][string]$WorkingDirectory,
-    [ValidateSet('ci-timing-v2')][string]$ApprovedPolicyVersion,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ApprovedPolicyVersion,
     [string]$HistoryRemote = 'https://github.com/geevensingh/org-explorer.git',
     [switch]$AllowLocalFixture
 )
@@ -33,16 +33,17 @@ try {
         $plan.cohortId -cne "$($plan.revision)-$RunId-$RunAttempt" -or $plan.authority -cne 'trusted-main-push' -or
         $plan.collect -isnot [bool] -or $plan.mode -cnotin @('observation', 'automatic-baseline') -or $plan.promotion -cne 'disabled' -or
         ($plan.samples -join ',') -cne '1,2,3' -or
-        $plan.policyVersion -cne $(if ($automatic) { 'ci-timing-v2' } elseif ($plan.schemaVersion -eq 2) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' })) {
+        ($automatic -and $plan.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3')) -or
+        (!$automatic -and $plan.policyVersion -cne $(if ($plan.schemaVersion -eq 2) { 'rich-cohort-observation-v2' } else { 'non-ui-cohort-observation-v1' }))) {
         throw 'Collection plan is malformed/substituted; it is data, never execution or write authority.'
     }
     $policy = @{}
     if ($automatic) {
-        if ($ApprovedPolicyVersion -cne 'ci-timing-v2' -or $plan.schemaVersion -ne 2) {
+        if ($ApprovedPolicyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or $plan.schemaVersion -ne 2) {
             throw 'A retrieved plan cannot approve or activate canonical policy; the trusted controller must select the approved version.'
         }
         Assert-TimingControl $plan (Get-TimingControlPath $plan)
-        $policy.ApprovedPolicyVersion = $ApprovedPolicyVersion
+        $policy.ApprovedPolicyVersion = $plan.policyVersion
     }
     if (!$plan.collect) {
         'No new cohort was executed: candidate already durably observed. No prior verdict was rewritten.' |

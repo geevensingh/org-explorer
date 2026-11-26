@@ -38,7 +38,7 @@ jobs:
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
           CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -RichScale -ApprovedPolicyVersion ci-timing-v2 -PublishPlan -InitializeBootstrap
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Plan -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-plan -RichScale -ApprovedPolicyVersion ci-timing-v3 -PublishPlan -InitializeBootstrap
           $plan = Get-Content .ci-results\cohort-plan\plan.json -Raw | ConvertFrom-Json
           "collect=$($plan.collect.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -96,7 +96,7 @@ jobs:
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
           CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-decision -RichScale -ApprovedPolicyVersion ci-timing-v2 -PublishDecision
+          .\eng\Invoke-NonUiCohort.ps1 -Stage Summarize -Revision $env:REVISION -CiRunId ([long]$env:CI_RUN_ID) -CiRunAttempt ([int]$env:CI_RUN_ATTEMPT) -CohortRunId ([long]$env:GITHUB_RUN_ID) -CohortRunAttempt ([int]$env:GITHUB_RUN_ATTEMPT) -WorkingDirectory .ci-results\cohort-decision -RichScale -ApprovedPolicyVersion ci-timing-v3 -PublishDecision
           $decision = Get-Content .ci-results\cohort-decision\record.json -Raw | ConvertFrom-Json
           "extend=$((($decision.extraSamples -join ',') -ceq '4,5').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4

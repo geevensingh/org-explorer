@@ -5,11 +5,16 @@ and agents ([approved spec #21](https://github.com/geevensingh/org-explorer/issu
 Choose the lowest-cost agreed surface that can prove the behavior, not a project
 name. A desktop click alone does not establish a successful navigation or save.
 
-The CI reliability implementation is integrated under source-bound
-`ci-timing-v2`; final complete hosted verification and joint `main` delivery
-remain pending. The [approved policy](ci-timing-policy-proposal.md) distinguishes
+The original CI reliability implementation is integrated under source-bound
+`ci-timing-v2`; the approved `ci-timing-v3` native-profile amendment is implemented
+on the final-verification branch. Exact-candidate hosted results and remaining
+integration/joint `main` delivery gates are recorded on #133, without editing
+the tested source afterward. The [approved policy](ci-timing-policy-proposal.md) distinguishes
 current 900s/30m rich-prefix and 1000ms/1500ms rich-note rules from original
-660s/1050ms results. Legacy observation/preview sections retain their original
+660s/1050ms results. Only native rich-profile Save in the held-export prefix and
+normal-executable tail also uses a1000ms goal/1500ms inclusive ceiling under v3;
+ordinary/small-fixture and non-UI profile/note1000ms limits are unchanged.
+Legacy observation/preview sections retain their original
 scope, not a claim that current complete-cohort gates are inactive.
 Pre-delivery full pilots are read-only, baseline-ineligible measurements; their
 three complete accepted executions cannot establish canonical `main` authority.
@@ -2855,8 +2860,10 @@ source-bound setup-through-cleanup safety limit: prefix900 seconds/30-minute
 watchdog; tail and non-UI660 seconds/thirteen-minute watchdog.
 Worker durations are separate; their sum is not one 660-second execution.
 Rich note durability uses the approved enforced1,500-ms ceiling and1,000-ms
-goal under `ci-timing-v2`; legacy sources retain1,050ms. Ordinary profile p95
-keeps its1,000-ms limit.
+goal under `ci-timing-v2` and `ci-timing-v3`; original sources retain1,050ms.
+Native rich-profile p95 uses a1,000-ms goal and1,500-ms inclusive ceiling only
+under v3, in both phases. V2 native profiles and all ordinary/non-UI profiles
+keep their1,000-ms hard limit.
 
 Raw evidence has exact candidate/cohort/run/attempt/sample/worker names and
 30-day retention. Repeated collector downloads use fresh physical directories.
@@ -2870,8 +2877,9 @@ individual measurement and descriptive median/range survives in compact history.
 Missing/failed/skipped/cancelled/diagnostic evidence rejects complete acceptance;
 no failure is voted away or replaced by a green retry.
 
-Trusted automatic collection explicitly selects approved `ci-timing-v2`.
+Trusted automatic collection explicitly selects approved `ci-timing-v3`.
 `PublishPlan` pins the initial verified main bootstrap once, before measurement;
+The bootstrap is pinned separately per approved policy, retaining v2 history.
 `InitializeBootstrap` is an explicit trusted-controller operation, not a fallback
 for a failed fetch. Advancing main does not move that durable source. Every
 queued candidate must remain in freshly fetched complete main ancestry.
@@ -2926,7 +2934,7 @@ are synthetic. Fixture contracts are not actual hosted scale acceptance.
 Its default core companion includes `AutomaticBaselines.Tests.ps1 -SmokeOnly`,
 without adding a new historical companion matrix. The complete non-UI contract
 exercise is `.\tests\AutomaticBaselines.Tests.ps1`; its optional
-`-GateSnapshotDirectory <new isolated directory>` exports real publisher-produced
+`-GateSnapshotDirectory <new isolated directory> -GatePolicyVersion ci-timing-v3` exports real publisher-produced
 prior-three/running-extension/serious-five fixtures for release-adapter tests.
 These local fixtures never write a production reference or certify hosted speed;
 #133 still owns complete hosted verification after activation.
@@ -3122,14 +3130,15 @@ percentile and functional usable-state assertion is retained. Ordinary
 durable-save p95 retains its1,000-ms goal. #130's approved v2 policy, activated
 by #131, enforces1,500ms only for these rich ordinary note saves in both
 `normal-executable` and `background-export`. The current note result contract
-records `localDurability.policyVersion: ci-timing-v2`, `goalMs: 1000`,
+records `localDurability.policyVersion: ci-timing-v3`, `goalMs: 1000`,
 `budgetMs: 1500`, `budgetEnforced: true`, `temporaryCeiling: false`
 and `timingUse: acceptance`.
 `goalMet` is computed from the original nearest-rank p95 against 1,000 ms; an
 accepted p95 above the goal must report `goalMet: false`, not claim one-second
 success. The union recomputes p95 from all 21 raw samples and requires this exact
 source-bound policy metadata in both phases. At1,500ms it accepts; above it, it rejects.
-All commits must still be observed during continued typing. Profile saves,
+V2 sources retain their original note policy identifier and limits.
+All commits must still be observed during continued typing. Ordinary profile saves,
 small-fixture note/first-commit one-second checks, queue-inclusive three-second
 stall and held-adoption capture proof are unchanged. Prefix execution safety
 alone changes to900s; tail safety remains660s. This is not informational-only
@@ -3230,7 +3239,7 @@ Missing/locked interactive desktops and unavailable pixels are visible failures;
 never skip rendering, change shared-machine settings or launch local automation
 without separate permission.
 
-Under source-bound `ci-timing-v2`, the isolated rich prefix has **900-second
+Under source-bound `ci-timing-v2` or `ci-timing-v3`, the isolated rich prefix has **900-second
 whole-execution safety** and a **30-minute watchdog**. Non-UI performance and
 the rich tail keep **660-second safety** and thirteen-minute watchdogs.
 Legacy sources retain660s/1050ms acceptance. Termination, failure reporting and
@@ -3254,6 +3263,13 @@ Native rich profile samples repeat that explicit Save path in both normal-EXE
 and actual held-export WPF phases, with exact whole-Person and decoded-photo/hash
 reopen checks. `*-sqlite-rich-profile-latency-*.json` separates native
 request-to-postcommit-acknowledgment from full-reopen verification.
+Only those native rich samples use v3's1,000-ms goal/1,500-ms inclusive enforced
+p95 ceiling, with `policyVersion`, `goalMs`, truthful `goalMet`, `budgetMs`,
+`budgetEnforced: true` and `timingUse: acceptance`. Both21-sample vectors and
+every independent reopen/causal observation remain. A goal miss within the
+ceiling warns; above it rejects. V2 native samples retain their original1,000-ms
+ceiling and verdicts, including failed cohort45775685351. This buffer adjustment
+does not establish a performance repair or extend any busy/stall/admission clock.
 These observations use the real Directory-name editor's automation provider:
 visible in Edit and offscreen after Save, alongside the exact owner/value,
 enabled Edit action and Ready state. The layout-only `ProfileForm` StackPanel

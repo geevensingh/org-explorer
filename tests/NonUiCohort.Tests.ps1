@@ -1,4 +1,5 @@
-param([switch]$BootstrapPreviewOnly, [switch]$RichPolicyPreviewOnly, [switch]$ActivePolicyOnly)
+param([switch]$BootstrapPreviewOnly, [switch]$RichPolicyPreviewOnly, [switch]$ActivePolicyOnly,
+    [switch]$NativeProfilePolicyOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -151,13 +152,14 @@ try {
     }
     $originalState = $global:NonUiCohortFixture
     try {
+        $activeVersion = if ($NativeProfilePolicyOnly) { 'ci-timing-v3' } else { 'ci-timing-v2' }
         . "$PSScriptRoot\UiScaleUnionFixture.ps1"
         $source = Join-Path $fixture 'source checkout with spaces'
         $sourceGit = Join-Path $fixture 'source objects with spaces.git'
         git init --quiet $source
         git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m 'Legacy policy fixture'
         New-Item -ItemType Directory (Join-Path $source 'eng') | Out-Null
-        Copy-Item (Join-Path $root 'eng\timing-policy.json') (Join-Path $source 'eng\timing-policy.json')
+        @{ version = $activeVersion } | ConvertTo-Json | Set-Content (Join-Path $source 'eng\timing-policy.json')
         git -C $source add eng
         git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m 'Approved policy source fixture'
         $sourceRevision = (git -C $source rev-parse HEAD).Trim()
@@ -181,7 +183,7 @@ try {
             $global:NonUiCohortFixture.artifacts += @{ id = 300 + $number; name = $name; expired = $false
                 expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('d' * 64)
                 workflow_run = @{ id = 99; head_sha = $sourceRevision } }
-            $rich = New-RichCohortSampleFixture (Join-Path $fixture "active-rich-$number") $sourceRevision $number '99' '1' ci-timing-v2
+            $rich = New-RichCohortSampleFixture (Join-Path $fixture "active-rich-$number") $sourceRevision $number '99' '1' $activeVersion
             $path = Join-Path $rich.prefix 'result.json'
             $prefix = Get-Content $path -Raw | ConvertFrom-Json
             $prefix.executionSeconds = @(659, 661, 899)[$number - 1]
@@ -196,9 +198,22 @@ try {
                 $note.localDurability.p95Ms = 1500; $note.localDurability.goalMet = $false
                 $note | ConvertTo-Json -Depth 15 | Set-Content $path
             }
+            if ($NativeProfilePolicyOnly) {
+                foreach ($phase in @(
+                    @{ worker = 'prefix'; scenario = 'scale-mutation-save-prefix'; phase = 'background-export' },
+                    @{ worker = 'tail'; scenario = 'scale-mutation-delivery-tail'; phase = 'normal-executable' }
+                )) {
+                    $workerRun = if ($phase.worker -ceq 'prefix') { $rich.runName } else { $rich.tailRunName }
+                    $path = Join-Path $rich[$phase.worker] "$workerRun\$($phase.scenario)-ui-sqlite-rich-profile-latency-$($phase.phase).json"
+                    $profile = Get-Content $path -Raw | ConvertFrom-Json
+                    $profile.samplesMs = @(400) * 19 + @(1500, 1600)
+                    $profile.p95Ms = 1500; $profile.goalMet = $false
+                    $profile | ConvertTo-Json -Depth 15 | Set-Content $path
+                }
+            }
             & "$root\eng\Assert-UiScaleUnion.ps1" -PrefixDirectory $rich.prefix -TailDirectory $rich.tail `
                 -ExpectedRevision $sourceRevision -RunId 99 -RunAttempt 1 -CohortId "$sourceRevision-99-1" -Sample $number `
-                -ResultsDirectory $rich.union -ExpectedPolicyVersion ci-timing-v2
+                -ResultsDirectory $rich.union -ExpectedPolicyVersion $activeVersion
             foreach ($worker in @('prefix', 'tail', 'union')) {
                 $name = "rich-cohort-$sourceRevision-99-1-sample-$number-$worker"
                 $index = [array]::IndexOf(@('prefix', 'tail', 'union'), $worker)
@@ -215,19 +230,74 @@ try {
         & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $sourceRevision -CiRunId 42 -CiRunAttempt 1 `
             -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $activeWork -RichScale -AllowLocalFixture -SourceGitDirectory $sourceGit
         $active = Get-Content (Join-Path $activeWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
-        Assert ($active.validation -ceq 'success' -and $active.effectivePolicyVersion -ceq 'ci-timing-v2' -and
+        Assert ($active.validation -ceq 'success' -and $active.effectivePolicyVersion -ceq $activeVersion -and
             $active.reliability.success -eq 3 -and $active.metrics.'prefix-executionSeconds'.maximum -eq 899 -and
             $active.samples[1].rich.prefix.report.executionSeconds -eq 661 -and
             $active.samples[1].rich.prefix.notes.'background-export'.localDurability.samplesMs.Count -eq 21) `
             "Real Git public source policy failed current raw consumption: $(@($active.samples | ForEach-Object { $_.diagnostics }) -join '; ')"
         Assert (!$active.timingEvaluation.blocking -and $active.timingEvaluation.health -ceq 'yellow' -and
-            $active.timingEvaluation.version -ceq 'ci-timing-v2' -and
+            $active.timingEvaluation.version -ceq $activeVersion -and
             $active.timingEvaluation.additionalSamples.Count -eq 2) 'Current cohort hid its accepted boundary/headroom warning or blocked without a reference.'
         $activeSummary = Get-Content (Join-Path $activeWork 'summary.md') -Raw
-        Assert ($activeSummary.Contains('approved ci-timing-v2 is active') -and
+        Assert ($activeSummary.Contains("approved $activeVersion is active") -and
             !$activeSummary.Contains('pending #130') -and
             $activeSummary.Contains('This read-only observation cannot promote a reference.')) `
             'Active-policy reporting claimed pending calibration or conferred canonical authority on an observation.'
+        if ($NativeProfilePolicyOnly) {
+            foreach ($metric in @('prefix-profile-p95-ms', 'tail-profile-p95-ms')) {
+                Assert ($active.timingEvaluation.metrics[$metric].hardLimit -eq 1500 -and
+                    $active.timingEvaluation.metrics[$metric].goal -eq 1000 -and
+                    !$active.timingEvaluation.metrics[$metric].goalMet -and
+                    $active.timingEvaluation.metrics[$metric].health -ceq 'yellow') `
+                    'Native rich-profile1500 boundary lost its1000 goal or became an absolute failure.'
+            }
+            Assert ($active.timingEvaluation.metrics.'profile-p95-ms'.hardLimit -eq 1000) `
+                'Native rich-profile policy weakened the independent non-UI profile requirement.'
+            foreach ($phase in @(
+                @{ worker = 'prefix'; scenario = 'scale-mutation-save-prefix'; phase = 'background-export' },
+                @{ worker = 'tail'; scenario = 'scale-mutation-delivery-tail'; phase = 'normal-executable' }
+            )) {
+                $workerRun = if ($phase.worker -ceq 'prefix') { $rich.runName } else { $rich.tailRunName }
+                $path = Join-Path $rich[$phase.worker] "$workerRun\$($phase.scenario)-ui-sqlite-rich-profile-latency-$($phase.phase).json"
+                $originalProfile = Get-Content $path -Raw
+                try {
+                    $profile = $originalProfile | ConvertFrom-Json
+                    $profile.samplesMs = @(400) * 19 + @(1500.0001, 1600); $profile.p95Ms = 1500.0001
+                    $profile | ConvertTo-Json -Depth 15 | Set-Content $path
+                    $rejectedWork = Join-Path $fixture "v3-over-$($phase.worker)"
+                    Rejects {
+                        & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $sourceRevision -CiRunId 42 -CiRunAttempt 1 `
+                            -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $rejectedWork -RichScale -AllowLocalFixture -SourceGitDirectory $sourceGit
+                    } 'An individual native profile above1500ms supplied complete acceptance.'
+                    $rejected = Get-Content (Join-Path $rejectedWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+                    $metric = $rejected.timingEvaluation.metrics["$($phase.worker)-profile-p95-ms"]
+                    Assert ($rejected.samples.Count -eq 3 -and $rejected.reliability.success -eq 2 -and
+                        $rejected.timingEvaluation.blocking -and $metric.health -ceq 'red' -and
+                        $metric.median -eq 1500 -and $metric.hardLimit -eq 1500 -and
+                        $rejected.timingEvaluation.additionalSamples.Count -eq 0) `
+                        'A passing cohort median hid a native hard violation or requested replacement samples.'
+                } finally { $originalProfile | Set-Content $path }
+            }
+            $nonUiDirectory = $global:NonUiCohortFixture.evidence["non-ui-cohort-$sourceRevision-99-1-sample-3"]
+            $nonUiReport = Get-Content (Join-Path $nonUiDirectory 'result.json') -Raw | ConvertFrom-Json
+            $log = Join-Path $nonUiDirectory "$($nonUiReport.runDirectory)\scale-measurements.log"
+            $originalLog = Get-Content $log -Raw
+            try {
+                $lines = @(Get-Content $log | Where-Object { !$_.StartsWith('SCALE ORDINARY-PROFILE ') })
+                $lines += 'SCALE ORDINARY-PROFILE ' + (@{ samplesMs = @(1000.0001) * 21; p95Ms = 1000.0001; budgetMs = 1000
+                    percentile = 'Nearest rank: sorted sample at ceil(0.95 * count), one based.' } | ConvertTo-Json -Compress)
+                $lines | Set-Content $log
+                $nonUiRejectedWork = Join-Path $fixture 'v3-non-ui-hard'
+                Rejects {
+                    & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $sourceRevision -CiRunId 42 -CiRunAttempt 1 `
+                        -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $nonUiRejectedWork -RichScale -AllowLocalFixture -SourceGitDirectory $sourceGit
+                } 'Native v3 policy raised the independent non-UI profile ceiling.'
+                $rejected = Get-Content (Join-Path $nonUiRejectedWork 'record.json') -Raw | ConvertFrom-Json -AsHashtable
+                Assert ($rejected.timingEvaluation.metrics.'profile-p95-ms'.health -ceq 'red' -and
+                    $rejected.timingEvaluation.metrics.'profile-p95-ms'.hardLimit -eq 1000 -and
+                    $rejected.reliability.success -eq 2) 'Non-UI1000ms hard policy or the failing attempt was lost.'
+            } finally { $originalLog | Set-Content $log }
+        }
         $path = Join-Path $rich.prefix 'result.json'
         $original = Get-Content $path -Raw
         try {
@@ -248,7 +318,7 @@ try {
             $original | Set-Content (Join-Path $rich.prefix "$($partial.runDirectory)\result.json")
         }
     } finally { $global:NonUiCohortFixture = $originalState }
-    if ($ActivePolicyOnly) { Write-Host 'PASS: real-Git spaced-path source policy consumes three complete v2 raw samples.'; return }
+    if ($ActivePolicyOnly -or $NativeProfilePolicyOnly) { Write-Host "PASS: real-Git source policy consumes three complete $activeVersion raw samples."; return }
     $summaryWork = Join-Path $fixture 'summary'
     & "$root\eng\Invoke-NonUiCohort.ps1" -Stage Summarize -Revision $revision -CiRunId 42 -CiRunAttempt 1 `
         -CohortRunId 99 -CohortRunAttempt 1 -WorkingDirectory $summaryWork -TimingPolicyPreview `

@@ -55,7 +55,7 @@ function Assert-ReleaseVerification(
             Assert-PerformanceResults $run
         }
     }
-    if ($ExpectedPolicyVersion -ceq 'ci-timing-v2') {
+    if ($ExpectedPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) {
         $evaluations = @()
         $union = Get-Content (Join-Path $UiScaleDirectory 'result.json') -Raw | ConvertFrom-Json
         $owned = Join-Path $UiScaleDirectory $union.runDirectory
@@ -70,18 +70,26 @@ function Assert-ReleaseVerification(
                         samples = $note.localDurability.samplesMs; budgetMs = 1500; goalMs = 1000 }
                 }
             }
+            if ($ExpectedPolicyVersion -ceq 'ci-timing-v3') {
+                $phase = if ($worker -ceq 'prefix') { 'background-export' } else { 'normal-executable' }
+                $scenario = if ($worker -ceq 'prefix') { 'scale-mutation-save-prefix' } else { 'scale-mutation-delivery-tail' }
+                $profile = Get-Content (Join-Path $result.run "$scenario-ui-sqlite-rich-profile-latency-$phase.json") -Raw |
+                    ConvertFrom-Json -AsHashtable
+                $metrics += @{ name = "profile-save-$phase"; value = $profile.p95Ms
+                    samples = $profile.samplesMs; budgetMs = $policy.richProfileCeilingMs; goalMs = $policy.richProfileGoalMs }
+            }
             $record = @{
                 recordType = 'release-verification'; lane = "ui-scale-$worker"; validation = 'success'
                 revision = $Candidate; runId = $union.runId; runAttempt = $union.runAttempt
                 measurements = @{ executionSeconds = $result.report.executionSeconds; metrics = $metrics }
             }
-            Set-TimingPolicyEvaluation $record
+            Set-TimingPolicyEvaluation $record -PolicyVersion $ExpectedPolicyVersion
             $evaluations += $record
             if ($env:GITHUB_STEP_SUMMARY) { Format-TimingPolicyEvaluation $record.timingEvaluation | Add-Content $env:GITHUB_STEP_SUMMARY }
         }
         ConvertTo-Json -InputObject @($evaluations) -Depth 30 | Set-Content (Join-Path $UiScaleDirectory 'timing-evaluation.json')
         . "$PSScriptRoot\LaneHealth.ps1"
-        $comparison = New-TimingExecutionRecord $PerformanceDirectory (Join-Path $owned 'prefix') (Join-Path $owned 'tail') $Candidate $union.runId $union.runAttempt
+        $comparison = New-TimingExecutionRecord $PerformanceDirectory (Join-Path $owned 'prefix') (Join-Path $owned 'tail') $Candidate $union.runId $union.runAttempt -ExpectedPolicyVersion $ExpectedPolicyVersion
         $history = $null
         try {
             $historyDirectory = Join-Path (Split-Path $UiScaleDirectory -Parent) ('th-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.git')
@@ -91,7 +99,7 @@ function Assert-ReleaseVerification(
         } catch {
             $comparison.comparisonDiagnostics += "Available-reference comparison is unavailable: $($_.Exception.Message)"
             Write-Warning $comparison.comparisonDiagnostics[-1]
-            Set-TimingPolicyEvaluation $comparison $null $(if ($history) { $history.tip } else { $null })
+            Set-TimingPolicyEvaluation $comparison $null $(if ($history) { $history.tip } else { $null }) -PolicyVersion $ExpectedPolicyVersion
         }
         $comparison.verificationScope = 'one fresh exact-candidate execution; never a three-to-five collection cohort'
         if ($comparison.comparisonDiagnostics.Count -and $comparison.timingEvaluation.health -ceq 'green') {

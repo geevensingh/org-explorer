@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string] $ResultsDirectory)
+param([Parameter(Mandatory)][string] $ResultsDirectory, [switch]$NativeProfilePolicyOnly)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\eng\DesktopResults.ps1"
 . "$PSScriptRoot\..\eng\UiScaleResults.ps1"
@@ -7,6 +7,56 @@ $candidate = 'a' * 40
 $fixture = New-UiScaleUnionFixture $ResultsDirectory $candidate
 Assert-UiScaleUnion $fixture.prefix $fixture.tail $candidate '123' '2'
 $checks = 0
+$native = New-UiScaleUnionFixture (Join-Path $ResultsDirectory 'native-profile-v3') $candidate -TimingPolicyVersion ci-timing-v3
+foreach ($phase in @(
+    @{ worker = 'prefix'; scenario = 'scale-mutation-save-prefix'; phase = 'background-export' },
+    @{ worker = 'tail'; scenario = 'scale-mutation-delivery-tail'; phase = 'normal-executable' }
+)) {
+    $path = Join-Path $native[$phase.worker] "$($native.runName)\$($phase.scenario)-ui-sqlite-rich-profile-latency-$($phase.phase).json"
+    $profile = Get-Content $path -Raw | ConvertFrom-Json
+    $profile.samplesMs = @(1) * 19 + @(1500.0, 1600.0)
+    $profile.p95Ms = 1500.0; $profile.goalMet = $false
+    $profile | ConvertTo-Json -Depth 12 | Set-Content $path
+}
+Assert-UiScaleUnion $native.prefix $native.tail $candidate '123' '2' -ExpectedPolicyVersion ci-timing-v3
+$checks++
+foreach ($phase in @(
+    @{ worker = 'prefix'; scenario = 'scale-mutation-save-prefix'; phase = 'background-export' },
+    @{ worker = 'tail'; scenario = 'scale-mutation-delivery-tail'; phase = 'normal-executable' }
+)) {
+    foreach ($defect in @('over-ceiling', 'false-goal', 'unknown-policy', 'boolean-policy',
+        'boolean-note-policy', 'boolean-worker-policy', 'legacy-v2-ceiling')) {
+        $version = if ($defect -ceq 'legacy-v2-ceiling') { 'ci-timing-v2' } else { 'ci-timing-v3' }
+        $case = New-UiScaleUnionFixture (Join-Path $ResultsDirectory "$($phase.worker)-profile-$defect") $candidate -TimingPolicyVersion $version
+        $path = Join-Path $case[$phase.worker] "$($case.runName)\$($phase.scenario)-ui-sqlite-rich-profile-latency-$($phase.phase).json"
+        $profile = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+        $value = if ($defect -ceq 'over-ceiling') { 1500.0001 } else { 1500.0 }
+        $profile.samplesMs = @(1) * 19 + @($value, 1600.0); $profile.p95Ms = $value
+        $profile.budgetMs = 1500; $profile.goalMet = $defect -ceq 'false-goal'
+        if ($defect -ceq 'unknown-policy') { $profile.policyVersion = 'ci-timing-v4' }
+        if ($defect -ceq 'boolean-policy') { $profile.policyVersion = $true }
+        $profile | ConvertTo-Json -Depth 12 | Set-Content $path
+        if ($defect -ceq 'boolean-note-policy') {
+            $notePath = Join-Path $case.prefix "$($case.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$($phase.phase).json"
+            $note = Get-Content $notePath -Raw | ConvertFrom-Json
+            $note.localDurability.policyVersion = $true
+            $note | ConvertTo-Json -Depth 12 | Set-Content $notePath
+        }
+        if ($defect -ceq 'boolean-worker-policy') {
+            $reportPath = Join-Path $case[$phase.worker] 'result.json'
+            $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+            $report.policyVersion = $true
+            $report | ConvertTo-Json -Depth 12 | Set-Content $reportPath
+            Copy-Item $reportPath (Join-Path $case[$phase.worker] "$($case.runName)\result.json")
+        }
+        $rejected = $false
+        try { Assert-UiScaleUnion $case.prefix $case.tail $candidate '123' '2' -ExpectedPolicyVersion $version }
+        catch { $rejected = $true }
+        if (!$rejected) { throw "Native rich-profile $($phase.phase) accepted $defect." }
+        $checks++
+    }
+}
+if ($NativeProfilePolicyOnly) { Write-Host "PASS: $checks native rich-profile policy checks."; return }
 $active = New-UiScaleUnionFixture (Join-Path $ResultsDirectory 'active') $candidate -TimingPolicyVersion ci-timing-v2
 foreach ($phase in @('normal-executable', 'background-export')) {
     $path = Join-Path $active.prefix "$($active.runName)\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json"

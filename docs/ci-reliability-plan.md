@@ -1,20 +1,27 @@
 # CI reliability and timing health
 
-**Status:** Implementation integrated on `integration/ci-reliability`; final
-complete hosted verification and joint `main` delivery pending under #133.
+**Status at final-verification preparation:** The original `ci-timing-v2`
+implementation is integrated on `integration/ci-reliability`. The scoped
+`ci-timing-v3` amendment is implemented on the final-verification branch.
+Exact-candidate hosted results and the remaining integration/joint `main`
+delivery gates are recorded on #133, without editing the tested source afterward.
 
 **Reviewed design baseline:** freshly fetched `main` at
 `caec4da7a96a57a5e49b3ea047f29eaabf299835`, verified on 2026-11-25.
 Implementation must repeat the [implementation preflight](agents/implementation-preflight.md).
 This document does not amend today's acceptance rules by itself.
 
-**Current integration policy:** the [approved versioned policy](ci-timing-policy-proposal.md)
-is implemented by #131/#132 as source-bound `ci-timing-v2`: rich prefix
+**Current delivery policy:** the [approved versioned policy](ci-timing-policy-proposal.md)
+retains #131/#132's source-bound `ci-timing-v2` contracts and adds #133's
+approved `ci-timing-v3` native-profile buffer. Rich prefix retains
 900-second safety/30-minute watchdog, both rich note phases 1,000-ms goal and
 1,500-ms inclusive ceiling. Serious-relative blocking additionally requires
 five complete comparable executions and both 20%/100-ms product-latency or
 20%/30-second whole-duration floors, alongside the approved empirical rule.
-Other product, causal, matrix and sample requirements are unchanged.
+Only native rich-profile Save in the normal-executable tail and held-export
+prefix additionally uses a 1,000-ms goal/1,500-ms inclusive p95 ceiling.
+Ordinary/small-fixture and non-UI profile/note limits remain 1,000 ms. Other
+product, causal, matrix and sample requirements are unchanged.
 
 The original 660-second/1,050-ms observations below retain their original
 policies and verdicts. Pre-delivery pilot/manual/diagnostic evidence cannot

@@ -37,7 +37,7 @@ function Assert-TimingControl($Record, [string]$Path) {
     Assert-TimingEventVersion $Record $(if ($Record.recordType -ceq 'timing-bootstrap') { 1 } else { 2 })
     if ($Record.recordType -cnotin @('timing-bootstrap', 'timing-plan') -or
         $Record.repository -cne $FilesystemHealthRepository -or $Record.authority -cne 'trusted-main-push' -or
-        $Record.policyVersion -cne 'ci-timing-v2' -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
+        $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or $Path -cne (Get-TimingControlPath $Record)) {
         throw 'Malformed trusted timing bootstrap/plan provenance.'
     }
@@ -54,7 +54,7 @@ function Assert-TimingControl($Record, [string]$Path) {
 function Get-TimingReferenceRecordTypes {
     return @{
         'timing-bootstrap'   = @{
-            PathPattern     = '^timing-bootstrap/ci-timing-v2\.json$'
+            PathPattern     = '^timing-bootstrap/ci-timing-v[23]\.json$'
             GetPath         = { param($record) Get-TimingControlPath $record }
             Validate        = { param($record, $path) Assert-TimingControl $record $path }
             ValidateHistory = { param($history) Assert-TimingHistory $history }
@@ -83,8 +83,11 @@ function Get-TimingReferenceRecordTypes {
     }
 }
 
-function Get-TimingBootstrap($History, [string]$ExplicitRevision) {
-    $saved = @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap' })
+function Get-TimingBootstrap($History, [string]$ExplicitRevision,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$PolicyVersion = 'ci-timing-v2') {
+    $saved = @($History.records | Where-Object {
+        $_.Contains('recordType') -and $_.recordType -ceq 'timing-bootstrap' -and $_.policyVersion -ceq $PolicyVersion
+    })
     if ($saved.Count -gt 1) { throw 'Timing bootstrap is not uniquely pinned.' }
     if ($saved.Count) {
         if ($ExplicitRevision -and $ExplicitRevision -cne $saved[0].revision) {
@@ -119,7 +122,7 @@ function Assert-TimingAutomation($Collection, [long]$RunId, [int]$RunAttempt, [s
             $writer.head_sha -cne $head -or $writer.event -cne 'workflow_run' -or
             $writer.head_repository.full_name -cne $FilesystemHealthRepository -or
             $writer.path -cnotin @('.github/workflows/non-ui-cohorts.yml', '.github/workflows/non-ui-cohort-history.yml') -or
-            (Get-SourceTimingPolicyVersion $head) -cne 'ci-timing-v2') {
+            (Get-SourceTimingPolicyVersion $head) -cnotin @('ci-timing-v2', 'ci-timing-v3')) {
             throw 'Canonical history requires the current approved trusted controller, independently of the older collection source.'
         }
         $dirty = & git -C $source status --porcelain
@@ -170,7 +173,8 @@ function Get-TimingReferencePath($Record) {
 function Assert-TimingDecision($Record, [string]$Path) {
     Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-decision' -or $Record.repository -cne $FilesystemHealthRepository -or
-        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cne 'ci-timing-v2' -or
+        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or
+        $Record.policyVersion -cne $Record.cohort.policyVersion -or
         $Path -cne (Get-TimingDecisionPath $Record) -or $Record.cohort.samples.Count -ne 3 -or
         $Record.revision -cne $Record.cohort.revision -or $Record.cohortRunId -cne $Record.cohort.cohortRunId -or
         $Record.cohortRunAttempt -cne $Record.cohort.cohortRunAttempt) { throw 'Malformed frozen three-execution timing decision.' }
@@ -180,7 +184,7 @@ function Assert-TimingDecision($Record, [string]$Path) {
 function Assert-TimingReference($Record, [string]$Path) {
     Assert-TimingEventVersion $Record 1
     if ($Record.recordType -cne 'timing-reference' -or $Record.repository -cne $FilesystemHealthRepository -or
-        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cne 'ci-timing-v2' -or
+        $Record.authority -cne 'trusted-main-push' -or $Record.policyVersion -cnotin @('ci-timing-v2', 'ci-timing-v3') -or
         $Record.seriesKey -cnotmatch '^[0-9a-f]{64}$' -or $Record.revision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.bootstrapRevision -cnotmatch '^[0-9a-f]{40}$' -or
         $Record.comparisonCommit -cnotmatch '^[0-9a-f]{40}$' -or
@@ -210,7 +214,7 @@ function Get-TimingCanonicalReference($History, [string]$SeriesKey, [string]$Can
     if ($CandidateRevision) { Assert-TimingMainRevision $History $CandidateRevision }
     foreach ($event in $events) {
         Assert-TimingMainRevision $History $event.revision
-        if ((Get-SourceTimingPolicyVersion $event.revision -GitDirectory $History.directory) -cne 'ci-timing-v2') {
+        if ((Get-SourceTimingPolicyVersion $event.revision -GitDirectory $History.directory) -cne $event.policyVersion) {
             throw 'A canonical reference cannot rewrite an unactivated historical source as approved evidence.'
         }
     }
@@ -252,7 +256,7 @@ function Set-TimingCanonicalComparison($Record, $History) {
     $key = Get-TimingCohortKey $Record
     if ($reference) {
         if ($reference.revision -ceq $Record.revision -or $reference.eligibility -cne 'eligible' -or
-            $reference.policyVersion -cne 'ci-timing-v2' -or
+            $reference.policyVersion -cne $Record.policyVersion -or
             ($Record.validation -ceq 'success' -and $key -and (Get-TimingCohortKey $reference) -cne $key)) {
             throw 'Pinned canonical comparison is self-referencing, ineligible or incompatible.'
         }
@@ -276,7 +280,7 @@ function Set-TimingCanonicalComparison($Record, $History) {
                     }).Count) { 'expired-or-unavailable' } else { 'retained-metadata-only' }
         }
     }
-    Set-TimingPolicyEvaluation $Record $reference $Record.historySnapshot
+    Set-TimingPolicyEvaluation $Record $reference $Record.historySnapshot -PolicyVersion $Record.policyVersion
     $Record.eligibility = $Record.timingEvaluation.eligibility
     $Record.timingHealth = $Record.timingEvaluation.health
     $Record.extraSamples = @($Record.timingEvaluation.additionalSamples)
@@ -304,7 +308,8 @@ function Assert-TimingHistory($History) {
     $cohorts += @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-decision' } |
             ForEach-Object { $_.cohort })
     foreach ($cohort in $cohorts) {
-        if ($bootstrap.Count -ne 1 -or $cohort.bootstrapRevision -cne $bootstrap[0].revision) {
+        $policyBootstrap = @($bootstrap | Where-Object { $_.policyVersion -ceq $cohort.policyVersion })
+        if ($policyBootstrap.Count -ne 1 -or $cohort.bootstrapRevision -cne $policyBootstrap[0].revision) {
             throw 'Automatic comparison lacks the once-pinned bootstrap source.'
         }
         $plans = @($History.records | Where-Object {
@@ -312,13 +317,13 @@ function Assert-TimingHistory($History) {
                 $_.revision -ceq $cohort.revision -and $_.cohortRunId -ceq $cohort.cohortRunId -and
                 $_.cohortRunAttempt -ceq $cohort.cohortRunAttempt
             })
-        if ($plans.Count -ne 1 -or !$plans[0].collect -or $plans[0].ciRunId -cne $cohort.ciRunId -or
+        if ($plans.Count -ne 1 -or !$plans[0].collect -or $plans[0].policyVersion -cne $cohort.policyVersion -or $plans[0].ciRunId -cne $cohort.ciRunId -or
             $plans[0].ciRunAttempt -cne $cohort.ciRunAttempt) { throw 'Automatic comparison lost its immutable source-qualified plan.' }
         $reference = if ($cohort.reference) { Get-TimingSavedCohort $History $cohort.reference.recordPath } else { $null }
         if ($reference -and ($reference.revision -ceq $cohort.revision -or $reference.eligibility -cne 'eligible' -or
-                $reference.policyVersion -cne 'ci-timing-v2')) { throw 'Stored comparison used a self or ineligible reference.' }
+                $reference.policyVersion -cne $cohort.policyVersion)) { throw 'Stored comparison used a self or ineligible reference.' }
         $expected = $cohort | ConvertTo-Json -Depth 30 | ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
-        Set-TimingPolicyEvaluation $expected $reference $cohort.historySnapshot
+        Set-TimingPolicyEvaluation $expected $reference $cohort.historySnapshot -PolicyVersion $cohort.policyVersion
         if ((Get-TimingEvaluationState $expected.timingEvaluation) -cne (Get-TimingEvaluationState $cohort.timingEvaluation) -or
             $cohort.eligibility -cne $expected.timingEvaluation.eligibility -or
             $cohort.timingHealth -cne $expected.timingEvaluation.health -or
@@ -328,12 +333,13 @@ function Assert-TimingHistory($History) {
     }
     $events = @($History.records | Where-Object { $_.Contains('recordType') -and $_.recordType -ceq 'timing-reference' })
     foreach ($event in $events) {
-        if ($bootstrap.Count -ne 1 -or $event.bootstrapRevision -cne $bootstrap[0].revision) {
+        $policyBootstrap = @($bootstrap | Where-Object { $_.policyVersion -ceq $event.policyVersion })
+        if ($policyBootstrap.Count -ne 1 -or $event.bootstrapRevision -cne $policyBootstrap[0].revision) {
             throw 'Canonical reference lacks the once-pinned trusted bootstrap.'
         }
 
         $cohort = Get-TimingSavedCohort $History $event.recordPath
-        if ($cohort.policyVersion -cne 'ci-timing-v2' -or $cohort.eligibility -cne 'eligible' -or
+        if ($cohort.policyVersion -cne $event.policyVersion -or $cohort.eligibility -cne 'eligible' -or
             $cohort.validation -cne 'success' -or $cohort.timingEvaluation.blocking -or
             $cohort.revision -cne $event.revision -or (Get-TimingCohortKey $cohort) -cne $event.seriesKey) {
             throw 'Canonical reference attempted to promote rejected, incompatible or unapproved evidence.'
@@ -352,7 +358,7 @@ function Publish-TimingReference($History, $Record, [string]$ComparisonCommit) {
     Assert-TimingMainRevision $History $Record.revision
     $key = Get-TimingCohortKey $Record
     $active = Get-TimingCanonicalReference $History $key
-    $bootstrap = Get-TimingBootstrap $History $Record.bootstrapRevision
+    $bootstrap = Get-TimingBootstrap $History $Record.bootstrapRevision -PolicyVersion $Record.policyVersion
     if (!$active -and $History.mainOrder[$Record.revision] -lt $History.mainOrder[$bootstrap]) {
         return 'retained: queued revision predates the explicit bootstrap source'
     }
@@ -361,7 +367,7 @@ function Publish-TimingReference($History, $Record, [string]$ComparisonCommit) {
     }
     $event = @{
         schemaVersion = 1; recordType = 'timing-reference'; repository = $FilesystemHealthRepository
-        authority = 'trusted-main-push'; policyVersion = 'ci-timing-v2'; seriesKey = $key
+        authority = 'trusted-main-push'; policyVersion = $Record.policyVersion; seriesKey = $key
         revision = $Record.revision; cohortRunId = $Record.cohortRunId; cohortRunAttempt = $Record.cohortRunAttempt
         mainRevision = $History.mainRevision; bootstrapRevision = $bootstrap; comparisonCommit = $ComparisonCommit
         observedAt = [DateTimeOffset]::UtcNow.ToString('O'); recordPath = Get-NonUiCohortPath $Record

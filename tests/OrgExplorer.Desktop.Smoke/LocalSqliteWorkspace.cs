@@ -1309,7 +1309,7 @@ internal static partial class Program
                 budgetMs = durabilityCeilingMs,
                 budgetEnforced = true,
                 temporaryCeiling = false,
-                policyVersion = richFixture is null ? "ordinary-note-original-v1" : "ci-timing-v2",
+                policyVersion = richFixture is null ? "ordinary-note-original-v1" : "ci-timing-v3",
                 timingUse = "acceptance",
                 independentVerificationMs,
                 requestToPostCommitAcknowledgmentMs = richFixture is null ? null : durability,

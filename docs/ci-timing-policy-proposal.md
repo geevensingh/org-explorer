@@ -1,7 +1,52 @@
-# Timing policy: ci-timing-preview-v2
+# Timing policy: ci-timing-v3
 
-**Status: approved `ci-timing-v2` runner/result gates and canonical promotion
-implemented on integration by #131/#132; final verification and joint delivery pending.**
+**Status at final-verification preparation:** #131/#132's `ci-timing-v2` implementation is integrated.
+The narrowly approved `ci-timing-v3` amendment is implemented on the
+final-verification branch. Exact-candidate hosted results and the remaining
+integration/joint-delivery gates are recorded on #133, not by changing the
+tested source afterward.
+
+## Native rich-profile amendment
+
+The [coordinator's exercise of owner-delegated discretion](https://github.com/geevensingh/org-explorer/issues/133#issuecomment-7186339099)
+changes **only native rich-profile Save** in the held-export prefix and
+normal-executable tail: **1,000-ms goal, 1,500-ms inclusive enforced p95 ceiling**.
+An accepted goal miss warns; an individual p95 above1,500ms remains hard red.
+All21 raw samples, nearest-rank p95, independent whole-Person/photo reopen,
+actual native Save-to-postcommit-acknowledgment boundary and causal assertions
+remain. Ordinary/small-fixture and non-UI profile/note1,000-ms limits are unchanged.
+Prefix900s/30m, rich-note1000/1500, tail/non-UI660s and the approved five-run
+20%/100ms or20%/30s practical/empirical rule are unchanged.
+
+Concrete evidence is the original non-promoting
+[cohort45775685351/1](https://github.com/geevensingh/org-explorer/actions/runs/45775685351/attempts/1)
+at `5adcd52fad1fbcc7ba28e5b62c2691c1f12e5200`: sample1's native tail profile
+p95 was **1153.9702ms**, independently recomputed from all21 raw samples, above
+its actual v2 1,000-ms ceiling. Tail cleanup and navigation passed. Samples2/3
+completed, but the original cohort remains **failed, two complete accepted/one
+failed** under `ci-timing-v2`. It is not reclassified under the new buffer.
+This is a policy adjustment, **not a demonstrated performance/root-cause repair,
+five-run serious-relative finding, or fix for #154**.
+
+The committed source marker, raw native note/profile metadata, collectors,
+validators, active evaluator, release/renewal consumers and automatic controller
+flags select `ci-timing-v3`. Native profile metadata includes source policy,
+goal/goalMet, enforced ceiling and acceptance use. Historical v2 sources retain
+their original native-profile1,000-ms requirement; unknown/amended markers or
+artifact-provided policy disagreement are refused. New policy series and their
+once-pinned bootstrap are separate from retained v2 history. Public
+`ci-timing-preview-v3` is available explicitly; v1/v2 preview replay and existing
+preview defaults remain backward compatible and read-only.
+
+One new full cohort is authorized **after** retaining the original outcomes
+and freezing the amended source. It is a distinct new-policy execution, not
+replacement selection from the failed cohort. No further numerical adjustment,
+diagnostic run, production reference write or main merge is authorized without
+a new concrete checkpoint. Actual canonical activation remains pending joint
+delivery; this pre-delivery pilot cannot acquire `main` authority.
+
+## Retained v2 calibration and policy
+
 The owner approved the [watchdog/rich-note amendment](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179249205)
 and [practical-significance floors](https://github.com/geevensingh/org-explorer/issues/130#issuecomment-7179368429).
 #130, #131 and #132 are closed after independent integration verification.
@@ -26,8 +71,9 @@ read-only replay. Preview version selection cannot authorize dispatch, gates or 
 writes. New previews default to approved v2; original raw policy/validation is
 kept separate from the approved absolute-requirement preview.
 
-Current source commits carry `eng/timing-policy.json` with the approved active
-identifier `ci-timing-v2`. Runners and rich raw metadata use that identifier.
+The original activation commits carry `eng/timing-policy.json` with
+`ci-timing-v2`; the amended source carries `ci-timing-v3`. Runners and rich raw
+metadata use their committed source's identifier.
 Collectors derive the expected policy from the exact trusted source Git object
 (or authenticated immutable source tree), never a result's declared ceiling.
 An absent source marker selects `rich-scale-original-v1`; unknown versions or

@@ -103,7 +103,7 @@ public static class $typeName {
     if ($status.outcome -ne 'failure' -or $status.revision -notmatch '^[0-9a-f]{40}$' -or
         $status.expectedRevision -ne ('0' * 40) -or $status.steps.Count -ne 0 -or $status.suite -ne 'ui-scale' -or
         @($status.requiredScenarios).Count -ne 1 -or $status.worker -cne 'prefix' -or
-        $status.policyVersion -cne 'ci-timing-v2' -or $status.ceilingSeconds -ne 900 -or
+        $status.policyVersion -cne ((git show HEAD:eng/timing-policy.json | ConvertFrom-Json).version) -or $status.ceilingSeconds -ne 900 -or
         $status.observationSeconds -ne 900 -or $status.diagnosticOnly) {
         throw 'Candidate mismatch was not reported as a fresh named UI-scale failure before execution.'
     }

@@ -7,7 +7,7 @@ param(
     [switch]$Publish,
     [switch]$PublishObservations,
     [switch]$TimingPolicyPreview,
-    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2')][string]$TimingPolicyVersion = 'ci-timing-preview-v2'
+    [ValidateSet('ci-timing-preview-v1', 'ci-timing-preview-v2', 'ci-timing-preview-v3')][string]$TimingPolicyVersion = 'ci-timing-preview-v2'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -149,8 +149,8 @@ foreach ($descriptor in $descriptors) {
     }
     if ($history) { Set-LaneHealthComparison $record $history }
     if ($TimingPolicyPreview) { Set-TimingPolicyPreview $record $history $TimingPolicyVersion }
-    if (!$TimingPolicyPreview -and $effectivePolicy -ceq 'ci-timing-v2') {
-        Set-TimingPolicyEvaluation $record
+    if (!$TimingPolicyPreview -and $effectivePolicy -cin @('ci-timing-v2', 'ci-timing-v3')) {
+        Set-TimingPolicyEvaluation $record -PolicyVersion $effectivePolicy
         if ($descriptor.kind -ceq 'ui-scale' -and $record.validation -ceq 'success') {
             $scope = $record.lane.Substring(0, $record.lane.Length - 'ui-scale'.Length)
             $nonUiLane = "${scope}non-ui-performance"
@@ -160,7 +160,7 @@ foreach ($descriptor in $descriptors) {
                     $unionReport = Get-Content (Join-Path $download.directory 'result.json') -Raw | ConvertFrom-Json
                     $owned = Join-Path $download.directory $unionReport.runDirectory
                     $execution = New-TimingExecutionRecord $downloads[$nonUiLane].directory (Join-Path $owned 'prefix') `
-                        (Join-Path $owned 'tail') $record.revision $record.runId $record.runAttempt
+                        (Join-Path $owned 'tail') $record.revision $record.runId $record.runAttempt -ExpectedPolicyVersion $effectivePolicy
                     Set-TimingExecutionComparison $execution $history
                     $record.timingEvaluation = $execution.timingEvaluation
                     $record.executionTimingKey = Get-TimingCohortKey $execution

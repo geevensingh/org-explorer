@@ -1,4 +1,5 @@
-param([switch]$ScopedPolicyOnly, [string]$TimingFixtureMetadata)
+param([switch]$ScopedPolicyOnly, [string]$TimingFixtureMetadata,
+    [ValidateSet('ci-timing-v2', 'ci-timing-v3')][string]$ScopedPolicyVersion = 'ci-timing-v2')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -55,7 +56,9 @@ function gh {
             $tree | ConvertTo-Json -Depth 8; return
         }
         '/git/blobs/[0-9a-f]{40}$' {
-            @{ encoding = 'base64'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"version":"ci-timing-v2"}')) } |
+            $version = if ($global:LaneHealthFixture.ContainsKey('policyVersion')) { $global:LaneHealthFixture.policyVersion } else { 'ci-timing-v2' }
+            $policy = @{ version = $version } | ConvertTo-Json -Compress
+            @{ encoding = 'base64'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($policy)) } |
                 ConvertTo-Json; return
         }
         '/actions/runs/(51|102)/attempts/[1-9][0-9]*$' { $global:LaneHealthFixture.run | ConvertTo-Json -Depth 10 -Compress; return }
@@ -92,6 +95,7 @@ try {
         }
         $run.id = 102; $run.head_sha = $metadata.sourceB; $run.path = '.github/workflows/scale-verification.yml'
         $run.event = 'workflow_dispatch'; $global:LaneHealthFixture.activePolicy = $true
+        $global:LaneHealthFixture.policyVersion = $metadata.policyVersion
         $sample = $metadata.sampleDirectories[0]
         $global:LaneHealthFixture.jobs = @(); $global:LaneHealthFixture.artifacts = @()
         foreach ($item in @(
@@ -145,8 +149,9 @@ try {
     if ($ScopedPolicyOnly) {
         . "$PSScriptRoot\UiScaleUnionFixture.ps1"
         $global:LaneHealthFixture.activePolicy = $true
+        $global:LaneHealthFixture.policyVersion = $ScopedPolicyVersion
         $run.path = '.github/workflows/release.yml'; $run.event = 'workflow_run'
-        $rich = New-UiScaleUnionFixture (Join-Path $fixture 'scoped-source') $run.head_sha '51' '1' -TimingPolicyVersion ci-timing-v2
+        $rich = New-UiScaleUnionFixture (Join-Path $fixture 'scoped-source') $run.head_sha '51' '1' -TimingPolicyVersion $ScopedPolicyVersion
         $path = Join-Path $rich.prefix 'result.json'
         $report = Get-Content $path -Raw | ConvertFrom-Json
         $report.executionSeconds = 661
@@ -166,12 +171,37 @@ try {
         $global:LaneHealthFixture.artifacts = @(@{ id = 201; name = $name; expired = $false
             expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('b' * 64)
             workflow_run = @{ id = 51; head_sha = $run.head_sha } })
+        if ($ScopedPolicyVersion -ceq 'ci-timing-v3') {
+            foreach ($phase in @(
+                @{ worker = 'prefix'; scenario = 'scale-mutation-save-prefix'; phase = 'background-export' },
+                @{ worker = 'tail'; scenario = 'scale-mutation-delivery-tail'; phase = 'normal-executable' }
+            )) {
+                $path = Join-Path $rich[$phase.worker] "$($rich.runName)\$($phase.scenario)-ui-sqlite-rich-profile-latency-$($phase.phase).json"
+                $profile = Get-Content $path -Raw | ConvertFrom-Json
+                $profile.samplesMs = @(400) * 19 + @(1500, 1600); $profile.p95Ms = 1500; $profile.goalMet = $false
+                $profile | ConvertTo-Json -Depth 12 | Set-Content $path
+                $artifactName = "ui-scale-$($phase.worker)-$($run.head_sha)-51-1"
+                if ($phase.worker -ceq 'prefix') {
+                    Copy-Item $path (Join-Path $evidence "$artifactName\$($rich.runName)\$(Split-Path $path -Leaf)")
+                } else {
+                    Copy-Item -LiteralPath $rich.tail -Destination (Join-Path $evidence $artifactName) -Recurse
+                    $global:LaneHealthFixture.artifacts += @{ id = 202; name = $artifactName; expired = $false
+                        expires_at = '2099-01-01T00:00:00Z'; digest = 'sha256:' + ('b' * 64)
+                        workflow_run = @{ id = 51; head_sha = $run.head_sha } }
+                }
+            }
+        }
         foreach ($scope in @('scale', 'renewal-scale')) {
             $remote = Join-Path $fixture "scoped-$scope.git"
             git init --bare --quiet $remote
             $global:LaneHealthFixture.jobs = @(@{ id = 101; name = "$scope / Rich combined normal and held-export saves"
                 status = 'completed'; conclusion = 'success'; steps = @()
                 started_at = $report.startedAt; completed_at = $report.completedAt })
+            if ($ScopedPolicyVersion -ceq 'ci-timing-v3') {
+                $global:LaneHealthFixture.jobs += @{ id = 102; name = "$scope / Rich logical Join, delivery, reopen and navigation"
+                    status = 'completed'; conclusion = 'success'; steps = @()
+                    started_at = $report.startedAt; completed_at = $report.completedAt }
+            }
             $result = Observe -Publish
             $record = @($result.records | Where-Object { $_.lane -ceq "$scope-ui-scale-prefix" })[0]
             Assert ($record.validation -ceq 'success' -and $record.timingEvaluation.health -ceq 'yellow' -and
@@ -182,6 +212,18 @@ try {
             Assert ($result.summary.Contains('this lane record is not a canonical baseline') -and
                 !$result.summary.Contains('canonical baseline eligibility remains pending calibration')) `
                 'Qualified active lane reporting confused an observation with pending canonical calibration.'
+            if ($ScopedPolicyVersion -ceq 'ci-timing-v3') {
+                foreach ($phase in @('background-export', 'normal-executable')) {
+                    $worker = if ($phase -ceq 'background-export') { 'prefix' } else { 'tail' }
+                    $profileRecord = @($result.records | Where-Object { $_.lane -ceq "$scope-ui-scale-$worker" })[0]
+                    $metric = $profileRecord.timingEvaluation.metrics["profile-save-$phase"]
+                    Assert ($profileRecord.validation -ceq 'success' -and !$profileRecord.timingEvaluation.blocking -and
+                        $profileRecord.timingEvaluation.version -ceq 'ci-timing-v3' -and
+                        $metric.hardLimit -eq 1500 -and $metric.goal -eq 1000 -and
+                        !$metric.goalMet -and $metric.health -ceq 'yellow') `
+                        'Scoped native-profile goal miss became red or lost its source-bound v3 ceiling.'
+                }
+            }
         }
         Write-Host 'PASS: scoped release/renewal prefix661s +1030ms is yellow/nonblocking and publishes under900s/1500ms.'
         return

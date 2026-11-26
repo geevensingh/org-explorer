@@ -51,14 +51,14 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
                 processors = 4; image = 'win25'; imageVersion = '20261116'; powershell = '7.6'
                 setup = 'locked-restore;isolated-build;setup-and-cleanup-included'; display = @{ width = 1920; height = 1080 }
                 native = @{ version = 'synthetic-native'; sourceId = 'synthetic-source'; loadedSha256 = 'D' * 64 } }
-            ceilingSeconds = if ($TimingPolicyVersion -ceq 'ci-timing-v2' -and $worker -ceq 'prefix') { 900 } else { 660 }
-            observationSeconds = if ($TimingPolicyVersion -ceq 'ci-timing-v2' -and $worker -ceq 'prefix') { 900 } else { 660 }
+            ceilingSeconds = if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3') -and $worker -ceq 'prefix') { 900 } else { 660 }
+            observationSeconds = if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3') -and $worker -ceq 'prefix') { 900 } else { 660 }
             executionSeconds = 1
             startedAt = $StartedAt.ToString('O'); completedAt = $StartedAt.AddSeconds(1).ToString('O')
             runDirectory = $workerRun; requiredScenarios = @($plan.workers[$worker]); completedPhases = @($plan.phases[$worker])
             handoffSha256 = $hash; steps = @('restore-app', 'restore-tests', 'build-app', 'display-prerequisite', 'ui-scale') |
                 ForEach-Object { @{ name = $_; exitCode = 0; seconds = 0 } } }
-        if ($TimingPolicyVersion -ceq 'ci-timing-v2') { $report.policyVersion = $TimingPolicyVersion }
+        if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) { $report.policyVersion = $TimingPolicyVersion }
         Write-Json (Join-Path $workerDirectory 'result.json') $report
         Write-Json (Join-Path $run 'result.json') $report
         Write-Json (Join-Path $run 'scenarios.json') @{ schemaVersion = 1; scenarios = @($plan.workers[$worker] |
@@ -76,12 +76,12 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
         $note.addTeamNote = @{ samplesMs = @(1) * 20; p95Ms = 1 }
         $note.personNavigation = @{ samplesMs = @(1) * 42; p95Ms = 1 }
         $note.localDurability = @{ samplesMs = @(1) * 21; p95Ms = 1; goalMs = 1000; goalMet = $true
-            budgetMs = if ($TimingPolicyVersion -ceq 'ci-timing-v2') { 1500 } else { 1050 }
-            budgetEnforced = $true; temporaryCeiling = $TimingPolicyVersion -cne 'ci-timing-v2'; timingUse = 'acceptance'
+            budgetMs = if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) { 1500 } else { 1050 }
+            budgetEnforced = $true; temporaryCeiling = $TimingPolicyVersion -ceq 'rich-scale-original-v1'; timingUse = 'acceptance'
             independentFullReopenVerificationMs = @(1) * 21
             independentVerificationScope = 'fresh-final-prefix-owner-and-exact-writing'
             committedDuringTyping = @($true) * 21; continuedEditsPerNote = 6; nominalEditSpacingMs = 250 }
-        if ($TimingPolicyVersion -ceq 'ci-timing-v2') { $note.localDurability.policyVersion = $TimingPolicyVersion }
+        if ($TimingPolicyVersion -cin @('ci-timing-v2', 'ci-timing-v3')) { $note.localDurability.policyVersion = $TimingPolicyVersion }
         Write-Json (Join-Path $prefix "$runName\scale-mutation-save-prefix-ui-sqlite-note-latency-rich-$phase.json") $note
     }
     foreach ($sample in @(@($prefix, 'scale-mutation-save-prefix', 'background-export'),
@@ -89,6 +89,11 @@ function New-UiScaleUnionFixture([string] $Directory, [string] $Candidate,
         $profile = @{} + $common
         $profile.phase = $sample[2]; $profile.samplesMs = @(1) * 21; $profile.p95Ms = 1
         $profile.budgetMs = 1000; $profile.independentFullReopenVerificationMs = @(1) * 21
+        if ($TimingPolicyVersion -ceq 'ci-timing-v3') {
+            $profile.policyVersion = $TimingPolicyVersion
+            $profile.goalMs = 1000; $profile.goalMet = $true; $profile.budgetMs = 1500
+            $profile.budgetEnforced = $true; $profile.timingUse = 'acceptance'
+        }
         $workerRun = if ($sample[0] -eq $prefix) { $runName } else { $TailRunName }
         Write-Json (Join-Path $sample[0] "$workerRun\$($sample[1])-ui-sqlite-rich-profile-latency-$($sample[2]).json") $profile
     }
