@@ -273,6 +273,12 @@ owned-note cases, unavailable inherited/frozen contexts, deliberate same-Person
 reselection and explicit ongoing access retain independent preference/Workspace
 byte checks. Exact secondary/owned-Team/inherited/frozen restoration and retained
 writing guards remain.
+Real-folder accepted Import and local-refresh cases additionally reopen an
+all-archived Workspace, then reactivate its remembered Person alongside a higher
+qualifying Manager. Both note scopes prove remembered priority, exact secondary
+Read restoration or missing-note suppression of both defaults, unchanged
+preferences and non-activating search. The Import case also retains its screen;
+navigation never creates replacement writing.
 Accepted-refresh cases reuse this seam for local reload and synchronous/asynchronous
 snapshot adoption, cross-branch selection, current/Archived exact reading,
 non-activating search/Import, and unchanged saved destinations. Real folders
@@ -324,6 +330,11 @@ so pending layout/scroll-extent publication can finish before MakeVisible clamps
 the offset. It never repairs a clamped request with a second scroll.
 The compiled fixture services the staged request and its existing post-scroll
 snapshot before asserting exact selected-header geometry and browsing position.
+The compiled opening case also changes the workflow-selected owner after the
+single actual reveal request but before its queued browsing snapshot. The
+accepted-request guard rejects that stale snapshot, retaining the new owner's
+browsing; all three phases share current-Workspace, owner and browsing-context
+checks. The original header/extent geometry and one-request assertions remain.
 After Import, the search journey deliberately resumes compact People and focuses
 the unchanged query before its existing highlight/geometry/focus assertions.
 It does not assume that clicking Back to People is a query-field focus gesture.

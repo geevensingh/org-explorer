@@ -2331,6 +2331,43 @@ internal static partial class Program
             var ancestor = tree.Items.Cast<ReportingNode>().Single(item => item.Person.Email == ancestorEmail);
             if (tree.ItemContainerGenerator.ContainerFromItem(ancestor) is not TreeViewItem { IsExpanded: true })
                 throw new InvalidOperationException("Automatic opening did not expand the selected Manager's ancestor.");
+            if (!importRetry && recoveryScope is null)
+            {
+                DispatcherOperation? changedOwner = null;
+                PeopleNavigationView? retainedBrowsing = null;
+                var previousRequests = observedBringExtents.Count;
+                RequestBringIntoViewEventHandler changeAfterScroll = (_, request) =>
+                {
+                    if (changedOwner is not null ||
+                        request.TargetObject is not TreeViewItem { DataContext: ReportingNode node } ||
+                        node.Person.Email != email || request.TargetRect.IsEmpty || request.TargetRect.Width != 1)
+                        return;
+                    changedOwner = window.Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!browsing.NavigatePerson("context00@example.com"))
+                            throw new InvalidOperationException(browsing.Status);
+                        browsing.RememberPeopleBrowsing(["context00@example.com"], 0);
+                        retainedBrowsing = browsing.PeopleNavigation;
+                    }, DispatcherPriority.Send);
+                };
+                tree.AddHandler(FrameworkElement.RequestBringIntoViewEvent, changeAfterScroll, handledEventsToo: true);
+                try
+                {
+                    Invoke("OpenSettingsButton");
+                    Invoke("OpenWorkspaceButton");
+                    PumpUntil(() => changedOwner?.Task.IsCompleted == true);
+                    changedOwner!.Task.GetAwaiter().GetResult();
+                    Settle();
+                    if (retainedBrowsing is null || Control<TextBlock>("Email").Text != email ||
+                        browsing.PeopleNavigation.SelectedEmail != "context00@example.com" ||
+                        browsing.PeopleNavigation.BrowseOffset != retainedBrowsing.BrowseOffset ||
+                        !browsing.PeopleNavigation.ExpandedPeople.SequenceEqual(retainedBrowsing.ExpandedPeople) ||
+                        observedBringExtents.Count != previousRequests + 1)
+                        throw new InvalidOperationException("A stale post-scroll snapshot overwrote the newly selected workflow owner's browsing.");
+                    Console.WriteLine("PASS: one actual compiled reveal cannot publish a stale browsing snapshot after the workflow owner changes.");
+                }
+                finally { tree.RemoveHandler(FrameworkElement.RequestBringIntoViewEvent, changeAfterScroll); }
+            }
             if (recoveryScope is not null)
                 foreach (var size in new[] { new Size(700, 500), new Size(1100, 736) })
                 {

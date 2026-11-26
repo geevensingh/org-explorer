@@ -111,6 +111,106 @@ public sealed class WorkspaceStartupTests : IDisposable
     }
 
     [Theory]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    public void Accepted_Import_restores_the_returning_remembered_Person_before_a_higher_Manager(
+        NoteScope scope, bool exactAvailable)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var settings = new WorkspaceSettings(Preferences);
+        Guid exact;
+        RememberedView remembered;
+        using (var seed = ApplicationWorkflow.CreateFileBacked())
+        {
+            Assert.True(settings.OpenWorkspace(seed, workspace), seed.Status);
+            Assert.True(seed.ApplyImport(seed.PreviewImport("""
+                {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000006",
+                 "observedAt":"2026-11-12T17:00:00Z","people":[
+                 {"email":"ancestor@example.com","displayName":"Ancestor","managerEmail":null},
+                 {"email":"remembered@example.com","displayName":"Remembered","managerEmail":"ancestor@example.com"}]}
+                """).Id), seed.Status);
+            var person = seed.CreatePersonNote("remembered@example.com", "Person ongoing", "Keep Person writing")!;
+            var team = seed.CreateTeamNote("remembered@example.com", "Team ongoing", "Keep Team writing")!;
+            exact = scope == NoteScope.Person
+                ? seed.CreatePersonNote("remembered@example.com", "Exact secondary", "Keep exact writing")!.Id
+                : seed.CreateTeamNote("remembered@example.com", "Exact secondary", "Keep exact writing")!.Id;
+            Assert.True(settings.SetOngoingNote(workspace, NoteScope.Person, person.OwnerEmail, person.Id));
+            Assert.True(settings.SetOngoingNote(workspace, NoteScope.Team, team.OwnerEmail, team.Id));
+            remembered = new("remembered@example.com",
+                scope == NoteScope.Person ? SearchSource.PersonNote : SearchSource.OwnedTeamNote,
+                exactAvailable ? exact : Guid.NewGuid(), "remembered@example.com");
+            Assert.True(settings.SetLastView(workspace, remembered));
+            Assert.True(settings.SetPaneProportions(workspace, new(28, 38)));
+            Assert.True(seed.EditPersonArchived("remembered@example.com", true));
+            Assert.True(seed.EditPersonArchived("ancestor@example.com", true));
+        }
+        var preferences = File.ReadAllBytes(Preferences);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(settings.RestoreWorkspace(app), app.Status);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Contains("remembered Person or exact note", app.ViewRecoveryFeedback);
+        app.ChangePeopleQuery("Remembered");
+        app.ShowPeopleOverlay(true);
+        Assert.True(app.TryOpenImport(), app.Status);
+        var highlight = app.PeopleNavigation.HighlightedResult;
+        var preview = app.PreviewImport("""
+            {"schemaVersion":1,"batchId":"69000000-0000-4000-8000-000000000007",
+             "observedAt":"2026-11-13T17:00:00Z","people":[
+             {"email":"ancestor@example.com","archived":false},
+             {"email":"remembered@example.com","archived":false},
+             {"email":"higher@example.com","displayName":"A higher Manager","managerEmail":null},
+             {"email":"first@example.com","displayName":"First","managerEmail":"higher@example.com"},
+             {"email":"second@example.com","displayName":"Second","managerEmail":"higher@example.com"}]}
+            """);
+        Assert.True(preview.CanApply, string.Join("\n", preview.Errors));
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+
+        Assert.True(app.ApplyImport(preview.Id), app.Status);
+
+        Assert.Equal("remembered@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.Contains("ancestor@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Null(app.ProfileEdit);
+        Assert.Equal("Remembered", app.PeopleNavigation.Query);
+        Assert.Same(highlight, app.PeopleNavigation.HighlightedResult);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.True(app.IsImportOpen);
+        if (exactAvailable)
+        {
+            Assert.Equal(exact, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+            Assert.Equal("Keep exact writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            Assert.False(app.GetOwnedNotesView(scope).IsOngoing);
+            Assert.Equal(remembered, app.PeopleNavigation.LastValidView);
+            Assert.Null(app.ViewRecoveryFeedback);
+        }
+        else
+        {
+            Assert.Contains("remembered exact note", app.ViewRecoveryFeedback);
+            Assert.Null(app.PeopleNavigation.LastValidView);
+            foreach (var noteScope in Enum.GetValues<NoteScope>())
+            {
+                var view = app.GetOwnedNotesView(noteScope);
+                Assert.Null(view.SelectedNote);
+                Assert.False(view.IsEmpty);
+                Assert.Equal(app.ViewRecoveryFeedback, view.Feedback);
+            }
+        }
+        Assert.False(app.PersonNotesView.IsEditing);
+        Assert.False(app.TeamNotesView.IsEditing);
+        Assert.Equal(remembered, new WorkspaceSettings(Preferences).GetLastView(workspace));
+        Assert.Equal(new PaneProportions(28, 38), app.PaneProportions);
+        Assert.Equal(preferences, File.ReadAllBytes(Preferences));
+        Assert.Equal(scope == NoteScope.Person ? 2 : 1, app.GetPersonNotes("remembered@example.com", true).Count);
+        Assert.Equal(scope == NoteScope.Team ? 2 : 1, app.GetTeamNotes("remembered@example.com", true).Count);
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        Assert.True(app.NavigatePerson("higher@example.com"), app.Status);
+        Assert.Null(app.ViewRecoveryFeedback);
+        Assert.Equal("higher@example.com", new WorkspaceSettings(Preferences).GetLastView(workspace)!.PersonEmail);
+        AssertWorkspaceBytes(workspace, writing);
+    }
+
+    [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
     public void Unreadable_ongoing_preferences_are_not_an_empty_writing_invitation(NoteScope scope)
@@ -450,6 +550,8 @@ public sealed class WorkspaceStartupTests : IDisposable
             Assert.Null(reopened.TeamNotesView.SelectedNote);
             Assert.False(reopened.PersonNotesView.IsEditing);
             Assert.False(reopened.TeamNotesView.IsEditing);
+            Assert.False(reopened.PersonNotesView.IsEmpty);
+            Assert.False(reopened.TeamNotesView.IsEmpty);
             Assert.Null(reopened.ProfileEdit);
             Assert.Null(reopened.PeopleNavigation.SelectedResult);
             Assert.Contains("casey@example.com", reopened.PeopleNavigation.ExpandedPeople);

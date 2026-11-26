@@ -529,6 +529,10 @@ Preserve a valid current selection or remembered Person before considering the
 fallback, regardless of hierarchy position or report count. Deliberately
 browsing an available Archived person remains valid navigation and must not be
 replaced; an archived remembered Person is not automatically restored.
+If an all-archived Workspace reopens unselected and accepted Import or refresh
+later makes its remembered Person current again, restore that Person before
+considering a hierarchy candidate. Restore an available exact note in Read mode;
+an unavailable exact note retains recovery without either owned-note default.
 
 Apply the fallback after successful, validated Workspace opening or creation,
 including reopening without a valid remembered Person, the first and subsequent

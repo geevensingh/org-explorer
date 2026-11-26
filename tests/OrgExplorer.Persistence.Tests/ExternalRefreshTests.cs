@@ -252,6 +252,98 @@ public sealed class ExternalRefreshTests : IDisposable
     }
 
     [Theory]
+    [InlineData(NoteScope.Person, true)]
+    [InlineData(NoteScope.Team, true)]
+    [InlineData(NoteScope.Person, false)]
+    [InlineData(NoteScope.Team, false)]
+    public void Accepted_local_refresh_restores_the_returning_remembered_Person_and_exact_note_before_a_higher_Manager(
+        NoteScope scope, bool exactAvailable)
+    {
+        var workspace = Path.Combine(root, "workspace");
+        var preferencesPath = Path.Combine(root, "settings.json");
+        var settings = new WorkspaceSettings(preferencesPath);
+        using var writer = ApplicationWorkflow.CreateFileBacked();
+        Assert.True(writer.OpenWorkspace(workspace), writer.Status);
+        Assert.True(writer.ApplyImport(writer.PreviewImport(Batch("""
+            {"email":"ancestor@example.com","displayName":"Ancestor","managerEmail":null,"archived":true},
+            {"email":"remembered@example.com","displayName":"Remembered","managerEmail":"ancestor@example.com","archived":true}
+            """)).Id), writer.Status);
+        var person = writer.CreatePersonNote("remembered@example.com", "Person ongoing", "Keep Person writing")!;
+        var team = writer.CreateTeamNote("remembered@example.com", "Team ongoing", "Keep Team writing")!;
+        var exact = scope == NoteScope.Person
+            ? writer.CreatePersonNote("remembered@example.com", "Exact secondary", "Keep exact writing")!.Id
+            : writer.CreateTeamNote("remembered@example.com", "Exact secondary", "Keep exact writing")!.Id;
+        var remembered = new RememberedView("remembered@example.com",
+            scope == NoteScope.Person ? SearchSource.PersonNote : SearchSource.OwnedTeamNote,
+            exactAvailable ? exact : Guid.NewGuid(), "remembered@example.com");
+        Assert.True(settings.SetLastView(workspace, remembered));
+        Assert.True(settings.SetPaneProportions(workspace, new(28, 38)));
+        Assert.True(settings.SetOngoingNote(workspace, NoteScope.Person, person.OwnerEmail, person.Id));
+        Assert.True(settings.SetOngoingNote(workspace, NoteScope.Team, team.OwnerEmail, team.Id));
+        var preferences = File.ReadAllBytes(preferencesPath);
+        using var app = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked(), settings);
+        Assert.True(app.OpenWorkspace(workspace), app.Status);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.Contains("remembered Person or exact note", app.ViewRecoveryFeedback);
+        app.ChangePeopleQuery("Remembered");
+        app.ShowPeopleOverlay(true);
+        var highlight = app.PeopleNavigation.HighlightedResult;
+        Assert.True(writer.ApplyImport(writer.PreviewImport(Batch("""
+            {"email":"ancestor@example.com","archived":false},
+            {"email":"remembered@example.com","archived":false},
+            {"email":"higher@example.com","displayName":"A higher Manager","managerEmail":null},
+            {"email":"first@example.com","displayName":"First","managerEmail":"higher@example.com"},
+            {"email":"second@example.com","displayName":"Second","managerEmail":"higher@example.com"}
+            """)).Id), writer.Status);
+        var writing = WorkspaceFixtures.Bytes(workspace);
+        Assert.Null(app.PeopleNavigation.SelectedEmail);
+        Assert.True(app.GetRelationships("remembered@example.com")!.Person.Archived);
+
+        Assert.True(app.RefreshWorkspace(), app.Status);
+
+        Assert.Equal("remembered@example.com", app.PeopleNavigation.SelectedEmail);
+        Assert.False(app.GetRelationships("remembered@example.com")!.Person.Archived);
+        Assert.Contains("ancestor@example.com", app.PeopleNavigation.ExpandedPeople);
+        Assert.Equal("Remembered", app.PeopleNavigation.Query);
+        Assert.Same(highlight, app.PeopleNavigation.HighlightedResult);
+        Assert.True(app.PeopleNavigation.OverlayOpen);
+        Assert.Null(app.ProfileEdit);
+        foreach (var noteScope in Enum.GetValues<NoteScope>())
+        {
+            var view = app.GetOwnedNotesView(noteScope);
+            Assert.Equal("remembered@example.com", view.OwnerEmail);
+            Assert.False(view.IsEditing);
+            if (!exactAvailable)
+            {
+                Assert.Null(view.SelectedNote);
+                Assert.False(view.IsEmpty);
+                Assert.Equal(app.ViewRecoveryFeedback, view.Feedback);
+            }
+        }
+        if (exactAvailable)
+        {
+            Assert.Equal(exact, app.GetOwnedNotesView(scope).SelectedNote!.Id);
+            Assert.Equal("Keep exact writing", app.GetOwnedNotesView(scope).SelectedNote!.Markdown);
+            Assert.False(app.GetOwnedNotesView(scope).IsOngoing);
+            Assert.Equal(remembered, app.PeopleNavigation.LastValidView);
+            Assert.Null(app.ViewRecoveryFeedback);
+        }
+        else
+        {
+            Assert.Contains("remembered exact note", app.ViewRecoveryFeedback);
+            Assert.Null(app.PeopleNavigation.LastValidView);
+        }
+        Assert.Equal(writer.GetPersonNotes("remembered@example.com", true), app.GetPersonNotes("remembered@example.com", true));
+        Assert.Equal(writer.GetTeamNotes("remembered@example.com", true), app.GetTeamNotes("remembered@example.com", true));
+        Assert.Equal(remembered, new WorkspaceSettings(preferencesPath).GetLastView(workspace));
+        Assert.Equal(preferences, File.ReadAllBytes(preferencesPath));
+        Assert.Equal(new PaneProportions(28, 38), app.PaneProportions);
+        var actualWriting = WorkspaceFixtures.Bytes(workspace);
+        Assert.Equal(writing.Keys.Order(), actualWriting.Keys.Order());
+        foreach (var (path, bytes) in writing) Assert.Equal(bytes, actualWriting[path]);
+    }
+
+    [Theory]
     [InlineData(NoteScope.Person)]
     [InlineData(NoteScope.Team)]
     public async Task Real_refresh_and_deferred_delivery_preserve_exact_failed_notes_profile_and_Preferred_name_drafts(NoteScope scope)

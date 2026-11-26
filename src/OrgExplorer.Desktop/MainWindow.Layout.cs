@@ -230,16 +230,11 @@ public partial class MainWindow
         if (!workflow.PeopleNavigation.IsBrowsing || ExplorerPanel.Visibility != Visibility.Visible ||
             PeoplePanel.Visibility != Visibility.Visible || workflow.IsImportOpen) return;
         var email = pendingPeopleRevealEmail;
+        if (email is null) return;
         var request = ++peopleBrowseRequest;
         Dispatcher.BeginInvoke(() =>
         {
-            if (request != peopleBrowseRequest || email is null || email != selectedEmail ||
-                email != workflow.PeopleNavigation.SelectedEmail || !workflow.IsWorkspaceCurrent ||
-                !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
-                ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible)
-            {
-                return;
-            }
+            if (!IsPeopleRevealCurrent(request, email)) return;
             FrameworkElement? row;
             if (workflow.GetRelationships(email)?.Person is { Archived: true } person)
             {
@@ -264,10 +259,7 @@ public partial class MainWindow
             // Expanded realization can publish its scroll extent after the current layout callback.
             Dispatcher.BeginInvoke(() =>
             {
-                if (request != peopleBrowseRequest || email != selectedEmail ||
-                    email != workflow.PeopleNavigation.SelectedEmail || !workflow.IsWorkspaceCurrent ||
-                    !workflow.PeopleNavigation.IsBrowsing || workflow.IsImportOpen ||
-                    ExplorerPanel.Visibility != Visibility.Visible || PeoplePanel.Visibility != Visibility.Visible ||
+                if (!IsPeopleRevealCurrent(request, email) ||
                     row is TreeViewItem treeRow &&
                         (treeRow.DataContext is not ReportingNode node ||
                             !node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
@@ -286,14 +278,16 @@ public partial class MainWindow
                 // Capture browsing only after the one queued scroll request has applied.
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (request == peopleBrowseRequest && email == selectedEmail &&
-                        workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
-                        ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible)
-                        RememberPeopleBrowsing();
+                    if (IsPeopleRevealCurrent(request, email)) RememberPeopleBrowsing();
                 }, DispatcherPriority.ContextIdle);
             }, DispatcherPriority.ContextIdle);
         }, DispatcherPriority.Loaded);
     }
+
+    private bool IsPeopleRevealCurrent(int request, string email) =>
+        request == peopleBrowseRequest && email == selectedEmail && email == workflow.PeopleNavigation.SelectedEmail &&
+        workflow.IsWorkspaceCurrent && workflow.PeopleNavigation.IsBrowsing && !workflow.IsImportOpen &&
+        ExplorerPanel.Visibility == Visibility.Visible && PeoplePanel.Visibility == Visibility.Visible;
 
     private TreeViewItem? RevealReportingRow(string email)
     {

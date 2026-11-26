@@ -26,10 +26,12 @@ public sealed partial class WorkspaceViewModel
         if (!IsWorkspaceCurrent ||
             PeopleNavigation.SelectedEmail is { } selected && workflow.GetRelationships(selected) is not null)
             return;
-        // Exact-note recovery is separate from Person availability, and must not redirect that Person.
         if (Compatibility.WorkspacePath is { } path && settings?.GetLastView(path) is { } remembered &&
             workflow.GetRelationships(remembered.PersonEmail)?.Person is { Archived: false })
+        {
+            RestoreRememberedPerson(remembered);
             return;
+        }
         var level = workflow.ReportingRoots;
         var fallback = level.OrderBy(node => node.Person.Heading)
             .ThenBy(node => node.Person.Email, StringComparer.OrdinalIgnoreCase).FirstOrDefault()?.Person;
@@ -46,13 +48,13 @@ public sealed partial class WorkspaceViewModel
         NavigateAutomaticPerson(candidate.Email);
     }
 
-    private bool NavigateAutomaticPerson(string email, SearchResult? destination = null, string? noteRecovery = null)
+    private bool NavigateAutomaticPerson(string email, SearchResult? destination = null, bool recoverRememberedNote = false)
     {
         var overlay = PeopleNavigation.OverlayOpen;
         changingDestination = true;
         try
         {
-            if (!NavigatePeopleCore(email, destination, noteRecovery: noteRecovery)) return false;
+            if (!NavigatePeopleCore(email, destination, recoverRememberedNote: recoverRememberedNote)) return false;
             ExpandPeoplePath(email);
             PeopleNavigation = PeopleNavigation with { OverlayOpen = overlay };
             return true;
@@ -79,10 +81,9 @@ public sealed partial class WorkspaceViewModel
             Compatibility.WorkspacePath is not { } path || PeopleNavigation.SelectedEmail is not { } email ||
             workflow.GetRelationships(email)?.Person is not { Archived: false }) return;
         if (result?.NoteArchived == true) return;
-        if (ViewRecoveryFeedback is { } recovery)
-            foreach (var noteScope in Enum.GetValues<NoteScope>())
-                if (NoteViewFor(noteScope) is { Exact: true, Selected: null } recovered && recovered.Error == recovery)
-                    noteViews[noteScope] = recovered with { Error = null, Exact = false };
+        foreach (var noteScope in Enum.GetValues<NoteScope>())
+            if (NoteViewFor(noteScope) is { RememberedRecovery: true, Selected: null } recovered)
+                noteViews[noteScope] = recovered with { RememberedRecovery = false, Exact = false };
         if (scope is null && result?.NoteId is null &&
             PeopleNavigation.LastValidView is { Source: SearchSource.OwnedTeamNote } previous &&
             previous.PersonEmail.Equals(email, StringComparison.OrdinalIgnoreCase) &&
@@ -107,33 +108,40 @@ public sealed partial class WorkspaceViewModel
         ViewPreferenceFeedback = null;
         ViewRecoveryFeedback = null;
         if (settings?.GetLastView(Compatibility.WorkspacePath!) is not { } view) return;
+        if (RestoreRememberedPerson(view) &&
+            PeopleNavigation.SelectedResult is { Source: SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote } result)
+            PeopleNavigation = PeopleNavigation with { Query = result.NoteTitle! };
+    }
+
+    private bool RestoreRememberedPerson(RememberedView view)
+    {
         var person = workflow.GetRelationships(view.PersonEmail)?.Person;
         var destination = person is { Archived: false } && view.Source is not null ? ResolveRememberedNote(person, view) : null;
         if (person is not { Archived: false })
         {
             ViewRecoveryFeedback = "The remembered Person or exact note is unavailable or archived. " +
                 "Your preference and writing are retained; no replacement was opened. Find a Person using search, Favorites or People to deliberately select another view.";
-            return;
+            return false;
         }
         var noteUnavailable = view.Source is not null && destination is null;
-        if (noteUnavailable)
-            ViewRecoveryFeedback = "The remembered exact note is unavailable or archived. " +
-                "Your preference and writing are retained; no replacement was opened. Find a Person using search, Favorites or People to deliberately select another view.";
-        if (!NavigateAutomaticPerson(person.Email, destination, ViewRecoveryFeedback))
+        ViewRecoveryFeedback = noteUnavailable
+            ? "The remembered exact note is unavailable or archived. " +
+                "Your preference and writing are retained; no replacement was opened. Find a Person using search, Favorites or People to deliberately select another view."
+            : null;
+        if (!NavigateAutomaticPerson(person.Email, destination, recoverRememberedNote: noteUnavailable))
         {
             ViewRecoveryFeedback = "The remembered view could not be restored. " +
                 (navigationError ?? workflow.Status) + " Your preference and writing are retained; no replacement was opened.";
-            return;
+            return false;
         }
         if (!noteUnavailable)
             PeopleNavigation = PeopleNavigation with
             {
                 SelectedResult = destination?.Source is SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote
                     ? destination : null,
-                Query = destination?.Source is SearchSource.InheritedTeamNote or SearchSource.HistoricalTeamNote
-                    ? destination.NoteTitle! : "",
                 LastValidView = view
             };
+        return true;
     }
 
     private SearchResult? ResolveRememberedNote(PersonProfile person, RememberedView view)
@@ -350,7 +358,7 @@ public sealed partial class WorkspaceViewModel
     });
 
     private bool NavigatePeopleCore(string email, SearchResult? result, bool requireNavigation = false,
-        string? noteRecovery = null)
+        bool recoverRememberedNote = false)
     {
         var person = workflow.GetRelationships(email)?.Person;
         if (person is null)
@@ -365,10 +373,10 @@ public sealed partial class WorkspaceViewModel
                 (workflow.LocalSaveError ?? workflow.Status);
             return false;
         }
-        if (noteRecovery is not null)
+        if (recoverRememberedNote)
         {
             foreach (var scope in Enum.GetValues<NoteScope>())
-                noteViews[scope] = new(person.Email, Error: noteRecovery, Exact: true);
+                noteViews[scope] = new(person.Email, Exact: true, RememberedRecovery: true);
         }
         else if (!OpenOwnedNotes(NoteScope.Person, person.Email) || !OpenOwnedNotes(NoteScope.Team, person.Email)) return false;
         if (requireNavigation)
