@@ -1,6 +1,7 @@
 . "$PSScriptRoot\PerformanceSuite.ps1"
 . "$PSScriptRoot\FilesystemHealth.ps1"
 . "$PSScriptRoot\RichScaleCohort.ps1"
+. "$PSScriptRoot\TimingReferences.ps1"
 
 $NonUiCohortPhases = @('fixture', 'fixture-export', 'load', 'navigation-100', 'profile-100', 'search-current',
     'search-history', 'favorite-save', 'note-save', 'profile-save', 'validated-preview', 'validated-apply',
@@ -175,10 +176,15 @@ function Get-NonUiCohortMetrics($Samples) {
 
 function Assert-NonUiCohortRecord($Record, [string]$Path) {
     $rich = $Record.schemaVersion -eq 2
-    $effectivePolicy = if ($Record.Contains('effectivePolicyVersion')) { $Record.effectivePolicyVersion } else { 'rich-scale-original-v1' }
+    $automatic = $Record.mode -ceq 'automatic-baseline'
+    $effectivePolicy = if ($Record.Contains('effectivePolicyVersion')) { $Record.effectivePolicyVersion }
+        elseif ($automatic) { $Record.sourcePolicyVersion } else { 'rich-scale-original-v1' }
     $null = Get-ApprovedTimingPolicy $effectivePolicy
     if ($Record.Contains('sourcePolicyRevision') -and $Record.sourcePolicyRevision -cne $Record.revision) {
         throw 'Cohort effective policy is not bound to its source candidate.'
+    }
+    if ($automatic -and $effectivePolicy -cne $Record.sourcePolicyVersion) {
+        throw 'Automatic cohort source-policy fields disagree.'
     }
     Assert-HealthNumber $Record.schemaVersion 'cohort schemaVersion'
     if ($Record.schemaVersion -notin @(1, 2) -or $Record.recordType -cne 'performance-cohort' -or
@@ -186,14 +192,20 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         $Record.cohortRunId -cnotmatch '^[1-9][0-9]*$' -or $Record.cohortRunAttempt -cnotmatch '^[1-9][0-9]*$' -or
         $Record.cohortId -cne "$($Record.revision)-$($Record.cohortRunId)-$($Record.cohortRunAttempt)" -or
         $Path -cne (Get-NonUiCohortPath $Record) -or
-        $Record.mode -cne 'observation' -or $Record.promotion -cne 'disabled' -or
+        $Record.mode -cnotin @('observation', 'automatic-baseline') -or
+        (!$automatic -and $Record.promotion -cne 'disabled') -or
+        ($automatic -and (!$rich -or $Record.policyVersion -cne 'ci-timing-v2' -or
+            $Record.promotion -cnotin @('eligible-after-comparison', 'retained') -or
+            $Record.bootstrapRevision -cnotmatch '^[0-9a-f]{40}$' -or $Record.mainRevision -cnotmatch '^[0-9a-f]{40}$' -or
+            $Record.sourcePolicyVersion -cnotin @('rich-scale-original-v1', 'ci-timing-v2'))) -or
         $Record.validation -cnotin @('success', 'rejected') -or
-        $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive') -or
-        $Record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconsistent', 'inconclusive', 'TEST-eligible') -or
+        $Record.timingHealth -cnotin @('observation', 'unbaselined', 'inconclusive', 'green', 'yellow', 'red') -or
+        (!$automatic -and $Record.timingHealth -cin @('green', 'yellow', 'red')) -or
+        $Record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconsistent', 'inconclusive', 'TEST-eligible', 'eligible', 'extend') -or
         (!$rich -and ($Record.richScaleAcceptance -cne 'not-executed' -or
             $Record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'TEST-non-ui-range-v1'))) -or
         ($rich -and ($Record.richScaleAcceptance -cnotin @('complete', 'rejected') -or
-            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2') -or
+            $Record.policyVersion -cnotin @('rich-cohort-observation-v2', 'TEST-rich-range-v2', 'ci-timing-v2') -or
             ($Record.validation -ceq 'success') -ne ($Record.richScaleAcceptance -ceq 'complete'))) -or
         $Record.authority -cnotin @('trusted-main-push', 'pilot-observation')) { throw 'Invalid non-UI cohort schema/provenance.' }
     if ($Record.authority -ceq 'trusted-main-push' -and $Record.ciRevision -cne $Record.revision) {
@@ -282,27 +294,31 @@ function Assert-NonUiCohortRecord($Record, [string]$Path) {
         throw 'Cohort validation averages away an original failed/missing attempt.'
     }
     if ($null -ne $Record.reference) {
-        if ($Record.reference.kind -cne $(if ($rich) { 'prior-compatible-rich-cohort-observation' } else { 'prior-compatible-non-ui-cohort-observation' }) -or
+        if ($Record.reference.kind -cne $(if ($automatic) { 'pinned-eligible-reference' } elseif ($rich) { 'prior-compatible-rich-cohort-observation' } else { 'prior-compatible-non-ui-cohort-observation' }) -or
             $Record.reference.revision -cnotmatch '^[0-9a-f]{40}$' -or
             $Record.reference.revision -ceq $Record.revision) { throw 'Invalid/self-referencing cohort comparison.' }
         foreach ($field in @('ageSeconds', 'medianSeconds')) { Assert-HealthNumber $Record.reference[$field] "reference.$field" }
-        Assert-HealthNumber $Record.reference.deltaSeconds 'reference.deltaSeconds' -AllowNegative
-        if ($Record.reference.deltaSeconds -ne $Record.metrics.executionSeconds.median - $Record.reference.medianSeconds) {
+        if ($Record.metrics.Contains('executionSeconds')) {
+            Assert-HealthNumber $Record.reference.deltaSeconds 'reference.deltaSeconds' -AllowNegative
+        }
+        if ($Record.metrics.Contains('executionSeconds') -and
+            $Record.reference.deltaSeconds -ne $Record.metrics.executionSeconds.median - $Record.reference.medianSeconds) {
             throw 'Historical cohort comparison inputs disagree.'
         }
     }
 }
 
 function Get-NonUiCohortRecordTypes {
-    return @{
+    $types = @{
         'performance-cohort' = @{
             PathPattern = '^(performance-cohorts|rich-scale-cohorts)/[0-9a-f]{40}/[1-9][0-9]*/[1-9][0-9]*\.json$'
             GetPath = { param($record) Get-NonUiCohortPath $record }
             Validate = {
                 param($record, $path)
-                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2') -or $record.authority -cne 'trusted-main-push' -or
-                    $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive') -or
-                    (@($record.samples).Count -ne 3 -and
+                $automatic = $record.mode -ceq 'automatic-baseline'
+                if ($record.policyVersion -cnotin @('non-ui-cohort-observation-v1', 'rich-cohort-observation-v2', 'ci-timing-v2') -or $record.authority -cne 'trusted-main-push' -or
+                    (!$automatic -and $record.eligibility -cnotin @('pending-calibration', 'rejected', 'inconclusive')) -or
+                    (!$automatic -and @($record.samples).Count -ne 3 -and
                         !(@($record.samples).Count -eq 5 -and $record.unexpectedExecutions -and $record.validation -ceq 'rejected'))) {
                     throw 'Live history cannot accept TEST-policy or manual pilot cohorts.'
                 }
@@ -310,6 +326,8 @@ function Get-NonUiCohortRecordTypes {
             }
         }
     }
+    foreach ($entry in (Get-TimingReferenceRecordTypes).GetEnumerator()) { $types[$entry.Key] = $entry.Value }
+    return $types
 }
 
 function Get-NonUiCohortPath($Record) {
@@ -346,20 +364,32 @@ function Set-NonUiCohortComparison($Record, $History) {
 
 function Format-NonUiCohort($Record, [string]$Publication) {
     $rich = $Record.schemaVersion -eq 2
-    $active = $Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v2'
+    $automatic = $Record.mode -ceq 'automatic-baseline'
+    $active = ($Record.Contains('effectivePolicyVersion') -and $Record.effectivePolicyVersion -ceq 'ci-timing-v2') -or
+        ($automatic -and $Record.sourcePolicyVersion -ceq 'ci-timing-v2')
     $lines = @(
         if ($rich) { '### Complete performance/scale cohort' } else { '### Independent non-UI performance cohort' }
         ''
         "Candidate: ``$($Record.revision)``; cohort ``$($Record.cohortId)``."
         "Validation: **$($Record.validation)**; timing: **$($Record.timingHealth)**; eligibility: **$($Record.eligibility)**."
         "Original collection workflow: $($Record.collectionStatus) / $($Record.collectionOutcome). Historical observations are not fresh release acceptance."
-        "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
-        if ($active) { 'Source-bound prefix900s safety/30m watchdog; tail/non-UI660s safety. Profile p95 remains1,000ms.' }
-        else { 'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.' }
+        if ($automatic) {
+            "Policy: ``$($Record.policyVersion)``; immutable source policy ``$($Record.sourcePolicyVersion)``. Automatic-reference decision: **$($Record.promotion)**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
+            'Approved prefix safety is 900 seconds; non-UI/tail safety remains 660 seconds, including setup/cleanup. Profile p95 remains <=1,000ms.'
+            "Bootstrap source: ``$($Record.bootstrapRevision)``; verified main: ``$($Record.mainRevision)``; pinned history: ``$($Record.historySnapshot)``."
+            "Additional requested independent executions: $($Record.extraSamples -join ', '); maximum total five. Failures never request replacements."
+        } else {
+            "Policy: ``$($Record.policyVersion)``. Active-reference promotion: **disabled**. Rich-scale acceptance: **$($Record.richScaleAcceptance)**."
+            if ($active) { 'Source-bound prefix900s safety/30m watchdog; tail/non-UI660s safety. Profile p95 remains1,000ms.' }
+            else { 'Original per-worker 660-second setup/workload/cleanup budgets and 1,000-ms profile p95 hard limit remain enforced.' }
+        }
         if ($rich) {
             'Each sample owns non-UI, prefix, actual-snapshot Join/tail and strict union. The executionSeconds metric is NON-UI only; prefix/tail are separate. Their sum is consumed worker time, never one 660-second execution.'
-            if ($active) { 'Rich notes retain both complete20/42/21 phases, raw nearest-rank p95 and continued typing under the approved1,500ms ceiling/1,000ms goal.' }
-            else { 'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).' }
+            if ($active) {
+                'Rich notes retain both complete 20/42/21 phases, all raw nearest-rank p95 samples, continued-typing durability, 1,000ms goal and inclusive 1,500ms ceiling. Original historical policies/verdicts are unchanged.'
+            } else {
+                'Rich notes retain both complete 20/42/21 phases, raw nearest-rank p95, continued-typing durability and the temporary enforced 1,050-ms ceiling (1,000-ms goal).'
+            }
         }
         if ($Record.unexpectedExecutions) {
             'Unexpected matching extra executions are retained and reject the cohort. The controller did not request them; three greens cannot be selected from this evidence.'
@@ -393,7 +423,9 @@ function Format-NonUiCohort($Record, [string]$Publication) {
         ''
         "All attempts: $($Record.reliability.attempts); success $($Record.reliability.success); failure $($Record.reliability.failure); incomplete $($Record.reliability.incomplete); cancelled $($Record.reliability.cancelled); skipped $($Record.reliability.skipped)."
         'Medians include every available numeric measurement, including failed attempts; rejected nonnumeric values remain in raw records and are unavailable, not zero. No cause or calibrated noise threshold is inferred.'
-        'Live eligibility/noise calibration is pending #130. This is not a canonical reference.'
+        if ($automatic) {
+            'Comparison is preserved before eligible promotion. Canonical reference events are immutable; the effective per-series pointer follows actual main ancestry, never completion time.'
+        } else { 'Live eligibility/noise calibration is pending #130. This is not a canonical reference.' }
         if ($null -ne $Record.reference) {
             "Reference: $($Record.reference.kind) ``$($Record.reference.revision)`` / ``$($Record.reference.cohortId)``; age $($Record.reference.ageSeconds) s; NON-UI median $($Record.reference.medianSeconds) s; change $($Record.reference.deltaSeconds) s. Raw evidence: [$($Record.reference.evidenceState)]($($Record.reference.evidenceUrl))."
         } else { 'Comparison reference: unavailable (no complete compatible non-self cohort observation).' }

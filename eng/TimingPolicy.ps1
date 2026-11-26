@@ -322,6 +322,12 @@ function Set-TimingPolicyEvaluation($Record, $PinnedReference = $null, [string]$
         elseif ($relativeUncertain) { 'inconclusive' }
         elseif ($evaluation.additionalSamples.Count) { 'extend' }
         elseif ($evaluation.eligibility -ceq 'inconclusive') { 'inconclusive' } else { 'eligible' }
+    if ($Record.Contains('sourcePolicyCompatible') -and !$Record.sourcePolicyCompatible) {
+        $evaluation.eligibility = 'inconclusive'; $evaluation.additionalSamples = @()
+    }
+    if ($Record.recordType -ceq 'performance-cohort' -and !(Get-TimingCohortKey $Record) -and !$evaluation.blocking) {
+        $evaluation.eligibility = 'inconclusive'; $evaluation.additionalSamples = @()
+    }
     foreach ($metric in $evaluation.metrics.Values) {
         if ($metric.Contains('relativeRule') -and $metric.relativeRule -cne 'informational') { $metric.relativeRule = 'approved-gate' }
         if ($metric.reference) { $metric.reference.kind = 'pinned-eligible-reference' }

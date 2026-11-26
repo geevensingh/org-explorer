@@ -408,8 +408,12 @@ function Open-HealthHistory([string]$Directory, [string]$Remote, [switch]$AllowL
             $records += $record
         }
     }
-    return @{ directory = $Directory; tip = $tip; records = $records; remote = $Remote
+    $history = @{ directory = $Directory; tip = $tip; records = $records; remote = $Remote
         localFixture = [bool]$AllowLocalFixture; recordTypes = $RecordTypes; observationWriterAuthorized = $false }
+    foreach ($type in $RecordTypes.Values) {
+        if ($type.ContainsKey('ValidateHistory')) { & $type.ValidateHistory $history }
+    }
+    return $history
 }
 
 function Publish-HealthRecord($History, $Record) {
