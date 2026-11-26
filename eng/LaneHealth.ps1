@@ -186,7 +186,7 @@ function Assert-LaneHealthRecord($Record, [string]$Path) {
                 $Record.measurements.ceilingSeconds - $Record.measurements.executionSeconds) { throw 'Lane headroom disagrees.' }
             $ceiling = if ($Record.lane -ceq 'core') { 300 }
                 elseif ($Record.lane -cmatch '^(desktop-|high-resolution-)') { 900 }
-                elseif ($Record.lane -ceq 'ui-scale-prefix' -and $Record.originalPolicy -ceq 'ci-timing-v2') { 900 } else { 660 }
+                elseif ((Get-TimingLane $Record.lane) -ceq 'ui-scale-prefix' -and $Record.originalPolicy -ceq 'ci-timing-v2') { 900 } else { 660 }
             if ($Record.measurements.ceilingSeconds -ne $ceiling) { throw 'Lane measurement changed an original budget.' }
         }
         foreach ($step in @($Record.measurements.steps)) {

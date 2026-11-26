@@ -84,10 +84,15 @@ foreach ($descriptor in $descriptors) {
     $measurement = $null
     $sourceRevision = $download.candidate
     if (!$sourcePolicies.ContainsKey($sourceRevision)) {
-        $sourcePolicies[$sourceRevision] = Get-SourceTimingPolicyVersion $sourceRevision -Hosted
+        try { $sourcePolicies[$sourceRevision] = @{ version = Get-SourceTimingPolicyVersion $sourceRevision -Hosted; failure = $null } }
+        catch {
+            $sourcePolicies[$sourceRevision] = @{ version = $null; failure = $_.Exception.Message }
+            Write-Warning "Source policy unavailable for ${sourceRevision}: $($_.Exception.Message)"
+        }
     }
-    $effectivePolicy = $sourcePolicies[$sourceRevision]
-    if ($descriptor.kind -cne 'controller' -and $evidence.state -ceq 'available') {
+    $effectivePolicy = $sourcePolicies[$sourceRevision].version
+    if ($sourcePolicies[$sourceRevision].failure) { $diagnostics += "Source policy unverified: $($sourcePolicies[$sourceRevision].failure)" }
+    if ($effectivePolicy -and $descriptor.kind -cne 'controller' -and $evidence.state -ceq 'available') {
         try {
             $measurement = Get-LaneHealthMeasurement $descriptor $downloads $run $effectivePolicy
             if ($measurement.ContainsKey('diagnostics')) { $diagnostics += $measurement.diagnostics }
