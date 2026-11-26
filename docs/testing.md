@@ -38,15 +38,23 @@ after that request, a genuinely interior position establishes the recorded row
 baseline; an unchanged endpoint still fails. The later exact-row restoration
 check, not the requested percentage, proves that browsing was preserved.
 
-Reporting-tree Collapse subtree and Collapse other branches cases extend the public
+Reporting-tree Expand subtree, Collapse subtree and Collapse other branches extend the public
 `WorkspaceViewModel.GetPeopleTreeActions` / `ExecutePeopleTreeAction` and
 `PeopleNavigation` seams with real branching and 1,024-level imported graphs,
 hidden remembered expansion, protected subtree/ancestor paths, leaf applicability,
 leaf/unavailable no-ops and independent failed Person/Team-note and profile writing.
+Expansion also checks all current levels,
+archived exclusions, a 1,024-manager/2,048-report graph, observable bounded
+progress, cancellation retaining completed branches, resumption and interruption
+when the current reporting view changes. It uses the existing action boundary
+and public `PeopleTreeExpansion`/continue/cancel outcomes, not private traversal.
 The existing invisible tree-presentation
 contract exercises the actual row menu's routed command/placement-target
 bindings, right-button selection suppression, current/recycled expansion reset
-and search restoration. It also retains exact independent profile/note drafts.
+and search restoration. Its actual Expand subtree binding and cancellation
+button additionally exercise complete expansion, recycled rows, compact/search
+retention and ordinary disclosure interrupting unfinished recursive expansion.
+It also retains exact independent profile/note drafts.
 The focused non-UI selector below runs this same contract; it remains included
 in the existing full `--verify-profile-refresh` companion check:
 
@@ -61,8 +69,9 @@ target visibility, hidden-focus recovery versus preserved unrelated focus,
 search-clear retention and compact-overlay preservation. The responsive draft
 journey also keeps independent failed Person/Team-note writing during a tree
 action with a dirty profile. These are hosted-only native assertions; invisible
-compiled checks do not prove popup or keyboard-focus acceptance. The remaining
-Expand subtree slice is not implemented or claimed by this coverage.
+compiled checks do not prove popup or keyboard-focus acceptance. Expansion
+reuses the reset-manager menu boundaries for real mouse, Apps and
+Shift+F10 actions without duplicating the full preparation/retention journeys.
 
 Outside-collapse checks share those same native journeys and their fixture
 preparation. A two-level outside Alex branch makes the existing leaf right-click
@@ -2746,6 +2755,14 @@ returned from normal process death:
   pending; expand/collapse, scroll and select a distant realized tree row;
   current/frozen/deep-chain/final-archived-Person search and Manager navigation;
   actual photo pixels and rendered current/frozen Markdown.
+  The existing `UI-tree` phase also invokes the real Expand subtree menu at
+  the complete rich population, observes useful progress and unrelated focus
+  interaction while expansion is unfinished, cancels through its actual control,
+  checks retained partial state, then resumes to all 9,900 current People and
+  150 manager rows, including the deep chain and later realization. Profile and
+  target retention are checked before deliberate distant-row observation.
+  This coverage remains in the same explicit scale worker/phase and deadlines;
+  local public/compiled checks cannot establish its native responsiveness.
 - `scale-mutation-save-prefix`: repeated normal-executable usable Team editors,
   Person selection and ordinary durable saves while typing continues, followed
   by actual compiled WPF at the same complete rich population during a held real

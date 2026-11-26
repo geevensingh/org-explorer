@@ -1,6 +1,13 @@
 namespace OrgExplorer.Workflow;
 
-public enum PeopleTreeAction { CollapseSubtree, CollapseOtherBranches }
+public enum PeopleTreeAction { CollapseSubtree, ExpandSubtree, CollapseOtherBranches }
+public enum PeopleTreeExpansionStatus { Running, Completed, Cancelled, Interrupted }
+
+public sealed record PeopleTreeExpansionView(string TargetEmail, int VisitedPeople, int ExpandedBranches,
+    PeopleTreeExpansionStatus Status)
+{
+    public bool IsRunning => Status == PeopleTreeExpansionStatus.Running;
+}
 
 public sealed record PeopleNavigationView(
     string Query, bool OverlayOpen, string? SelectedEmail, SearchResult? SelectedResult,
@@ -235,19 +242,61 @@ public sealed partial class WorkspaceViewModel
     }
 
     public string? PeopleTreeActionFeedback { get; private set; }
+    public PeopleTreeExpansionView? PeopleTreeExpansion { get; private set; }
+    private readonly Stack<ReportingNode> pendingTreeExpansion = new();
+    private IReadOnlyList<ReportingNode>? treeExpansionRoots;
 
     public IReadOnlyList<PeopleTreeAction> GetPeopleTreeActions(string email)
     {
+        if (PeopleTreeExpansion is { IsRunning: true }) return [];
         var subtree = CurrentReportingSubtree(email);
         var actions = new List<PeopleTreeAction>();
-        if (subtree.Overlaps(PeopleNavigation.ExpandedPeople)) actions.Add(PeopleTreeAction.CollapseSubtree);
-        if (CurrentReportingOutsideBranches(subtree, email).Overlaps(PeopleNavigation.ExpandedPeople))
+        var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (CurrentReportingNode(email) is { } root)
+        {
+            var pending = new Stack<ReportingNode>();
+            pending.Push(root);
+            while (pending.TryPop(out var node))
+            {
+                if (node.Reports.Count > 0 && !expanded.Contains(node.Person.Email))
+                {
+                    actions.Add(PeopleTreeAction.ExpandSubtree);
+                    break;
+                }
+                foreach (var report in node.Reports) pending.Push(report);
+            }
+        }
+        if (subtree.Overlaps(expanded)) actions.Add(PeopleTreeAction.CollapseSubtree);
+        if (CurrentReportingOutsideBranches(subtree, email).Overlaps(expanded))
             actions.Add(PeopleTreeAction.CollapseOtherBranches);
         return actions;
     }
 
     public bool ExecutePeopleTreeAction(string email, PeopleTreeAction action)
     {
+        if (PeopleTreeExpansion is { IsRunning: true })
+        {
+            PeopleTreeActionFeedback = "Tree action was not applied: subtree expansion is already running. Cancel it before another tree action.";
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+            return false;
+        }
+        if (action == PeopleTreeAction.ExpandSubtree)
+        {
+            if (!GetPeopleTreeActions(email).Contains(action))
+            {
+                PeopleTreeActionFeedback = "Expand subtree was not applied: no hidden current reporting levels are available, or expansion is already running.";
+                PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+                return false;
+            }
+            pendingTreeExpansion.Clear();
+            treeExpansionRoots = ReportingRoots;
+            pendingTreeExpansion.Push(CurrentReportingNode(email)!);
+            PeopleTreeExpansion = new(email, 0, 0, PeopleTreeExpansionStatus.Running);
+            PeopleTreeActionFeedback = null;
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+            return true;
+        }
         var subtree = CurrentReportingSubtree(email);
         var (scope, label) = action switch
         {
@@ -272,24 +321,74 @@ public sealed partial class WorkspaceViewModel
         return true;
     }
 
-    private HashSet<string> CurrentReportingSubtree(string email)
+    public void ContinuePeopleTreeExpansion()
     {
-        var subtree = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!IsWorkspaceCurrent) return subtree;
+        if (PeopleTreeExpansion is not { IsRunning: true } progress) return;
+        if (!IsWorkspaceCurrent || !ReferenceEquals(treeExpansionRoots, ReportingRoots))
+        {
+            pendingTreeExpansion.Clear();
+            treeExpansionRoots = null;
+            PeopleTreeExpansion = progress with { Status = PeopleTreeExpansionStatus.Interrupted };
+            PeopleTreeActionFeedback = "Expand subtree interrupted: the current reporting view changed; completed expansion retained. Expand again in the current view.";
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
+            PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+            return;
+        }
+        var expanded = PeopleNavigation.ExpandedPeople.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var visited = progress.VisitedPeople;
+        var branches = progress.ExpandedBranches;
+        for (var count = 0; count < 64 && pendingTreeExpansion.TryPop(out var node); count++)
+        {
+            visited++;
+            if (node.Reports.Count > 0 && expanded.Add(node.Person.Email)) branches++;
+            // Visit parents before reports so every completed branch remains useful on interruption.
+            for (var index = node.Reports.Count - 1; index >= 0; index--) pendingTreeExpansion.Push(node.Reports[index]);
+        }
+        if (branches != progress.ExpandedBranches)
+            PeopleNavigation = PeopleNavigation with { ExpandedPeople = expanded.ToArray() };
+        PeopleTreeExpansion = progress with
+        {
+            VisitedPeople = visited, ExpandedBranches = branches,
+            Status = pendingTreeExpansion.Count == 0 ? PeopleTreeExpansionStatus.Completed : PeopleTreeExpansionStatus.Running
+        };
+        if (!PeopleTreeExpansion.IsRunning) treeExpansionRoots = null;
+        if (branches != progress.ExpandedBranches)
+            PropertyChanged?.Invoke(this, new(nameof(PeopleNavigation)));
+        PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
+    }
+
+    public void CancelPeopleTreeExpansion()
+    {
+        if (PeopleTreeExpansion is not { IsRunning: true } progress) return;
+        pendingTreeExpansion.Clear();
+        treeExpansionRoots = null;
+        PeopleTreeExpansion = progress with { Status = PeopleTreeExpansionStatus.Cancelled };
+        PeopleTreeActionFeedback = "Expand subtree cancelled; completed expansion retained. Not all reporting levels were expanded.";
+        PropertyChanged?.Invoke(this, new(nameof(PeopleTreeExpansion)));
+        PropertyChanged?.Invoke(this, new(nameof(PeopleTreeActionFeedback)));
+    }
+
+    private ReportingNode? CurrentReportingNode(string email)
+    {
+        if (!IsWorkspaceCurrent) return null;
         var pending = new Stack<ReportingNode>(ReportingRoots);
         while (pending.TryPop(out var node))
         {
-            if (node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase))
-            {
-                pending.Clear();
-                pending.Push(node);
-                while (pending.TryPop(out var descendant))
-                    if (subtree.Add(descendant.Person.Email))
-                        foreach (var report in descendant.Reports) pending.Push(report);
-                return subtree;
-            }
+            if (node.Person.Email.Equals(email, StringComparison.OrdinalIgnoreCase)) return node;
             foreach (var report in node.Reports) pending.Push(report);
         }
+        return null;
+    }
+
+    private HashSet<string> CurrentReportingSubtree(string email)
+    {
+        var subtree = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (CurrentReportingNode(email) is not { } root) return subtree;
+        var pending = new Stack<ReportingNode>();
+        pending.Push(root);
+        while (pending.TryPop(out var node))
+            if (subtree.Add(node.Person.Email))
+                foreach (var report in node.Reports) pending.Push(report);
         return subtree;
     }
 

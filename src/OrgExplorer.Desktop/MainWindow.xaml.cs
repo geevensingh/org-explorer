@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         InitializeProfileCopyFeedback();
         InitializeOperationalNotices();
         PeopleList.DataContext = workflow;
+        InitializeTreeExpansion();
         PreviewKeyDown += EscapePeople;
         InitializeUpdates();
         SettingsGuidance.Text = workflow.Compatibility.Guidance;
@@ -279,6 +280,7 @@ public partial class MainWindow : Window
             ShowNavigationBlocked(workflow.Status);
             return false;
         }
+        if (navigation) CancelOutstandingTreeExpansion();
         var changedPerson = !string.Equals(selectedEmail, person.Email, StringComparison.OrdinalIgnoreCase);
         if (changedPerson)
         {
@@ -435,6 +437,7 @@ public partial class MainWindow : Window
         if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
             e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
         {
+            CancelOutstandingTreeExpansion();
             expandedPeople.Add(node.Person.Email);
             RememberPeopleBrowsing();
         }
@@ -444,6 +447,7 @@ public partial class MainWindow : Window
         if (!loading && ReferenceEquals(sender, e.OriginalSource) &&
             e.OriginalSource is TreeViewItem { DataContext: ReportingNode node })
         {
+            CancelOutstandingTreeExpansion();
             expandedPeople.Remove(node.Person.Email);
             RememberPeopleBrowsing();
         }
