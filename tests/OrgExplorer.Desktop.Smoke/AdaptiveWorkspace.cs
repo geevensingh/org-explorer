@@ -759,15 +759,37 @@ internal static partial class Program
         }
         void PrepareOutsideBranch()
         {
-            foreach (var email in new[] { "alex@example.com", "menu-outside@example.com" })
-                TreeItemRealization.PrepareMenuBranch(
-                    () => Expansion(email).Current.ExpandCollapseState == ExpandCollapseState.Expanded,
-                    input =>
-                    {
-                        if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
-                            throw new InvalidOperationException("Outside fixture preparation must use identity-bound disclosure Toggle.");
-                        ToggleDisclosure(email);
-                    }, Await);
+            TreeItemRealization.PrepareMenuBranches(["alex@example.com", "menu-outside@example.com"],
+                email => Expansion(email).Current.ExpandCollapseState == ExpandCollapseState.Expanded,
+                (email, input) =>
+                {
+                    if (input != TreeItemRealization.MenuBranchInput.DisclosureToggle)
+                        throw new InvalidOperationException("Outside fixture preparation must use identity-bound disclosure Toggle.");
+                    ToggleDisclosure(email);
+                }, Await);
+        }
+        void PrepareInitialMenuTarget()
+        {
+            commandTargetEmail = reportEmail;
+            bool ContextVisible()
+            {
+                var controls = CaptureRetention();
+                var viewport = Captured(controls, "People").Cached.BoundingRectangle;
+                return new[] { managerEmail, reportEmail }.All(email =>
+                {
+                    var row = Captured(controls, email);
+                    var bounds = row.Cached.BoundingRectangle;
+                    return !row.Cached.IsOffscreen && bounds.Top >= viewport.Top && bounds.Top + 20 <= viewport.Bottom;
+                });
+            }
+            TreeItemRealization.AwaitVisible(() => Row(reportEmail), row =>
+            {
+                if (ContextVisible()) return;
+                if (!row.TryGetCurrentPattern(ScrollItemPattern.Pattern, out var provider))
+                    throw new InvalidOperationException($"The initial menu target cannot be realized at {state}: {reportEmail}.");
+                ((ScrollItemPattern)provider).ScrollIntoView();
+            }, _ => ContextVisible(), Await);
+            AssertRetained();
         }
         bool Expanded(AutomationElement[] controls, string email) =>
             Captured(controls, email).GetCachedPropertyValue(ExpandCollapsePattern.ExpandCollapseStateProperty)
@@ -882,6 +904,8 @@ internal static partial class Program
         PrepareOutsideBranch();
         Find(window, "SearchQuery").SetFocus();
         Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);
+        // Fixture expansion may displace this leaf. Never realize a failed command-retention target.
+        PrepareInitialMenuTarget();
         RightClickRow(reportEmail);
         CollapseFromMenu(keyboard: false, "Collapse other branches", ["Collapse other branches"], OutsideReset);
         Await(() => Find(window, "SearchQuery").Current.HasKeyboardFocus);

@@ -46,6 +46,13 @@ internal static class TreeItemRealization
         Action<Func<bool>> awaitState) =>
         AwaitExpanded(true, isExpanded, () => requestInput(MenuBranchInput.DisclosureToggle), awaitState);
 
+    internal static void PrepareMenuBranches(IEnumerable<string> emails, Func<string, bool> isExpanded,
+        Action<string, MenuBranchInput> requestInput, Action<Func<bool>> awaitState)
+    {
+        foreach (var email in emails)
+            PrepareMenuBranch(() => isExpanded(email), input => requestInput(email, input), awaitState);
+    }
+
     internal static (double X, double Y) ReportingHeaderPoint(
         (double Left, double Top, double Width, double Height) row,
         (double Left, double Top, double Width, double Height) viewport, double scale)

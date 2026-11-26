@@ -91,6 +91,18 @@ cached state is never reused across inputs or boundaries. These assertions
 still require exact-candidate hosted acceptance; local compiled success does
 not establish native popup/focus behavior or whole-lane budget headroom.
 
+Run `45748466369` reached the first dirty-profile leaf right-click with its header
+below the 92-pixel tree viewport, after outside-fixture expansion and focus setup
+but before any menu command. That initial preparation now conditionally requests
+the leaf's ScrollItem provider once, then observes both leaf and ancestor headers
+under the original viewport predicate before any mouse input. Refused realization
+fails without replaying disclosures, scrolling or clicking. Command/no-op/search
+retention still never realizes a lost target. Runner cases replay the captured
+509-to-565 header displacement and the narrower/taller viewports; the invisible
+compiled check uses the actual data-item ScrollItem and disclosure providers with
+retained profile/note writing. Native focus/menu acceptance still requires hosted
+evidence; no matrix, predicate or deadline changes.
+
 The reporting-header request replays actual horizontally clipped UI Automation
 bounds from run `45688751967` through the shared runner seam. It chooses a
 physical pixel inside the visible header content, not the disclosure arrow or
