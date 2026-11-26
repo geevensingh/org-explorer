@@ -92,6 +92,8 @@ before replacing any content. Older local Workspace
 formats remain unsupported and are not migrated.
 Confirmed SQLite writer-lock noncommits during initialization likewise retain
 the validated read-only projection and defer persistence to explicit recovery.
+Recovery while that lock remains held fails without clearing the new storage
+fault or enabling edits; initialization must commit before recovery succeeds.
 Invalid state and unresolved outcomes are not treated as successful initialization.
 
 Synchronization metadata's `snapshot_format=2` records ordered publication

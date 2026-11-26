@@ -91,7 +91,10 @@ overwriting the old sequence or private content. Legacy stores without an order
 remain browsable through blocked WAL negotiation or unresolved receipts, then
 initialize during explicit recovery before writes resume.
 Confirmed writer-lock initialization cases preserve both populated legacy
-browsing and pristine-seed Join eligibility. Successful unchanged retries after
+browsing and pristine-seed Join eligibility. Reconciliation before releasing
+the lock must fail, retain the confirmed noncommit and original revision, and
+keep edits and safe close paused; recovery after release must still succeed.
+Successful unchanged retries after
 a second client completes Favorite membership or ordering retire only their own
 failure; the tests retain independent note errors and assert no new revision or
 Profile history.

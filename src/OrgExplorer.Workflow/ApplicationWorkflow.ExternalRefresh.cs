@@ -110,6 +110,8 @@ public sealed partial class ApplicationWorkflow
             if (onlyIfRevisionChanged && workspaceCurrent && LocalSqliteRevision() == revision) return true;
             var walReady = OpenLocalSqlite(create: false, recoverLocalSaves: recoverLocalSaves);
             if (!walReady) return Fail(localWalFault!.Message);
+            if (recoverLocalSaves && (localSaveFault ?? localWalFault) is { } fault)
+                return Fail(fault.Message);
             Status = localWalFault?.Message ?? "Workspace refreshed from committed local SQLite data.";
             return true;
         }

@@ -474,6 +474,15 @@ public sealed class SearchFavoritePersistenceTests : IDisposable
             Assert.True(reader.IsWorkspaceCurrent);
             Assert.False(reader.CanEditLocalWorkspace);
             Assert.False(reader.Compatibility.SupportsOrdinaryEdits);
+            Assert.False(reader.ReconcileLocalSaves(), reader.Status);
+            Assert.Equal(revision, reader.Synchronization.LocalRevision);
+            Assert.True(reader.IsWorkspaceCurrent);
+            Assert.Equal(LocalSavePhase.Failed, reader.LocalSave.Phase);
+            Assert.Equal(LocalSaveOutcome.NotCommitted, reader.LocalSave.Outcome);
+            Assert.False(reader.CanEditLocalWorkspace);
+            Assert.False(reader.CanSafelyClose);
+            Assert.False(reader.Compatibility.SupportsOrdinaryEdits);
+            Assert.False(reader.Compatibility.SupportsNoteEdits);
             if (!emptySeed)
             {
                 Assert.Equal(["alex@example.com", "avery@example.com"], reader.FavoritePeople.Select(person => person.Email));
