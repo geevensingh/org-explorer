@@ -179,7 +179,9 @@ try {
             throw 'Version refusal requires an explicitly isolated publisher-produced contract fixture.'
         }
         $types = Get-LaneHealthRecordTypes
-        $original = Open-HealthHistory (Join-Path $fixture 'original.git') $metadata.rejectedHistoryRemote `
+        $eventRemote = if ($metadata.ContainsKey('eventHistoryRemote')) { $metadata.eventHistoryRemote }
+            else { $metadata.rejectedHistoryRemote }
+        $original = Open-HealthHistory (Join-Path $fixture 'original.git') $eventRemote `
             -AllowLocalFixture -RecordTypes $types
         $known = Get-TimingCanonicalReference $original $metadata.seriesKey $metadata.sourceB
         Assert ($known.revision -ceq $metadata.sourceA -and $known.eligibility -ceq 'eligible') `
@@ -187,7 +189,9 @@ try {
         $bundle = $metadata.sampleDirectories[0]
         $execution = New-TimingExecutionRecord (Join-Path $bundle 'non-ui') (Join-Path $bundle 'rich\prefix') `
             (Join-Path $bundle 'rich\tail') $metadata.sourceB '102' '1'
-        foreach ($type in @('timing-bootstrap', 'timing-plan', 'timing-decision', 'timing-reference')) {
+        $eventTypes = @('timing-bootstrap', 'timing-plan', 'timing-decision', 'timing-reference')
+        if ($metadata.ContainsKey('eventHistoryRemote')) { $eventTypes += 'cohort-observation' }
+        foreach ($type in $eventTypes) {
             $events = @($original.records | Where-Object { $_.recordType -ceq $type })
             $event = if ($type -ceq 'timing-plan') {
                 @($events | Where-Object { $_.revision -ceq $metadata.sourceB })[0]
@@ -204,7 +208,7 @@ try {
                 $case = "$type-$($variant.name)"
                 if ($EventVersionCase -and $EventVersionCase -cne $case) { continue }
                 $remote = Join-Path $fixture "$case.git"
-                Copy-Item -LiteralPath $metadata.rejectedHistoryRemote -Destination $remote -Recurse
+                Copy-Item -LiteralPath $eventRemote -Destination $remote -Recurse
                 $tip = Invoke-HealthGit $remote @('rev-parse', 'refs/heads/ci-health-data')
                 $record = (Invoke-HealthGit $remote @('show', "${tip}:$path")) |
                     ConvertFrom-Json -AsHashtable -DateKind String -Depth 30
@@ -229,6 +233,7 @@ try {
                     "Unknown $case protocol replay obtained a canonical pointer or failed for an unrelated reason: $reason"
                 $publication = @{} + $original
                 $publication.remote = $remote
+                if ($type -ceq 'cohort-observation') { $publication.observationWriterAuthorized = $true }
                 $publicationReason = $null
                 try { $null = Publish-HealthRecord $publication $record }
                 catch { $publicationReason = $_.Exception.Message }
@@ -406,6 +411,13 @@ try {
         Assert ($after.Count -eq 1) 'Serious relative rejection replaced the prior eligible reference.'
         $rejectedRemote = Join-Path $GateSnapshotDirectory 'rejected.git'
         Copy-Item -LiteralPath $remote -Destination $rejectedRemote -Recurse
+        $eventRemote = Join-Path $GateSnapshotDirectory 'events.git'
+        Copy-Item -LiteralPath $remote -Destination $eventRemote -Recurse
+        Rejects {
+            & "$root\eng\Invoke-NonUiCohortObservation.ps1" -RunId 102 -RunAttempt 1 `
+                -WorkingDirectory (Join-Path $fixture 'event-unavailable-plan') `
+                -HistoryRemote $eventRemote -AllowLocalFixture -ApprovedPolicyVersion ci-timing-v2
+        } 'Unavailable plan fabricated qualified collection evidence instead of retaining an ineligible event.'
         $samplePaths = @()
         for ($number = 1; $number -le 5; $number++) {
             $path = Join-Path $GateSnapshotDirectory "sample-$number"
@@ -417,7 +429,8 @@ try {
             sourceA = $second; sourceB = $gateRevision; policyVersion = 'ci-timing-v2'
             priorCohortId = "$second-99-1"; currentCohortId = "$gateRevision-102-1"
             seriesKey = $gateRecord.samples[0].rich.seriesKey
-            runningHistoryRemote = $runningRemote; rejectedHistoryRemote = $rejectedRemote; sampleDirectories = $samplePaths
+            runningHistoryRemote = $runningRemote; rejectedHistoryRemote = $rejectedRemote
+            eventHistoryRemote = $eventRemote; sampleDirectories = $samplePaths
         } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $GateSnapshotDirectory 'metadata.json')
         Copy-Item -LiteralPath (Join-Path $gateDecisionWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'decision.json')
         Copy-Item -LiteralPath (Join-Path $gateWork 'record.json') -Destination (Join-Path $GateSnapshotDirectory 'rejected.json')
