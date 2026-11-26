@@ -636,10 +636,9 @@ public sealed partial class ApplicationWorkflow
         command.ExecuteNonQuery();
         Put("people", data.People);
         var incomingPeople = ReadSnapshotPeople(data.People);
-        var order = data.FavoriteOrder ?? incomingPeople.Values.Where(person => person.IsFavorite)
-            .OrderBy(person => person.Heading).Select(person => person.Email).ToArray();
+        var order = data.FavoriteOrder ?? InitialFavoriteOrder(incomingPeople.Values);
         ValidateFavoriteOrder(order, incomingPeople);
-        WriteLocalFavoriteOrder(command, Array.AsReadOnly(order));
+        WriteLocalFavoriteOrder(command, order);
         Put("profile_history", data.History);
         Put("accepted_batches", data.AcceptedImports);
         foreach (var note in data.Notes)

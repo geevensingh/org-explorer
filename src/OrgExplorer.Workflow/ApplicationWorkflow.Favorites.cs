@@ -18,6 +18,10 @@ public sealed partial class ApplicationWorkflow
     { get { if (queryView is { } view) return view.FavoritePeople;
         lock (workspaceGate) return favoriteOrder.Select(email => people[email]).ToArray(); } }
 
+    private static IReadOnlyList<string> InitialFavoriteOrder(IEnumerable<PersonProfile> population) =>
+        Array.AsReadOnly(population.Where(person => person.IsFavorite).OrderBy(person => person.Heading)
+            .Select(person => person.Email).ToArray());
+
     private IReadOnlyList<string> NextFavoriteOrder(Dictionary<string, PersonProfile> proposed,
         IEnumerable<PersonProfile>? additions = null)
     {

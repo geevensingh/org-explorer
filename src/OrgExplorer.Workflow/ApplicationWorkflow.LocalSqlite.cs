@@ -283,34 +283,44 @@ public sealed partial class ApplicationWorkflow
                 "No ordinary write was attempted. Browsing remains available. Explicitly reconcile local storage before editing. " +
                 error.Message);
         }
+        if ((loadedFavorites is null || localSnapshotFormat == 1) &&
+            loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
+            Synchronization.Folder is null && Synchronization.PublishedRevision is null &&
+            walReady && localWalFault is null && localSaveFault is null)
+        {
+            revision = committedRevision;
+            if (ReconcileLocalWriteEvidence())
+            {
+                using var connection = OpenLocalConnection();
+                using var transaction = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                EnsureSynchronizationHead(command, Synchronization.WorkspaceId, committedRevision);
+                var storedOrder = ReadLocalFavoriteOrder(command, loaded);
+                if ((storedOrder is null) != (loadedFavorites is null) ||
+                    ReadLocalSnapshotFormat(command) != localSnapshotFormat)
+                    throw new IOException("Workspace changed before Favorites initialization. Reopen to reconcile; nothing saved.");
+                EnsureLocalSynchronization(command);
+                WriteLocalFavoriteOrder(command, []);
+                command.Parameters.Clear();
+                command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
+                command.ExecuteNonQuery();
+                transaction.Commit();
+                loadedFavorites = [];
+                localSnapshotFormat = 2;
+            }
+        }
         if (loadedFavorites is null)
         {
             if (!walReady) throw new IOException("Legacy Favorites ordering requires healthy local storage before initialization.");
-            loadedFavorites = Array.AsReadOnly(loaded.Values.Where(person => person.IsFavorite)
-                .OrderBy(person => person.Heading).Select(person => person.Email).ToArray());
+            loadedFavorites = InitialFavoriteOrder(loaded.Values);
             committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision);
         }
         else if (localSnapshotFormat == 1 && walReady && localWalFault is null && localSaveFault is null)
         {
             revision = committedRevision;
             if (ReconcileLocalWriteEvidence())
-            {
-                if (loaded.Count == 0 && accepted.Count == 0 && localAncestry.Length == 1 &&
-                    Synchronization.Folder is null && Synchronization.PublishedRevision is null)
-                {
-                    using var connection = OpenLocalConnection();
-                    using var transaction = connection.BeginTransaction();
-                    using var command = connection.CreateCommand();
-                    command.Transaction = transaction;
-                    EnsureSynchronizationHead(command, Synchronization.WorkspaceId, committedRevision);
-                    EnsureLocalSynchronization(command);
-                    command.CommandText = "UPDATE synchronization SET snapshot_format=2 WHERE singleton=1;";
-                    command.ExecuteNonQuery();
-                    transaction.Commit();
-                    localSnapshotFormat = 2;
-                }
-                else committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision, loaded);
-            }
+                committedRevision = InitializeLocalFavoriteOrder(loadedFavorites, committedRevision, loaded);
         }
         people = loaded;
         batches = accepted;

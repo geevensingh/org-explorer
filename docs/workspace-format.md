@@ -91,8 +91,11 @@ support. An absent column or value 1 denotes a supported pre-transport store.
 After full validation and local recovery, initialize that marker once with a
 fresh evidenced continuation revision, preserving an already saved arrangement
 and all private content. This avoids changing the bytes of an already published
-interchange-1 revision. A pristine, empty, unconfigured seed can initialize
-only the metadata without advancing its revision, preserving Join eligibility.
+interchange-1 revision. A pristine, empty, unconfigured seed initializes its
+empty Favorites order (if absent) and transport metadata atomically without
+advancing its unpublished revision, preserving Join eligibility. This also
+applies to supported format-3 seeds with neither ordering nor synchronization
+tables; it does not change any published snapshot.
 Read-only WAL failures and unresolved transaction evidence defer the upgrade,
 retaining validated browsing and the existing explicit recovery requirement.
 Unsupported marker values refuse opening/writing, including commit-time

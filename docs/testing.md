@@ -97,6 +97,16 @@ deliberate repair/retry. Existing retained-writing, actual adoption Commit failu
 and provider-outage cases also observe ordered Favorites. Cold read-only WAL cases
 cover deferred pre-transport initialization and explicit recovery.
 Future local publication metadata refuses both reopen and commit-time downgrade.
+The pristine Join regression covers both an initialized empty ordering table and
+`Fixtures\workspace-sqlite-v3-pristine-87c6ade.zip`, the unchanged, cleanly closed
+empty store created through `ApplicationWorkflow.CreateFileBacked().OpenWorkspace`
+at pinned main `87c6adeacaef6de440fcf344900e8f23a8571f10`. The original fixture
+has no Favorites-order or synchronization tables and independently reopened and
+Joined a complete snapshot on that revision. It is not a modern store with
+ordering removed or a main-database-only copy of active WAL state. Its original
+seed revision is `1f32abe5-7cc4-4d72-8722-b3edf1c564a3`. Both cases retain that
+revision through initialization/reopen, then publicly Join and adopt the exact
+ordered snapshot and private writing without changing provider bytes.
 The existing complete-state handoff hashes the unsorted Favorites identity
 sequence as well as Person/private content, and its ordinary fictitious-file cases
 retain a nonalphabetical arrangement after independent public Join/reopen.

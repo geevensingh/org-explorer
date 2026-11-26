@@ -224,34 +224,65 @@ public sealed class WorkspaceSnapshotTests : IDisposable
         Assert.Equal("Pre-transport private writing", receiver.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
     }
 
-    [Fact]
-    public void Pristine_legacy_local_Workspace_can_still_join_an_ordered_complete_snapshot()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Pristine_legacy_local_Workspace_can_still_join_an_ordered_complete_snapshot(bool initializedOrder)
     {
         using var first = Create("first");
         Assert.True(first.ApplyImport(first.PreviewImport(Initial).Id), first.Status);
         Assert.True(first.EditFavorite("report@example.com", true), first.Status);
         Assert.True(first.EditFavorite("manager@example.com", true), first.Status);
+        var note = first.CreatePersonNote("report@example.com", "Private", "Pristine Join adopts complete writing")!;
         Assert.True(first.ConfigureSynchronizationFolder(Local("outgoing")), first.Status);
         Assert.True(first.SyncNow(), first.Status);
         Deliver("outgoing", "incoming");
-        using (var seed = Create("second")) { }
-        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        var artifact = Assert.Single(Directory.GetFiles(Local("incoming"), "*.oesnapshot"));
+        var original = File.ReadAllBytes(artifact);
+        Guid? seedRevision;
+        if (initializedOrder)
         {
-            DataSource = Path.Combine(Local("second"), "workspace.sqlite"), Pooling = false
-        }.ToString()))
-        {
+            using (var seed = Create("second")) seedRevision = seed.Synchronization.LocalRevision;
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(Local("second"), "workspace.sqlite"), Pooling = false
+            }.ToString());
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = "UPDATE synchronization SET snapshot_format=1;";
             command.ExecuteNonQuery();
         }
+        else
+        {
+            System.IO.Compression.ZipFile.ExtractToDirectory(Path.Combine(AppContext.BaseDirectory,
+                "Fixtures", "workspace-sqlite-v3-pristine-87c6ade.zip"), Local("second"));
+            seedRevision = Guid.Parse("1f32abe5-7cc4-4d72-8722-b3edf1c564a3");
+        }
         using var second = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
         Assert.True(second.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), second.Status);
+        Assert.Empty(second.People);
+        Assert.Empty(second.FavoritePeople);
         Assert.True(second.ConfigureSynchronizationFolder(Local("incoming"), true), second.Status);
+        Assert.Equal(seedRevision, second.Synchronization.LocalRevision);
+        using (var reopenedSeed = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked()))
+        {
+            Assert.True(reopenedSeed.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopenedSeed.Status);
+            Assert.Equal(seedRevision, reopenedSeed.Synchronization.LocalRevision);
+            Assert.Empty(reopenedSeed.FavoritePeople);
+        }
         Assert.True(second.SyncNow(), second.Status);
         Assert.Equal(first.Synchronization.WorkspaceId, second.Synchronization.WorkspaceId);
         Assert.Equal(first.Synchronization.LocalRevision, second.Synchronization.LocalRevision);
         Assert.Equal(["report@example.com", "manager@example.com"], second.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Pristine Join adopts complete writing",
+            second.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
+        Assert.Equal(original, File.ReadAllBytes(artifact));
+        using var reopened = new WorkspaceViewModel(ApplicationWorkflow.CreateFileBacked());
+        Assert.True(reopened.OpenWorkspace(Local("second"), WorkspaceOpenMode.ExistingOnly), reopened.Status);
+        Assert.Equal(first.Synchronization.LocalRevision, reopened.Synchronization.LocalRevision);
+        Assert.Equal(["report@example.com", "manager@example.com"], reopened.FavoritePeople.Select(person => person.Email));
+        Assert.Equal("Pristine Join adopts complete writing",
+            reopened.GetPersonNotes("report@example.com").Single(item => item.Id == note.Id).Markdown);
     }
 
     [Fact]
